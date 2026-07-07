@@ -1,0 +1,16 @@
+{
+  "framework": "nextjs",
+  "installCommand": "npm ci --include=dev",
+  "buildCommand": "npm run build",
+  "regions": ["iad1"],
+  "crons": [
+    {
+      "path": "/api/cron/dispatch",
+      "schedule": "*/15 * * * *"
+    },
+    {
+      "path": "/api/cron/retention",
+      "schedule": "0 4 * * *"
+    }
+  ]
+}

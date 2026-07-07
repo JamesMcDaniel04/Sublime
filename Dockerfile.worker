@@ -1,0 +1,27 @@
+# Minimal worker container for Den queue processing
+# Connects to Upstash Redis and processes BullMQ jobs
+FROM node:20-alpine
+
+WORKDIR /app
+
+# Copy package files and prisma
+COPY package*.json ./
+COPY tsconfig.json ./
+COPY prisma ./prisma/
+
+# Install all dependencies (ts-node, tsconfig-paths are dev deps)
+RUN npm ci && npm cache clean --force
+
+# Copy source
+COPY src ./src/
+
+# Generate Prisma client
+RUN npx prisma generate
+
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+  CMD wget -qO- http://localhost:3002/health || exit 1
+
+EXPOSE 3002
+
+# Run the single canonical worker runtime
+CMD ["npm", "run", "worker:start"]

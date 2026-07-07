@@ -1,0 +1,43 @@
+import { IntegrationLogo } from '@/components/integrations/integration-logo'
+
+/**
+ * A labelled pill with the integration's brand logo. Maps a free-text
+ * integration name ("Slack", "Den MCP", "Email") to a logo slug so
+ * template/skill cards and their detail pages render real marks. Anything
+ * unmapped falls through to IntegrationLogo's initial-tile fallback.
+ */
+
+export function integrationSlug(name: string): string | null {
+  const n = name.toLowerCase()
+  if (n.includes('den')) return 'den'
+  if (n.includes('slack')) return 'slack'
+  if (n.includes('salesforce')) return 'salesforce'
+  if (n.includes('hubspot')) return 'hubspot'
+  if (n.includes('gmail') || n.includes('email') || n.includes('mail')) return 'gmail'
+  if (n.includes('notion')) return 'notion'
+  if (n.includes('jira')) return 'jira'
+  if (n.includes('linear')) return 'linear'
+  if (n.includes('github')) return 'github'
+  if (n.includes('asana')) return 'asana'
+  if (n.includes('zendesk')) return 'zendesk'
+  if (n.includes('airtable')) return 'airtable'
+  if (n.includes('monday')) return 'monday'
+  if (n.includes('teams')) return 'microsoftteams'
+  if (n.includes('zoom')) return 'zoom'
+  if (n.includes('calendar')) return 'googlecalendar'
+  if (n.includes('sheet')) return 'googlesheets'
+  if (n.includes('drive')) return 'googledrive'
+  if (n.includes('confluence')) return 'confluence'
+  if (n.includes('clickup')) return 'clickup'
+  if (n.includes('trello')) return 'trello'
+  return null
+}
+
+export function IntegrationChip({ name }: { name: string }) {
+  return (
+    <span className="inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-muted/40 py-1 pl-1 pr-2.5 text-xs font-medium text-foreground/80">
+      <IntegrationLogo name={name} slug={integrationSlug(name)} className="h-4 w-4" />
+      {name}
+    </span>
+  )
+}

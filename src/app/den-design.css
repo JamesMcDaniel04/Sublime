@@ -1,0 +1,132 @@
+/* ============================================================
+   DEN DESIGN SYSTEM — token layer
+   Source of truth: "Den Design System/colors_and_type.css".
+   Fonts are loaded via next/font in layout.tsx (so no @font-face here);
+   everything else (color scales, semantic tokens, radii, spacing, shadows,
+   type scale + helper classes) is mirrored verbatim so the product can reach
+   for brand tokens directly (var(--horizon-500), .eyebrow, .mono-label, …).
+   ============================================================ */
+
+:root {
+  /* ---------- COLOR — Primary: Horizon (signature blue) ---------- */
+  --horizon-50:  #EBF3F6;
+  --horizon-100: #DBEBF2;
+  --horizon-200: #99C1D1;
+  --horizon-300: #7DACC0;
+  --horizon-400: #6397AD;
+  --horizon-500: #447C93; /* core brand blue (logo, primary CTAs) */
+  --horizon-600: #2B6178;
+  --horizon-700: #18485C;
+  --horizon-800: #0A2F3F;
+  --horizon-900: #021821;
+
+  /* ---------- COLOR — Graphite (neutrals; replaces "gray") ---------- */
+  --graphite-50:  #FAFAFA;
+  --graphite-100: #F1F2F5;
+  --graphite-200: #E3E3E4;
+  --graphite-300: #C7C7C8;
+  --graphite-400: #ABABAD;
+  --graphite-500: #8E8E92;
+  --graphite-600: #717178;
+  --graphite-700: #55555E;
+  --graphite-800: #3C3C46;
+  --graphite-900: #171721; /* primary text on light */
+
+  --white: #FFFFFF;
+  --black: #000000;
+  --surface-grey: #BBBCBC;
+
+  /* ---------- COLOR — Semantic ---------- */
+  --red-200: #F2B5B3;  --red-500: #E53935;  --red-700: #9C1F1B;  --red-900: #3F0807;
+  --yellow-200: #FFE680;  --yellow-500: #FFCB00;  --yellow-700: #B38F00;  --yellow-900: #3D3000;
+  --green-200: #99D6BF;  --green-500: #008859;  --green-700: #00553A;  --green-900: #00231A;
+
+  /* ---------- SEMANTIC TOKENS ---------- */
+  --fg-1: var(--graphite-900);
+  --fg-2: var(--graphite-700);
+  --fg-3: var(--graphite-500);
+  --fg-4: var(--graphite-400);
+  --fg-on-blue: var(--white);
+  --fg-link: var(--horizon-500);
+  --fg-accent: var(--horizon-700);
+
+  --bg-page:    var(--white);
+  --bg-surface: var(--white);
+  --bg-muted:   var(--graphite-100);
+  --bg-inverse: var(--graphite-900);
+
+  --border-1: var(--graphite-200);
+  --border-2: var(--graphite-300);
+  --border-strong: var(--graphite-700);
+
+  /* Status fills (badges / pills / row bg) */
+  --status-good-bg: #D1EFDD;  --status-good-fg: #00553A;
+  --status-warn-bg: #FFE9B0;  --status-warn-fg: #6E5500;
+  --status-risk-bg: #FBDDD3;  --status-risk-fg: #9C2E0E;
+  --status-info-bg: var(--horizon-100);  --status-info-fg: var(--horizon-700);
+
+  /* ---------- SIGNATURE GRADIENTS ---------- */
+  --gradient-horizon: linear-gradient(180deg, #99C1D1 0%, #447C93 55%, #18485C 100%);
+  --gradient-horizon-soft: linear-gradient(180deg, #DBEBF2 0%, #99C1D1 100%);
+  --gradient-graphite: linear-gradient(180deg, #171721 44%, #191922 100%);
+  --gradient-card-blue: linear-gradient(180deg, #EBF3F6 0%, #DBEBF2 100%);
+
+  /* ---------- RADII (product rounded, marketing sharper) ---------- */
+  --radius-xs: 4px;
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 12px;  /* cards in product */
+  --radius-xl: 16px;
+  --radius-2xl: 20px;
+  --radius-pill: 999px;
+
+  /* ---------- SPACING (4-pt grid) ---------- */
+  --space-1: 4px;  --space-2: 8px;  --space-3: 12px;  --space-4: 16px;
+  --space-5: 20px; --space-6: 24px; --space-8: 32px;  --space-10: 40px;
+  --space-12: 48px; --space-16: 64px; --space-20: 80px;
+
+  /* ---------- SHADOWS (subtle, deep-blue tinted) ---------- */
+  --shadow-1: 0 1px 2px rgba(13, 26, 51, 0.05);
+  --shadow-2: 0 2px 6px rgba(13, 26, 51, 0.05), 0 1px 2px rgba(13, 26, 51, 0.05);
+  --shadow-3: 0 8px 24px rgba(13, 26, 51, 0.08), 0 2px 6px rgba(13, 26, 51, 0.05);
+  --shadow-4: 0 16px 48px rgba(13, 26, 51, 0.15), 0 4px 12px rgba(13, 26, 51, 0.08);
+  --shadow-popover: 0 12px 32px rgba(13, 26, 51, 0.15);
+
+  /* ---------- TYPOGRAPHY — scale ---------- */
+  --type-xl-header-size: 40px;  --type-xl-header-line: 60px;  --type-xl-header-track: -1px;  --type-xl-header-weight: 700;
+  --type-lg-header-size: 32px;  --type-lg-header-line: 48px;  --type-lg-header-weight: 700;
+  --type-md-header-size: 24px;  --type-md-header-line: 36px;  --type-md-header-weight: 700;
+  --type-sm-header-size: 18px;  --type-sm-header-line: 24px;  --type-sm-header-weight: 700;
+  --type-xs-header-size: 10px;  --type-xs-header-line: 16px;  --type-xs-header-track: 1px;  --type-xs-header-weight: 700;
+  --type-sub-header-size: 16px; --type-sub-header-line: 24px; --type-sub-header-weight: 700;
+  --type-body-size: 14px;       --type-body-line: 20px;
+  --type-caption-size: 12px;    --type-caption-line: 16px;
+  --type-footer-size: 11px;     --type-footer-line: 12px;
+  --type-micro-size: 8px;       --type-micro-line: 10px;  --type-micro-track: 0.5px;
+}
+
+/* ============================================================
+   PRODUCT TYPE HELPERS — drop-in classes
+   (--font-display / --font-mono are defined by next/font in layout.tsx)
+   ============================================================ */
+.h1 { font-family: var(--font-display); font-weight: 700; font-size: var(--type-xl-header-size); line-height: var(--type-xl-header-line); letter-spacing: var(--type-xl-header-track); color: var(--fg-1); }
+.h2 { font-family: var(--font-display); font-weight: 700; font-size: var(--type-lg-header-size); line-height: var(--type-lg-header-line); color: var(--fg-1); }
+.h3 { font-family: var(--font-display); font-weight: 700; font-size: var(--type-md-header-size); line-height: var(--type-md-header-line); color: var(--fg-1); }
+.h4 { font-family: var(--font-display); font-weight: 700; font-size: var(--type-sm-header-size); line-height: var(--type-sm-header-line); color: var(--fg-1); }
+.sub-header { font-family: var(--font-display); font-weight: 700; font-size: var(--type-sub-header-size); line-height: var(--type-sub-header-line); }
+
+/* XS header / eyebrow — mono all-caps micro-label (Anonymous Pro). */
+.h5, .eyebrow {
+  font-family: var(--font-mono);
+  font-weight: 700;
+  font-size: var(--type-xs-header-size);
+  line-height: var(--type-xs-header-line);
+  letter-spacing: var(--type-xs-header-track);
+  text-transform: uppercase;
+  color: var(--fg-2);
+}
+.body { font-size: var(--type-body-size); line-height: var(--type-body-line); }
+.caption { font-size: var(--type-caption-size); line-height: var(--type-caption-line); }
+.micro { font-size: var(--type-micro-size); line-height: var(--type-micro-line); letter-spacing: var(--type-micro-track); text-transform: uppercase; font-weight: 700; }
+.mono { font-family: var(--font-mono); font-weight: 700; font-size: var(--type-caption-size); line-height: var(--type-caption-line); letter-spacing: 0.02em; text-transform: uppercase; }
+.mono-label { font-family: var(--font-mono); font-weight: 400; font-size: var(--type-caption-size); letter-spacing: 0.04em; color: var(--fg-2); text-transform: uppercase; }

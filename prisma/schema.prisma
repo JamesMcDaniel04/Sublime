@@ -1,0 +1,687 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+model Organization {
+  id               String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name             String
+  slug             String    @unique
+  // Workspace avatar shown in the org switcher — a small data URL (client
+  // resizes to 128px before upload) so no external storage is required.
+  logoUrl          String?
+  plan             Plan      @default(TRIAL)
+  // People.ai tenant binding: one Studio workspace per People.ai team. Set on
+  // first People.ai connection; every rep from that team lands in this org.
+  peopleAiTeamId       String?   @unique
+  // Entitlement snapshot, derived from an active People.ai Sales AI
+  // connection and revalidated on a TTL (see src/lib/entitlement.ts).
+  entitlementTier      String?
+  entitlementStatus    String    @default("unknown")
+  entitlementCheckedAt DateTime? @db.Timestamptz(6)
+  trialStartDate   DateTime  @default(now()) @db.Timestamptz(6)
+  trialEndDate     DateTime? @db.Timestamptz(6)
+  createdAt        DateTime  @default(now()) @db.Timestamptz(6)
+  updatedAt        DateTime  @updatedAt @db.Timestamptz(6)
+
+  users              User[]
+  agents             AgentTask[]
+  executions         AgentExecution[]
+  templates          AgentTemplate[]
+  integrations       Integration[]
+  mcpAgents          MCPAgent[]
+  notifications      Notification[]
+  mcpConnections     McpConnection[]
+  nangoConnections   NangoConnection[]
+  integrationSecrets IntegrationSecret[]
+  peopleAiConnections PeopleAiConnection[]
+  signals             Signal[]
+  signalSubscriptions SignalSubscription[]
+  auditEvents         AuditEvent[]
+  approvalRequests    ApprovalRequest[]
+
+  @@map("organizations")
+}
+
+model User {
+  id             String    @id @default(cuid())
+  supabaseId     String    @unique @db.Uuid
+  email          String?
+  name           String?
+  imageUrl       String?
+  // People.ai membership id from the MCP OAuth context — the delegated
+  // identity used for user-scoped People.ai tool calls.
+  peopleAiMembershipId String?
+  role           UserRole  @default(USER)
+  organizationId String?   @db.Uuid
+  isActive       Boolean   @default(true)
+  lastSeenAt     DateTime? @db.Timestamptz(6)
+  timezone       String    @default("UTC")
+  metadata       Json?
+  createdAt      DateTime  @default(now()) @db.Timestamptz(6)
+  updatedAt      DateTime  @updatedAt @db.Timestamptz(6)
+
+  organization Organization?    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  executions   AgentExecution[]
+  templates    AgentTemplate[]
+  integrations Integration[]
+  mcpAgents    MCPAgent[]
+  ownedAgents  AgentTask[]
+  peopleAiConnections PeopleAiConnection[]
+
+  @@index([organizationId])
+  @@map("users")
+}
+
+model AgentTask {
+  id             String    @id @default(cuid())
+  type           String    @default("agent")
+  priority       String    @default("MEDIUM")
+  agentType      String    @default("CUSTOM")
+  description    String    @db.Text
+  objective      String    @db.Text
+  context        Json      @default("{}")
+  schedule       Json      @default("{}")
+  status         String    @default("ACTIVE")
+  folder         String?
+  visibility     String    @default("shared")
+  organizationId String    @db.Uuid
+  userId         String?
+  metadata       Json?
+  lastExecutedAt DateTime?
+  executionCount Int       @default(0)
+  lastResult     Json?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  organization Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  owner        User?              @relation(fields: [userId], references: [id], onDelete: SetNull)
+  executions   AgentExecution[]
+  signalSubscriptions SignalSubscription[]
+  chatMessages AgentChatMessage[]
+  chatSessions AgentChatSession[]
+  connectors   AgentConnector[]
+
+  @@index([organizationId, status])
+  @@index([userId])
+  @@map("agent_tasks")
+}
+
+/// Typed binding between an agent and a connector it uses. Replaces matching
+/// fuzzy strings against the agent's `metadata.integrations` JSON with real
+/// rows: a canonical connector key, its plane (kind), and — for a per-org MCP
+/// connection — a foreign key with referential integrity (deleting the
+/// connection nulls the binding instead of leaving a dangling string).
+model AgentConnector {
+  id              String   @id @default(cuid())
+  agentTaskId     String
+  organizationId  String   @db.Uuid
+  /// Canonical selection key (registry key, Klavis agentType, or connection name).
+  connectorKey    String
+  /// Plane: 'builtin' | 'nango' | 'den' | 'klavis' | 'mcp' | 'external'.
+  kind            String   @default("external")
+  /// Optional FK to a specific per-org MCP connection this binding targets.
+  mcpConnectionId String?
+  config          Json     @default("{}")
+  createdAt       DateTime @default(now())
+
+  agentTask     AgentTask      @relation(fields: [agentTaskId], references: [id], onDelete: Cascade)
+  mcpConnection McpConnection? @relation(fields: [mcpConnectionId], references: [id], onDelete: SetNull)
+
+  @@unique([agentTaskId, connectorKey])
+  @@index([organizationId])
+  @@index([mcpConnectionId])
+  @@map("agent_connectors")
+}
+
+// Agent-scoped assistant chat (persistent per agent + user, not per execution).
+// Additive: new table only. `metadata` carries assistant proposals and their
+// applied-at marker, mirroring the JSON grab-bag pattern used elsewhere.
+model AgentChatMessage {
+  id             String   @id @default(cuid())
+  agentTaskId    String
+  organizationId String   @db.Uuid
+  userId         String
+  // Groups messages into a conversation. Nullable so pre-existing flat threads
+  // (before sessions) read as one implicit "Earlier conversation".
+  sessionId      String?
+  role           String
+  content        String   @db.Text
+  metadata       Json?
+  createdAt      DateTime @default(now())
+
+  agentTask AgentTask         @relation(fields: [agentTaskId], references: [id], onDelete: Cascade)
+  session   AgentChatSession? @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([agentTaskId, userId, createdAt])
+  @@index([sessionId, createdAt])
+  @@map("agent_chat_messages")
+}
+
+// A single assistant conversation for one agent + user. Multiple sessions per
+// agent give users a "new chat" and a browsable history, scoped per agent.
+model AgentChatSession {
+  id             String   @id @default(cuid())
+  agentTaskId    String
+  organizationId String   @db.Uuid
+  userId         String
+  // Auto-derived from the first user message; null until the first message.
+  title          String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  agentTask AgentTask          @relation(fields: [agentTaskId], references: [id], onDelete: Cascade)
+  messages  AgentChatMessage[]
+
+  @@index([agentTaskId, userId, updatedAt])
+  @@map("agent_chat_sessions")
+}
+
+// Inbound People.ai Sales AI event (webhook or poller). Immutable once
+// written; the router turns matching signals into agent executions.
+model Signal {
+  id             String    @id @default(cuid())
+  organizationId String    @db.Uuid
+  // One of the documented SalesAI events: deal.score_updated,
+  // deal.risk_detected, deal.stage_changed, forecast.updated,
+  // insight.generated, stakeholder.engagement_changed.
+  type           String
+  accountId      String?
+  opportunityId  String?
+  stakeholderId  String?
+  payload        Json
+  // Replay guard: provider event id (or a content hash fallback). Unique PER
+  // ORG (see @@unique below), not globally — a raw provider event id from one
+  // tenant must never dedupe-drop another tenant's signal.
+  dedupeKey      String
+  provenanceUrl  String?
+  receivedAt     DateTime  @default(now())
+  processedAt    DateTime?
+
+  organization  Organization         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  subscriptionRuns AgentExecution[]
+
+  @@unique([organizationId, dedupeKey])
+  @@index([organizationId, receivedAt])
+  @@index([organizationId, type])
+  @@map("signals")
+}
+
+// Routing rule: signal type + JSON filter → run an agent, with the signal
+// injected as structured context.
+model SignalSubscription {
+  id             String   @id @default(cuid())
+  organizationId String   @db.Uuid
+  signalType     String
+  // Shallow equality filter over signal payload/entity fields, e.g.
+  // {"risk_level": "high"}. Empty object matches everything.
+  filter         Json     @default("{}")
+  agentTaskId    String
+  isActive       Boolean  @default(true)
+  createdById    String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  agentTask    AgentTask    @relation(fields: [agentTaskId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, signalType, isActive])
+  @@map("signal_subscriptions")
+}
+
+// A rep-defined "custom signal": a saved SalesAI question (e.g. "who's talking
+// about this account?", "what's the next best action?") reused here — People.ai
+// exposes no signal catalog, so the definition lives on our side and runs via
+// the ask_sales_ai_about_account/opportunity MCP tools. Per rep (owner), org
+// scoped, matching the graph isolation posture.
+model CustomSignal {
+  id             String   @id @default(cuid())
+  organizationId String   @db.Uuid
+  userId         String
+  name           String
+  question       String   @db.Text
+  // 'account' | 'opportunity' — which ask_sales_ai tool it runs against.
+  scope          String   @default("account")
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([organizationId, userId, updatedAt])
+  @@map("custom_signals")
+}
+
+model AgentExecution {
+  id              String    @id @default(cuid())
+  agentType       String
+  agentTemplateId String?
+  agentTaskId     String?
+  // Replay/duplicate guard for signal-triggered runs (signalId:agentId).
+  idempotencyKey  String?
+  signalId        String?
+  status          String    @default("pending")
+  input           Json
+  output          Json?
+  error           String?
+  executionTime   Int?      @default(0)
+  trigger         Json
+  metadata        Json?
+  model           String?
+  transcript      Json?
+  inputTokens     Int       @default(0)
+  outputTokens    Int       @default(0)
+  userId          String
+  organizationId  String    @db.Uuid
+  startedAt       DateTime  @default(now())
+  completedAt     DateTime?
+
+  user          User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organization  Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  agentTemplate AgentTemplate?     @relation(fields: [agentTemplateId], references: [id], onDelete: SetNull)
+  agentTask     AgentTask?         @relation(fields: [agentTaskId], references: [id], onDelete: SetNull)
+  signal        Signal?            @relation(fields: [signalId], references: [id], onDelete: SetNull)
+  workflowSteps WorkflowStep[]
+  events        WorkflowEvent[]
+  messages      ExecutionMessage[]
+
+  @@unique([organizationId, idempotencyKey])
+  @@index([organizationId, startedAt])
+  @@index([agentTaskId])
+  @@map("agent_executions")
+}
+
+model ExecutionMessage {
+  id          String   @id @default(cuid())
+  executionId String
+  role        String
+  content     String   @db.Text
+  createdAt   DateTime @default(now())
+
+  execution AgentExecution @relation(fields: [executionId], references: [id], onDelete: Cascade)
+
+  @@index([executionId, createdAt])
+  @@map("execution_messages")
+}
+
+model Notification {
+  id             String    @id @default(cuid())
+  organizationId String    @db.Uuid
+  userId         String?
+  type           String
+  level          String    @default("info")
+  title          String
+  body           String?   @db.Text
+  agentTaskId    String?
+  executionId    String?
+  readAt         DateTime?
+  createdAt      DateTime  @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, createdAt])
+  @@index([organizationId, userId, readAt])
+  @@map("notifications")
+}
+
+model PushSubscription {
+  id             String   @id @default(cuid())
+  userId         String
+  organizationId String   @db.Uuid
+  endpoint       String   @unique @db.Text
+  p256dh         String   @db.Text
+  auth           String   @db.Text
+  createdAt      DateTime @default(now())
+
+  @@index([userId])
+  @@map("push_subscriptions")
+}
+
+model WorkflowStep {
+  id          String    @id @default(cuid())
+  executionId String
+  node        String
+  status      String
+  input       Json      @default("{}")
+  output      Json?
+  error       Json?
+  startedAt   DateTime?
+  completedAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  execution AgentExecution  @relation(fields: [executionId], references: [id], onDelete: Cascade)
+  events    WorkflowEvent[]
+
+  @@index([executionId, createdAt])
+  @@map("workflow_steps")
+}
+
+model WorkflowEvent {
+  id          String   @id @default(cuid())
+  executionId String
+  stepId      String?
+  kind        String
+  payload     Json?
+  ts          DateTime @default(now())
+
+  execution AgentExecution @relation(fields: [executionId], references: [id], onDelete: Cascade)
+  step      WorkflowStep?  @relation(fields: [stepId], references: [id], onDelete: SetNull)
+
+  @@index([executionId, ts])
+  @@map("workflow_events")
+}
+
+// Append-only audit trail of consequential actions (tool writes, config
+// changes, connections, approvals). Never updated or deleted in normal
+// operation; exportable per org for enterprise compliance.
+model AuditEvent {
+  id             String   @id @default(cuid())
+  organizationId String   @db.Uuid
+  actorUserId    String?
+  actorKind      String   @default("user") // 'user' | 'agent' | 'system'
+  action         String              // e.g. 'tool.write', 'agent.config_changed'
+  resourceType   String?
+  resourceId     String?
+  tool           String?
+  executionId    String?
+  // Hash (not contents) of the payload — proves what happened without storing
+  // potentially sensitive tool arguments in the audit row.
+  payloadHash    String?
+  detail         Json?
+  ip             String?
+  createdAt      DateTime @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, createdAt])
+  @@index([organizationId, action])
+  @@map("audit_events")
+}
+
+// A pending outbound-write approval. The run parks (waiting_for_input) until an
+// approver decides; on approval the write proceeds, on rejection it is skipped.
+model ApprovalRequest {
+  id             String    @id @default(cuid())
+  organizationId String    @db.Uuid
+  executionId    String
+  tool           String
+  summary        String    @db.Text
+  payload        Json
+  status         String    @default("pending") // 'pending' | 'approved' | 'rejected'
+  decidedById    String?
+  decidedAt      DateTime?
+  createdAt      DateTime  @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, status])
+  @@map("approval_requests")
+}
+
+model AgentTemplate {
+  id             String   @id @default(cuid())
+  name           String
+  description    String?  @db.Text
+  type           String
+  configuration  Json?
+  isActive       Boolean  @default(true)
+  schedule       String?
+  priority       String   @default("MEDIUM")
+  metadata       Json?
+  userId         String
+  organizationId String   @db.Uuid
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  user         User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organization Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  executions   AgentExecution[]
+
+  @@index([organizationId, isActive])
+  @@map("agent_templates")
+}
+
+model Integration {
+  id             String    @id @default(cuid())
+  userId         String
+  organizationId String    @db.Uuid
+  provider       String
+  expiresAt      DateTime? @db.Timestamptz(6)
+  scopes         String[]  @default([])
+  status         String    @default("connected")
+  failCount      Int       @default(0)
+  lastError      String?   @db.Text
+  metadata       Json      @default("{}")
+  isActive       Boolean   @default(true)
+  lastSyncAt     DateTime? @db.Timestamptz(6)
+  createdAt      DateTime  @default(now()) @db.Timestamptz(6)
+  updatedAt      DateTime  @updatedAt @db.Timestamptz(6)
+
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, provider])
+  @@index([organizationId, provider])
+  @@map("integrations")
+}
+
+model MCPAgent {
+  id             String  @id @default(cuid())
+  userId         String
+  organizationId String  @db.Uuid
+  name           String
+  agentType      String
+  description    String?
+  mcpServerUrl   String
+  isActive       Boolean      @default(false)
+  configuration  Json         @default("{}")
+  metadata       Json?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, organizationId, agentType])
+  @@map("mcp_agents")
+}
+
+// Per-user People.ai Sales AI connection: encrypted mcp_* tokens from the
+// mcp.people.ai OAuth flow, plus the team/membership identity they resolve to.
+// One connection per user per workspace; agents read People.ai as this user.
+model PeopleAiConnection {
+  id             String    @id @default(cuid())
+  organizationId String    @db.Uuid
+  userId         String
+  teamId         String?
+  membershipId   String?
+  scope          String?
+  accessToken    String // encrypted (src/lib/crypto/secrets.ts)
+  refreshToken   String? // encrypted
+  status         String    @default("active") // 'active' | 'refresh_failed' | 'revoked'
+  lastVerifiedAt DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, userId])
+  @@map("people_ai_connections")
+}
+
+model McpConnection {
+  id             String   @id @default(cuid())
+  organizationId String   @db.Uuid
+  name           String
+  description    String?
+  serverUrl      String
+  authType       String   @default("none")   // 'none' | 'api_key' | 'oauth2'
+  authConfig     Json     @default("{}")     // encrypted secret blob + non-secret fields
+  isActive       Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  agentBindings AgentConnector[]
+
+  @@index([organizationId, isActive])
+  @@map("mcp_connections")
+}
+
+// Mirror of a Nango connected account, scoped per-organization. Nango owns
+// the credentials; we only persist connection ids and health for listing.
+model NangoConnection {
+  id                String   @id @default(cuid())
+  organizationId    String   @db.Uuid
+  userId            String?
+  connectionId      String
+  providerConfigKey String
+  provider          String?
+  status            String   @default("connected")
+  lastError         String?  @db.Text
+  metadata          Json     @default("{}")
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, connectionId])
+  @@index([organizationId, providerConfigKey])
+  @@map("nango_connections")
+}
+
+// Per-organization secret for built-in integrations (e.g. the Granola API
+// key). authConfig holds the encrypted blob produced by buildAuthConfig().
+model IntegrationSecret {
+  id             String   @id @default(cuid())
+  organizationId String   @db.Uuid
+  provider       String
+  authType       String   @default("api_key") // 'none' | 'api_key' | 'oauth2'
+  authConfig     Json     @default("{}") // encrypted secret blob + non-secret fields
+  isActive       Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, provider])
+  @@index([organizationId, isActive])
+  @@map("integration_secrets")
+}
+
+/// A visual agent pipeline: a graph of steps, each running a workspace agent
+/// via runAgentExecution. Distinct from WorkflowStep/WorkflowEvent (those are a
+/// single agent's internal tool-call trace). See docs/superpowers/specs.
+model Flow {
+  id             String   @id @default(cuid())
+  name           String
+  description    String   @default("")
+  status         String   @default("DRAFT") // DRAFT | ACTIVE | DISABLED
+  trigger        Json     @default("{}") // { type: 'manual'|'schedule'|'signal', ... }
+  graph          Json     @default("{}") // working draft: { nodes, edges }
+  publishedGraph Json? // the live version scheduled/triggered runs execute
+  version        Int      @default(1) // bumped on each publish
+  visibility     String   @default("shared")
+  organizationId String   @db.Uuid
+  userId         String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  runs FlowRun[]
+
+  @@index([organizationId, updatedAt])
+  @@map("flows")
+}
+
+model FlowRun {
+  id             String    @id @default(cuid())
+  flowId         String
+  status         String    @default("running") // running | succeeded | failed | waiting
+  trigger        Json      @default("{}")
+  input          Json      @default("{}")
+  output         Json?
+  error          String?
+  graphSnapshot  Json? // the graph definition this run executed against
+  startedAt      DateTime  @default(now())
+  finishedAt     DateTime?
+  organizationId String    @db.Uuid
+  userId         String?
+
+  flow  Flow          @relation(fields: [flowId], references: [id], onDelete: Cascade)
+  steps FlowRunStep[]
+
+  @@index([flowId, startedAt])
+  @@map("flow_runs")
+}
+
+model FlowRunStep {
+  id               String    @id @default(cuid())
+  flowRunId        String
+  nodeId           String
+  agentExecutionId String?
+  order            Int       @default(0)
+  status           String    @default("queued") // queued | running | succeeded | failed | skipped | waiting
+  input            Json      @default("{}")
+  output           Json?
+  error            String?
+  startedAt        DateTime?
+  finishedAt       DateTime?
+
+  run FlowRun @relation(fields: [flowRunId], references: [id], onDelete: Cascade)
+
+  @@index([flowRunId, order])
+  @@map("flow_run_steps")
+}
+
+/// A file uploaded as knowledge for an agent. We store the EXTRACTED TEXT (no
+/// blob storage); the original binary is not retained. Chunks are embedded (when
+/// embeddings are configured) and retrieved into the agent's context at run time.
+model KnowledgeDocument {
+  id             String   @id @default(cuid())
+  organizationId String   @db.Uuid
+  agentId        String? // the agent this knowledge belongs to (null = org-wide)
+  userId         String?
+  filename       String
+  mimeType       String
+  sizeBytes      Int      @default(0)
+  charCount      Int      @default(0)
+  status         String   @default("ready") // ready | failed
+  error          String?
+  createdAt      DateTime @default(now())
+
+  chunks KnowledgeChunk[]
+
+  @@index([organizationId, agentId])
+  @@map("knowledge_documents")
+}
+
+model KnowledgeChunk {
+  id             String  @id @default(cuid())
+  documentId     String
+  organizationId String  @db.Uuid
+  agentId        String?
+  ordinal        Int     @default(0)
+  content        String  @db.Text
+  embedding      Json? // number[] embedding, or null when embeddings are unconfigured
+
+  document KnowledgeDocument @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, agentId])
+  @@map("knowledge_chunks")
+}
+
+enum Plan {
+  TRIAL
+  STARTER
+  PROFESSIONAL
+  ENTERPRISE
+}
+
+enum UserRole {
+  ADMIN
+  USER
+}

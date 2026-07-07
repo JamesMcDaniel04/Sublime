@@ -1,0 +1,116 @@
+import { NextRequest, NextResponse } from 'next/server'
+import { after } from 'next/server'
+import { Prisma } from '@prisma/client'
+import { prisma } from '@/lib/prisma'
+import { apiLogger } from '@/lib/logger'
+import { rateLimit } from '@/lib/ratelimit'
+import { verifySignature } from '@/lib/signals/verify'
+import { mapEventToSignal } from '@/lib/signals/map'
+import { routeSignal } from '@/lib/signals/router'
+import { captureError } from '@/lib/observability/sentry'
+
+export const runtime = 'nodejs'
+export const maxDuration = 300
+
+/**
+ * People.ai SalesAI webhook receiver (registered via POST /v1/salesai/webhooks).
+ * Public endpoint: HMAC-verified, rate-limited, deduped, and fast — the signal
+ * is persisted and 202 returned immediately; routing (which may run agents)
+ * happens after the response.
+ *
+ * Tenant resolution: the payload's team/org id → Organization.peopleAiTeamId.
+ */
+export async function POST(request: NextRequest) {
+  const ip = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || 'unknown'
+  const limited = await rateLimit(`signals:${ip}`, { limit: 120, windowMs: 60_000 })
+  if (!limited.ok) {
+    return NextResponse.json({ success: false, error: 'Rate limit exceeded' }, { status: 429 })
+  }
+
+  const secret = process.env.PEOPLE_AI_WEBHOOK_SECRET
+  if (!secret) {
+    return NextResponse.json(
+      { success: false, error: 'Signal webhooks are not configured for this environment.' },
+      { status: 503 },
+    )
+  }
+
+  const rawBody = await request.text()
+  // SEAM: header name per SalesAI webhook registration docs; both common
+  // conventions accepted.
+  const header =
+    request.headers.get('x-peopleai-signature') ||
+    request.headers.get('x-pai-signature') ||
+    request.headers.get('x-signature')
+
+  if (!verifySignature({ rawBody, header, secret })) {
+    return NextResponse.json({ success: false, error: 'Invalid signature' }, { status: 401 })
+  }
+
+  let payload: unknown
+  try {
+    payload = JSON.parse(rawBody)
+  } catch {
+    return NextResponse.json({ success: false, error: 'Invalid JSON payload' }, { status: 400 })
+  }
+
+  const mapped = mapEventToSignal(payload)
+  if (!mapped) {
+    // Unknown event type — acknowledge so People.ai doesn't retry forever.
+    return NextResponse.json({ success: true, ignored: true }, { status: 202 })
+  }
+
+  // Resolve tenant from the payload's team id.
+  const record = payload as Record<string, unknown>
+  const teamId = [record.team_id, record.org_id, (record.data as Record<string, unknown> | undefined)?.team_id]
+    .map((value) => (typeof value === 'string' || typeof value === 'number' ? String(value) : null))
+    .find(Boolean)
+  const organization = teamId
+    ? await prisma.organization.findUnique({ where: { peopleAiTeamId: teamId }, select: { id: true } })
+    : null
+
+  if (!organization) {
+    apiLogger.warn('signal dropped: no workspace for team', { teamId: teamId ?? null, type: mapped.type })
+    return NextResponse.json({ success: true, dropped: true }, { status: 202 })
+  }
+
+  let signal
+  try {
+    signal = await prisma.signal.create({
+      data: {
+        organizationId: organization.id,
+        type: mapped.type,
+        accountId: mapped.accountId,
+        opportunityId: mapped.opportunityId,
+        stakeholderId: mapped.stakeholderId,
+        payload: mapped.payload as Prisma.InputJsonObject,
+        dedupeKey: mapped.dedupeKey,
+        provenanceUrl: mapped.provenanceUrl,
+      },
+    })
+  } catch (error) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+      // Replay of an event we already hold — acknowledged, not re-routed.
+      return NextResponse.json({ success: true, duplicate: true }, { status: 200 })
+    }
+    throw error
+  }
+
+  // Route after the response so the webhook returns fast even in inline mode.
+  const runRouting = () =>
+    routeSignal(signal.id).catch((error) => {
+      apiLogger.error('signal routing failed', {
+        signalId: signal.id,
+        error: error instanceof Error ? error.message : String(error),
+      })
+      captureError(error, { path: '/api/signals/people-ai', signalId: signal.id })
+    })
+  try {
+    after(runRouting)
+  } catch {
+    // Outside a Next request context (tests): fire-and-forget.
+    void runRouting()
+  }
+
+  return NextResponse.json({ success: true, signalId: signal.id }, { status: 202 })
+}

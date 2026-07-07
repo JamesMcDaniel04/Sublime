@@ -1,0 +1,100 @@
+@import './den-design.css';
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* shadcn-style tokens, mapped to the Den palette. Every UI primitive
+   (button, card, badge, input, …) reads these, so the whole app inherits
+   Horizon (primary) + Graphite (neutrals) from here. */
+:root {
+  --background: 0 0% 100%;            /* white */
+  --foreground: 240 18% 11%;         /* graphite-900 #171721 */
+  --card: 0 0% 100%;
+  --card-foreground: 240 18% 11%;
+  --popover: 0 0% 100%;
+  --popover-foreground: 240 18% 11%;
+  --primary: 197 37% 42%;            /* horizon-500 #447C93 */
+  --primary-foreground: 0 0% 100%;
+  --secondary: 225 17% 95%;          /* graphite-100 #F1F2F5 */
+  --secondary-foreground: 240 18% 11%;
+  --muted: 225 17% 95%;
+  --muted-foreground: 240 3% 46%;    /* graphite-600 #717178 */
+  --accent: 225 17% 95%;
+  --accent-foreground: 240 18% 11%;
+  --destructive: 1 77% 55%;          /* red-500 #E53935 */
+  --destructive-foreground: 0 0% 100%;
+  --border: 240 2% 89%;              /* graphite-200 #E3E3E4 */
+  --input: 240 2% 89%;
+  --ring: 197 37% 42%;               /* horizon-500 */
+  --radius: 0.75rem;                 /* 12px — product cards (rounded-lg) */
+}
+
+.dark {
+  --background: 240 18% 11%;         /* graphite-900 */
+  --foreground: 225 17% 95%;
+  --card: 240 16% 13%;
+  --card-foreground: 225 17% 95%;
+  --popover: 240 16% 13%;
+  --popover-foreground: 225 17% 95%;
+  --primary: 197 41% 56%;            /* horizon-300/400 for contrast on dark */
+  --primary-foreground: 240 18% 11%;
+  --secondary: 240 12% 20%;
+  --secondary-foreground: 225 17% 95%;
+  --muted: 240 12% 20%;
+  --muted-foreground: 240 4% 64%;
+  --accent: 240 12% 20%;
+  --accent-foreground: 225 17% 95%;
+  --destructive: 1 77% 55%;
+  --destructive-foreground: 0 0% 100%;
+  --border: 240 10% 24%;
+  --input: 240 10% 24%;
+  --ring: 197 41% 56%;
+}
+
+* {
+  border-color: hsl(var(--border));
+}
+
+/* Pages sit on graphite-50 so white surfaces (cards, dialogs, inputs — all on
+   --background/--card, which stay white) read as raised. */
+body {
+  min-height: 100vh;
+  background: var(--graphite-50);
+  color: hsl(var(--foreground));
+  font-family: var(--font-display), "Arimo", system-ui, sans-serif;
+}
+
+/* Entrance stagger: put .stagger-children on a list/grid container and its
+   direct children cascade in. Capped at 12; later children animate together.
+   Keyframes declared here (not only in tailwind.config) so this rule works
+   even on pages that never use the animate-fade-in-up utility. */
+@keyframes fade-in-up {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.stagger-children > * {
+  animation: fade-in-up 320ms cubic-bezier(0.25, 1, 0.5, 1) both;
+}
+.stagger-children > *:nth-child(1) { animation-delay: 0ms; }
+.stagger-children > *:nth-child(2) { animation-delay: 40ms; }
+.stagger-children > *:nth-child(3) { animation-delay: 80ms; }
+.stagger-children > *:nth-child(4) { animation-delay: 120ms; }
+.stagger-children > *:nth-child(5) { animation-delay: 160ms; }
+.stagger-children > *:nth-child(6) { animation-delay: 200ms; }
+.stagger-children > *:nth-child(7) { animation-delay: 240ms; }
+.stagger-children > *:nth-child(8) { animation-delay: 280ms; }
+.stagger-children > *:nth-child(9) { animation-delay: 320ms; }
+.stagger-children > *:nth-child(10) { animation-delay: 360ms; }
+.stagger-children > *:nth-child(11) { animation-delay: 400ms; }
+.stagger-children > *:nth-child(12) { animation-delay: 440ms; }
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

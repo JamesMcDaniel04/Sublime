@@ -1,0 +1,544 @@
+'use client'
+
+import { Suspense, useCallback, useEffect, useMemo, useState } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
+import { toast } from 'sonner'
+import { AlertCircle, FileText, List, Loader2, Play, Plus, Settings2, Sparkles, X } from 'lucide-react'
+import { AgentActivityPane, resultText } from './agent-activity-pane'
+import { AgentConfigForm, type AgentDraft } from './agent-config-form'
+import { AssistantPanel } from './assistant-panel'
+import { Button } from '@/components/ui/button'
+import { Skeleton } from '@/components/ui/skeleton'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { AGENTS_CHANGED_EVENT, notifyAgentsChanged } from '@/components/layout/sidebar'
+import { useAuth } from '@/hooks/use-auth'
+import { getSnapshot, SnapshotError } from '@/lib/client/snapshot'
+import { cn } from '@/lib/utils'
+
+import type { Agent, Activity } from '@/lib/types'
+
+type GranolaNote = {
+  id: string
+  title: string
+  owner: { name: string; email: string } | null
+  created_at: string | null
+}
+
+/** Sentinel selection meaning "setting up a brand-new agent". */
+const NEW_AGENT = 'new'
+
+function isConfigured(agent: Agent) {
+  return agent.status === 'active' && Boolean(agent.instructions?.trim())
+}
+
+function AgentHQ() {
+  const { user } = useAuth()
+  const router = useRouter()
+  const searchParams = useSearchParams()
+  const [agents, setAgents] = useState<Agent[]>([])
+  const [activities, setActivities] = useState<Activity[]>([])
+  const [loading, setLoading] = useState(true)
+  const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null)
+  const [configureOpen, setConfigureOpen] = useState(false)
+  const [focusRunId, setFocusRunId] = useState<string | null>(null)
+  // The run expanded in the left pane, whose output renders in the right pane.
+  const [selectedRun, setSelectedRun] = useState<Activity | null>(null)
+  const [describe, setDescribe] = useState('')
+  const [building, setBuilding] = useState(false)
+  const [runningId, setRunningId] = useState<string | null>(null)
+  const [authError, setAuthError] = useState<string | null>(null)
+  const [authStatus, setAuthStatus] = useState<number | null>(null)
+  const [granolaPickerOpen, setGranolaPickerOpen] = useState(false)
+  const [granolaFetchingList, setGranolaFetchingList] = useState(false)
+  const [granolaFetchingNote, setGranolaFetchingNote] = useState(false)
+  const [granolaNotes, setGranolaNotes] = useState<GranolaNote[]>([])
+
+  const load = useCallback(async (force = false) => {
+    try {
+      const snapshot = await getSnapshot(force ? 0 : undefined)
+      setAgents(snapshot.agents || [])
+      setActivities(snapshot.activities || [])
+      setAuthError(null)
+      setAuthStatus(null)
+    } catch (error) {
+      // The gate: no active Sales AI connection — send to the connect flow.
+      if (error instanceof SnapshotError && error.code === 'ENTITLEMENT_REQUIRED') {
+        window.location.assign('/connect')
+        return
+      }
+      const status = error instanceof SnapshotError ? error.status ?? 500 : 500
+      setAuthStatus(status)
+      setAuthError(error instanceof Error ? error.message : `Couldn't load agents (HTTP ${status}).`)
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    load().catch(() => setLoading(false))
+    // Poll only while the tab is visible — a hidden tab generating 2 API calls
+    // every 10s per user is pure load for nothing. Refresh on return instead.
+    const interval = window.setInterval(() => {
+      if (!document.hidden) load().catch(() => undefined)
+    }, 10000)
+    const onVisible = () => {
+      if (!document.hidden) load().catch(() => undefined)
+    }
+    const onChanged = () => load(true).catch(() => undefined)
+    document.addEventListener('visibilitychange', onVisible)
+    window.addEventListener(AGENTS_CHANGED_EVENT, onChanged)
+    return () => {
+      window.clearInterval(interval)
+      document.removeEventListener('visibilitychange', onVisible)
+      window.removeEventListener(AGENTS_CHANGED_EVENT, onChanged)
+    }
+  }, [load])
+
+  // Land on the most recently updated agent unless a deep link already chose.
+  useEffect(() => {
+    if (loading || selectedAgentId) return
+    if (agents.length) setSelectedAgentId(agents[0].id)
+  }, [loading, agents, selectedAgentId])
+
+  // Deep links from the command palette and sidebar: ?agent=<id|new>, ?run=<id>.
+  useEffect(() => {
+    const agentParam = searchParams.get('agent')
+    if (!agentParam) return
+    if (agentParam === NEW_AGENT) {
+      setSelectedAgentId(NEW_AGENT)
+      setConfigureOpen(false)
+      setFocusRunId(null)
+      router.replace('/dashboard')
+      return
+    }
+    if (!agents.length) return
+    if (agents.some((candidate) => candidate.id === agentParam)) {
+      setSelectedAgentId(agentParam)
+      setConfigureOpen(false)
+      setFocusRunId(null)
+    }
+    router.replace('/dashboard')
+  }, [searchParams, agents, router])
+
+  useEffect(() => {
+    const runParam = searchParams.get('run')
+    if (!runParam || loading) return
+    const openRun = (activity: Activity) => {
+      if (activity.agentTaskId) setSelectedAgentId(activity.agentTaskId)
+      setConfigureOpen(false)
+      setFocusRunId(activity.id)
+    }
+    const activity = activities.find((candidate) => candidate.id === runParam)
+    if (activity) {
+      openRun(activity)
+      router.replace('/dashboard')
+      return
+    }
+    fetch(`/api/workflows/executions?executionId=${runParam}`, { cache: 'no-store' })
+      .then((response) => response.json())
+      .then((data) => {
+        const execution = data.items?.[0]?.execution
+        if (execution) openRun(execution)
+      })
+      .catch(() => undefined)
+      .finally(() => router.replace('/dashboard'))
+  }, [searchParams, activities, loading, router])
+
+  // Escape closes the Granola meeting picker (keyboard parity with the close button).
+  useEffect(() => {
+    if (!granolaPickerOpen) return
+    const onKey = (event: KeyboardEvent) => { if (event.key === 'Escape') setGranolaPickerOpen(false) }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [granolaPickerOpen])
+
+  const selectedAgent = useMemo(
+    () => agents.find((candidate) => candidate.id === selectedAgentId) ?? null,
+    [agents, selectedAgentId],
+  )
+
+  const agentActivities = useMemo(
+    () => (selectedAgent ? activities.filter((activity) => activity.agentTaskId === selectedAgent.id) : []),
+    [activities, selectedAgent],
+  )
+
+  const hasFailedRun = useMemo(
+    () => agentActivities.some((activity) => activity.status.toLowerCase() === 'failed'),
+    [agentActivities],
+  )
+
+  // The expanded run's output, shown in the right (assistant) pane.
+  const runOutput = useMemo(() => {
+    if (!selectedRun) return null
+    const text = resultText(selectedRun)
+    if (!text) return null
+    return {
+      title: selectedRun.metadata?.title || selectedRun.agentType,
+      at: selectedRun.startedAt,
+      status: selectedRun.status.toLowerCase(),
+      text,
+    }
+  }, [selectedRun])
+
+  // A different agent's runs are unrelated — clear the shown output on switch.
+  useEffect(() => {
+    setSelectedRun(null)
+  }, [selectedAgentId])
+
+  // Setup pane shows when nothing usable is selected, the selected agent is
+  // not fully configured, or the user explicitly opened configuration.
+  const creatingNew = selectedAgentId === NEW_AGENT || (!selectedAgent && !loading)
+  const showSetup = creatingNew || !selectedAgent || !isConfigured(selectedAgent) || configureOpen
+  const editingAgent = showSetup && selectedAgent && selectedAgentId !== NEW_AGENT ? selectedAgent : null
+
+  const greeting = useMemo(() => {
+    if (!selectedAgent) return agents.length ? 'Select an agent to see its activity.' : 'Describe what you need and Den builds the agent.'
+    const counts: Record<string, number> = {}
+    for (const activity of agentActivities) {
+      const status = activity.status.toLowerCase()
+      counts[status] = (counts[status] || 0) + 1
+    }
+    const parts: string[] = []
+    if (counts.completed) parts.push(`${counts.completed} completed`)
+    if (counts.waiting_for_input) parts.push(`${counts.waiting_for_input} need your input`)
+    if (counts.failed) parts.push(`${counts.failed} hit errors`)
+    if (counts.running) parts.push(`${counts.running} running`)
+    return parts.length ? `${parts.join(', ')}.` : 'No runs yet for this agent.'
+  }, [selectedAgent, agents.length, agentActivities])
+
+  const selectAgent = (id: string) => {
+    setSelectedAgentId(id)
+    setConfigureOpen(false)
+    setFocusRunId(null)
+  }
+
+  const saveAgent = async (draft: AgentDraft) => {
+    const response = await fetch('/api/agents', {
+      method: editingAgent ? 'PUT' : 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(editingAgent ? { ...draft, id: editingAgent.id } : draft),
+    })
+    if (!response.ok) {
+      const data = await response.json().catch(() => ({}))
+      const message = data.error || `Failed to save agent (HTTP ${response.status}).`
+      toast.error(message)
+      throw new Error(message)
+    }
+    const data = await response.json().catch(() => ({}))
+    notifyAgentsChanged()
+    toast.success(editingAgent ? 'Agent updated.' : 'Agent created.')
+    setConfigureOpen(false)
+    await load(true)
+    if (!editingAgent && data.agent?.id) setSelectedAgentId(data.agent.id)
+  }
+
+  const buildFromDescription = async () => {
+    if (!describe.trim()) return
+    setBuilding(true)
+    try {
+      const response = await fetch('/api/agents/draft', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ description: describe, create: true }),
+      })
+      const data = await response.json().catch(() => ({}))
+      if (!response.ok) {
+        toast.error(data.error || `Couldn't build the agent (HTTP ${response.status}).`)
+        return
+      }
+      setDescribe('')
+      notifyAgentsChanged()
+      toast.success(`Created "${data.draft?.title || 'agent'}".`)
+      await load(true)
+      if (data.agentId) setSelectedAgentId(data.agentId)
+    } finally {
+      setBuilding(false)
+    }
+  }
+
+  const openGranolaPicker = async () => {
+    setGranolaFetchingList(true)
+    setGranolaNotes([])
+    try {
+      const response = await fetch('/api/granola/notes')
+      const data = await response.json().catch(() => ({}))
+      if (!data.success) {
+        toast.error(data.error || 'Granola not connected')
+        return
+      }
+      setGranolaNotes(data.notes || [])
+      setGranolaPickerOpen(true)
+    } catch {
+      toast.error('Could not reach Granola. Please try again.')
+    } finally {
+      setGranolaFetchingList(false)
+    }
+  }
+
+  const importGranolaNote = async (note: GranolaNote) => {
+    setGranolaFetchingNote(true)
+    try {
+      const response = await fetch(`/api/granola/notes/${encodeURIComponent(note.id)}`)
+      const data = await response.json().catch(() => ({}))
+      if (!data.success) {
+        toast.error(data.error || 'Could not load that meeting note.')
+        return
+      }
+      const { title, summary } = data.note as { id: string; title: string; summary: string }
+      const prefill = `Build an agent based on this meeting. Identify the workflow or task that was requested and create an agent that carries it out.\n\nMeeting: ${title}\n\n${summary}`
+      setDescribe(prefill.slice(0, 3800))
+      setGranolaPickerOpen(false)
+    } catch {
+      toast.error('Could not load that meeting note. Please try again.')
+    } finally {
+      setGranolaFetchingNote(false)
+    }
+  }
+
+  const runAgent = async (agent: Agent) => {
+    setRunningId(agent.id)
+    try {
+      const res = await fetch(`/api/agents/${agent.id}/execute`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (res.ok) {
+        if (data.result?.status === 'waiting_for_input') {
+          toast(`${agent.title} needs your input`)
+        } else {
+          toast.success(`${agent.title} ran`)
+        }
+        setSelectedAgentId(agent.id)
+        setConfigureOpen(false)
+        if (data.executionId) setFocusRunId(data.executionId)
+        await load(true)
+      } else {
+        toast.error(data.error || 'Run failed')
+      }
+    } finally {
+      setRunningId(null)
+    }
+  }
+
+  return (
+    <>
+      {/* lg: rows locked to the viewport (minmax(0,1fr)) — an implicit auto row
+          would grow with content and clip each pane's bottom (form buttons,
+          chat composer) behind the grid's overflow-hidden. */}
+      <div className="flex flex-col lg:grid lg:h-screen lg:grid-cols-[minmax(420px,1fr)_minmax(400px,1fr)] lg:grid-rows-[minmax(0,1fr)] lg:overflow-hidden">
+        {/* ── Left pane: activity for the selected agent, or the setup flow ── */}
+        <section className="min-w-0 border-b bg-white lg:min-h-0 lg:overflow-y-auto lg:border-b-0 lg:border-r">
+          <div className="sticky top-0 z-10 border-b bg-white p-4">
+            <div className="flex items-center justify-between gap-2">
+              <div className="min-w-0 flex-1">
+                {agents.length > 0 ? (
+                  <Select value={selectedAgent?.id ?? ''} onValueChange={selectAgent}>
+                    <SelectTrigger className="h-9 font-medium" aria-label="Select agent">
+                      <SelectValue placeholder="New agent" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {agents.map((agent) => (
+                        <SelectItem key={agent.id} value={agent.id}>{agent.title}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                ) : (
+                  <h1 className="text-xl font-semibold">{loading ? 'Loading…' : 'Create your first agent'}</h1>
+                )}
+                <p className="mt-1 truncate text-sm text-gray-500" aria-live="polite">
+                  Hey, {user?.firstName || 'there'}. {greeting}
+                </p>
+              </div>
+              <div className="flex shrink-0 items-center gap-1.5">
+                {selectedAgent && isConfigured(selectedAgent) && (
+                  <>
+                    <Button
+                      variant="outline"
+                      size="icon"
+                      disabled={runningId === selectedAgent.id}
+                      onClick={() => runAgent(selectedAgent)}
+                      aria-label={`Run ${selectedAgent.title}`}
+                      title="Run agent"
+                    >
+                      {runningId === selectedAgent.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="icon"
+                      onClick={() => setConfigureOpen((open) => !open)}
+                      aria-label={configureOpen ? 'Back to activity' : 'Configure agent'}
+                      title={configureOpen ? 'Back to activity' : 'Configure agent'}
+                      className={cn('transition-colors duration-150', configureOpen && 'bg-indigo-50 text-indigo-700')}
+                    >
+                      {configureOpen ? <List className="h-4 w-4" /> : <Settings2 className="h-4 w-4" />}
+                    </Button>
+                  </>
+                )}
+                <Button
+                  variant="outline"
+                  onClick={() => { setSelectedAgentId(NEW_AGENT); setConfigureOpen(false); setFocusRunId(null) }}
+                >
+                  <Plus className="mr-1.5 h-4 w-4" /> New agent
+                </Button>
+              </div>
+            </div>
+          </div>
+
+          {authError && (
+            <div className="m-4 flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+              <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+              <div>
+                {authStatus === 401 ? (
+                  <>
+                    <p className="font-medium">You’re not signed in.</p>
+                    <p className="mb-2 text-amber-800">This environment has no active session — sign in to load your workspace.</p>
+                    <Button size="sm" onClick={() => router.push('/auth/login')}>Sign in</Button>
+                  </>
+                ) : authStatus === 403 ? (
+                  <>
+                    <p className="font-medium">Your workspace is still provisioning.</p>
+                    <p className="text-amber-800">Reload in a moment. If this persists, the database isn’t reachable for this environment.</p>
+                  </>
+                ) : (
+                  <>
+                    <p className="font-medium">{authError}</p>
+                    <p className="text-amber-800">The database or auth isn’t configured for this environment.</p>
+                  </>
+                )}
+              </div>
+            </div>
+          )}
+
+          {loading && (
+            <div className="space-y-3 p-4">
+              <Skeleton className="h-20 rounded-xl" />
+              <Skeleton className="h-20 rounded-xl" />
+              <Skeleton className="h-20 rounded-xl" />
+            </div>
+          )}
+
+          {!loading && showSetup && (
+            <div className="space-y-4 p-4">
+              {!editingAgent && (
+                <div>
+                  {/* Den-style: describe an agent in plain language and build it. */}
+                  <div className="flex items-center gap-2 rounded-xl border bg-gray-50 px-3 py-2 transition-shadow duration-150 focus-within:ring-2 focus-within:ring-indigo-200">
+                    <Sparkles className="h-4 w-4 shrink-0 text-indigo-500" />
+                    <input
+                      className="flex-1 bg-transparent text-sm outline-none placeholder:text-gray-400"
+                      placeholder={"Describe an agent to build — e.g. “Every Monday, summarize last week’s GitHub activity and post it to Slack”"}
+                      value={describe}
+                      disabled={building}
+                      onChange={(event) => setDescribe(event.target.value)}
+                      onKeyDown={(event) => event.key === 'Enter' && buildFromDescription()}
+                    />
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      disabled={granolaFetchingList || building}
+                      onClick={openGranolaPicker}
+                      title="Import from Granola"
+                      className="shrink-0 gap-1.5 text-xs text-gray-500 hover:text-gray-700"
+                    >
+                      {granolaFetchingList ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <FileText className="h-3.5 w-3.5" />}
+                      Import
+                    </Button>
+                    <Button size="sm" loading={building} disabled={!describe.trim()} onClick={buildFromDescription}>
+                      Build
+                    </Button>
+                  </div>
+                  {/* Granola meeting picker */}
+                  {granolaPickerOpen && (
+                    <div className="relative mt-1 max-h-64 origin-top animate-scale-in overflow-y-auto rounded-xl border bg-white shadow-popover">
+                      <div className="sticky top-0 flex items-center justify-between border-b bg-white px-3 py-2">
+                        <span className="text-xs font-medium text-gray-600">Select a meeting to import</span>
+                        <button
+                          className="rounded p-0.5 text-gray-400 transition-colors duration-150 hover:text-gray-700"
+                          onClick={() => setGranolaPickerOpen(false)}
+                          aria-label="Close picker"
+                        >
+                          <X className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                      {granolaFetchingNote && (
+                        <div className="flex items-center justify-center p-6 text-sm text-gray-500">
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Loading meeting…
+                        </div>
+                      )}
+                      {!granolaFetchingNote && granolaNotes.length === 0 && (
+                        <p className="p-4 text-sm text-gray-500">No recent meetings found in Granola.</p>
+                      )}
+                      {!granolaFetchingNote && granolaNotes.map((note) => (
+                        <button
+                          key={note.id}
+                          className="flex w-full flex-col gap-0.5 border-b px-3 py-2.5 text-left transition-colors duration-150 last:border-b-0 hover:bg-gray-50"
+                          onClick={() => importGranolaNote(note)}
+                        >
+                          <span className="truncate text-sm font-medium">{note.title}</span>
+                          <span className="truncate text-xs text-gray-400">
+                            {note.owner?.name || note.owner?.email || ''}
+                            {note.owner && note.created_at ? ' · ' : ''}
+                            {note.created_at ? new Date(note.created_at).toLocaleDateString() : ''}
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {editingAgent && !isConfigured(editingAgent) && (
+                <p className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+                  Finish setting up this agent to see its activity here.
+                </p>
+              )}
+
+              <div className="animate-fade-in-up rounded-lg border bg-white p-4 shadow-1">
+                <p className="eyebrow mb-3">{editingAgent ? 'Agent setup' : 'Set up manually'}</p>
+                <AgentConfigForm
+                  key={editingAgent?.id || NEW_AGENT}
+                  editingAgent={editingAgent}
+                  onSave={saveAgent}
+                  onRunAgent={editingAgent ? runAgent : undefined}
+                  runningId={runningId}
+                  onOpenRun={(runId) => { setConfigureOpen(false); setFocusRunId(runId) }}
+                />
+              </div>
+            </div>
+          )}
+
+          {!loading && !showSetup && selectedAgent && (
+            <AgentActivityPane
+              agent={selectedAgent}
+              activities={agentActivities}
+              focusRunId={focusRunId}
+              onChanged={() => load(true).catch(() => undefined)}
+              onSelectRun={setSelectedRun}
+            />
+          )}
+        </section>
+
+        {/* ── Right pane: persistent assistant chat for the selected agent ── */}
+        <section className="flex h-[70vh] min-w-0 flex-col bg-white lg:h-auto lg:min-h-0">
+          <AssistantPanel
+            key={selectedAgent?.id ?? 'none'}
+            agent={selectedAgent}
+            hasFailedRun={hasFailedRun}
+            runOutput={runOutput}
+            onAgentUpdated={() => load(true).catch(() => undefined)}
+          />
+        </section>
+      </div>
+    </>
+  )
+}
+
+export default function AgentHQPage() {
+  return (
+    <Suspense fallback={null}>
+      <AgentHQ />
+    </Suspense>
+  )
+}

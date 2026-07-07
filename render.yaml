@@ -1,0 +1,91 @@
+services:
+  # BullMQ worker: executes queued agent runs (EXECUTION_MODE=queue) off the
+  # serverless request path. Deploy alongside Vercel; share the same database
+  # and model keys as the web app.
+  #
+  # IMPORTANT — one queue, one Redis: the worker's REDIS_URL must be the SAME
+  # Upstash TCP URL (rediss://…:6379) that Vercel uses to enqueue. A previous
+  # version of this file provisioned a separate Render-managed Redis, which
+  # meant Vercel enqueued to Upstash while the worker listened to Render —
+  # two queues that never met. Set REDIS_URL in the Render dashboard to the
+  # Upstash value from Vercel's env.
+  #
+  # Rollout order: deploy this worker → confirm its /health-equivalent logs
+  # show both queues consuming → THEN flip Vercel's EXECUTION_MODE to `queue`
+  # (or delete the var; production defaults to queue). Flipping first leaves
+  # runs stuck in `pending` with nothing draining them.
+  - type: worker
+    name: den-worker
+    env: node
+    buildCommand: npm ci && npm run db:generate
+    startCommand: npm run worker:start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: EXECUTION_MODE
+        value: queue
+      # Same Upstash rediss://…:6379 TCP URL as Vercel — set in the dashboard.
+      - key: REDIS_URL
+        sync: false
+      - key: DATABASE_URL
+        sync: false
+      - key: DIRECT_URL
+        sync: false
+      - key: ENCRYPTION_KEY
+        sync: false
+      # Model providers (runs execute here, so the worker needs both).
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: AGENT_MODEL
+        value: claude-opus-4-8
+      - key: SUMMARY_MODEL
+        value: claude-haiku-4-5
+      # Tool planes + RAG (the worker loads tools and retrieves context).
+      - key: KLAVIS_API_KEY
+        sync: false
+      - key: NANGO_SECRET_KEY
+        sync: false
+      - key: VOYAGE_API_KEY
+        sync: false
+      - key: NEO4J_URI
+        sync: false
+      - key: NEO4J_USERNAME
+        sync: false
+      - key: NEO4J_PASSWORD
+        sync: false
+      - key: GRANOLA_API_KEY
+        sync: false
+      - key: SLACK_BOT_TOKEN
+        sync: false
+      - key: RESEND_API_KEY
+        sync: false
+      # People.ai / Den MCP identity.
+      - key: PEOPLE_AI_MCP_BASE_URL
+        sync: false
+      - key: PEOPLE_AI_SERVICE_CLIENT_ID
+        sync: false
+      - key: PEOPLE_AI_SERVICE_CLIENT_SECRET
+        sync: false
+      - key: PEOPLE_AI_OAUTH_CLIENT_ID
+        sync: false
+      - key: PEOPLE_AI_OAUTH_CLIENT_SECRET
+        sync: false
+      - key: PEOPLE_AI_WEBHOOK_SECRET
+        sync: false
+      - key: DEN_MCP_URL
+        sync: false
+      - key: DEN_MCP_CLIENT_ID
+        sync: false
+      - key: DEN_MCP_CLIENT_SECRET
+        sync: false
+      - key: DEN_MCP_TOKEN_URL
+        sync: false
+      # Shared cache (Upstash REST — same values as Vercel).
+      - key: UPSTASH_REDIS_REST_URL
+        sync: false
+      - key: UPSTASH_REDIS_REST_TOKEN
+        sync: false
+      - key: AGENT_WORKER_CONCURRENCY
+        value: "5"
