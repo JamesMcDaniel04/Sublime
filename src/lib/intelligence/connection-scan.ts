@@ -64,6 +64,26 @@ export function scanEnabled(orgSettings: unknown): boolean {
   return true
 }
 
+/** A Nango connection is "connected" for scan-triggering purposes. */
+export const NANGO_CONNECTED_STATUS = 'connected'
+
+/**
+ * Pure: decide whether a Nango-mirrored connection should trigger a usage
+ * scan on this poll, keyed off the STATUS TRANSITION rather than mere
+ * presence of a prior mirror row. A row that was first mirrored in an
+ * error/pending state and later becomes connected must still scan — so
+ * "genuinely new" means either no prior row at all, or a prior row whose
+ * status wasn't connected while this poll reports it connected. A
+ * connection that was already connected on the previous poll (and still is)
+ * never re-triggers, and a connection that isn't connected on this poll
+ * never triggers regardless of history.
+ */
+export function shouldScanNangoConnection(previous: { status: string } | undefined, nowConnected: boolean): boolean {
+  if (!nowConnected) return false
+  if (!previous) return true
+  return previous.status !== NANGO_CONNECTED_STATUS
+}
+
 export type UsageProfile = {
   summary: string
   entities: string[]

@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { selectScanTools, scanEnabled, MAX_SCAN_TOOLS } from '../connection-scan'
+import { selectScanTools, scanEnabled, shouldScanNangoConnection, MAX_SCAN_TOOLS } from '../connection-scan'
 
 test('selectScanTools: empty input returns []', () => {
   assert.deepEqual(selectScanTools([]), [])
@@ -74,4 +74,22 @@ test('scanEnabled: non-object settings fall back to true', () => {
   assert.equal(scanEnabled('not-an-object'), true)
   assert.equal(scanEnabled(42), true)
   assert.equal(scanEnabled([1, 2, 3]), true)
+})
+
+test('shouldScanNangoConnection: no prior row, now connected -> true', () => {
+  assert.equal(shouldScanNangoConnection(undefined, true), true)
+})
+
+test('shouldScanNangoConnection: prior row errored, now connected -> true', () => {
+  assert.equal(shouldScanNangoConnection({ status: 'error' }, true), true)
+})
+
+test('shouldScanNangoConnection: prior row already connected, still connected -> false', () => {
+  assert.equal(shouldScanNangoConnection({ status: 'connected' }, true), false)
+})
+
+test('shouldScanNangoConnection: not connected on this poll -> false regardless of history', () => {
+  assert.equal(shouldScanNangoConnection(undefined, false), false)
+  assert.equal(shouldScanNangoConnection({ status: 'error' }, false), false)
+  assert.equal(shouldScanNangoConnection({ status: 'connected' }, false), false)
 })

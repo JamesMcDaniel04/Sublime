@@ -21,6 +21,16 @@ export type ServerCreationResult = {
   serverUrl?: string
   oauthUrl?: string
   status: Exclude<ConnectionStatus, 'not_connected'>
+  /**
+   * True only when this call genuinely created the underlying mCPAgent row
+   * for the first time (no prior row existed for this org/user/provider).
+   * `createServersForTenant` is idempotent — a repeat connect for an
+   * already-connected provider reuses the existing row and reports
+   * `created: false` — so callers that trigger one-time side effects (e.g.
+   * a behavioral-intelligence connection scan) can gate on this instead of
+   * firing on every call.
+   */
+  created: boolean
 }
 
 function client() {
@@ -126,6 +136,7 @@ export async function createServersForTenant(
       serverUrl: server.serverUrl,
       oauthUrl: server.oauthUrl,
       status: connectionStatus(server),
+      created: !existing,
     })
   }
 

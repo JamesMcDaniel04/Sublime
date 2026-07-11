@@ -4,7 +4,7 @@ import { prisma } from '@/lib/prisma'
 import { getNangoClient, NANGO_ORG_TAG } from '@/lib/nango/client'
 import { nangoApiError } from '@/lib/nango/errors'
 import { withAuthenticatedApi } from '@/lib/server/api-handler'
-import { scanConnection } from '@/lib/intelligence/connection-scan'
+import { scanConnection, shouldScanNangoConnection } from '@/lib/intelligence/connection-scan'
 import { DELIVERY_PROVIDERS, type DeliveryCapability } from '@/lib/nango/delivery'
 import { fromNangoProviderKey } from '@/lib/connectors/registry'
 
@@ -43,15 +43,18 @@ export const GET = withAuthenticatedApi(async (_request, auth) => {
   const seen: string[] = []
 
   // This route re-mirrors every Nango connection on every integrations page
-  // load — only fire a scan for connections we haven't mirrored before, so a
-  // repeat page view doesn't re-scan an already-known connection.
-  const existingIds = new Set(
+  // load — only fire a scan on a genuine new-or-error→connected transition,
+  // so a repeat page view doesn't re-scan an already-known-connected
+  // connection. Keyed on the pre-update status (not mere row presence) so a
+  // connection first mirrored while erroring/pending still scans once it
+  // later reports connected.
+  const previousByConnectionId = new Map(
     (
       await prisma.nangoConnection.findMany({
         where: { organizationId: auth.organizationId },
-        select: { connectionId: true },
+        select: { connectionId: true, status: true },
       })
-    ).map((row) => row.connectionId),
+    ).map((row) => [row.connectionId, { status: row.status }]),
   )
   const newlyConnected: { connectionId: string; providerConfigKey: string; userId: string | null }[] = []
 
@@ -108,7 +111,7 @@ export const GET = withAuthenticatedApi(async (_request, auth) => {
       },
     })
 
-    if (connected && !existingIds.has(connection.connection_id)) {
+    if (shouldScanNangoConnection(previousByConnectionId.get(connection.connection_id), connected)) {
       newlyConnected.push({ connectionId: connection.connection_id, providerConfigKey: key, userId: endUser?.id ?? null })
     }
   }

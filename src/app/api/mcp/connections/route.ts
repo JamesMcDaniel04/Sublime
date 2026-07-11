@@ -61,7 +61,12 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
       providers,
     )
 
-    // Fire-and-forget usage scans for every provider that connected cleanly.
+    // Fire-and-forget usage scans for providers that connected cleanly AND
+    // were genuinely created by this call — `createServersForTenant` is
+    // idempotent (it reuses an existing mCPAgent row on repeat connects), so
+    // scanning on `created` avoids re-firing (and duplicating learnings +
+    // notifications) on every idempotent reconnect of an already-connected
+    // provider.
     // `after` (Next 15) keeps this running past the response on serverless —
     // a bare `void` promise can be killed at response end there.
     const organizationId = auth.organizationId
@@ -69,7 +74,7 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
     after(() =>
       Promise.all(
         results
-          .filter((result) => result.status !== 'error')
+          .filter((result) => result.status !== 'error' && result.created)
           .map(async (result) => {
             const agent = await prisma.mCPAgent.findFirst({
               where: { userId, organizationId, agentType: result.provider.toUpperCase() },
