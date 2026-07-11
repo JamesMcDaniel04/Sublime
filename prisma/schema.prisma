@@ -193,6 +193,13 @@ model AgentMemory {
   embeddingVec Unsupported("vector(1024)")?
 
   sourceExecutionId String?
+  /// Stable key `<plane>:<connectionRef>` identifying the connection this
+  /// memory was distilled from (e.g. `mcp:cmcpconn123`), set at save time by
+  /// the connection scan. Nullable: only scan-derived learnings carry it —
+  /// other memory kinds (user_answer, agent-authored suggestions) leave it
+  /// null. Powers a precise purge query when a connection is disconnected,
+  /// instead of matching against title/content strings.
+  sourceRef         String?
   status            String    @default("open") // 'open' | 'dismissed' | 'superseded'
   timesUsed         Int       @default(0)
   lastUsedAt        DateTime?
@@ -203,6 +210,7 @@ model AgentMemory {
   agent        AgentTask    @relation(fields: [agentId], references: [id], onDelete: Cascade)
 
   @@index([organizationId, agentId, kind, status])
+  @@index([organizationId, sourceRef])
   // HNSW index created by hand-edited migration SQL (Prisma's schema DSL has
   // no `hnsw`/`vector_cosine_ops` vocabulary); declaring it here keeps
   // `prisma migrate diff` from proposing to drop it as drift.

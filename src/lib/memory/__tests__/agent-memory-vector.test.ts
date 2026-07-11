@@ -142,6 +142,43 @@ if (TEST_DB) {
     }
   })
 
+  test('saveAgentMemory persists sourceRef when provided, and leaves it null otherwise', async () => {
+    if (!vectorReady) return
+    stubEmbedding(dims(() => 0.03))
+    let withRefId: string | undefined
+    let withoutRefId: string | undefined
+    try {
+      const withRef = await saveAgentMemory({
+        organizationId: ids.org,
+        agentId: ids.agent,
+        kind: 'learning',
+        title: 'How we use Slack: channel triage',
+        content: 'The team triages support requests in #support',
+        sourceRef: 'mcp:conn123',
+      })
+      assert.ok(withRef)
+      withRefId = withRef!.id
+      const withRefRow = await prisma.agentMemory.findUnique({ where: { id: withRefId, organizationId: ids.org } })
+      assert.equal(withRefRow.sourceRef, 'mcp:conn123')
+
+      const withoutRef = await saveAgentMemory({
+        organizationId: ids.org,
+        agentId: ids.agent,
+        kind: 'learning',
+        title: 'No source ref here',
+        content: 'A learning with no connection source',
+      })
+      assert.ok(withoutRef)
+      withoutRefId = withoutRef!.id
+      const withoutRefRow = await prisma.agentMemory.findUnique({ where: { id: withoutRefId, organizationId: ids.org } })
+      assert.equal(withoutRefRow.sourceRef, null)
+    } finally {
+      unstubEmbedding()
+      if (withRefId) await prisma.agentMemory.delete({ where: { id: withRefId } }).catch(() => {})
+      if (withoutRefId) await prisma.agentMemory.delete({ where: { id: withoutRefId } }).catch(() => {})
+    }
+  })
+
   test('saveAgentMemory also writes the pgvector column alongside the legacy Json column', async () => {
     if (!vectorReady) return
     stubEmbedding(dims(() => 0.02))

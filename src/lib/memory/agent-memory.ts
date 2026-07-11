@@ -41,6 +41,9 @@ export async function saveAgentMemory(params: {
   content: string
   question?: string
   sourceExecutionId?: string
+  /** Stable `<plane>:<connectionRef>` key when this memory was distilled from
+   *  a connection scan — powers a precise purge on disconnect. */
+  sourceRef?: string
 }): Promise<{ id: string; deduped: boolean } | null> {
   try {
     const embedText = params.kind === 'user_answer' ? params.question ?? params.content : `${params.title}\n${params.content}`
@@ -90,6 +93,7 @@ export async function saveAgentMemory(params: {
         question: params.question,
         embedding: embedding ?? undefined,
         sourceExecutionId: params.sourceExecutionId,
+        sourceRef: params.sourceRef,
       },
     })
 

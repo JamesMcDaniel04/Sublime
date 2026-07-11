@@ -64,6 +64,33 @@ export function scanEnabled(orgSettings: unknown): boolean {
   return true
 }
 
+/** Scan planes a connection can live on — single source of truth for the
+ *  `<plane>:<connectionRef>` key format shared by settings.scanExclusions,
+ *  AgentMemory.sourceRef, and the graph node id (`insight:scan:<key>`). */
+export const SCAN_PLANES = ['klavis', 'nango', 'mcp'] as const
+export type ScanPlane = (typeof SCAN_PLANES)[number]
+
+/** Pure: the stable key identifying one connection across settings, memory
+ *  sourceRef, and graph node ids. */
+export function connectionSourceRef(plane: ScanPlane, connectionRef: string): string {
+  return `${plane}:${connectionRef}`
+}
+
+/** Pure: true when `value` is shaped `<plane>:<nonEmptyRef>` for a known scan
+ *  plane — the allowed shape for a settings.scanExclusions entry. */
+export function isValidScanExclusionEntry(value: string): boolean {
+  return SCAN_PLANES.some((plane) => value.startsWith(`${plane}:`) && value.length > plane.length + 1)
+}
+
+/** Pure: true when `sourceRef` is listed in the org's per-connection learning
+ *  opt-out (settings.scanExclusions). Malformed/missing settings read as "no
+ *  exclusions" — same fail-open posture as `scanEnabled`. */
+export function isScanExcluded(orgSettings: unknown, sourceRef: string): boolean {
+  if (!orgSettings || typeof orgSettings !== 'object' || Array.isArray(orgSettings)) return false
+  const exclusions = (orgSettings as Record<string, unknown>).scanExclusions
+  return Array.isArray(exclusions) && exclusions.includes(sourceRef)
+}
+
 /** A Nango connection is "connected" for scan-triggering purposes. */
 export const NANGO_CONNECTED_STATUS = 'connected'
 
@@ -181,12 +208,23 @@ function truncateSample(value: unknown): string {
  * holder rows; on that race, the losing `create` throws Prisma P2002 and we
  * re-read the winner's row instead.
  */
-export async function orgIntelligenceAgentId(organizationId: string): Promise<string> {
+/**
+ * Read-only lookup — does NOT create the holder. For call sites that must
+ * not conjure the hidden agent into existence just by looking (the learnings
+ * view, disconnect purge): an org that never scanned anything has no holder,
+ * and should read as "no learnings" / "nothing to purge", not get one created.
+ */
+export async function findOrgIntelligenceAgentId(organizationId: string): Promise<string | null> {
   const existing = await prisma.agentTask.findFirst({
     where: { organizationId, type: 'system', agentType: 'SYSTEM' },
     select: { id: true },
   })
-  if (existing) return existing.id
+  return existing?.id ?? null
+}
+
+export async function orgIntelligenceAgentId(organizationId: string): Promise<string> {
+  const existing = await findOrgIntelligenceAgentId(organizationId)
+  if (existing) return existing
   try {
     const created = await prisma.agentTask.create({
       data: {
@@ -240,7 +278,7 @@ async function loadScanGroup(
 export async function scanConnection(params: {
   organizationId: string
   userId: string | null
-  plane: 'klavis' | 'nango' | 'mcp'
+  plane: ScanPlane
   connectionRef: string
   connectionName: string
 }): Promise<{ scanned: boolean; processes: number } | { skipped: string }> {
@@ -248,6 +286,8 @@ export async function scanConnection(params: {
   try {
     const org = await prisma.organization.findUnique({ where: { id: organizationId }, select: { settings: true } })
     if (!scanEnabled(org?.settings)) return { skipped: 'disabled' }
+    const sourceRef = connectionSourceRef(plane, connectionRef)
+    if (isScanExcluded(org?.settings, sourceRef)) return { skipped: 'excluded' }
 
     const group = await loadScanGroup(organizationId, userId, plane, connectionRef)
     if (!group?.client || group.tools.length === 0) return { skipped: 'no-tools' }
@@ -287,6 +327,7 @@ export async function scanConnection(params: {
         kind: 'learning',
         title: `How we use ${connectionName}: ${process.slice(0, 80)}`,
         content: process,
+        sourceRef,
       })
     }
 
