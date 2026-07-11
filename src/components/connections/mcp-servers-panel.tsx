@@ -8,7 +8,6 @@ import { McpConnectionDialog, type McpConnectionDraft, type SerializedConnection
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { EmptyState } from '@/components/ui/empty-state'
-import { PageHeader } from '@/components/ui/page-header'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Switch } from '@/components/ui/switch'
 
@@ -21,8 +20,10 @@ const authLabels: Record<string, string> = {
 }
 
 // ── Main component ────────────────────────────────────────────────────────────
+// Rendered as the "MCP Servers" tab on /integrations (the old standalone
+// /connections page now redirects there).
 
-function ConnectionsPage() {
+function McpServersPanelInner() {
   const router = useRouter()
   const [connections, setConnections] = useState<SerializedConnection[]>([])
   const [loading, setLoading] = useState(true)
@@ -139,18 +140,16 @@ function ConnectionsPage() {
   return (
     <>
       <div className="space-y-6">
-        {/* Header */}
-        <PageHeader
-          eyebrow="Connections"
-          title="MCP Servers"
-          description="Connect external Model Context Protocol servers to your agents."
-          actions={
-            <Button onClick={openAdd}>
-              <Plus className="h-4 w-4" />
-              Add MCP server
-            </Button>
-          }
-        />
+        {/* Tab header row (the page-level header lives on /integrations) */}
+        <div className="flex items-center justify-between gap-3">
+          <p className="text-sm text-muted-foreground">
+            Connect external Model Context Protocol servers to your agents.
+          </p>
+          <Button onClick={openAdd}>
+            <Plus className="h-4 w-4" />
+            Add MCP server
+          </Button>
+        </div>
 
         {/* Auth error */}
         {authError && (
@@ -298,10 +297,10 @@ function ConnectionsPage() {
   )
 }
 
-export default function ConnectionsPageWrapper() {
+export function McpServersPanel() {
   return (
     <Suspense fallback={null}>
-      <ConnectionsPage />
+      <McpServersPanelInner />
     </Suspense>
   )
 }
