@@ -204,7 +204,7 @@ export function MCPIntegrationCards() {
 
                 {!isActive && (
                   <Button className="w-full" disabled={connecting === connection.provider} onClick={() => connect(connection.provider)}>
-                    {connecting === connection.provider ? 'Connecting...' : 'Connect with Klavis'}
+                    {connecting === connection.provider ? 'Connecting...' : 'Connect'}
                   </Button>
                 )}
               </CardContent>

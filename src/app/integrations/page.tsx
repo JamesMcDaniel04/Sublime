@@ -44,7 +44,7 @@ export default function IntegrationsPage() {
         <PageHeader
           eyebrow="Connections"
           title="Integrations"
-          description="Klavis exposes agent tools. Nango manages connected accounts."
+          description="Connect the tools your agents use, link your accounts, and manage MCP servers."
         />
         <Suspense fallback={null}>
           <IntegrationsTabs />
