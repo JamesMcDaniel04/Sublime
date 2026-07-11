@@ -350,8 +350,16 @@ export async function interpretFlow(graph: FlowGraph, input: unknown, opts: Opts
     }
 
     if (node.type === 'condition' || node.type === 'switch') {
-      // Conditions/switches route on the main chain; inside a body they can't branch.
-      return { kind: 'skip' }
+      // Bodies are flat ordered lists (no edges), so branching can't route
+      // here. The main-chain walker intercepts condition/switch before
+      // execNode is consulted, so reaching this arm means the node sits inside
+      // a container body — publish validation also rejects that
+      // (CONDITION_IN_CONTAINER); this guards stored pre-validation graphs,
+      // which previously mis-ran silently.
+      const label = node.type === 'condition' ? 'If / else' : 'Switch'
+      const error = `${label} can't run inside a For each / Parallel body — branching isn't supported there. Use a Filter step to gate items instead.`
+      emit({ nodeId: node.id, status: 'failed', error })
+      return { kind: 'fail', error }
     }
 
     if (node.type === 'humanReview') {

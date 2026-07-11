@@ -492,6 +492,18 @@ export function validateFlowGraph(graph: FlowGraph, context: FlowValidationConte
   for (const memberId of containerMemberIds) {
     const member = byId.get(memberId)
     if (!member) continue
+    // Branching nodes can't execute inside container bodies: bodies are flat
+    // ordered lists with no edges, so condition/switch have nothing to route
+    // on. The interpreter refuses them at runtime; this catches it at publish.
+    if (member.type === 'condition' || member.type === 'switch') {
+      add(
+        issues,
+        'error',
+        'CONDITION_IN_CONTAINER',
+        `${nodeLabel(member)} can't run inside a For each / Parallel body — branching isn't supported there. Use a Filter step to gate items instead.`,
+        member.id,
+      )
+    }
     if (member.type === 'tool' && member.data.connectionId && parseFlowToolConnectionId(member.data.connectionId).plane === 'nango') {
       add(
         issues,

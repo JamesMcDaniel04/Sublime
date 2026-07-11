@@ -466,3 +466,37 @@ test('validateFlowGraph does not warn on a humanReview step in the main flow', (
   const result = validateFlowGraph(graph)
   assert.ok(!result.warnings.some((entry) => entry.code === 'HUMAN_REVIEW_IN_CONTAINER'))
 })
+
+test('blocks a condition inside a loop body (branching cannot route in flat bodies)', () => {
+  const graph: FlowGraph = {
+    nodes: [
+      { id: 'trigger', type: 'trigger', data: {} },
+      { id: 'loop', type: 'loop', data: { over: '{{trigger.input}}', body: ['c1'] } },
+      { id: 'c1', type: 'condition', data: { match: 'all', clauses: [{ left: '{{item}}', op: 'eq', right: 'x' }] } },
+    ],
+    edges: [{ id: 'e1', source: 'trigger', target: 'loop' }],
+  }
+  const result = validateFlowGraph(graph)
+  const issue = result.errors.find((candidate) => candidate.code === 'CONDITION_IN_CONTAINER')
+  assert.ok(issue, 'expected CONDITION_IN_CONTAINER error')
+  assert.equal(issue!.nodeId, 'c1')
+  assert.match(issue!.message, /Filter step/)
+})
+
+test('blocks a switch inside a parallel branch; a main-chain condition stays valid', () => {
+  const graph: FlowGraph = {
+    nodes: [
+      { id: 'trigger', type: 'trigger', data: {} },
+      { id: 'p1', type: 'parallel', data: { branches: [['s1']] } },
+      { id: 's1', type: 'switch', data: { cases: [{ id: 'k1', left: '{{item}}', op: 'eq', right: 'x' }] } },
+      { id: 'c-main', type: 'condition', data: { match: 'all', clauses: [{ left: '1', op: 'eq', right: '1' }] } },
+    ],
+    edges: [
+      { id: 'e1', source: 'trigger', target: 'p1' },
+      { id: 'e2', source: 'p1', target: 'c-main' },
+    ],
+  }
+  const result = validateFlowGraph(graph)
+  assert.ok(result.errors.some((issue) => issue.code === 'CONDITION_IN_CONTAINER' && issue.nodeId === 's1'))
+  assert.ok(!result.errors.some((issue) => issue.nodeId === 'c-main'))
+})

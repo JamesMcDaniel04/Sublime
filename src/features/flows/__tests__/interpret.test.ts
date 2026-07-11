@@ -1235,3 +1235,36 @@ test('humanReview resume turns the reply into the step output for downstream ste
   assert.equal(hr?.output, 'Approved by Jane')
   assert.equal(result.output, 'ran:got Approved by Jane')
 })
+
+test('condition inside a loop body fails the run loudly (no silent skip)', async () => {
+  const graph: FlowGraph = {
+    nodes: [
+      { id: 'trigger', type: 'trigger', data: {} },
+      { id: 'loop', type: 'loop', data: { over: '{{trigger.input}}', body: ['c1'] } },
+      { id: 'c1', type: 'condition', data: { match: 'all', clauses: [{ left: '{{item}}', op: 'eq', right: 'a' }] } },
+    ],
+    edges: [{ id: 'e1', source: 'trigger', target: 'loop' }],
+  }
+  const result = await interpretFlow(graph, ['a', 'b'], { runAgent: stub({}) })
+  assert.equal(result.status, 'failed')
+  assert.match(result.error ?? '', /can't run inside a For each \/ Parallel body/)
+})
+
+test('a condition on the main chain still routes normally after the body guard', async () => {
+  const graph: FlowGraph = {
+    nodes: [
+      { id: 'trigger', type: 'trigger', data: {} },
+      { id: 'c1', type: 'condition', data: { match: 'all', clauses: [{ left: '{{trigger.input}}', op: 'eq', right: 'go' }] } },
+      { id: 'yes', type: 'agent', data: { agentId: 'a1', input: 'yes' } },
+      { id: 'no', type: 'agent', data: { agentId: 'a2', input: 'no' } },
+    ],
+    edges: [
+      { id: 'e0', source: 'trigger', target: 'c1' },
+      { id: 'e1', source: 'c1', target: 'yes', branch: 'true' },
+      { id: 'e2', source: 'c1', target: 'no', branch: 'false' },
+    ],
+  }
+  const result = await interpretFlow(graph, 'go', { runAgent: stub({ a1: 'took-true' }) })
+  assert.equal(result.status, 'succeeded')
+  assert.equal(result.output, 'took-true')
+})
