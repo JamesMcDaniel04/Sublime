@@ -42,7 +42,7 @@ const TabsList = React.forwardRef<
   <TabsPrimitive.List
     ref={ref}
     className={cn(
-      "inline-flex h-10 items-center justify-center rounded-lg bg-graphite-100 p-1 text-graphite-600",
+      "inline-flex h-10 items-center justify-center gap-1 rounded-lg bg-graphite-100 p-1 text-graphite-600",
       className
     )}
     {...props}
@@ -73,7 +73,9 @@ const TabsTrigger = React.forwardRef<
           aria-hidden="true"
         />
       )}
-      <span className="relative z-10">{children}</span>
+      {/* flex (not a plain inline span): Tailwind preflight makes SVGs
+          display:block, which pushed leading tab icons onto their own line. */}
+      <span className="relative z-10 flex items-center">{children}</span>
     </TabsPrimitive.Trigger>
   )
 })
