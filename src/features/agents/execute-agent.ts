@@ -1207,6 +1207,11 @@ export async function runAgentExecution(
       summary,
       processLog: transcriptSummaryForReflection(transcript),
       recordSuggestionEvent: (payload) => recordEvent(execution.id, null, 'agent.suggestion', payload),
+      userId: agent.userId ?? userId,
+      model,
+      integrations: providers,
+      category: typeof agentMetadata.category === 'string' ? agentMetadata.category : undefined,
+      runSucceeded: true,
     }).catch(() => undefined)
     // Fire the agent.completed signal for flows listening in this org. Dynamic
     // import avoids pulling the flows feature (and its execute-flow ->
