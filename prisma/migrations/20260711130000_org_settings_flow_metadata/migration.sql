@@ -1,0 +1,2 @@
+ALTER TABLE organizations ADD COLUMN settings JSONB NOT NULL DEFAULT '{}';
+ALTER TABLE flows ADD COLUMN metadata JSONB;

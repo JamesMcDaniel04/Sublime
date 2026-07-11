@@ -1,3 +1,4 @@
+import { Prisma } from '@prisma/client'
 import { prisma, systemPrisma } from '@/lib/prisma'
 import { apiLogger } from '@/lib/logger'
 import { embedQuery, embeddingsConfigured, cosineSimilarity, toSqlVector } from '@/lib/rag/embeddings'
@@ -151,8 +152,13 @@ export async function retrieveAgentMemory(params: {
   agentId: string
   query: string
   k?: number
+  /** Additional agent ids to widen the filter over (e.g. the org-wide
+   *  intelligence agent), so shared learnings surface alongside this
+   *  agent's own memories. */
+  extraAgentIds?: string[]
 }): Promise<MemoryHit[]> {
   const k = params.k ?? MEMORY_INJECTION_LIMIT
+  const agentIds = [params.agentId, ...(params.extraAgentIds ?? [])]
   try {
     let queryVec: number[] | null = null
     if (embeddingsConfigured()) {
@@ -175,7 +181,7 @@ export async function retrieveAgentMemory(params: {
                  ("embeddingVec" <=> ${vectorLiteral}::vector(1024)) AS distance
           FROM "agent_memories"
           WHERE "organizationId" = ${params.organizationId}::uuid
-            AND "agentId" = ${params.agentId}
+            AND "agentId" IN (${Prisma.join(agentIds)})
             AND "status" = 'open'
             AND "embeddingVec" IS NOT NULL
           ORDER BY distance ASC
@@ -188,7 +194,7 @@ export async function retrieveAgentMemory(params: {
     // Keyword fallback: no embeddings configured (or the query embed call
     // failed) — score a bounded scan of the agent's open memories.
     const rows = await prisma.agentMemory.findMany({
-      where: { organizationId: params.organizationId, agentId: params.agentId, status: 'open' },
+      where: { organizationId: params.organizationId, agentId: { in: agentIds }, status: 'open' },
       select: { id: true, kind: true, title: true, content: true, question: true },
       orderBy: { createdAt: 'desc' },
       take: AGENT_MEMORY_CAP,

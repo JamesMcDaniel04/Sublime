@@ -352,6 +352,40 @@ export async function indexAgentMemory(params: {
 }
 
 /**
+ * Index a connection scan's distilled usage profile as an org-shared insight
+ * node, keyed stably by plane+connection so a rescan full-replaces the prior
+ * profile rather than accumulating stale copies. Best-effort; gated on
+ * embeddings. Only the distilled profile text is stored — never raw sampled
+ * tool output.
+ */
+export async function indexConnectionScan(params: {
+  organizationId: string
+  plane: string
+  connectionRef: string
+  connectionName: string
+  profile: { summary: string; entities: string[]; processes: string[]; automationCandidates: string[] }
+}): Promise<void> {
+  if (!ragEnabled()) return
+  try {
+    const nodeId = `insight:scan:${params.plane}:${params.connectionRef}`
+    const text = [
+      `How we use ${params.connectionName}: ${params.profile.summary}`,
+      '',
+      `Processes: ${params.profile.processes.join('; ')}`,
+      `Entities: ${params.profile.entities.join('; ')}`,
+    ].join('\n').slice(0, 4000)
+    const nodes: PendingNode[] = [{
+      id: nodeId, type: 'insight', text,
+      props: { plane: params.plane, connectionRef: params.connectionRef },
+      visibility: 'shared',
+    }]
+    await commitGraph(params.organizationId, nodes, [])
+  } catch (error) {
+    warn('indexConnectionScan', error)
+  }
+}
+
+/**
  * Remove an agent and its run nodes from the graph when the agent is deleted,
  * so its (possibly stale) content can't resurface in retrieval or LLM context.
  * Best-effort; only meaningful for the persistent (Neo4j) store.
