@@ -23,7 +23,7 @@ import { apiLogger } from '@/lib/logger'
 import { generateStructured, DEFAULT_SUMMARY_MODEL } from '@/lib/llm/model-runner'
 import { saveAgentMemory } from '@/lib/memory/agent-memory'
 import { notify } from '@/lib/notifications/service'
-import { indexConnectionScan } from '@/lib/rag/indexer'
+import { indexConnectionScan, removeConnectionScanFromGraph } from '@/lib/rag/indexer'
 import { formatFlowToolConnectionId } from '@/lib/flows/tool-connection-id'
 import { loadKlavisPlaneGroups, loadMcpConnectionPlaneGroups, loadNangoPlaneGroups, type ToolPlaneGroup } from '@/features/agents/tool-planes'
 import { connectionSourceRef, isScanExcluded, type ScanPlane } from './scan-exclusions'
@@ -345,5 +345,48 @@ export async function scanConnection(params: {
       error: error instanceof Error ? error.message : String(error),
     })
     return { skipped: 'error' }
+  }
+}
+
+/**
+ * Purge-on-disconnect (Task 4.5): when a connection is deleted, hard-delete
+ * the org-intelligence agent's memories it produced and remove its scan
+ * insight node from the graph, so stale learnings from a tool the org no
+ * longer has access to can't keep surfacing. Unlike the learnings view's
+ * soft dismiss, this is a hard delete — the connection itself is gone, so
+ * there's nothing left to dedupe a future re-scan against.
+ *
+ * Best-effort + logged, mirroring org-teardown's per-resource pattern: each
+ * leg is isolated so a failure in one never blocks (or throws into) the
+ * caller's disconnect flow. An org that never scanned this connection (no
+ * holder agent, or no matching memories) is a silent no-op.
+ */
+export async function purgeConnectionLearnings(params: {
+  organizationId: string
+  plane: ScanPlane
+  connectionRef: string
+}): Promise<void> {
+  const { organizationId, plane, connectionRef } = params
+  const sourceRef = connectionSourceRef(plane, connectionRef)
+
+  try {
+    const agentId = await findOrgIntelligenceAgentId(organizationId)
+    if (agentId) {
+      await prisma.agentMemory.deleteMany({ where: { organizationId, agentId, sourceRef } })
+    }
+  } catch (error) {
+    apiLogger.warn('purgeConnectionLearnings: memory purge failed', {
+      organizationId, plane, connectionRef,
+      error: error instanceof Error ? error.message : String(error),
+    })
+  }
+
+  try {
+    await removeConnectionScanFromGraph({ organizationId, plane, connectionRef })
+  } catch (error) {
+    apiLogger.warn('purgeConnectionLearnings: graph purge failed', {
+      organizationId, plane, connectionRef,
+      error: error instanceof Error ? error.message : String(error),
+    })
   }
 }

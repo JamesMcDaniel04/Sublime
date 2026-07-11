@@ -10,7 +10,7 @@ import {
 } from '@/lib/crypto/secrets'
 import { assertPublicUrl, SsrfError } from '@/lib/net/ssrf'
 import { cacheDelete } from '@/lib/cache'
-import { scanConnection } from '@/lib/intelligence/connection-scan'
+import { scanConnection, purgeConnectionLearnings } from '@/lib/intelligence/connection-scan'
 
 // Mirror of execute-agent's toolDiscoveryCacheKey (org-scoped) — kept in sync
 // deliberately; busting it makes a connection edit take effect before the TTL.
@@ -226,6 +226,11 @@ export const DELETE = withAuthenticatedApi(async (request, auth) => {
   }
 
   await prisma.mcpConnection.delete({ where: { id: existing.id, organizationId: auth.organizationId } })
+
+  // Best-effort purge of this connection's scan-derived learnings (Task
+  // 4.5) — never blocks the disconnect response; purgeConnectionLearnings
+  // already logs its own failures, `.catch` here is belt-and-suspenders.
+  void purgeConnectionLearnings({ organizationId: auth.organizationId, plane: 'mcp', connectionRef: existing.id }).catch(() => undefined)
 
   return { success: true }
 })

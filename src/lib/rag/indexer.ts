@@ -414,6 +414,27 @@ export async function removeExecutionFromGraph(organizationId: string, execution
 }
 
 /**
+ * Remove a connection's scan insight node from the graph when the
+ * connection is disconnected (Task 4.5 purge-on-disconnect), so its
+ * (possibly stale) usage profile can't resurface in retrieval or LLM
+ * context. Id must match indexConnectionScan's scheme exactly
+ * (`insight:scan:<plane>:<connectionRef>`). Best-effort; only meaningful for
+ * the persistent (Neo4j) store.
+ */
+export async function removeConnectionScanFromGraph(params: {
+  organizationId: string
+  plane: string
+  connectionRef: string
+}): Promise<void> {
+  if (!graphRagPersistent()) return
+  try {
+    await getGraphRagStore().deleteNodes(params.organizationId, [`insight:scan:${params.plane}:${params.connectionRef}`])
+  } catch (error) {
+    warn('removeConnectionScanFromGraph', error)
+  }
+}
+
+/**
  * Bulk graph cleanup for the retention job: delete the run:/signal: nodes for
  * rows Postgres is about to (or just did) prune, grouped per org because the
  * store API scopes deletes by organizationId. Best-effort — retention must

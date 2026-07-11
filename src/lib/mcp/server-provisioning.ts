@@ -2,6 +2,7 @@ import { prisma } from '@/lib/prisma'
 import { cacheGet, cacheSet, cacheDelete } from '@/lib/cache'
 import { KlavisClient, type KlavisServer } from './klavis-client'
 import { PROVIDERS, PROVIDER_CAPABILITIES, type MCPProvider } from './provider-capabilities'
+import { purgeConnectionLearnings } from '@/lib/intelligence/connection-scan'
 
 export type ConnectionStatus = 'pending_auth' | 'active' | 'error' | 'not_connected'
 
@@ -235,4 +236,9 @@ export async function removeServerConnection(organizationId: string, provider: M
   }
   await prisma.mCPAgent.delete({ where: { id: connection.id } })
   await bustConnectionStatuses(organizationId, userId)
+
+  // Best-effort purge of this connection's scan-derived learnings (Task
+  // 4.5) — never blocks the disconnect; purgeConnectionLearnings already
+  // logs its own failures, `.catch` here is belt-and-suspenders.
+  void purgeConnectionLearnings({ organizationId, plane: 'klavis', connectionRef: connection.id }).catch(() => undefined)
 }
