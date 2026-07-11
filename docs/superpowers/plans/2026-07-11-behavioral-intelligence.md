@@ -67,6 +67,13 @@ export function scanEnabled(orgSettings: unknown): boolean // settings.disableCo
 
 ### Task 3: Workflow suggestions (Phase 2)
 
+**Amended requirements (user, 2026-07-11):**
+- **Cold start with zero agents:** suggestions must work for a fresh org that has connected tools but never created an agent or flow — the scans alone are sufficient input.
+- **≥3-integrations gate:** self-directed template/flow creation only activates once the org has ≥3 ACTIVE connections (count across Klavis MCPAgent + NangoConnection + McpConnection rows). Below the gate: scans still run and profiles accumulate, and the UI communicates progress ("Connect N more tools and Sublime starts building for you" — stage-02 framing). Export a pure, tested `meetsSuggestionGate(counts) => boolean`.
+- **Repetition is the signal:** the synthesis prompt must direct the model to find REPETITIVE tasks/use cases in the usage profiles (recurring cadences, repeated entity patterns, process mentions) and propose automations for those specifically — not generic ideas.
+- **Cross-tool correlation:** synthesis always receives ALL of the org's tool profiles together and is instructed to prefer suggestions that span ≥2 tools (e.g. GitHub issues → Slack digest), since the ≥3-connection gate exists precisely to give it cross-tool context.
+- **Process-improvement pass (existing flows/agents):** alongside new-workflow suggestions, a second structured output section `improvements: [{targetType:'flow'|'agent', targetId, title, rationale}]` — analyze the org's existing flows (name/description/trigger + last runs) and agents (objective + recent run headlines + failure/retry patterns) against the profiles, proposing concrete upgrades ("add a trigger filter", "this manual flow matches your weekly GitHub cadence — schedule it"). Persist as `suggestion` memories (deduped) and surface on the target flow/agent page as a dismissible "Suggested improvement" card.
+
 **Files:** Create `src/lib/intelligence/suggest-workflows.ts` + test; modify `src/app/api/cron/dispatch/route.ts` (weekly tick) and `connection-scan.ts` (post-scan hook); UI rail on `src/app/flows/page.tsx`.
 
 **Steps:**
