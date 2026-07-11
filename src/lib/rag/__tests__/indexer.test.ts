@@ -44,3 +44,20 @@ test('removeRetiredFromGraph is a no-op when Neo4j is not configured', async () 
     ]),
   )
 })
+
+test('dropClobberingBareNodes: bare account/opp nodes are dropped only when a read client exists but enrichment failed', async () => {
+  const { dropClobberingBareNodes } = await import(`../indexer?t=${Date.now()}-${Math.random()}`)
+  const nodes = [
+    { id: 'signal:s1', type: 'signal', text: 'Sales AI signal: x', props: {} },
+    { id: 'account:a1', type: 'account', text: 'Account a1', props: {} },
+    { id: 'opportunity:o1', type: 'opportunity', text: 'Opportunity o1 — Sales AI status: healthy', props: {} },
+    { id: 'stakeholder:p1', type: 'stakeholder', text: 'Stakeholder p1', props: {} },
+  ]
+  // Client available, only the opportunity enriched → bare account dropped,
+  // signal + enriched opp + (never-enrichable) stakeholder kept.
+  const filtered = dropClobberingBareNodes(nodes, { clientAvailable: true, enrichedIds: new Set(['opportunity:o1']) })
+  assert.deepEqual(filtered.map((n: { id: string }) => n.id), ['signal:s1', 'opportunity:o1', 'stakeholder:p1'])
+  // No client at all → bare nodes are useful join points; everything kept.
+  const kept = dropClobberingBareNodes(nodes, { clientAvailable: false, enrichedIds: new Set() })
+  assert.equal(kept.length, 4)
+})

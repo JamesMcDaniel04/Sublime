@@ -68,9 +68,12 @@ async function commit(organizationId: string, nodes: PendingNode[], edges: Graph
   if (edges.length) await store.upsertEdges(edges)
 }
 
-// Entity nodes referenced by a signal/run. Text is minimal today (the id);
-// SEAM: enrich account/opportunity/stakeholder text with People.ai facts via
-// getPeopleAiReadClient once the SalesAI read tool names are wired.
+// Entity nodes referenced by a signal/run. Account/opportunity text is
+// enriched with Sales AI facts by enrichEntities below; bare nodes that fail
+// enrichment are dropped before commit (dropClobberingBareNodes) so a
+// full-replace upsert can't downgrade a previously enriched shared node.
+// SEAM: stakeholder text is still bare — no SalesAI per-person read tool is
+// wired yet (enrichAccount/enrichOpportunity have no stakeholder sibling).
 function entityNodesFor(
   refs: { accountId?: string | null; opportunityId?: string | null; stakeholderId?: string | null },
 ): { nodes: PendingNode[]; edgesFromSignal: Array<{ to: string; rel: EdgeRelation }>; belongsTo: GraphEdge[] } {
@@ -125,23 +128,28 @@ export async function indexSignal(signal: SignalRecord): Promise<void> {
     // Enrich account/opportunity nodes with live Sales AI intelligence (status,
     // risks, next steps) so the graph carries substance, not just ids. Native
     // service client; best-effort — a failure leaves the basic node.
-    await enrichEntities(org, signal.accountId, signal.opportunityId, nodes)
-    await commit(org, nodes, edges)
+    const enrichment = await enrichEntities(org, signal.accountId, signal.opportunityId, nodes)
+    await commit(org, dropClobberingBareNodes(nodes, enrichment), edges)
   } catch (error) {
     warn('indexSignal', error)
   }
 }
 
-/** Replace basic account/opp node text with Sales AI facts, in place. */
+/**
+ * Replace basic account/opp node text with Sales AI facts, in place. Returns
+ * which nodes were actually enriched (and whether a read client existed) so
+ * the caller can drop bare nodes that would clobber richer shared ones.
+ */
 async function enrichEntities(
   organizationId: string,
   accountId: string | null,
   opportunityId: string | null,
   nodes: PendingNode[],
-): Promise<void> {
-  if (!accountId && !opportunityId) return
+): Promise<{ clientAvailable: boolean; enrichedIds: Set<string> }> {
+  const enrichedIds = new Set<string>()
+  if (!accountId && !opportunityId) return { clientAvailable: false, enrichedIds }
   const client = await getPeopleAiReadClient(null, organizationId)
-  if (!client) return
+  if (!client) return { clientAvailable: false, enrichedIds }
   // Cache scope = the identity the read client uses. getPeopleAiReadClient(null,
   // org) resolves to the org-wide service client, so account/opp facts are the
   // shared org view — safe to cache per org (matches the isolation posture).
@@ -153,6 +161,7 @@ async function enrichEntities(
       if (facts && node) {
         node.text = `Account ${accountId} — Sales AI status: ${facts.text}`
         node.props = { ...node.props, peopleaiAccountId: facts.peopleaiId }
+        enrichedIds.add(node.id)
       }
     }
     if (opportunityId) {
@@ -161,11 +170,29 @@ async function enrichEntities(
       if (facts && node) {
         node.text = `Opportunity ${opportunityId} — Sales AI status: ${facts.text}`
         node.props = { ...node.props, peopleaiOpportunityId: facts.peopleaiId }
+        enrichedIds.add(node.id)
       }
     }
   } catch (error) {
     warn('enrichEntities', error)
   }
+  return { clientAvailable: true, enrichedIds }
+}
+
+/**
+ * Pure: which entity nodes survive the commit. When a read client exists but
+ * an account/opportunity failed to enrich (transient timeout), its bare node
+ * is dropped — upsertNodes is full-replace, so committing it would clobber
+ * the richer shared node a previous index wrote. With no client at all,
+ * bare nodes stay: they're useful join points and nothing enriched exists to
+ * clobber. Stakeholders (never enrichable today) always stay.
+ */
+export function dropClobberingBareNodes(
+  nodes: PendingNode[],
+  opts: { clientAvailable: boolean; enrichedIds: Set<string> },
+): PendingNode[] {
+  if (!opts.clientAvailable) return nodes
+  return nodes.filter((node) => (node.type !== 'account' && node.type !== 'opportunity') || opts.enrichedIds.has(node.id))
 }
 
 export interface ExecutionRecord {
