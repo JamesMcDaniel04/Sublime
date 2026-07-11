@@ -68,6 +68,19 @@ export const REFLECTION_JSON_SCHEMA: Record<string, unknown> = {
   required: ['learnings', 'selfCritique', 'suggestions', 'goalAssessment'],
 }
 
+/**
+ * Pure: count "actionable" tool-call lines (`^tool: <name>`) in a condensed
+ * process log, excluding `ask_user` — the built-in human-clarification tool
+ * appended to every run's tool list (see execute-agent.ts's ASK_USER_TOOL).
+ * A run that only asked the human a question did no real work, so it must
+ * not satisfy the "≥1 tool used" template-worthiness gate in
+ * maybeCreateTemplateFromRun.
+ */
+export function countActionableToolCalls(processLog: string): number {
+  const matches = processLog.match(/^tool: (.+)$/gm) || []
+  return matches.filter((line) => line.slice('tool: '.length).trim() !== 'ask_user').length
+}
+
 /** Tolerant parse: strip fences, find the object, validate. Null on garbage. */
 export function parseReflection(raw: string): Reflection | null {
   const trimmed = raw.trim()
@@ -198,7 +211,7 @@ export async function reflectAndRemember(
     // Best-effort template distillation — never allowed to affect the
     // reflection result or throw into the run.
     if (params.userId) {
-      const toolCallCount = (params.processLog.match(/^tool: /gm) || []).length
+      const toolCallCount = countActionableToolCalls(params.processLog)
       await maybeCreateTemplateFromRun({
         organizationId: params.organizationId,
         userId: params.userId,

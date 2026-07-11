@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { parseReflection, buildReflectionPrompt } from '../reflection'
+import { parseReflection, buildReflectionPrompt, countActionableToolCalls } from '../reflection'
 
 test('parseReflection accepts clean JSON', () => {
   const parsed = parseReflection(JSON.stringify({
@@ -34,6 +34,25 @@ test('buildReflectionPrompt includes goal, objective, summary, log', () => {
   assert.match(user, /Grow upsell pipeline/)
   assert.match(user, /Score accounts/)
   assert.match(user, /Scored 12 accounts/)
+})
+
+test('countActionableToolCalls: ask_user alone does not count as actionable', () => {
+  const processLog = 'assistant: let me check\ntool: ask_user'
+  assert.equal(countActionableToolCalls(processLog), 0)
+})
+
+test('countActionableToolCalls: a real tool alongside ask_user counts only the real one', () => {
+  const processLog = 'tool: ask_user\ntool: github_search'
+  assert.equal(countActionableToolCalls(processLog), 1)
+})
+
+test('countActionableToolCalls: multiple real tools all count', () => {
+  const processLog = 'tool: github_search\ntool: snowflake_query\ntool: ask_user'
+  assert.equal(countActionableToolCalls(processLog), 2)
+})
+
+test('countActionableToolCalls: empty log counts zero', () => {
+  assert.equal(countActionableToolCalls(''), 0)
 })
 
 test('reflectAndRemember calls generate with the built prompt and tolerates downstream failure', async () => {
