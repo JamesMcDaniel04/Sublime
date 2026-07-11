@@ -47,7 +47,7 @@ export class PeopleAiClient {
     this.serverUrl = `${base}/mcp`
     this.authKind = auth.kind
     this.transport = new StreamableHttpMcpClient({
-      clientName: 'BackstoryStudio',
+      clientName: 'Sublime',
       fetchImpl: options.fetchImpl,
       timeoutMs: options.timeoutMs ?? DEFAULT_MCP_TIMEOUT_MS,
       getHeaders: async () => this.headers(),

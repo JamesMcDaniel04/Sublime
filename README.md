@@ -1,6 +1,6 @@
-# Backstory Studio
+# Sublime
 
-Backstory Studio is a focused AI-agent workspace: create agents, connect tools, run tasks, inspect live tool calls and errors, and ask follow-up questions about an execution.
+Sublime is a focused AI-agent workspace: create agents, connect tools, run tasks, inspect live tool calls and errors, and ask follow-up questions about an execution.
 
 ## Product Surface
 

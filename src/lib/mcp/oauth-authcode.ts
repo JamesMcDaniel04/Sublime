@@ -1,11 +1,11 @@
 /**
- * OAuth 2.0 authorization-code flow helpers for the Backstory MCP.
+ * OAuth 2.0 authorization-code flow helpers for the Sublime MCP.
  *
  * Pure functions only — no DB access, no Next.js request objects. These power
  * the /api/mcp-connections/oauth/{start,callback} route handlers and the
  * McpClient token-refresh path.
  *
- * The Backstory MCP advertises:
+ * The Sublime MCP advertises:
  *   - Dynamic Client Registration (DCR) at registration_endpoint
  *   - PKCE with S256 only (code_challenge_methods_supported: ["S256"])
  *   - grant_types: authorization_code + refresh_token (NOT client_credentials)
@@ -143,7 +143,7 @@ export async function registerClient(
       Accept: 'application/json',
     },
     body: JSON.stringify({
-      client_name: 'Backstory Studio',
+      client_name: 'Sublime',
       redirect_uris: [redirectUri],
       grant_types: ['authorization_code', 'refresh_token'],
       response_types: ['code'],
@@ -218,7 +218,7 @@ interface RawTokenResponse {
  * Build the auth headers + extra body params for confidential vs public
  * clients. If a client_secret is present we send it BOTH in the body
  * (client_secret_post) and as HTTP Basic (client_secret_basic) since the
- * Backstory token endpoint advertises both styles. Public clients (DCR with
+ * Sublime token endpoint advertises both styles. Public clients (DCR with
  * token_endpoint_auth_method=none) send neither.
  */
 function clientAuth(

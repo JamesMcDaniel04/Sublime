@@ -4,7 +4,7 @@
  * Exposes one agent tool — send — that lets agents send emails during a run.
  *
  * Requires: RESEND_API_KEY in the environment.
- * Optional: EMAIL_FROM (defaults to "Backstory <onboarding@resend.dev>").
+ * Optional: EMAIL_FROM (defaults to "Sublime <onboarding@resend.dev>").
  * All env vars are read at call time (never at module load) so that the
  * Next.js build succeeds even when they are not set.
  */
@@ -62,7 +62,7 @@ export class EmailToolClient {
     if (!apiKey) throw new Error('Resend API key is not configured')
 
     if (name === 'send') {
-      const from = process.env.EMAIL_FROM || 'Backstory <onboarding@resend.dev>'
+      const from = process.env.EMAIL_FROM || 'Sublime <onboarding@resend.dev>'
       const body = typeof args.body === 'string' ? args.body : String(args.body ?? '')
 
       // Agents are instructed to compose HTML email bodies; send those as html

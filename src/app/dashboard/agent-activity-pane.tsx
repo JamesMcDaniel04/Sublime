@@ -124,7 +124,7 @@ function asJson(value: unknown): string {
 // non-provider steps (e.g. "ask_user") so those keep the wrench.
 const PROVIDER_NAMES: Record<string, string> = {
   slack: 'Slack', gmail: 'Gmail', salesforce: 'Salesforce', granola: 'Granola',
-  email: 'Email', backstory: 'Backstory', jira: 'Jira', github: 'GitHub',
+  email: 'Email', sublime: 'Sublime', jira: 'Jira', github: 'GitHub',
   notion: 'Notion', hubspot: 'HubSpot', clickup: 'ClickUp', linear: 'Linear',
   asana: 'Asana', confluence: 'Confluence', trello: 'Trello',
   snowflake: 'Snowflake', google_drive: 'Google Drive', google_sheets: 'Google Sheets',
@@ -161,7 +161,7 @@ const PROVIDER_ALIASES: Array<{ key: string; aliases: string[] }> = [
   { key: 'monday', aliases: ['monday', 'mondaydotcom'] },
   { key: 'airtable', aliases: ['airtable'] },
   { key: 'granola', aliases: ['granola'] },
-  { key: 'backstory', aliases: ['backstory', 'backstorymcp', 'peopleai', 'people'] },
+  { key: 'sublime', aliases: ['sublime', 'sublimemcp', 'peopleai', 'people'] },
 ]
 
 const STRATA_TARGET_KEYS = new Set([
@@ -274,7 +274,7 @@ function stepProvider(step: Pick<RunStep, 'node' | 'input' | 'output'>): Provide
     )
   }
   // Custom MCP connections carry their slugified connection name as the
-  // provider (e.g. "Backstory MCP" → backstory_mcp), so an exact-key lookup
+  // provider (e.g. "Sublime MCP" → sublime_mcp), so an exact-key lookup
   // misses them — fall back to a known provider key contained in the slug so
   // those steps still get the right brand mark instead of an initial tile.
   const knownKey =
@@ -394,8 +394,8 @@ function humanizeFact(text: string): string {
   })
 }
 
-// Fact types sourced from Backstory Sales AI (vs. internal run/agent nodes), so
-// they render with the Backstory brand mark to show where the data came from.
+// Fact types sourced from Sublime Sales AI (vs. internal run/agent nodes), so
+// they render with the Sublime brand mark to show where the data came from.
 const SALES_AI_FACT_TYPES = new Set(['opportunity', 'account', 'signal'])
 
 // Renders the graph-RAG context the agent pulled in before acting — the visible
@@ -422,7 +422,7 @@ function ContextCard({ summary, hits, related }: { summary: string; hits: Contex
           {[...hits, ...related].map((fact, i) => (
             <li key={i} className="flex items-start gap-1.5 whitespace-pre-wrap text-xs text-gray-600">
               {SALES_AI_FACT_TYPES.has((fact.type || '').toLowerCase()) && (
-                <IntegrationLogo slug="backstory" name="Backstory" className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                <IntegrationLogo slug="sublime" name="Sublime" className="mt-0.5 h-3.5 w-3.5 shrink-0" />
               )}
               <span>
                 <span className="mono-label mr-1.5 text-gray-400">{fact.type}</span>

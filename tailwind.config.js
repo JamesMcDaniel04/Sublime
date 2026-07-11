@@ -1,6 +1,6 @@
 /** @type {import('tailwindcss').Config} */
 
-// Backstory brand scales (from the design system's colors_and_type.css).
+// Sublime brand scales (from the design system's colors_and_type.css).
 const horizon = {
   50: '#EBF3F6', 100: '#DBEBF2', 200: '#99C1D1', 300: '#7DACC0', 400: '#6397AD',
   500: '#447C93', 600: '#2B6178', 700: '#18485C', 800: '#0A2F3F', 900: '#021821', 950: '#01141C',

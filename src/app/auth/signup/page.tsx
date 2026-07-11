@@ -76,9 +76,9 @@ export default function SignUpPage() {
       <div className="w-full max-w-md animate-fade-in-up">
         <div className="mb-8 text-center">
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/backstory-logo-white.svg" alt="Backstory" className="mx-auto mb-6 h-7" />
+          <img src="/sublime-logo-white.svg" alt="Sublime" className="mx-auto mb-6 h-7" />
           <h1 className="text-2xl font-semibold text-white">Create your account</h1>
-          <p className="mt-1 text-white/70">Get started with Backstory.</p>
+          <p className="mt-1 text-white/70">Get started with Sublime.</p>
         </div>
 
         <Card className="shadow-3">

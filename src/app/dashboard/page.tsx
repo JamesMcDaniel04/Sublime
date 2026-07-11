@@ -243,7 +243,7 @@ function AgentHQ() {
   const editingAgent = showSetup && selectedAgent && selectedAgentId !== NEW_AGENT ? selectedAgent : null
 
   const greeting = useMemo(() => {
-    if (!selectedAgent) return agents.length ? 'Select an agent to see its activity.' : 'Describe what you need and Backstory builds the agent.'
+    if (!selectedAgent) return agents.length ? 'Select an agent to see its activity.' : 'Describe what you need and Sublime builds the agent.'
     const counts: Record<string, number> = {}
     for (const activity of agentActivities) {
       const status = activity.status.toLowerCase()

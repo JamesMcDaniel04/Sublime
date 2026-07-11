@@ -15,7 +15,7 @@ services:
   # (or delete the var; production defaults to queue). Flipping first leaves
   # runs stuck in `pending` with nothing draining them.
   - type: worker
-    name: backstory-worker
+    name: sublime-worker
     env: node
     buildCommand: npm ci && npm run db:generate
     startCommand: npm run worker:start
@@ -61,7 +61,7 @@ services:
         sync: false
       - key: RESEND_API_KEY
         sync: false
-      # People.ai / Backstory MCP identity.
+      # People.ai identity (backend enrichment for Signals + Graph RAG).
       - key: PEOPLE_AI_MCP_BASE_URL
         sync: false
       - key: PEOPLE_AI_SERVICE_CLIENT_ID
@@ -73,14 +73,6 @@ services:
       - key: PEOPLE_AI_OAUTH_CLIENT_SECRET
         sync: false
       - key: PEOPLE_AI_WEBHOOK_SECRET
-        sync: false
-      - key: BACKSTORY_MCP_URL
-        sync: false
-      - key: BACKSTORY_MCP_CLIENT_ID
-        sync: false
-      - key: BACKSTORY_MCP_CLIENT_SECRET
-        sync: false
-      - key: BACKSTORY_MCP_TOKEN_URL
         sync: false
       # Shared cache (Upstash REST — same values as Vercel).
       - key: UPSTASH_REDIS_REST_URL

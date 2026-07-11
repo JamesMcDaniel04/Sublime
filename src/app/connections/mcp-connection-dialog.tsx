@@ -235,7 +235,7 @@ export function McpConnectionDialog({
             <Input
               value={draft.name}
               onChange={(e) => set({ name: e.target.value })}
-              placeholder="e.g. Backstory MCP"
+              placeholder="e.g. Sublime MCP"
             />
           </div>
 

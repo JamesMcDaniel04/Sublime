@@ -14,7 +14,7 @@ const config: PeopleAiOAuthConfig = {
   clientId: 'client-abc',
   clientSecret: 'secret-xyz',
   redirectUri: 'https://studio.example.com/api/peopleai/callback',
-  scope: 'backstory-studio',
+  scope: 'sublime-studio',
 }
 
 test('generatePkce: S256 challenge matches verifier, base64url, RFC length', () => {
@@ -40,7 +40,7 @@ test('buildAuthorizeUrl: carries every required OAuth parameter', () => {
   assert.equal(url.searchParams.get('state'), 'state-1')
   assert.equal(url.searchParams.get('code_challenge'), 'chal-1')
   assert.equal(url.searchParams.get('code_challenge_method'), 'S256')
-  assert.equal(url.searchParams.get('scope'), 'backstory-studio')
+  assert.equal(url.searchParams.get('scope'), 'sublime-studio')
 })
 
 test('discoverMetadata: reads the well-known document', async () => {

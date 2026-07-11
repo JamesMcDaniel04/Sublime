@@ -94,7 +94,7 @@ export class KlavisClient {
     const response = await this.rpc(serverUrl, 'initialize', {
       protocolVersion: '2024-11-05',
       capabilities: { tools: {} },
-      clientInfo: { name: 'Backstory', version: '1.0.0' },
+      clientInfo: { name: 'Sublime', version: '1.0.0' },
     })
     if (response.error) throw new Error(response.error.message || 'Unable to initialize MCP server')
     await this.rpc(serverUrl, 'notifications/initialized', undefined, true)

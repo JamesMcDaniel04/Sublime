@@ -61,7 +61,7 @@ interface CachedToken {
 const MAX_TOKEN_TTL_S = 24 * 60 * 60
 
 // ---------------------------------------------------------------------------
-// SSE / JSON-RPC response parser (mirrors backstory-mcp.ts)
+// SSE / JSON-RPC response parser (mirrors sublime-mcp.ts)
 // ---------------------------------------------------------------------------
 
 function parseRpc(text: string): any {
@@ -308,7 +308,7 @@ export class McpClient {
   }
 
   // --------------------------------------------------------------------------
-  // Low-level JSON-RPC over HTTP (mirrors backstory-mcp.ts rpc())
+  // Low-level JSON-RPC over HTTP (mirrors sublime-mcp.ts rpc())
   // --------------------------------------------------------------------------
 
   private async rpc(
@@ -368,7 +368,7 @@ export class McpClient {
     const response = await this.rpc(serverUrl, 'initialize', {
       protocolVersion: '2024-11-05',
       capabilities: { tools: {} },
-      clientInfo: { name: 'BackstoryStudio', version: '1.0.0' },
+      clientInfo: { name: 'Sublime', version: '1.0.0' },
     })
     if (response.error) {
       throw new Error(response.error.message || 'Unable to initialize MCP server')

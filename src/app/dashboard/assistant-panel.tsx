@@ -416,7 +416,7 @@ export function AssistantPanel({
             <div className="w-full max-w-sm text-center">
               <MessageSquare className="mx-auto h-6 w-6 text-gray-300" />
               <p className="mt-2 text-sm text-gray-500">
-                Backstory grounds answers in this agent&apos;s configuration and recent runs.
+                Sublime grounds answers in this agent&apos;s configuration and recent runs.
               </p>
               <div className="mt-4 space-y-2">
                 {suggestions.map((suggestion) => (

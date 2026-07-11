@@ -713,7 +713,7 @@ function ExplorePage() {
                 </div>
                 <div>
                   <label className="mb-1 block text-xs font-medium text-muted-foreground">Integrations (comma-separated)</label>
-                  <Input value={dialog.integrations} onChange={(e) => setDialog({ ...dialog, integrations: e.target.value })} placeholder="Slack, Backstory MCP" />
+                  <Input value={dialog.integrations} onChange={(e) => setDialog({ ...dialog, integrations: e.target.value })} placeholder="Slack, Sublime MCP" />
                 </div>
               </div>
               {dialog.kind === 'template' && (

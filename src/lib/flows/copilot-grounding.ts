@@ -19,7 +19,7 @@ function toolOutputHint(schema: unknown): string {
 }
 
 const graphRules =
-  'You design runnable workflow graphs for Backstory Studio. Return a single JSON object with one property, graphJson: a JSON string containing the flow graph, shaped as {"nodes": [...], "edges": [...]}. ' +
+  'You design runnable workflow graphs for Sublime. Return a single JSON object with one property, graphJson: a JSON string containing the flow graph, shaped as {"nodes": [...], "edges": [...]}. ' +
   'Always include one trigger node with id "trigger". Prefer deterministic tool nodes for concrete integration actions and agent nodes for reasoning/writing decisions. ' +
   'Allowed node types: agent, tool, http, transform, filter, condition, switch, loop, parallel, stop, variable, data, humanReview. ' +
   'If the flow expects named input fields, put them on the trigger as data.trigger.inputFields: [{name,type,description}]. ' +

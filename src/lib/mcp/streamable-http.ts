@@ -1,7 +1,7 @@
 /**
  * Minimal MCP StreamableHTTP client transport (JSON-RPC over POST, tolerating
  * SSE-framed responses). Auth is injected as a header provider so the same
- * transport serves the legacy Backstory service client, the per-user People.ai
+ * transport serves the legacy Sublime service client, the per-user People.ai
  * client, and tests.
  */
 
@@ -103,7 +103,7 @@ export class StreamableHttpMcpClient {
     const response = await this.rpc(serverUrl, 'initialize', {
       protocolVersion: '2024-11-05',
       capabilities: { tools: {} },
-      clientInfo: { name: this.options.clientName ?? 'BackstoryStudio', version: '1.0.0' },
+      clientInfo: { name: this.options.clientName ?? 'Sublime', version: '1.0.0' },
     })
     if (response.error) throw new Error(response.error.message || 'Unable to initialize MCP server')
     await this.rpc(serverUrl, 'notifications/initialized', undefined, true)

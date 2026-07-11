@@ -29,7 +29,7 @@ const anonymousPro = Anonymous_Pro({
 })
 
 export const metadata: Metadata = {
-  title: 'Backstory',
+  title: 'Sublime',
   description: 'Build, run, and review AI agents connected to your tools.',
 }
 

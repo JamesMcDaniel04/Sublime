@@ -10,14 +10,14 @@ import './landing.css'
 export const dynamic = 'force-dynamic'
 
 export const metadata: Metadata = {
-  title: 'Backstory — agents that show their work',
+  title: 'Sublime — agents that show their work',
   description:
     'Build AI agents, connect them to the tools you already use, and read every run — each tool call, each result, each error, in plain sight.',
 }
 
 function Tick() {
   return (
-    <span className="bs-l-tick" aria-hidden>
+    <span className="sl-l-tick" aria-hidden>
       <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
         <path d="M20 6L9 17l-5-5" />
       </svg>
@@ -27,7 +27,7 @@ function Tick() {
 
 function Cross() {
   return (
-    <span className="bs-l-cross" aria-hidden>
+    <span className="sl-l-cross" aria-hidden>
       <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round">
         <path d="M12 5v8M12 17.5v.5" />
       </svg>
@@ -38,9 +38,9 @@ function Cross() {
 // Abstracted rows — gray bars suggesting earlier runs behind the spotlight.
 function AbstractRow({ widths }: { widths: number[] }) {
   return (
-    <div className="bs-l-abstract-row" aria-hidden>
+    <div className="sl-l-abstract-row" aria-hidden>
       {widths.map((w, i) => (
-        <span key={i} className="bs-l-bar" style={{ width: w }} />
+        <span key={i} className="sl-l-bar" style={{ width: w }} />
       ))}
     </div>
   )
@@ -48,46 +48,46 @@ function AbstractRow({ widths }: { widths: number[] }) {
 
 function ProductShot() {
   return (
-    <div className="bs-l-stage bs-l-rise bs-l-rise--3" role="img" aria-label="A Backstory Studio run log: an agent's tool calls with results, one flagged error, and the run's output.">
-      <div className="bs-l-appbar">
+    <div className="sl-l-stage sl-l-rise sl-l-rise--3" role="img" aria-label="A Sublime run log: an agent's tool calls with results, one flagged error, and the run's output.">
+      <div className="sl-l-appbar">
         {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src="/backstory-mark-blue.svg" alt="" />
+        <img src="/sublime-mark-blue.svg" alt="" />
         Weekly pipeline digest
-        <span className="bs-l-nav-spacer" />
-        <span className="bs-l-pill bs-l-pill--info">Run #142</span>
-        <span className="bs-l-pill bs-l-pill--good">Done</span>
+        <span className="sl-l-nav-spacer" />
+        <span className="sl-l-pill sl-l-pill--info">Run #142</span>
+        <span className="sl-l-pill sl-l-pill--good">Done</span>
       </div>
 
-      <div className="bs-l-flag">
+      <div className="sl-l-flag">
         <span>Every tool call, logged</span>
         <i />
       </div>
 
-      <div className="bs-l-run-card">
-        <div className="bs-l-run-head">
-          <span className="bs-l-eyebrow">Run log</span>
-          <span className="bs-l-run-meta">Today 09:00 · 41s</span>
+      <div className="sl-l-run-card">
+        <div className="sl-l-run-head">
+          <span className="sl-l-eyebrow">Run log</span>
+          <span className="sl-l-run-meta">Today 09:00 · 41s</span>
         </div>
-        <div className="bs-l-trace">
-          <div className="bs-l-trace-row">
+        <div className="sl-l-trace">
+          <div className="sl-l-trace-row">
             <Tick />
             <b>hubspot.list_deals</b> 8 open deals
           </div>
-          <div className="bs-l-trace-row">
+          <div className="sl-l-trace-row">
             <Tick />
             <b>gmail.search_messages</b> 34 threads scanned
           </div>
-          <div className="bs-l-trace-row bs-l-trace-row--risk">
+          <div className="sl-l-trace-row sl-l-trace-row--risk">
             <Cross />
             <b>slack.post_message</b> #revenue-team not found
           </div>
-          <div className="bs-l-trace-row">
+          <div className="sl-l-trace-row">
             <Tick />
             <b>slack.post_message</b> delivered to #revenue
           </div>
         </div>
-        <div className="bs-l-output">
-          <span className="bs-l-eyebrow">Output</span>
+        <div className="sl-l-output">
+          <span className="sl-l-eyebrow">Output</span>
           <p>
             Three deals need attention this week — $402,300 at risk. Falken Group went quiet after the security
             review; recommend a call before Friday.
@@ -95,7 +95,7 @@ function ProductShot() {
         </div>
       </div>
 
-      <div className="bs-l-ghost">
+      <div className="sl-l-ghost">
         <AbstractRow widths={[130, 70, 90, 56]} />
         <AbstractRow widths={[100, 84, 60, 72]} />
       </div>
@@ -116,64 +116,64 @@ export default async function Home() {
   if (user) redirect('/dashboard')
 
   return (
-    <div className="bs-l-page">
-      <header className="bs-l-wrap bs-l-nav">
+    <div className="sl-l-page">
+      <header className="sl-l-wrap sl-l-nav">
         {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src="/backstory-lockup-black.svg" alt="Backstory" style={{ height: 22 }} />
-        <span className="bs-l-nav-spacer" />
-        <a className="bs-l-nav-link" href="#features">
+        <img src="/sublime-lockup-black.svg" alt="Sublime" style={{ height: 22 }} />
+        <span className="sl-l-nav-spacer" />
+        <a className="sl-l-nav-link" href="#features">
           What you get
         </a>
-        <a className="bs-l-nav-link" href="#how">
+        <a className="sl-l-nav-link" href="#how">
           How it works
         </a>
-        <Link href="/auth/login" className="bs-l-btn bs-l-btn--ghost bs-l-btn--sm">
+        <Link href="/auth/login" className="sl-l-btn sl-l-btn--ghost sl-l-btn--sm">
           Sign in
         </Link>
-        <Link href="/auth/signup" className="bs-l-btn bs-l-btn--dark bs-l-btn--sm">
+        <Link href="/auth/signup" className="sl-l-btn sl-l-btn--dark sl-l-btn--sm">
           Get started
         </Link>
       </header>
 
-      <section className="bs-l-wrap bs-l-hero">
+      <section className="sl-l-wrap sl-l-hero">
         <div>
-          <div className="bs-l-eyebrow bs-l-rise">— the AI agent workspace</div>
-          <h1 className="bs-l-h1 bs-l-rise">
+          <div className="sl-l-eyebrow sl-l-rise">— the AI agent workspace</div>
+          <h1 className="sl-l-h1 sl-l-rise">
             Agents that <em>show their work</em>.
           </h1>
-          <p className="bs-l-lede bs-l-rise bs-l-rise--2">
-            Backstory Studio is where you build AI agents, connect them to the tools you already use, and read
+          <p className="sl-l-lede sl-l-rise sl-l-rise--2">
+            Sublime is where you build AI agents, connect them to the tools you already use, and read
             every run — each tool call, each result, each error, in plain sight.
           </p>
-          <div className="bs-l-cta-row bs-l-rise bs-l-rise--2">
-            <Link href="/auth/signup" className="bs-l-btn bs-l-btn--dark">
+          <div className="sl-l-cta-row sl-l-rise sl-l-rise--2">
+            <Link href="/auth/signup" className="sl-l-btn sl-l-btn--dark">
               Create your first agent →
             </Link>
-            <Link href="/auth/login" className="bs-l-btn bs-l-btn--ghost">
+            <Link href="/auth/login" className="sl-l-btn sl-l-btn--ghost">
               Sign in
             </Link>
           </div>
-          <div className="bs-l-tagline bs-l-rise bs-l-rise--3">
+          <div className="sl-l-tagline sl-l-rise sl-l-rise--3">
             <span>see what&apos;s coming</span>
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src="/backstory-mark-blue.svg" alt="" />
+            <img src="/sublime-mark-blue.svg" alt="" />
             <span>know what to do</span>
           </div>
         </div>
         <ProductShot />
       </section>
 
-      <section id="features" className="bs-l-section">
-        <div className="bs-l-wrap">
-          <div className="bs-l-eyebrow">— what you get</div>
-          <h2 className="bs-l-section-h">The whole story of every run.</h2>
-          <p className="bs-l-section-sub">
-            Backstory keeps agents legible: what they were asked, which tools they touched, what came back, and
+      <section id="features" className="sl-l-section">
+        <div className="sl-l-wrap">
+          <div className="sl-l-eyebrow">— what you get</div>
+          <h2 className="sl-l-section-h">The whole story of every run.</h2>
+          <p className="sl-l-section-sub">
+            Sublime keeps agents legible: what they were asked, which tools they touched, what came back, and
             what to do next.
           </p>
-          <div className="bs-l-feature-grid">
-            <div className="bs-l-feature">
-              <span className="bs-l-feature-icon">
+          <div className="sl-l-feature-grid">
+            <div className="sl-l-feature">
+              <span className="sl-l-feature-icon">
                 <Bot size={18} strokeWidth={2} />
               </span>
               <h3>Build agents in minutes</h3>
@@ -182,8 +182,8 @@ export default async function Home() {
                 schedule, a webhook, or run it by hand.
               </p>
             </div>
-            <div className="bs-l-feature">
-              <span className="bs-l-feature-icon">
+            <div className="sl-l-feature">
+              <span className="sl-l-feature-icon">
                 <Cable size={18} strokeWidth={2} />
               </span>
               <h3>Connect the tools you already use</h3>
@@ -192,8 +192,8 @@ export default async function Home() {
                 workspace. You approve every connection.
               </p>
             </div>
-            <div className="bs-l-feature">
-              <span className="bs-l-feature-icon">
+            <div className="sl-l-feature">
+              <span className="sl-l-feature-icon">
                 <ScrollText size={18} strokeWidth={2} />
               </span>
               <h3>Read every run</h3>
@@ -206,28 +206,28 @@ export default async function Home() {
         </div>
       </section>
 
-      <section id="how" className="bs-l-section bs-l-section--blue">
-        <div className="bs-l-wrap">
-          <div className="bs-l-eyebrow">— how it works</div>
-          <h2 className="bs-l-section-h">From idea to audited run.</h2>
-          <div className="bs-l-steps">
-            <div className="bs-l-step">
-              <span className="bs-l-step-num">01</span>
+      <section id="how" className="sl-l-section sl-l-section--blue">
+        <div className="sl-l-wrap">
+          <div className="sl-l-eyebrow">— how it works</div>
+          <h2 className="sl-l-section-h">From idea to audited run.</h2>
+          <div className="sl-l-steps">
+            <div className="sl-l-step">
+              <span className="sl-l-step-num">01</span>
               <h3>Describe the agent</h3>
               <p>An objective, a model, and the skills it should follow.</p>
             </div>
-            <div className="bs-l-step">
-              <span className="bs-l-step-num">02</span>
+            <div className="sl-l-step">
+              <span className="sl-l-step-num">02</span>
               <h3>Connect its tools</h3>
               <p>MCP and Pipedream integrations, approved by you.</p>
             </div>
-            <div className="bs-l-step">
-              <span className="bs-l-step-num">03</span>
+            <div className="sl-l-step">
+              <span className="sl-l-step-num">03</span>
               <h3>Run it</h3>
               <p>By hand, on a schedule, or from a webhook.</p>
             </div>
-            <div className="bs-l-step">
-              <span className="bs-l-step-num">04</span>
+            <div className="sl-l-step">
+              <span className="sl-l-step-num">04</span>
               <h3>Ask what happened</h3>
               <p>Chat with any run. The trace is the evidence.</p>
             </div>
@@ -235,36 +235,36 @@ export default async function Home() {
         </div>
       </section>
 
-      <section className="bs-l-section bs-l-section--dark">
-        <div className="bs-l-wrap bs-l-cta-band">
+      <section className="sl-l-section sl-l-section--dark">
+        <div className="sl-l-wrap sl-l-cta-band">
           <div>
-            <div className="bs-l-eyebrow" style={{ color: 'var(--horizon-200)' }}>
+            <div className="sl-l-eyebrow" style={{ color: 'var(--horizon-200)' }}>
               — get started
             </div>
-            <h2 className="bs-l-section-h">Stop wondering what your agents did.</h2>
-            <p className="bs-l-section-sub">Create a workspace and read your first run today.</p>
+            <h2 className="sl-l-section-h">Stop wondering what your agents did.</h2>
+            <p className="sl-l-section-sub">Create a workspace and read your first run today.</p>
           </div>
-          <div className="bs-l-cta-row">
-            <Link href="/auth/signup" className="bs-l-btn bs-l-btn--blue">
+          <div className="sl-l-cta-row">
+            <Link href="/auth/signup" className="sl-l-btn sl-l-btn--blue">
               Create an account →
             </Link>
-            <Link href="/auth/login" className="bs-l-btn bs-l-btn--ghost-inverse">
+            <Link href="/auth/login" className="sl-l-btn sl-l-btn--ghost-inverse">
               Sign in
             </Link>
           </div>
         </div>
       </section>
 
-      <footer className="bs-l-footer">
-        <div className="bs-l-wrap">
+      <footer className="sl-l-footer">
+        <div className="sl-l-wrap">
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/backstory-lockup-black.svg" alt="Backstory" />
-          <span className="bs-l-footer-tagline">see what&apos;s coming · know what to do</span>
-          <span className="bs-l-nav-spacer" />
+          <img src="/sublime-lockup-black.svg" alt="Sublime" />
+          <span className="sl-l-footer-tagline">see what&apos;s coming · know what to do</span>
+          <span className="sl-l-nav-spacer" />
           <Link href="/privacy">Privacy</Link>
           <Link href="/terms">Terms</Link>
           <Link href="/auth/login">Sign in</Link>
-          <span>© 2026 Backstory</span>
+          <span>© 2026 Sublime</span>
         </div>
       </footer>
     </div>

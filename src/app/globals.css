@@ -1,10 +1,10 @@
-@import './backstory-design.css';
+@import './sublime-design.css';
 
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
-/* shadcn-style tokens, mapped to the Backstory palette. Every UI primitive
+/* shadcn-style tokens, mapped to the Sublime palette. Every UI primitive
    (button, card, badge, input, …) reads these, so the whole app inherits
    Horizon (primary) + Graphite (neutrals) from here. */
 :root {

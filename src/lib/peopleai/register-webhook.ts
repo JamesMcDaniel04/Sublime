@@ -1,5 +1,5 @@
 /**
- * Register Backstory Studio's signal receiver with People.ai SalesAI.
+ * Register Sublime's signal receiver with People.ai SalesAI.
  *
  * POST /v1/salesai/webhooks (api.people.ai). Idempotent per the docs' event
  * set; called on org setup / first People.ai connect. Auth uses the org

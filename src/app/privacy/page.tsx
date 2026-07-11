@@ -97,7 +97,7 @@ export default function PrivacyPage() {
           <section className="mb-8">
             <h2 className="text-2xl font-semibold mb-4">9. Contact Us</h2>
             <p>
-              If you have questions about this Privacy Policy, please contact us at privacy@backstory.app.
+              If you have questions about this Privacy Policy, please contact us at privacy@sublime.app.
             </p>
           </section>
         </div>

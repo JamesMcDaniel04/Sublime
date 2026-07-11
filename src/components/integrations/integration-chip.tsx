@@ -2,14 +2,14 @@ import { IntegrationLogo } from '@/components/integrations/integration-logo'
 
 /**
  * A labelled pill with the integration's brand logo. Maps a free-text
- * integration name ("Slack", "Backstory MCP", "Email") to a logo slug so
+ * integration name ("Slack", "Sublime MCP", "Email") to a logo slug so
  * template/skill cards and their detail pages render real marks. Anything
  * unmapped falls through to IntegrationLogo's initial-tile fallback.
  */
 
 export function integrationSlug(name: string): string | null {
   const n = name.toLowerCase()
-  if (n.includes('backstory')) return 'backstory'
+  if (n.includes('sublime')) return 'sublime'
   if (n.includes('slack')) return 'slack'
   if (n.includes('salesforce')) return 'salesforce'
   if (n.includes('snowflake')) return 'snowflake'

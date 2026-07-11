@@ -1,7 +1,7 @@
 /**
  * People.ai MCP OAuth client (authorization-code + PKCE).
  *
- * Backstory Studio is a registered OAuth client of mcp.people.ai — the same
+ * Sublime is a registered OAuth client of mcp.people.ai — the same
  * surface Claude and Copilot integrate against. The user's browser is sent to
  * the MCP authorize endpoint; People.ai internally delegates sign-in to Glass
  * → Salesforce and redirects back to our callback with an authorization code,

@@ -37,8 +37,8 @@ type Agent = Pick<AgentType, 'id' | 'title' | 'description' | 'instructions' | '
 
 type Organization = { id: string; name: string; slug: string; plan: string; logoUrl?: string | null }
 
-/** Default workspace avatar — the Backstory mark, until an org uploads its own. */
-const DEFAULT_ORG_LOGO = '/backstory-mark-blue.svg'
+/** Default workspace avatar — the Sublime mark, until an org uploads its own. */
+const DEFAULT_ORG_LOGO = '/sublime-mark-blue.svg'
 
 /**
  * Downscale an uploaded image to a small square PNG data URL so the logo can
@@ -81,7 +81,7 @@ type SidebarSnapshot = { organizations: Organization[]; activeOrgId: string | nu
 let sidebarCache: SidebarSnapshot | null = null
 
 const CREDIT_TOKENS = 1_000_000
-export const AGENTS_CHANGED_EVENT = 'backstory:agents-changed'
+export const AGENTS_CHANGED_EVENT = 'sublime:agents-changed'
 
 export function notifyAgentsChanged() {
   window.dispatchEvent(new CustomEvent(AGENTS_CHANGED_EVENT))

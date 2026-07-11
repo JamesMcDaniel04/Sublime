@@ -55,7 +55,7 @@ const LOCAL_LOGOS: Record<string, string> = {
   granola: '/logos/granola.jpg',
   // Salesforce was removed from the Simple Icons CDN (trademark), so bundle it.
   salesforce: '/logos/salesforce.svg',
-  backstory: '/backstory-mark-blue.svg',
+  sublime: '/sublime-mark-blue.svg',
   googledrive: '/logos/googledrive.svg',
   googlesheets: '/logos/googlesheets.webp',
   monday: '/logos/monday.jpg',
@@ -65,9 +65,9 @@ const LOCAL_LOGOS: Record<string, string> = {
 
 function localLogo(slug: string): string | undefined {
   const key = slug.replace(/[-_\s]/g, '')
-  // Custom Backstory MCP connections slugify to backstory_mcp / backstorymcp /
-  // "backstory mcp" etc.; any variant containing "backstory" gets the mark.
-  if (key.includes('backstory')) return LOCAL_LOGOS.backstory
+  // Custom Sublime MCP connections slugify to sublime_mcp / sublimemcp /
+  // "sublime mcp" etc.; any variant containing "sublime" gets the mark.
+  if (key.includes('sublime')) return LOCAL_LOGOS.sublime
   return LOCAL_LOGOS[key]
 }
 

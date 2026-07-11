@@ -679,7 +679,7 @@ export function AgentConfigForm({
         {availableIntegrations ? (
           <div className="mt-2 space-y-3">
             {/* All attachable tools across planes (built-ins, Nango, Klavis, and
-                custom Backstory-MCP connections) in one wrapping row group so
+                custom Sublime-MCP connections) in one wrapping row group so
                 they flow together rather than breaking onto separate rows. */}
             {(availableIntegrations.tools.length > 0 || availableIntegrations.connections.length > 0) && (
               <div className="flex flex-wrap gap-2">

@@ -1,6 +1,6 @@
 /* ============================================================
-   BACKSTORY DESIGN SYSTEM — token layer
-   Source of truth: "Backstory Design System/colors_and_type.css".
+   SUBLIME DESIGN SYSTEM — token layer
+   Source of truth: "Sublime Design System/colors_and_type.css".
    Fonts are loaded via next/font in layout.tsx (so no @font-face here);
    everything else (color scales, semantic tokens, radii, spacing, shadows,
    type scale + helper classes) is mirrored verbatim so the product can reach

@@ -24,14 +24,14 @@ export default function TermsPage() {
           <section className="mb-8">
             <h2 className="text-2xl font-semibold mb-4">1. Acceptance of Terms</h2>
             <p>
-              By accessing and using Backstory, you accept and agree to be bound by the terms and provision of this agreement.
+              By accessing and using Sublime, you accept and agree to be bound by the terms and provision of this agreement.
             </p>
           </section>
 
           <section className="mb-8">
             <h2 className="text-2xl font-semibold mb-4">2. Description of Service</h2>
             <p>
-              Backstory is an AI-agent workspace that lets teams build, run, and review agents connected to their tools, 
+              Sublime is an AI-agent workspace that lets teams build, run, and review agents connected to their tools, 
               reporting, and insights for software development teams.
             </p>
           </section>
@@ -55,7 +55,7 @@ export default function TermsPage() {
           <section className="mb-8">
             <h2 className="text-2xl font-semibold mb-4">5. Prohibited Uses</h2>
             <p>
-              You may not use Backstory for any unlawful purpose or to solicit others to perform unlawful acts.
+              You may not use Sublime for any unlawful purpose or to solicit others to perform unlawful acts.
             </p>
           </section>
 
@@ -69,14 +69,14 @@ export default function TermsPage() {
           <section className="mb-8">
             <h2 className="text-2xl font-semibold mb-4">7. Limitation of Liability</h2>
             <p>
-              Backstory shall not be liable for any indirect, incidental, special, consequential, or punitive damages.
+              Sublime shall not be liable for any indirect, incidental, special, consequential, or punitive damages.
             </p>
           </section>
 
           <section className="mb-8">
             <h2 className="text-2xl font-semibold mb-4">8. Contact Information</h2>
             <p>
-              For questions about these Terms of Service, please contact us at support@backstory.app.
+              For questions about these Terms of Service, please contact us at support@sublime.app.
             </p>
           </section>
         </div>

@@ -18,7 +18,7 @@ import {
  *    Each `key` is the string the agent runtime matches — both this endpoint
  *    and loadTools derive keys/matching from the shared connector registry, so
  *    a chip the UI shows is a chip the runtime activates.
- *  - `connections`: the org's custom Backstory-MCP connections (id + name),
+ *  - `connections`: the org's custom Sublime-MCP connections (id + name),
  *    which the runtime loads for every agent regardless of selection.
  *
  * Connection state is read from the mirror tables (nango_connections,
