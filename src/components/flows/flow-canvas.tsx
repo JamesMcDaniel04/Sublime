@@ -440,6 +440,15 @@ export function FlowCanvas({
   const trigger = byId.get('trigger') ?? graph.nodes[0]
   const first = trigger ? nextOf(trigger.id) : undefined
   const seen = new Set<string>(trigger ? [trigger.id] : [])
+  // The "Add a trigger" picker shows only until the user has actually chosen a
+  // trigger: an explicit pick sets `configured` (see the builder's
+  // onPickTrigger), and a non-manual type implies a choice was made. Without
+  // this, the picker lingered under an already-picked trigger card.
+  const triggerData =
+    trigger?.type === 'trigger' && trigger.data.trigger && typeof trigger.data.trigger === 'object'
+      ? (trigger.data.trigger as { type?: string; configured?: boolean })
+      : undefined
+  const triggerConfigured = Boolean(triggerData?.configured || (triggerData?.type && triggerData.type !== 'manual'))
 
   return (
     <div className="mx-auto flex w-full max-w-[760px] flex-col items-center py-8" onClick={() => onBackgroundClick?.()}>
@@ -449,7 +458,7 @@ export function FlowCanvas({
       </div>
       <div className="flex w-full flex-col items-center">
         {trigger && card(trigger)}
-        {trigger && !first && (
+        {trigger && !first && !triggerConfigured && (
           <div
             className="mt-4 w-full max-w-[620px] overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm"
             onClick={(event) => event.stopPropagation()}

@@ -1,55 +1,59 @@
 /**
  * Unit tests for the flow-builder canvas click-and-hold pan. The pan logic is
- * a pure DOM module (canvas-pan.ts) so it is testable without mounting the
- * builder page; the page only wires pointer events to it.
+ * a pure module (canvas-pan.ts): a drag session reports 2D deltas that the
+ * builder applies as a translate on the canvas plane — so panning works even
+ * when the content doesn't overflow (nothing to scroll). The page only wires
+ * pointer events.
  */
 import '@/test-support/jsdom-env'
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { startCanvasPan, PAN_INTERACTIVE_SELECTOR } from '../canvas-pan'
 
-function fakeContainer(): HTMLElement {
-  const el = document.createElement('div')
-  // jsdom has no layout: back scrollTop with a plain writable property.
-  Object.defineProperty(el, 'scrollTop', { value: 100, writable: true })
-  document.body.appendChild(el)
-  return el
-}
-
-test('left-button drag on the background scrolls the container', () => {
-  const el = fakeContainer()
-  const pan = startCanvasPan(el, { button: 0, clientY: 500, target: el })
+test('left-button drag on the background reports 2D deltas (the plane follows the hand)', () => {
+  const applied: Array<{ dx: number; dy: number }> = []
+  const pan = startCanvasPan(
+    { button: 0, clientX: 300, clientY: 500, target: document.body },
+    (dx, dy) => applied.push({ dx, dy }),
+  )
   assert.ok(pan, 'expected a pan session to start')
-  pan!.move(450) // drag up 50px → content follows the hand → scrollTop increases
-  assert.equal(el.scrollTop, 150)
-  pan!.move(560) // drag below the origin → scrolls back past the start
-  assert.equal(el.scrollTop, 40)
+  pan!.move(250, 460) // hand moves left 50 / up 40 → plane follows
+  assert.deepEqual(applied.at(-1), { dx: -50, dy: -40 })
+  pan!.move(340, 560) // back past the origin, both axes
+  assert.deepEqual(applied.at(-1), { dx: 40, dy: 60 })
   assert.equal(pan!.end().dragged, true)
 })
 
-test('sub-threshold movement stays a click (no scroll, not a drag)', () => {
-  const el = fakeContainer()
-  const pan = startCanvasPan(el, { button: 0, clientY: 500, target: el })!
-  pan.move(498) // 2px < 3px threshold
-  assert.equal(el.scrollTop, 100)
+test('sub-threshold movement stays a click (no deltas, not a drag)', () => {
+  const applied: Array<{ dx: number; dy: number }> = []
+  const pan = startCanvasPan(
+    { button: 0, clientX: 300, clientY: 500, target: document.body },
+    (dx, dy) => applied.push({ dx, dy }),
+  )!
+  pan.move(301, 502) // ~2px < 3px threshold
+  assert.equal(applied.length, 0)
   assert.equal(pan.end().dragged, false)
 })
 
 test('non-left buttons and interactive targets never start a pan', () => {
-  const el = fakeContainer()
-  assert.equal(startCanvasPan(el, { button: 1, clientY: 0, target: el }), null)
-  assert.equal(startCanvasPan(el, { button: 2, clientY: 0, target: el }), null)
+  const noop = () => {}
+  assert.equal(startCanvasPan({ button: 1, clientX: 0, clientY: 0, target: document.body }, noop), null)
+  assert.equal(startCanvasPan({ button: 2, clientX: 0, clientY: 0, target: document.body }, noop), null)
 
   const button = document.createElement('button')
-  el.appendChild(button)
-  assert.equal(startCanvasPan(el, { button: 0, clientY: 0, target: button }), null)
+  document.body.appendChild(button)
+  assert.equal(startCanvasPan({ button: 0, clientX: 0, clientY: 0, target: button }, noop), null)
 
   const card = document.createElement('div')
   card.setAttribute('data-node-id', 'n1')
   const inner = document.createElement('span')
   card.appendChild(inner)
-  el.appendChild(card)
-  assert.equal(startCanvasPan(el, { button: 0, clientY: 0, target: inner }), null, 'descendants of a step card are excluded')
+  document.body.appendChild(card)
+  assert.equal(
+    startCanvasPan({ button: 0, clientX: 0, clientY: 0, target: inner }, noop),
+    null,
+    'descendants of a step card are excluded',
+  )
 })
 
 test('the interactive selector covers the surfaces node interactions use', () => {

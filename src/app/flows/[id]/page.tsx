@@ -201,15 +201,21 @@ function FlowBuilder() {
     if (typeof window !== 'undefined') window.localStorage.setItem('flows.canvasZoom', String(clamped))
   }, [])
   const canvasScrollRef = useRef<HTMLDivElement>(null)
-  // Click-and-hold drag-to-scroll on the empty canvas background. The pan
-  // session lives in canvas-pan.ts (pure, unit-tested); after a real drag the
-  // container's click must be suppressed so releasing doesn't deselect.
+  // Click-and-hold pan on the empty canvas background: the drag translates
+  // the canvas PLANE (a CSS translate alongside the zoom scale), so grabbing
+  // the background always moves the canvas — even when nothing overflows.
+  // Session logic lives in canvas-pan.ts (pure, unit-tested); after a real
+  // drag the container's click is suppressed so releasing doesn't deselect.
+  const [canvasPan, setCanvasPan] = useState({ x: 0, y: 0 })
+  const canvasPanRef = useRef(canvasPan)
+  canvasPanRef.current = canvasPan
   const panRef = useRef<ReturnType<typeof startCanvasPan>>(null)
   const suppressCanvasClickRef = useRef(false)
   const onCanvasPointerDown = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
     const container = canvasScrollRef.current
     if (!container) return
-    const pan = startCanvasPan(container, event)
+    const origin = canvasPanRef.current
+    const pan = startCanvasPan(event, (dx, dy) => setCanvasPan({ x: origin.x + dx, y: origin.y + dy }))
     if (!pan) return
     panRef.current = pan
     container.setPointerCapture?.(event.pointerId)
@@ -217,7 +223,7 @@ function FlowBuilder() {
     document.body.style.userSelect = 'none'
   }, [])
   const onCanvasPointerMove = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
-    panRef.current?.move(event.clientY)
+    panRef.current?.move(event.clientX, event.clientY)
   }, [])
   const onCanvasPointerEnd = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
     const pan = panRef.current
@@ -1012,7 +1018,15 @@ function FlowBuilder() {
             backgroundSize: '28px 28px',
           }}
         >
-          <div style={{ transform: `scale(${zoom})`, transformOrigin: 'top center', width: `${100 / zoom}%`, marginLeft: `${(1 - 1 / zoom) * 50}%` }}>
+          <div
+            style={{
+              // Translate first (screen-pixel pan), then scale (zoom). Fit resets both.
+              transform: `translate(${canvasPan.x}px, ${canvasPan.y}px) scale(${zoom})`,
+              transformOrigin: 'top center',
+              width: `${100 / zoom}%`,
+              marginLeft: `${(1 - 1 / zoom) * 50}%`,
+            }}
+          >
             <FlowCanvas
               graph={canvasGraph}
               agentName={(agentId) => agentsById.get(agentId) ?? ''}
@@ -1073,7 +1087,9 @@ function FlowBuilder() {
                       const triggerNode = graph.nodes.find((n) => n.type === 'trigger')
                       if (!triggerNode || triggerNode.type !== 'trigger') return
                       const current = isRecordLike(triggerNode.data.trigger) ? triggerNode.data.trigger : {}
-                      commitGraph(updateNode(graph, { ...triggerNode, data: { trigger: { ...current, type } } }))
+                      // `configured: true` dismisses the canvas "Add a trigger"
+                      // picker — an explicit pick (even of Manual) is a choice.
+                      commitGraph(updateNode(graph, { ...triggerNode, data: { trigger: { ...current, type, configured: true } } }))
                       setSelectedId(triggerNode.id)
                     }
               }
@@ -1092,6 +1108,7 @@ function FlowBuilder() {
           onZoom={setZoom}
           onFit={() => {
             setZoom(1)
+            setCanvasPan({ x: 0, y: 0 })
             canvasScrollRef.current?.scrollTo({ top: 0, behavior: 'smooth' })
           }}
           nodes={canvasGraph.nodes.filter((n) => n.type !== 'trigger').map((n) => ({ id: n.id, title: labelForNode(n.id) }))}
