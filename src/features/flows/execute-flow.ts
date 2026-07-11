@@ -34,6 +34,10 @@ export type FlowExecutionJob = {
   flowRunId?: string
   // Resume a paused run: the user's reply to the ask-user step that paused it.
   reply?: string
+  // Queue mode only: dispatchFlowExecution pre-created this FlowRun row (so
+  // the caller has an id to poll) — adopt it instead of creating a new one.
+  // Distinct from flowRunId, which always means "resume a waiting run".
+  queuedRunId?: string
   // Scheduled/triggered runs execute the PUBLISHED graph; a manual builder run
   // executes the working draft so you can test before publishing.
   usePublished?: boolean
@@ -175,7 +179,26 @@ export async function runFlowExecution(
       )
     }
   }
-  const run = existingRun ?? await prisma.flowRun.create({
+  // Queue mode: adopt the row dispatchFlowExecution pre-created instead of
+  // minting a second one. Status-guarded on 'running' — if the reaper already
+  // terminalized a stale pre-created row, adoption loses cleanly and the job
+  // dead-letters rather than re-running against a settled row.
+  let adoptedRun: typeof existingRun = null
+  if (!existingRun && job.queuedRunId) {
+    const adopted = await prisma.flowRun.updateMany({
+      where: { id: job.queuedRunId, organizationId: job.organizationId, flowId: flow.id, status: 'running' },
+      data: {
+        input: jsonValue({ prompt: input }),
+        trigger: jsonValue({ ...(job.trigger ?? { type: 'manual' }), ...(reusedInput ? { reusedInput: true } : {}) }),
+        graphSnapshot: jsonValue(graph),
+        startedAt: new Date(),
+      },
+    })
+    if (adopted.count === 0) throw new Error('Queued flow run not found or already settled')
+    adoptedRun = await prisma.flowRun.findFirst({ where: { id: job.queuedRunId, organizationId: job.organizationId } })
+    if (!adoptedRun) throw new Error('Queued flow run not found after adoption')
+  }
+  const run = existingRun ?? adoptedRun ?? await prisma.flowRun.create({
     data: {
       flowId: flow.id,
       status: 'running',
@@ -586,20 +609,53 @@ export async function runFlowExecution(
 }
 
 /**
- * Entry point for callers that want queue durability (BullMQ stall recovery
- * and dead-letter) instead of running inline in the request process. NOT YET
- * called from any route — infrastructure only (WS-R2 Task 2). In
- * `inlineExecution` mode (the default today) this is identical to calling
- * `runFlowExecution` directly.
+ * Entry point for every flow-execution caller. In `inlineExecution` mode
+ * (dev default, or EXECUTION_MODE=inline) this is identical to calling
+ * `runFlowExecution` directly. In queue mode it enqueues onto BullMQ (stall
+ * recovery + dead-letter):
+ *   - resumes carry their flowRunId and are redelivery-safe via the atomic
+ *     waiting→running claim;
+ *   - fresh jobs pre-create the FlowRun row HERE (status running) so the
+ *     caller always has an id to poll — the worker adopts it via queuedRunId
+ *     (mirrors agents/[id]/execute's pre-created AgentExecution pattern).
  */
 export async function dispatchFlowExecution(
   job: FlowExecutionJob,
-): Promise<{ flowRunId: string; status: string; output: unknown } | { queued: true }> {
+): Promise<{ flowRunId: string; status: string; output: unknown } | { queued: true; flowRunId: string }> {
   if (inlineExecution) return runFlowExecution(job)
   if (!workersEnabled) throw new Error('Flow worker is disabled')
-  const queue = createQueue(QUEUE_NAMES.FLOW_EXECUTION)
-  await queue.add('execute-flow', job, flowJobOptions(job.flowRunId))
-  return { queued: true }
+
+  const resuming = Boolean(job.flowRunId && job.reply !== undefined)
+  if (resuming) {
+    const queue = createQueue(QUEUE_NAMES.FLOW_EXECUTION)
+    await queue.add('execute-flow', job, flowJobOptions(job.flowRunId))
+    return { queued: true, flowRunId: job.flowRunId! }
+  }
+
+  const preCreated = await prisma.flowRun.create({
+    data: {
+      flowId: job.flowId,
+      status: 'running',
+      input: jsonValue({ prompt: job.input ?? '' }),
+      trigger: jsonValue(job.trigger ?? { type: 'manual' }),
+      organizationId: job.organizationId,
+      userId: job.userId,
+    },
+  })
+  try {
+    const queue = createQueue(QUEUE_NAMES.FLOW_EXECUTION)
+    await queue.add('execute-flow', { ...job, queuedRunId: preCreated.id }, flowJobOptions(undefined))
+  } catch (error) {
+    // Never leave a phantom 'running' row for a job that was never enqueued.
+    await prisma.flowRun
+      .updateMany({
+        where: { id: preCreated.id, organizationId: job.organizationId, status: 'running' },
+        data: { status: 'failed', error: 'Unable to queue flow execution', finishedAt: new Date() },
+      })
+      .catch(() => undefined)
+    throw error
+  }
+  return { queued: true, flowRunId: preCreated.id }
 }
 
 /** BullMQ job handler — the worker calls this for each dequeued flow job. */

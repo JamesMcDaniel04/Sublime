@@ -164,4 +164,56 @@ if (TEST_DB) {
     // The original waiting row was resolved by the resume, never left dangling.
     assert.ok(!after3.some((step) => step.status === 'waiting'))
   })
+
+  test('a fresh job with queuedRunId adopts the pre-created row instead of creating a second run', async () => {
+    // Queue mode pre-creates the FlowRun in dispatchFlowExecution so callers
+    // can poll; the worker's runFlowExecution must adopt that row (fill in
+    // input/trigger/snapshot) rather than minting a duplicate.
+    const stopGraph = {
+      nodes: [...emptyGraph.nodes, { id: 'end', type: 'stop', position: { x: 0, y: 0 }, data: { reason: 'done' } }],
+      edges: [{ id: 'e-end', source: 'trigger', target: 'end' }],
+    }
+    const flow = await prisma.flow.create({
+      data: { name: 'adopt-target', organizationId: ids.org, status: 'ACTIVE', graph: stopGraph, publishedGraph: stopGraph },
+    })
+    const preCreated = await prisma.flowRun.create({
+      data: { flowId: flow.id, organizationId: ids.org, userId: ids.user, status: 'running', input: { prompt: 'queued' }, trigger: { type: 'webhook' } },
+    })
+    const result = await runFlowExecution({
+      flowId: flow.id,
+      organizationId: ids.org,
+      userId: ids.user,
+      input: 'queued',
+      queuedRunId: preCreated.id,
+      trigger: { type: 'webhook' },
+    })
+    assert.equal(result.flowRunId, preCreated.id, 'must execute against the pre-created row')
+    const runs = await prisma.flowRun.findMany({ where: { flowId: flow.id, organizationId: ids.org } })
+    assert.equal(runs.length, 1, 'no duplicate run row')
+    const adopted = runs[0]
+    assert.ok(adopted.graphSnapshot, 'adoption must persist the graph snapshot')
+    assert.notEqual(adopted.status, 'running')
+  })
+
+  test('adopting a queuedRunId that was already settled (e.g. reaper-failed) throws instead of re-running', async () => {
+    const stopGraph = {
+      nodes: [...emptyGraph.nodes, { id: 'end', type: 'stop', position: { x: 0, y: 0 }, data: { reason: 'done' } }],
+      edges: [{ id: 'e-end', source: 'trigger', target: 'end' }],
+    }
+    const flow = await prisma.flow.create({
+      data: { name: 'adopt-settled', organizationId: ids.org, status: 'ACTIVE', graph: stopGraph, publishedGraph: stopGraph },
+    })
+    const settled = await prisma.flowRun.create({
+      data: { flowId: flow.id, organizationId: ids.org, userId: ids.user, status: 'failed', input: { prompt: '' } },
+    })
+    await assert.rejects(
+      () => runFlowExecution({ flowId: flow.id, organizationId: ids.org, userId: ids.user, queuedRunId: settled.id }),
+      /queued flow run/i,
+    )
+    const after2 = await prisma.flowRun.findUnique({ where: { id: settled.id, organizationId: ids.org } })
+    assert.equal(after2.status, 'failed')
+    const steps = await prisma.flowRunStep.findMany({ where: { flowRunId: settled.id } })
+    assert.equal(steps.length, 0, 'a settled row must not gain executed steps')
+  })
+
 }
