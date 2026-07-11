@@ -1,10 +1,10 @@
 /**
  * Dead-letter capture for flow jobs — mirrors dead-letter.ts but marks the
- * FlowRun row failed instead of an AgentExecution. A fresh-execution job's
- * data carries no flowRunId (runFlowExecution creates that row itself), so
- * recordFlowDeadLetter can only mark a run failed when it fails as a RESUME
- * (flowRunId present in job.data); a fresh-execution failure is dead-lettered
- * for inspection but has no run row to update.
+ * FlowRun row failed instead of an AgentExecution. Resume jobs carry
+ * `flowRunId`; fresh queued jobs carry `queuedRunId` (the row
+ * dispatchFlowExecution pre-created so callers can poll) — either lets a
+ * failed job terminalize its run row instead of stranding it `running`
+ * until the reaper sweeps it.
  */
 
 import type { Job } from 'bullmq'
@@ -60,10 +60,16 @@ export function deadLetterFromFlowJob(queueName: string) {
   return (job: Job | undefined, error: Error) => {
     if (!job) return
     const data = (job.data ?? {}) as Record<string, unknown>
+    const flowRunId =
+      typeof data.flowRunId === 'string'
+        ? data.flowRunId
+        : typeof data.queuedRunId === 'string'
+          ? data.queuedRunId
+          : undefined
     void recordFlowDeadLetter({
       queue: queueName,
       jobId: job.id,
-      flowRunId: typeof data.flowRunId === 'string' ? data.flowRunId : undefined,
+      flowRunId,
       organizationId: typeof data.organizationId === 'string' ? data.organizationId : undefined,
       data: job.data,
       error: error?.message || 'unknown error',

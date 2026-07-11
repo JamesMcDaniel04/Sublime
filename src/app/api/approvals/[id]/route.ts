@@ -4,7 +4,7 @@ import { withAuthenticatedApi, ApiError } from '@/lib/server/api-handler'
 import { apiLogger } from '@/lib/logger'
 import { decideApproval } from '@/lib/agents/approval'
 import { resumeAgentExecution } from '@/features/agents/execute-agent'
-import { runFlowExecution } from '@/features/flows/execute-flow'
+import { dispatchFlowExecution } from '@/features/flows/execute-flow'
 
 const schema = z.object({ decision: z.enum(['approve', 'reject']) })
 
@@ -31,7 +31,7 @@ export const POST = withAuthenticatedApi(async (request: NextRequest, auth) => {
     // A flow run paused on a tool-step approval resumes the same way: the
     // decision payload rides in as the reply and the paused step consumes it.
     if (resumeFlow) {
-      void runFlowExecution({
+      void dispatchFlowExecution({
         flowId: resumeFlow.flowId,
         organizationId: resumeFlow.organizationId,
         userId: resumeFlow.userId,

@@ -2,7 +2,7 @@ import { z } from 'zod'
 import { prisma } from '@/lib/prisma'
 import { ApiError, withAuthenticatedApi } from '@/lib/server/api-handler'
 import { agentVisibilityScope } from '@/lib/server/visibility'
-import { runFlowExecution } from '@/features/flows/execute-flow'
+import { dispatchFlowExecution } from '@/features/flows/execute-flow'
 import { parseFlowInput } from '@/lib/flows/input'
 import { deriveRunWaiting } from '@/lib/flows/run-waiting'
 
@@ -46,7 +46,7 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
     })
     if (!owned) throw new ApiError('Run not found', 404, 'NOT_FOUND')
     // A run paused on a tool-step APPROVAL resumes only through the approvals
-    // route (which calls runFlowExecution directly with the decision payload,
+    // route (which dispatches the flow execution with the decision payload,
     // never through this endpoint). A user-supplied reply here must never be
     // interpreted as — or race with — an approval decision.
     if (parsed.reply !== undefined && owned.status === 'waiting') {
@@ -60,7 +60,9 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
       }
     }
   }
-  const run = await runFlowExecution({
+  // Inline mode returns the terminal result; queue mode returns immediately
+  // with the (pre-created or resumed) run id and the run panel polls it.
+  const result = await dispatchFlowExecution({
     flowId: id,
     organizationId: auth.organizationId,
     userId: auth.dbUser.id,
@@ -68,5 +70,6 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
     flowRunId: parsed.flowRunId,
     reply: parsed.reply,
   })
+  const run = 'queued' in result ? { flowRunId: result.flowRunId, status: 'queued', output: null } : result
   return { success: true, run }
 })

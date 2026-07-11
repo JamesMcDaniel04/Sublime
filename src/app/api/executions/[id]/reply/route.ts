@@ -3,7 +3,7 @@ import { prisma } from '@/lib/prisma'
 import { createQueue, QUEUE_NAMES, workersEnabled } from '@/lib/queue/config'
 import { ApiError, withAuthenticatedApi } from '@/lib/server/api-handler'
 import { runAgentExecution } from '@/features/agents/execute-agent'
-import { runFlowExecution } from '@/features/flows/execute-flow'
+import { dispatchFlowExecution } from '@/features/flows/execute-flow'
 import { inlineExecution } from '@/lib/queue/execution-mode'
 import { executionVisibilityScope, agentVisibilityScope } from '@/lib/server/visibility'
 import { deriveRunWaiting } from '@/lib/flows/run-waiting'
@@ -76,7 +76,9 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
     // (mirrors the approvals route's derivation).
     const triggerType = (run.trigger as { type?: string } | null)?.type
     try {
-      const result = await runFlowExecution({
+      // Queue mode resumes on the worker (result = { queued: true, flowRunId });
+      // the run panel already polls the run, so the reply UX degrades gracefully.
+      const result = await dispatchFlowExecution({
         flowId: run.flowId,
         organizationId: auth.organizationId,
         userId: run.userId ?? auth.dbUser.id,

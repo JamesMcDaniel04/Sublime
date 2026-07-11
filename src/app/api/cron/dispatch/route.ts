@@ -17,7 +17,7 @@ import { timingSafeEqual } from 'crypto'
 import { prisma, systemPrisma } from '@/lib/prisma'
 import { apiLogger } from '@/lib/logger'
 import { runAgentExecution } from '@/features/agents/execute-agent'
-import { runFlowExecution } from '@/features/flows/execute-flow'
+import { dispatchFlowExecution } from '@/features/flows/execute-flow'
 import { parseFlowInput } from '@/lib/flows/input'
 import { isDue, type AgentSchedule } from '@/lib/scheduling/due'
 import { workersEnabled } from '@/lib/queue/config'
@@ -261,7 +261,7 @@ export async function GET(request: Request) {
           ? await prisma.user.findFirst({ where: { id: flow.userId, organizationId: flow.organizationId, isActive: true } })
           : await prisma.user.findFirst({ where: { organizationId: flow.organizationId, isActive: true }, orderBy: { createdAt: 'asc' } })
         if (!owner) continue
-        await runFlowExecution({
+        await dispatchFlowExecution({
           flowId: flow.id,
           organizationId: flow.organizationId,
           userId: owner.id,

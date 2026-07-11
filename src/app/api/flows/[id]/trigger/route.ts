@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma, systemPrisma } from '@/lib/prisma'
 import { apiLogger } from '@/lib/logger'
-import { runFlowExecution } from '@/features/flows/execute-flow'
+import { dispatchFlowExecution } from '@/features/flows/execute-flow'
 import { hashToken, timingSafeEqualHex } from '@/lib/crypto/secrets'
 import { rateLimit } from '@/lib/ratelimit'
 import { flowInputFromWebhookBody } from '@/lib/flows/input'
@@ -50,7 +50,10 @@ export async function POST(request: NextRequest) {
       ? await request.json().catch(() => ({}))
       : await request.text().catch(() => '')
     const input = flowInputFromWebhookBody(body)
-    const run = await runFlowExecution({
+    // Queue mode: the webhook caller gets the run id immediately (202,
+    // status 'queued') and the run executes on the worker; inline returns
+    // the terminal result as before.
+    const result = await dispatchFlowExecution({
       flowId: flow.id,
       organizationId: flow.organizationId,
       userId: owner.id,
@@ -58,7 +61,8 @@ export async function POST(request: NextRequest) {
       usePublished: true,
       trigger: { type: 'webhook' },
     })
-    return NextResponse.json({ success: true, run })
+    const run = 'queued' in result ? { flowRunId: result.flowRunId, status: 'queued', output: null } : result
+    return NextResponse.json({ success: true, run }, { status: 'queued' in result ? 202 : 200 })
   } catch (error) {
     if (error instanceof ApiError) {
       return NextResponse.json({ success: false, error: error.message, code: error.code }, { status: error.status })
