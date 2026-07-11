@@ -86,3 +86,15 @@ test('renderContext carries the citation/grounding instruction when context exis
   assert.match(rendered, /attribute it inline/)
   assert.match(rendered, /Never present a correlated fact as something you observed live/)
 })
+
+test('recencyWeight: fresh ≈ 1, 30 days ≈ half-decayed, unknown/old floor at 0.5', async () => {
+  const { recencyWeight } = await import('../retrieve')
+  const now = Date.parse('2026-07-11T00:00:00Z')
+  assert.ok(recencyWeight(new Date(now).toISOString(), now) > 0.99)
+  const thirtyDaysAgo = new Date(now - 30 * 86_400_000).toISOString()
+  assert.ok(Math.abs(recencyWeight(thirtyDaysAgo, now) - 0.5) < 0.01)
+  assert.equal(recencyWeight(undefined, now), 0.5)
+  assert.equal(recencyWeight('not-a-date', now), 0.5)
+  const yearAgo = new Date(now - 365 * 86_400_000).toISOString()
+  assert.equal(recencyWeight(yearAgo, now), 0.5) // floored, never vanishes
+})

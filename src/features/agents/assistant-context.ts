@@ -2,6 +2,7 @@ import type { AgentTask } from '@prisma/client'
 import { prisma } from '@/lib/prisma'
 import { readAgentMetadata } from '@/lib/agents/metadata'
 import { retrieveContext, renderContext } from '@/lib/rag/retrieve'
+import { retrieveKnowledge, renderKnowledge } from '@/lib/knowledge/retrieve'
 import { getGraphRagStore } from '@/lib/rag/get-store'
 
 /**
@@ -64,6 +65,8 @@ export type AssistantContext = {
   latestFailedRun: (ReturnType<typeof summarizeRun> & { toolCalls: unknown[]; conversation: unknown[] }) | null
   /** Graph-RAG correlated context (Sales AI signals, integration data, related runs). Empty string when RAG is unconfigured. */
   correlated: string
+  /** Uploaded-file knowledge passages relevant to the question. Empty string when none. */
+  knowledge: string
 }
 
 /**
@@ -131,6 +134,18 @@ export async function buildAssistantContext(agent: AgentTask, question = '', vie
 
   const agentMetadata = readAgentMetadata(agent.metadata)
   const correlated = await correlatedContext(agent, question, viewerUserId)
+  // Uploaded files must inform the assistant too, not only runs. Best-effort.
+  let knowledge = ''
+  try {
+    const hits = await retrieveKnowledge({
+      organizationId: agent.organizationId,
+      agentId: agent.id,
+      query: `${question}\n${agent.objective}`.slice(0, 2000),
+    })
+    knowledge = renderKnowledge(hits)
+  } catch {
+    knowledge = ''
+  }
 
   return {
     agent: {
@@ -148,5 +163,6 @@ export async function buildAssistantContext(agent: AgentTask, question = '', vie
     latestRun: latest ? detailFor(latest) : null,
     latestFailedRun: latestFailed ? detailFor(latestFailed) : null,
     correlated,
+    knowledge,
   }
 }

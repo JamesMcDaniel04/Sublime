@@ -15,7 +15,7 @@
  * ranking/rendering logic is unit-testable without network or a graph DB.
  */
 
-import { embedQuery, type EmbedOptions } from './embeddings'
+import { embedQuery, rerankTexts, type EmbedOptions } from './embeddings'
 import { ragEnabled } from './get-store'
 import type { GraphNode, GraphRagStore, SearchHit } from './store'
 
@@ -34,7 +34,11 @@ export interface RetrieveOptions {
   topK?: number
   hops?: number
   maxNodes?: number
+  /** Drop vector hits scoring below this cosine similarity (default 0.25). */
+  minScore?: number
   embed?: (text: string, options?: EmbedOptions) => Promise<number[]>
+  /** Injectable for tests; defaults to the Voyage rerank (no-op unless enabled). */
+  rerank?: typeof rerankTexts
 }
 
 export interface RetrievedContext {
@@ -45,6 +49,19 @@ export interface RetrievedContext {
 }
 
 const truncate = (text: string, max = 500) => (text.length > max ? `${text.slice(0, max)}…` : text)
+
+/**
+ * Recency weight for ranking (seam 9-lite): exponential decay with a 30-day
+ * half-life, floored so old-but-relevant facts still surface. A node with no
+ * updatedAt gets the floor (treat unknown age as old).
+ */
+export function recencyWeight(updatedAt: string | undefined, now: number = Date.now()): number {
+  if (!updatedAt) return 0.5
+  const at = new Date(updatedAt).getTime()
+  if (Number.isNaN(at)) return 0.5
+  const days = Math.max(0, (now - at) / 86_400_000)
+  return Math.max(0.5, 2 ** (-days / 30))
+}
 
 /**
  * Retrieve correlated context. Returns an empty pack (never throws) when
@@ -65,6 +82,8 @@ export async function retrieveContext(
     return { hits: [], related: [] }
   }
 
+  const minScore = options.minScore ?? 0.25
+  const rerank = options.rerank ?? rerankTexts
   let searchHits: SearchHit[] = []
   try {
     const queryVector = await embed(options.query, { inputType: 'query' })
@@ -74,6 +93,24 @@ export async function retrieveContext(
   } catch {
     // Retrieval is best-effort — a failed embed/search must not break the caller.
     searchHits = []
+  }
+  // Score floor: below-threshold cosine hits are noise that would seed graph
+  // expansion from the wrong neighborhood — drop them before anything else.
+  searchHits = searchHits.filter((h) => h.score >= minScore)
+  // Recency-aware ordering: same-relevance facts prefer the fresher node
+  // (cosine still reported as `score`; ordering blends a 30-day-half-life
+  // decay so stale intel doesn't outrank this week's).
+  searchHits = searchHits
+    .map((h) => ({ hit: h, effective: h.score * (0.85 + 0.15 * recencyWeight(h.node.updatedAt)) }))
+    .sort((a, b) => b.effective - a.effective)
+    .map((entry) => entry.hit)
+  // Optional Voyage rerank (VOYAGE_RERANK_MODEL): reorder by cross-encoder
+  // relevance; below-0.1 rerank scores are dropped as off-topic.
+  if (searchHits.length > 1) {
+    const ranked = await rerank(options.query, searchHits.map((h) => h.node.text))
+    if (ranked) {
+      searchHits = ranked.filter((row) => row.score >= 0.1).map((row) => searchHits[row.index]).filter(Boolean)
+    }
   }
 
   const seedIds = [...new Set([...(options.seedNodeIds ?? []), ...searchHits.map((h) => h.node.id)])]

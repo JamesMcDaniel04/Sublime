@@ -158,3 +158,33 @@ export function cosineSimilarity(a: number[], b: number[]): number {
   if (normA === 0 || normB === 0) return 0
   return dot / (Math.sqrt(normA) * Math.sqrt(normB))
 }
+
+/**
+ * Optional Voyage rerank pass (seam 6): opt-in via VOYAGE_RERANK_MODEL (e.g.
+ * "rerank-2.5-lite") because it adds a network hop to every retrieval. Given
+ * a query and candidate texts, returns indexes ordered most-relevant-first
+ * with relevance scores; returns null (caller keeps cosine order) when
+ * disabled or on any failure — reranking must never break retrieval.
+ */
+export async function rerankTexts(
+  query: string,
+  texts: string[],
+): Promise<Array<{ index: number; score: number }> | null> {
+  const model = process.env.VOYAGE_RERANK_MODEL
+  const apiKey = process.env.VOYAGE_API_KEY
+  if (!model || !apiKey || texts.length === 0) return null
+  try {
+    const response = await fetch(`${process.env.VOYAGE_URL || 'https://api.voyageai.com/v1'}/rerank`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query: query.slice(0, 4000), documents: texts, model }),
+      signal: AbortSignal.timeout(8000),
+    })
+    if (!response.ok) return null
+    const data = (await response.json()) as { data?: Array<{ index: number; relevance_score: number }> }
+    if (!Array.isArray(data.data)) return null
+    return data.data.map((row) => ({ index: row.index, score: row.relevance_score }))
+  } catch {
+    return null
+  }
+}

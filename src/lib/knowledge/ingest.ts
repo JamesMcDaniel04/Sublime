@@ -25,10 +25,10 @@ export async function ingestKnowledgeFile(params: {
 }) {
   if (!isSupported(params.mimeType, params.filename)) {
     throw new UnsupportedFileError(
-      'Unsupported file type. Upload text, markdown, CSV, JSON, HTML, or source files (PDF/DOCX support is coming).',
+      'Unsupported file type. Upload PDF, DOCX, text, markdown, CSV, JSON, HTML, or source files.',
     )
   }
-  const raw = extractText(params.buffer, params.mimeType, params.filename)
+  const raw = await extractText(params.buffer, params.mimeType, params.filename)
   if (!raw) throw new UnsupportedFileError('No readable text was found in that file.')
   const text = raw.slice(0, MAX_CHARS)
   const chunks = chunkText(text).slice(0, MAX_CHUNKS)
