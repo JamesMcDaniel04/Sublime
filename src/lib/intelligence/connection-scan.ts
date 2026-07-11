@@ -301,6 +301,21 @@ export async function scanConnection(params: {
       link: '/integrations',
     })
 
+    // Fire-and-forget: a fresh profile may be the one that tips the org over
+    // the >=3-connection suggestion gate, or add new cross-tool signal to an
+    // org already past it. Dynamically imported to avoid a static import
+    // cycle (suggest-workflows imports orgIntelligenceAgentId from this
+    // module); guarded internally to <=1 synthesis/org/day, so this never
+    // does meaningful work on most scans.
+    void import('@/lib/intelligence/suggest-workflows')
+      .then((mod) => mod.synthesizeWorkflowSuggestions(organizationId))
+      .catch((error) => {
+        apiLogger.warn('connectionScan: post-scan suggestion synthesis failed', {
+          organizationId,
+          error: error instanceof Error ? error.message : String(error),
+        })
+      })
+
     return { scanned: true, processes: profile.processes.length }
   } catch (error) {
     apiLogger.warn('scanConnection failed', {

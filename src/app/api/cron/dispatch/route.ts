@@ -280,7 +280,32 @@ export async function GET(request: Request) {
       }
     }
 
-    return Response.json({ success: true, due: dueCount, ran: ranIds, ranFlows: ranFlowIds })
+    // Weekly workflow-suggestion synthesis: only attempted in the Monday
+    // 09:00 UTC hour (this cron ticks every 15 minutes, so up to 4 attempts
+    // land in that window) — synthesizeWorkflowSuggestions itself enforces
+    // <=1 run/org/day, so the first attempt in the window does the work and
+    // the rest return immediately. Also fires per-scan (see connection-scan.ts);
+    // that per-org daily guard is what actually keeps this to a weekly cadence
+    // for quiet orgs and prevents double-firing with the post-scan hook.
+    let suggestionOrgsChecked = 0
+    if (now.getUTCDay() === 1 && now.getUTCHours() === 9) {
+      const { synthesizeWorkflowSuggestions } = await import('@/lib/intelligence/suggest-workflows')
+      // systemPrisma: global weekly sweep — reads orgs across all tenants by design (CRON_SECRET-gated).
+      const orgs = await systemPrisma.organization.findMany({ select: { id: true }, take: 500 })
+      for (const org of orgs) {
+        try {
+          await synthesizeWorkflowSuggestions(org.id)
+        } catch (error) {
+          apiLogger.error('cron/dispatch: workflow suggestion synthesis failed', {
+            organizationId: org.id,
+            error: capError(error),
+          })
+        }
+      }
+      suggestionOrgsChecked = orgs.length
+    }
+
+    return Response.json({ success: true, due: dueCount, ran: ranIds, ranFlows: ranFlowIds, suggestionOrgsChecked })
   } catch (error) {
     apiLogger.error('cron/dispatch: unhandled error', {
       error: error instanceof Error ? error.message : String(error),

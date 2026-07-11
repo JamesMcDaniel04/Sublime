@@ -1,10 +1,10 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { toast } from 'sonner'
-import { Workflow, Plus } from 'lucide-react'
+import { Workflow, Plus, Sparkles, X } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -24,7 +24,10 @@ type FlowItem = {
   status: string
   stepCount: number
   updatedAt: string
+  suggested?: boolean
 }
+
+type SuggestionReadiness = { ready: boolean; totalConnections: number; connectionsNeeded: number }
 
 const STATUS_STYLE: Record<string, string> = {
   active: 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-300',
@@ -35,16 +38,20 @@ const STATUS_STYLE: Record<string, string> = {
 export default function FlowsPage() {
   const router = useRouter()
   const [flows, setFlows] = useState<FlowItem[]>([])
+  const [readiness, setReadiness] = useState<SuggestionReadiness | null>(null)
   const [loading, setLoading] = useState(true)
   const [page, setPage] = useState(1)
   const [creating, setCreating] = useState(false)
+  const [dismissingId, setDismissingId] = useState<string | null>(null)
 
   useEffect(() => {
     let cancelled = false
     fetch('/api/flows', { cache: 'no-store' })
       .then((response) => response.json())
       .then((data) => {
-        if (!cancelled) setFlows(data.success ? data.flows : [])
+        if (cancelled) return
+        setFlows(data.success ? data.flows : [])
+        setReadiness(data.success ? data.suggestionReadiness ?? null : null)
       })
       .catch(() => undefined)
       .finally(() => {
@@ -54,6 +61,28 @@ export default function FlowsPage() {
       cancelled = true
     }
   }, [])
+
+  const suggestedFlows = useMemo(() => flows.filter((flow) => flow.suggested && flow.status === 'draft'), [flows])
+  const otherFlows = useMemo(() => flows.filter((flow) => !(flow.suggested && flow.status === 'draft')), [flows])
+
+  const dismissSuggestion = async (id: string) => {
+    setDismissingId(id)
+    const previous = flows
+    setFlows((prev) => prev.filter((flow) => flow.id !== id))
+    try {
+      const response = await fetch('/api/flows', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id }),
+      })
+      if (!response.ok) {
+        setFlows(previous)
+        toast.error('Could not dismiss that suggestion.')
+      }
+    } finally {
+      setDismissingId(null)
+    }
+  }
 
   const createFlow = async () => {
     setCreating(true)
@@ -71,7 +100,7 @@ export default function FlowsPage() {
     }
   }
 
-  const { pageItems, pageCount, page: current } = paginate(flows, page, PAGE_SIZE)
+  const { pageItems, pageCount, page: current } = paginate(otherFlows, page, PAGE_SIZE)
 
   return (
     <div className="mx-auto max-w-6xl space-y-6">
@@ -82,23 +111,61 @@ export default function FlowsPage() {
         </Button>
       </div>
 
+      {!loading && suggestedFlows.length > 0 && (
+        <div className="space-y-3 rounded-xl border border-indigo-200/70 bg-indigo-50/50 p-4 dark:border-indigo-500/30 dark:bg-indigo-500/5">
+          <div className="flex items-center gap-2">
+            <Sparkles className="h-4 w-4 text-indigo-600 dark:text-indigo-300" />
+            <p className="text-sm font-semibold text-indigo-900 dark:text-indigo-200">Your AI is ready — suggested for you</p>
+          </div>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {suggestedFlows.map((flow) => (
+              <div key={flow.id} className="rounded-lg border border-indigo-200/70 bg-background p-3 dark:border-indigo-500/30">
+                <p className="truncate text-sm font-semibold" title={flow.name}>{flow.name}</p>
+                <p className="mt-0.5 line-clamp-2 text-xs text-muted-foreground">{flow.description || 'A workflow draft based on how your team uses its connected tools.'}</p>
+                <div className="mt-2 flex items-center gap-2">
+                  <Button size="sm" onClick={() => router.push(`/flows/${flow.id}`)}>
+                    Open
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    disabled={dismissingId === flow.id}
+                    onClick={() => dismissSuggestion(flow.id)}
+                  >
+                    <X className="mr-1 h-3.5 w-3.5" /> Dismiss
+                  </Button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {!loading && readiness && !readiness.ready && (
+        <div className="rounded-xl border border-dashed bg-muted/30 p-4 text-sm text-muted-foreground">
+          Connect {readiness.connectionsNeeded} more tool{readiness.connectionsNeeded === 1 ? '' : 's'} and Sublime starts building for you.
+        </div>
+      )}
+
       {loading ? (
         <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3">
           {Array.from({ length: 3 }).map((_, i) => (
-            <Skeleton key={i} className="h-40 rounded-xl" />
+            <Skeleton key={`flow-skeleton-${i}`} className="h-40 rounded-xl" />
           ))}
         </div>
-      ) : flows.length === 0 ? (
-        <EmptyState
-          icon={Workflow}
-          title="No flows yet"
-          description="Build your first agent pipeline — chain agents, branch on results, and fan out over accounts."
-          action={
-            <Button onClick={createFlow} loading={creating}>
-              <Plus className="mr-1.5 h-4 w-4" /> New flow
-            </Button>
-          }
-        />
+      ) : otherFlows.length === 0 ? (
+        suggestedFlows.length === 0 ? (
+          <EmptyState
+            icon={Workflow}
+            title="No flows yet"
+            description="Build your first agent pipeline — chain agents, branch on results, and fan out over accounts."
+            action={
+              <Button onClick={createFlow} loading={creating}>
+                <Plus className="mr-1.5 h-4 w-4" /> New flow
+              </Button>
+            }
+          />
+        ) : null
       ) : (
         <>
           <div className="stagger-children grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3">

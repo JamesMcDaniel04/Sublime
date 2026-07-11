@@ -15,6 +15,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { MiniCalendar } from '@/components/ui/mini-calendar'
 import { IntegrationLogo } from '@/components/integrations/integration-logo'
 import { KnowledgePanel } from '@/app/dashboard/knowledge-panel'
+import { SuggestedImprovementBanner } from '@/components/intelligence/suggested-improvement-banner'
 import { cn } from '@/lib/utils'
 
 /**
@@ -315,6 +316,7 @@ export function AgentConfigForm({
   const [runsLoading, setRunsLoading] = useState(false)
   const [memories, setMemories] = useState<AgentMemory[]>([])
   const [memoriesLoading, setMemoriesLoading] = useState(false)
+  const [dismissingSuggestionId, setDismissingSuggestionId] = useState<string | null>(null)
   // Other agents in the workspace, offered as run_agent targets.
   const [orgAgents, setOrgAgents] = useState<{ id: string; title: string }[]>([])
 
@@ -359,6 +361,30 @@ export function AgentConfigForm({
       body: JSON.stringify({ id }),
     })
     if (!response.ok) toast.error('Could not remove memory.')
+  }
+
+  // Suggested improvements (behavioral-intelligence Task 3) are open
+  // suggestion-kind memories on this agent — dismiss keeps the row (status:
+  // 'dismissed') rather than deleting it, so the dedupe embedding stops the
+  // same idea from being re-suggested later.
+  const dismissSuggestion = async (id: string) => {
+    if (!editingAgent?.id) return
+    setDismissingSuggestionId(id)
+    const previous = memories
+    setMemories((prev) => prev.map((m) => (m.id === id ? { ...m, status: 'dismissed' } : m)))
+    try {
+      const response = await fetch(`/api/agents/${editingAgent.id}/memories`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id, status: 'dismissed' }),
+      })
+      if (!response.ok) {
+        setMemories(previous)
+        toast.error('Could not dismiss that suggestion.')
+      }
+    } finally {
+      setDismissingSuggestionId(null)
+    }
   }
 
   const clearAllMemory = async () => {
@@ -1102,7 +1128,14 @@ export function AgentConfigForm({
       )}
 
       {editingAgent?.id && (
-        <div>
+        <div className="space-y-3">
+          <SuggestedImprovementBanner
+            suggestions={memories
+              .filter((m) => m.kind === 'suggestion' && m.status === 'open')
+              .map((m) => ({ id: m.id, title: m.title, content: m.content }))}
+            onDismiss={dismissSuggestion}
+            dismissingId={dismissingSuggestionId}
+          />
           <div className="mb-2 flex items-center justify-between">
             <p className="eyebrow">Memory</p>
             {memories.length > 0 && (
@@ -1125,7 +1158,9 @@ export function AgentConfigForm({
             </p>
           ) : (
             <ul className="divide-y rounded-lg border">
-              {memories.map((memory) => (
+              {memories
+                .filter((m) => !(m.kind === 'suggestion' && m.status === 'open'))
+                .map((memory) => (
                 <li key={memory.id} className="group flex items-start gap-3 px-3 py-2 text-sm">
                   <div className="min-w-0 flex-1">
                     <div className="mb-0.5 flex items-center gap-2">

@@ -6,6 +6,7 @@ import { flowGraphSchema, emptyGraph } from '@/lib/flows/graph'
 import { serializeFlow } from '@/lib/flows/serialize'
 import { hasSaveConflict } from '@/lib/flows/save-conflict'
 import { normalizeFlowTrigger, preserveWebhookSecretHash, triggerFromGraph } from '@/lib/flows/trigger'
+import { countActiveConnections, meetsSuggestionGate } from '@/lib/intelligence/suggest-workflows'
 
 // Strip undefined + narrow to plain JSON so Prisma's InputJsonValue accepts the
 // zod-inferred shapes (passthrough trigger / discriminated-union graph).
@@ -24,12 +25,23 @@ const flowSchema = z.object({
 })
 
 export const GET = withAuthenticatedApi(async (_request, auth) => {
-  const flows = await prisma.flow.findMany({
-    where: { organizationId: auth.organizationId, ...agentVisibilityScope(auth.dbUser.id) },
-    orderBy: { updatedAt: 'desc' },
-    take: 200,
-  })
-  return { success: true, flows: flows.map(serializeFlow) }
+  const [flows, counts] = await Promise.all([
+    prisma.flow.findMany({
+      where: { organizationId: auth.organizationId, ...agentVisibilityScope(auth.dbUser.id) },
+      orderBy: { updatedAt: 'desc' },
+      take: 200,
+    }),
+    countActiveConnections(auth.organizationId),
+  ])
+  const totalConnections = counts.klavis + counts.nango + counts.mcp
+  const ready = meetsSuggestionGate(counts)
+  return {
+    success: true,
+    flows: flows.map(serializeFlow),
+    // Behavioral-intelligence: drives the flows-page "Suggested for you" rail
+    // vs. its below-gate progress copy.
+    suggestionReadiness: { ready, totalConnections, connectionsNeeded: ready ? 0 : Math.max(0, 3 - totalConnections) },
+  }
 })
 
 export const POST = withAuthenticatedApi(async (request, auth) => {

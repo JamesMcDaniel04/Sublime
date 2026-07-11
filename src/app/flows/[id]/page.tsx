@@ -34,6 +34,7 @@ import { useFlowJam } from '@/components/flows/use-flow-jam'
 import { JamButton } from '@/components/flows/jam-button'
 import { useAuth } from '@/hooks/use-auth'
 import type { StepStatus } from '@/components/flows/step-card'
+import { SuggestedImprovementBanner } from '@/components/intelligence/suggested-improvement-banner'
 
 type Agent = { id: string; title: string }
 
@@ -243,6 +244,8 @@ function FlowBuilder() {
   const [toolCatalog, setToolCatalog] = useState<ToolCatalog>([])
   // Serialized snapshot of the last-saved state, for the unsaved-changes dot.
   const [savedSnapshot, setSavedSnapshot] = useState('')
+  const [improvementSuggestions, setImprovementSuggestions] = useState<{ id: string; title: string; content: string }[]>([])
+  const [dismissingSuggestionId, setDismissingSuggestionId] = useState<string | null>(null)
   // Optimistic-concurrency base: the flow's updatedAt as of load/last save.
   const baseUpdatedAtRef = useRef<string | undefined>(undefined)
   // Flow Jam: live presence + graph sync. Remote graphs apply outside the
@@ -317,6 +320,40 @@ function FlowBuilder() {
   }, [id])
 
   useEffect(() => () => { if (pollRef.current) clearInterval(pollRef.current) }, [])
+
+  // Behavioral-intelligence Task 3: open improvement suggestions for this
+  // flow, surfaced as a dismissible banner.
+  useEffect(() => {
+    let cancelled = false
+    fetch(`/api/flows/${id}/suggestions`, { cache: 'no-store' })
+      .then((r) => r.json())
+      .then((data) => {
+        if (!cancelled) setImprovementSuggestions(data.success ? data.suggestions : [])
+      })
+      .catch(() => undefined)
+    return () => {
+      cancelled = true
+    }
+  }, [id])
+
+  const dismissImprovementSuggestion = async (suggestionId: string) => {
+    setDismissingSuggestionId(suggestionId)
+    const previous = improvementSuggestions
+    setImprovementSuggestions((prev) => prev.filter((s) => s.id !== suggestionId))
+    try {
+      const response = await fetch(`/api/flows/${id}/suggestions`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: suggestionId, status: 'dismissed' }),
+      })
+      if (!response.ok) {
+        setImprovementSuggestions(previous)
+        toast.error('Could not dismiss that suggestion.')
+      }
+    } finally {
+      setDismissingSuggestionId(null)
+    }
+  }
 
   // Input memory: prefill the test input once from the last successful run so
   // re-running never demands re-typing the same payload. Initialize-once: the
@@ -1018,6 +1055,16 @@ function FlowBuilder() {
           {running ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <Play className="mr-1.5 h-4 w-4" />} Run
         </Button>
       </div>
+
+      {improvementSuggestions.length > 0 && (
+        <div className="border-b border-border px-4 py-2">
+          <SuggestedImprovementBanner
+            suggestions={improvementSuggestions}
+            onDismiss={dismissImprovementSuggestion}
+            dismissingId={dismissingSuggestionId}
+          />
+        </div>
+      )}
 
       {viewingVersion && (
         <div className="flex items-center justify-between border-b border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-900 dark:border-amber-900/40 dark:bg-amber-950/40 dark:text-amber-200">
