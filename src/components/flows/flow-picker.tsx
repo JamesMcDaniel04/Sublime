@@ -21,6 +21,7 @@ import {
   Star,
   UserCheck,
   Variable,
+  Webhook,
   Wrench,
   Zap,
   type LucideIcon,
@@ -109,14 +110,16 @@ const GROUP_TONE: Record<string, string> = {
 const TRIGGER_ICON: Record<string, LucideIcon> = {
   manual: Play,
   schedule: Clock,
-  webhook: Globe,
+  // Webhook (not Globe): the HTTP *action* is the emerald Globe — the trigger
+  // must not render pixel-identical to it in the picker.
+  webhook: Webhook,
   signal: Zap,
 }
 
 const TRIGGER_TONE: Record<string, string> = {
   manual: 'bg-slate-900 text-white',
   schedule: 'bg-blue-600 text-white',
-  webhook: 'bg-emerald-600 text-white',
+  webhook: 'bg-blue-600 text-white',
   signal: 'bg-purple-600 text-white',
 }
 

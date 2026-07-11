@@ -9,6 +9,7 @@ import {
   CalendarDays,
   Check,
   CircleStop,
+  Clock,
   ClipboardCopy,
   Code2,
   Copy,
@@ -22,6 +23,7 @@ import {
   PanelRight,
   Pencil,
   Plus,
+  Radio,
   RefreshCw,
   Repeat,
   Rows3,
@@ -33,6 +35,7 @@ import {
   Type,
   UserCheck,
   Variable,
+  Webhook,
   Wrench,
   Zap,
 } from 'lucide-react'
@@ -65,6 +68,15 @@ type Agent = { id: string; title: string }
 type TriggerData = { type?: 'manual' | 'schedule' | 'webhook' | 'signal'; inputFields?: TriggerInputField[]; input?: string }
 type KeyValueRow = { key: string; value: string }
 type InputKind = 'text' | 'yesno' | 'file' | 'email' | 'number' | 'date'
+
+// Trigger cards show their subtype's icon (webhook/schedule/signal), matching
+// the picker, so e.g. a webhook trigger reads distinctly from the HTTP action.
+const TRIGGER_SUBTYPE_ICON: Record<string, typeof Bot> = {
+  webhook: Webhook,
+  schedule: Clock,
+  signal: Radio,
+  manual: Zap,
+}
 
 const NODE_ICON: Record<FlowNode['type'], typeof Bot> = {
   trigger: Zap,
@@ -310,7 +322,9 @@ export function StepCard({
   onDragStartNode?: (id: string) => void
   onDragEndNode?: () => void
 }) {
-  const Icon = NODE_ICON[node.type]
+  const triggerSubtype =
+    node.type === 'trigger' ? String((node.data.trigger as { type?: string } | undefined)?.type ?? 'manual') : ''
+  const Icon = node.type === 'trigger' ? (TRIGGER_SUBTYPE_ICON[triggerSubtype] ?? Zap) : NODE_ICON[node.type]
   // Read-only surfaces never show raw {{token}} syntax: humanize any node data
   // echoed in the collapsed summary or tooltips. Storage keeps canonical tokens.
   const humanize = (value: string) => (labelCtx ? humanizeTokens(value, labelCtx) : value)

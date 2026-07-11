@@ -1419,10 +1419,10 @@ function TriggerEditor({
             onChange(next === 'schedule' ? { ...trigger, type: next, schedule: { ...schedule, isActive: true } } : { ...trigger, type: next })
           }}
         >
-          <option value="manual">Manual / on run</option>
+          <option value="manual">Manually trigger a flow</option>
           <option value="schedule">Schedule</option>
-          <option value="webhook">Webhook (external)</option>
-          <option value="signal">Signal (in-platform event)</option>
+          <option value="webhook">When an HTTP request is received</option>
+          <option value="signal">When a signal fires</option>
         </select>
       </div>
 

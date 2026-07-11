@@ -184,9 +184,11 @@ export function FlowCanvas({
     switch (node.type) {
       case 'trigger': {
         const type = (node.data.trigger as { type?: string } | undefined)?.type ?? 'manual'
-        if (type === 'schedule') return 'Schedule trigger'
-        if (type === 'webhook') return 'Webhook trigger'
-        if (type === 'signal') return 'Signal trigger'
+        // Canonical trigger names — keep in sync with TRIGGER_LEAVES labels
+        // (builtin-catalog.ts) and the drawer's trigger-type options.
+        if (type === 'schedule') return 'Schedule'
+        if (type === 'webhook') return 'When an HTTP request is received'
+        if (type === 'signal') return 'When a signal fires'
         return 'Manually trigger a flow'
       }
       case 'agent':
