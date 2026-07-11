@@ -1029,6 +1029,7 @@ function FlowBuilder() {
           >
             <FlowCanvas
               graph={canvasGraph}
+              flowId={id}
               agentName={(agentId) => agentsById.get(agentId) ?? ''}
               agents={agents}
               toolCatalog={toolCatalog}

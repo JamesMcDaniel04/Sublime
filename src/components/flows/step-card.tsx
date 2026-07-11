@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
 import { createPortal } from 'react-dom'
 import { AnimatePresence, motion } from 'motion/react'
 import {
@@ -18,6 +18,7 @@ import {
   GitBranch,
   Globe,
   Hash,
+  Link2,
   Mail,
   MoreHorizontal,
   PanelRight,
@@ -47,7 +48,10 @@ import { DATA_OP_LABELS } from '@/lib/flows/data-ops'
 import { DATA_OP_HELPER, DATA_OP_INPUT_PLACEHOLDER, VARIABLE_VALUE_PLACEHOLDER, variableValueOptional } from '@/lib/flows/step-copy'
 import { humanizeTokens, type TokenLabelContext } from '@/lib/flows/token-text'
 import { parseFlowToolConnectionId } from '@/lib/flows/tool-connection-id'
-import { triggerInputFieldsFromTrigger } from '@/lib/flows/trigger'
+import { KNOWN_SIGNALS, triggerInputFieldsFromTrigger } from '@/lib/flows/trigger'
+import { nextOccurrence, type AgentSchedule } from '@/lib/scheduling/due'
+import { Button } from '@/components/ui/button'
+import { TriggerFilterEditor } from './trigger-filter-editor'
 import type { ToolCatalog } from './tool-catalog-type'
 import { AdvancedParamsSection } from './advanced-params'
 import { DataTree } from './data-tree'
@@ -65,7 +69,26 @@ import {
 export type StepStatus = 'queued' | 'running' | 'succeeded' | 'failed' | 'waiting' | 'skipped' | 'stopped' | 'resumed'
 
 type Agent = { id: string; title: string }
-type TriggerData = { type?: 'manual' | 'schedule' | 'webhook' | 'signal'; inputFields?: TriggerInputField[]; input?: string }
+// Mirrors the drawer's TriggerData (step-drawer.tsx) so the card can edit the
+// full trigger configuration inline without dropping fields on mutation.
+type TriggerData = {
+  type?: 'manual' | 'schedule' | 'webhook' | 'signal'
+  schedule?: { type?: string; time?: string; cron?: string; timezone?: string; runAt?: string; isActive?: boolean }
+  input?: string
+  inputFields?: TriggerInputField[]
+  signal?: string
+  /** "Only run when…": the run is skipped unless these clauses match the trigger payload. */
+  filter?: { match?: 'all' | 'any'; clauses?: ConditionClause[] }
+}
+
+/** Frequencies the schedule editor offers (matches AgentSchedule types). */
+const FREQUENCIES = [
+  { value: 'hourly', label: 'Hourly' },
+  { value: 'daily', label: 'Daily' },
+  { value: 'weekly', label: 'Weekly' },
+  { value: 'cron', label: 'Cron expression' },
+  { value: 'once', label: 'Once' },
+] as const
 type KeyValueRow = { key: string; value: string }
 type InputKind = 'text' | 'yesno' | 'file' | 'email' | 'number' | 'date'
 
@@ -279,6 +302,7 @@ type TokenEditorWiring = {
 
 export function StepCard({
   node,
+  flowId,
   index,
   title,
   subtitle,
@@ -301,6 +325,8 @@ export function StepCard({
   onDragEndNode,
 }: {
   node: FlowNode
+  /** Needed by the trigger card's webhook panel to mint a trigger secret. */
+  flowId?: string
   index?: number
   title: string
   subtitle?: string
@@ -651,7 +677,7 @@ export function StepCard({
             className="overflow-hidden"
           >
             <div onClick={stopEvent} onFocus={stopEvent} className="border-t border-slate-200 px-5 py-4">
-              {renderNodeBody({ node, agents, toolCatalog, update, onRefreshAgents, tokenWiring, showErrors, variableNames })}
+              {renderNodeBody({ node, flowId, agents, toolCatalog, update, onRefreshAgents, tokenWiring, showErrors, variableNames })}
             </div>
           </motion.div>
         ) : (
@@ -726,6 +752,7 @@ export function StepCard({
 
 function renderNodeBody({
   node,
+  flowId,
   agents,
   toolCatalog,
   update,
@@ -735,6 +762,7 @@ function renderNodeBody({
   variableNames,
 }: {
   node: FlowNode
+  flowId?: string
   agents: Agent[]
   toolCatalog: ToolCatalog
   update: (node: FlowNode) => void
@@ -745,7 +773,7 @@ function renderNodeBody({
 }) {
   switch (node.type) {
     case 'trigger':
-      return <TriggerBody node={node} update={update} />
+      return <TriggerBody node={node} update={update} flowId={flowId} />
     case 'agent':
       return <AgentBody node={node} agents={agents} update={update} onRefreshAgents={onRefreshAgents} tokenWiring={tokenWiring} showErrors={showErrors} />
     case 'http':
@@ -775,16 +803,27 @@ function renderNodeBody({
   }
 }
 
-function TriggerBody({ node, update }: { node: Extract<FlowNode, { type: 'trigger' }>; update: (node: FlowNode) => void }) {
+function TriggerBody({
+  node,
+  update,
+  flowId,
+}: {
+  node: Extract<FlowNode, { type: 'trigger' }>
+  update: (node: FlowNode) => void
+  flowId?: string
+}) {
   const [choosingInput, setChoosingInput] = useState(false)
+  const [webhook, setWebhook] = useState<{ url: string; secret: string | null } | null>(null)
+  const [minting, setMinting] = useState(false)
   const trigger = triggerData(node)
+  const type = trigger.type ?? 'manual'
+  const schedule = trigger.schedule ?? { type: 'daily', time: '09:00', timezone: 'UTC', isActive: true }
   const fields = triggerInputFieldsFromTrigger(trigger)
   const setTrigger = (next: TriggerData) => update({ ...node, data: { ...node.data, trigger: next } })
   const addField = (kind: InputKind) => {
-    const option = INPUT_TYPES.find((type) => type.id === kind) ?? INPUT_TYPES[0]
+    const option = INPUT_TYPES.find((inputType) => inputType.id === kind) ?? INPUT_TYPES[0]
     setTrigger({
       ...trigger,
-      type: 'manual',
       inputFields: [
         ...fields,
         {
@@ -799,23 +838,214 @@ function TriggerBody({ node, update }: { node: Extract<FlowNode, { type: 'trigge
   const updateField = (index: number, patch: Partial<TriggerInputField>) => {
     setTrigger({
       ...trigger,
-      type: 'manual',
       inputFields: fields.map((field, fieldIndex) => (fieldIndex === index ? { ...field, ...patch } : field)),
     })
   }
   const removeField = (index: number) => {
-    setTrigger({ ...trigger, type: 'manual', inputFields: fields.filter((_, fieldIndex) => fieldIndex !== index) })
+    setTrigger({ ...trigger, inputFields: fields.filter((_, fieldIndex) => fieldIndex !== index) })
   }
+
+  const setSchedule = (patch: Partial<NonNullable<TriggerData['schedule']>>) =>
+    setTrigger({ ...trigger, type: 'schedule', schedule: { ...schedule, ...patch, isActive: true } })
+
+  // "Next run" preview for the schedule editor. IMPORTANT: nextOccurrence's cron
+  // path does a minute-by-minute scan and has measured up to ~13s worst case —
+  // far too slow to call on every render/keystroke. So this memo only ever
+  // calls nextOccurrence for the fast schedule types (hourly/daily/weekly/once);
+  // cron gets a static, non-computed label below instead.
+  const nextRunLabel = useMemo(() => {
+    if (schedule.type === 'cron') return null
+    const merged: AgentSchedule = {
+      type: (schedule.type as AgentSchedule['type']) ?? 'daily',
+      time: schedule.time ?? '09:00',
+      cron: schedule.cron ?? '',
+      timezone: schedule.timezone ?? 'UTC',
+      runAt: schedule.runAt,
+      isActive: true,
+    }
+    const next = nextOccurrence(merged, new Date())
+    return next ? next.toLocaleString() : 'Not scheduled'
+  }, [schedule.type, schedule.time, schedule.timezone, schedule.runAt, schedule.cron])
+
+  const sampleWebhookBody = JSON.stringify({ input: { account: 'Acme', priority: 'high' } }, null, 2)
+  const webhookHeader = webhook?.secret ? `x-trigger-secret: ${webhook.secret}` : 'x-trigger-secret: <secret>'
+  const curlExample = webhook
+    ? `curl -X POST '${webhook.url}' \\\n  -H 'content-type: application/json' \\\n  -H '${webhookHeader}' \\\n  --data '${JSON.stringify({ input: { account: 'Acme', priority: 'high' } })}'`
+    : ''
+
+  const copyText = async (value: string, label: string) => {
+    try {
+      await navigator.clipboard.writeText(value)
+      toast.success(`${label} copied.`)
+    } catch {
+      toast.error(`Could not copy ${label.toLowerCase()}.`)
+    }
+  }
+
+  const mintWebhook = async (rotate: boolean) => {
+    if (!flowId) return
+    setMinting(true)
+    try {
+      const response = await fetch(`/api/flows/${flowId}/trigger-secret`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ rotate }),
+      })
+      const data = await response.json().catch(() => ({}))
+      if (!response.ok) {
+        toast.error(data.error || 'Could not create the webhook URL.')
+        return
+      }
+      setWebhook({ url: data.url, secret: data.secret })
+      if (data.secret) toast.success('Webhook secret created — copy it now; it is shown only once.')
+    } finally {
+      setMinting(false)
+    }
+  }
+
+  const copyBlock = (label: string, value: string, valueClass?: string, pre?: boolean) => (
+    <div>
+      <div className="mb-1 flex items-center justify-between gap-2">
+        <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">{label}</p>
+        <button type="button" className="flex items-center gap-1 text-[11px] font-medium text-blue-700 hover:text-blue-900" onClick={() => copyText(value, label)}>
+          <Copy className="h-3 w-3" /> Copy
+        </button>
+      </div>
+      {pre ? (
+        <pre className={cn('max-h-36 overflow-auto rounded bg-white px-2 py-1.5 text-[11px]', valueClass)}>{value}</pre>
+      ) : (
+        <p className={cn('break-all rounded bg-white px-2 py-1.5 font-mono text-[11px]', valueClass)}>{value}</p>
+      )}
+    </div>
+  )
 
   return (
     <div className="space-y-4">
+      <div className="grid gap-2">
+        <label className={labelClass}>Trigger type</label>
+        <select
+          className={controlClass}
+          value={type}
+          onChange={(event) => {
+            const next = event.target.value as 'manual' | 'schedule' | 'webhook' | 'signal'
+            setTrigger(next === 'schedule' ? { ...trigger, type: next, schedule: { ...schedule, isActive: true } } : { ...trigger, type: next })
+          }}
+        >
+          <option value="manual">Manually trigger a flow</option>
+          <option value="schedule">Schedule</option>
+          <option value="webhook">When an HTTP request is received</option>
+          <option value="signal">When a signal fires</option>
+        </select>
+      </div>
+
+      {type === 'schedule' && (
+        <div className="space-y-3">
+          <div className="grid gap-2">
+            <label className={labelClass}>Frequency</label>
+            <select className={controlClass} value={schedule.type ?? 'daily'} onChange={(event) => setSchedule({ type: event.target.value })}>
+              {FREQUENCIES.map((frequency) => (
+                <option key={frequency.value} value={frequency.value}>
+                  {frequency.label}
+                </option>
+              ))}
+            </select>
+          </div>
+          {['daily', 'weekly', 'once'].includes(schedule.type ?? 'daily') && (
+            <div className="grid gap-2">
+              <label className={labelClass}>Time (HH:MM)</label>
+              <input className={controlClass} value={schedule.time ?? '09:00'} placeholder="09:00" onChange={(event) => setSchedule({ time: event.target.value })} />
+            </div>
+          )}
+          {schedule.type === 'once' && (
+            <div className="grid gap-2">
+              <label className={labelClass}>Date (YYYY-MM-DD)</label>
+              <input className={controlClass} value={schedule.runAt ?? ''} placeholder="2026-07-15" onChange={(event) => setSchedule({ runAt: event.target.value })} />
+            </div>
+          )}
+          {schedule.type === 'cron' && (
+            <div className="grid gap-2">
+              <label className={labelClass}>Cron expression</label>
+              <input className={cn(controlClass, 'font-mono')} value={schedule.cron ?? ''} placeholder="0 9 * * 1-5" onChange={(event) => setSchedule({ cron: event.target.value })} />
+            </div>
+          )}
+          <div className="grid gap-2">
+            <label className={labelClass}>Timezone</label>
+            <input className={controlClass} value={schedule.timezone ?? 'UTC'} placeholder="America/Denver" onChange={(event) => setSchedule({ timezone: event.target.value })} />
+          </div>
+          <div className="grid gap-2">
+            <label className={labelClass}>Run input for scheduled runs (optional)</label>
+            <textarea
+              rows={2}
+              className={cn(controlClass, 'h-auto min-h-[64px] resize-y py-2')}
+              value={trigger.input ?? ''}
+              placeholder="Text or JSON passed to the flow each time it runs"
+              onChange={(event) => setTrigger({ ...trigger, input: event.target.value || undefined })}
+            />
+          </div>
+          <p className="text-xs text-slate-500">
+            {schedule.type === 'cron' ? `Next run: per cron "${schedule.cron ?? ''}"` : `Next run: ${nextRunLabel}`}
+          </p>
+          <p className="text-xs text-slate-500">Scheduled runs execute the <strong>published</strong> version — publish the flow to arm the schedule.</p>
+        </div>
+      )}
+
+      {type === 'signal' && (
+        <div className="space-y-3">
+          <div className="grid gap-2">
+            <label className={labelClass}>Signal name</label>
+            <input
+              className={controlClass}
+              list={`known-signals-${node.id}`}
+              value={trigger.signal ?? ''}
+              placeholder="flow.completed"
+              onChange={(event) => setTrigger({ ...trigger, signal: event.target.value || undefined })}
+            />
+            <datalist id={`known-signals-${node.id}`}>
+              {KNOWN_SIGNALS.map((signal) => (
+                <option key={signal} value={signal} />
+              ))}
+            </datalist>
+          </div>
+          <p className="text-xs text-slate-500">
+            Fires when this signal is emitted anywhere in your workspace. The signal payload arrives as the Run input. Runs the published version.
+          </p>
+        </div>
+      )}
+
+      {type === 'webhook' && flowId && (
+        <div className="space-y-3">
+          <div className="flex gap-2">
+            <Button type="button" variant="outline" size="sm" className="flex-1" onClick={() => mintWebhook(false)} loading={minting}>
+              <Link2 className="mr-1.5 h-3.5 w-3.5" /> Get webhook URL
+            </Button>
+            <Button type="button" variant="ghost" size="sm" onClick={() => mintWebhook(true)} title="Rotate the secret (invalidates the old one)">
+              <RefreshCw className="h-3.5 w-3.5" />
+            </Button>
+          </div>
+          {webhook && (
+            <div className="space-y-3 rounded-lg border border-slate-200 bg-slate-50 p-2.5">
+              {copyBlock('Webhook URL', webhook.url)}
+              <div>
+                {copyBlock('Auth header', webhookHeader, 'text-amber-700')}
+                {!webhook.secret && <p className="mt-1 text-[11px] text-slate-500">A secret already exists. Rotate to mint and display a new one.</p>}
+              </div>
+              {copyBlock('Example JSON body', sampleWebhookBody, 'max-h-32', true)}
+              {copyBlock('cURL', curlExample, undefined, true)}
+            </div>
+          )}
+          <p className="text-xs text-slate-500">
+            POST to the URL with the <code className="font-mono">x-trigger-secret</code> header; the JSON body, or its <code className="font-mono">input</code> field, becomes the flow input. Runs the <strong>published</strong> version.
+          </p>
+        </div>
+      )}
+
       {fields.length > 0 && (
         <div className="space-y-3">
           {fields.map((field, fieldIndex) => {
             const inputType = inputTypeForField(field)
             const InputIcon = inputType.icon
             return (
-              <div key={`${field.name}-${fieldIndex}`} className="grid gap-3 border-b border-slate-200 pb-3 sm:grid-cols-[42px_minmax(120px,0.7fr)_minmax(150px,1fr)_auto_36px]">
+              <div key={`${field.name}-${fieldIndex}`} className="grid gap-3 border-b border-slate-200 pb-3 sm:grid-cols-[42px_minmax(110px,0.7fr)_auto_minmax(140px,1fr)_auto_36px]">
                 <span className={cn('flex h-10 w-10 items-center justify-center rounded-full', inputType.tone)}>
                   <InputIcon className="h-5 w-5" />
                 </span>
@@ -826,6 +1056,18 @@ function TriggerBody({ node, update }: { node: Extract<FlowNode, { type: 'trigge
                   placeholder={inputType.label}
                   aria-label="Input name"
                 />
+                <select
+                  value={field.type}
+                  onChange={(event) => updateField(fieldIndex, { type: event.target.value as OutputField['type'] })}
+                  className={cn(controlClass, 'px-2')}
+                  aria-label="Input field type"
+                >
+                  {FIELD_TYPES.map((fieldType) => (
+                    <option key={fieldType} value={fieldType}>
+                      {fieldType}
+                    </option>
+                  ))}
+                </select>
                 <input
                   value={field.description ?? ''}
                   onChange={(event) => updateField(fieldIndex, { description: event.target.value })}
@@ -889,6 +1131,17 @@ function TriggerBody({ node, update }: { node: Extract<FlowNode, { type: 'trigge
         >
           <Plus className="h-5 w-5" /> Add an input
         </button>
+      )}
+
+      {type !== 'manual' && (
+        <TriggerFilterEditor
+          filter={trigger.filter}
+          onChange={(filter) => setTrigger({ ...trigger, filter })}
+          labelClass={labelClass}
+          fieldClass={cn(controlClass, 'h-9 min-w-0 flex-1 px-2')}
+          addButtonClass="mt-1.5 text-xs font-semibold text-blue-700 hover:text-blue-900"
+          helperClass="mt-1 text-xs text-slate-500"
+        />
       )}
     </div>
   )

@@ -115,6 +115,7 @@ function InsertMenu({
 
 export function FlowCanvas({
   graph,
+  flowId,
   agentName,
   agents,
   toolCatalog,
@@ -138,6 +139,8 @@ export function FlowCanvas({
   onReorderContainer,
 }: {
   graph: FlowGraph
+  /** Threaded into StepCard so the trigger card's webhook panel can mint a trigger secret. */
+  flowId?: string
   agentName: (agentId: string) => string
   agents: Agent[]
   toolCatalog: ToolCatalog
@@ -286,6 +289,7 @@ export function FlowCanvas({
     <div data-node-id={node.id} className="w-full">
       <StepCard
         node={node}
+        flowId={flowId}
         index={index}
         title={titleFor(node)}
         subtitle={subtitleFor(node)}
