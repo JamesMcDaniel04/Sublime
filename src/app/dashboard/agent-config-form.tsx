@@ -95,6 +95,8 @@ export type AgentDraft = {
   goal: string
   /** When true, a question closely matching a past answer is auto-answered from memory. */
   autoAnswerFromMemory?: boolean
+  /** Structured output contract: non-empty = runs must return JSON with these properties. */
+  outputFields?: { name: string; type: 'string' | 'number' | 'boolean' | 'object' | 'array'; description?: string }[]
   /** When true, every run starts with an explicit numbered plan before any tool call. */
   alwaysStrategize?: boolean
   schedule: {
@@ -146,6 +148,7 @@ const emptyDraft: AgentDraft = {
   subagentIds: [],
   goal: '',
   autoAnswerFromMemory: false,
+  outputFields: [],
   alwaysStrategize: false,
   schedule: { type: 'manual', time: '09:00', timezone: 'UTC', isActive: false },
 }
@@ -437,6 +440,7 @@ export function AgentConfigForm({
       subagentIds: Array.isArray(source.subagentIds) ? source.subagentIds : [],
       goal: source.goal || '',
       autoAnswerFromMemory: source.autoAnswerFromMemory === true,
+      outputFields: Array.isArray(source.outputFields) ? source.outputFields : [],
       alwaysStrategize: source.alwaysStrategize === true,
       schedule: normalizeSchedule({ ...emptyDraft.schedule, ...(source.schedule || {}) }),
     } : {
@@ -825,6 +829,67 @@ export function AgentConfigForm({
             onCheckedChange={(on) => setDraft({ ...draft, alwaysStrategize: on })}
           />
         </div>
+      </div>
+
+      {/* ── Structured output ───────────────────────────────────────── */}
+      <div className="rounded-lg border p-3">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <Label>Structured output</Label>
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              Require every run to answer with JSON carrying these properties — each becomes reliable data for flows and integrations.
+            </p>
+          </div>
+          <Switch
+            checked={(draft.outputFields?.length ?? 0) > 0}
+            onCheckedChange={(on) =>
+              setDraft({ ...draft, outputFields: on ? [{ name: 'summary', type: 'string' }] : [] })
+            }
+          />
+        </div>
+        {(draft.outputFields?.length ?? 0) > 0 && (
+          <div className="mt-3 space-y-2">
+            {(draft.outputFields ?? []).map((field, index) => (
+              <div key={index} className="grid gap-2 sm:grid-cols-[1fr_130px_36px]">
+                <Input
+                  value={field.name}
+                  placeholder="propertyName"
+                  onChange={(e) =>
+                    setDraft({ ...draft, outputFields: (draft.outputFields ?? []).map((f, j) => (j === index ? { ...f, name: e.target.value } : f)) })
+                  }
+                  aria-label={`Output property ${index + 1} name`}
+                />
+                <select
+                  value={field.type}
+                  onChange={(e) =>
+                    setDraft({ ...draft, outputFields: (draft.outputFields ?? []).map((f, j) => (j === index ? { ...f, type: e.target.value as NonNullable<AgentDraft['outputFields']>[number]['type'] } : f)) })
+                  }
+                  className="h-10 rounded-md border border-input bg-background px-2 text-sm"
+                  aria-label={`Output property ${index + 1} type`}
+                >
+                  {['string', 'number', 'boolean', 'object', 'array'].map((t) => (
+                    <option key={t} value={t}>{t}</option>
+                  ))}
+                </select>
+                <button
+                  type="button"
+                  onClick={() => setDraft({ ...draft, outputFields: (draft.outputFields ?? []).filter((_, j) => j !== index) })}
+                  className="flex items-center justify-center rounded-md text-red-500 hover:bg-red-50"
+                  aria-label={`Remove output property ${index + 1}`}
+                >
+                  <Trash2 className="h-4 w-4" />
+                </button>
+              </div>
+            ))}
+            <button
+              type="button"
+              onClick={() => setDraft({ ...draft, outputFields: [...(draft.outputFields ?? []), { name: '', type: 'string' }] })}
+              className="text-xs font-medium text-indigo-600 hover:text-indigo-800"
+            >
+              + Add property
+            </button>
+          </div>
+        )}
       </div>
 
       {/* ── Multi-agent handoff ─────────────────────────────────────── */}

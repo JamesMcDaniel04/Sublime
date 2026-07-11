@@ -54,6 +54,9 @@ const agentSchema = z.object({
   autoAnswerFromMemory: z.boolean().optional(),
   // When true, every run starts with an explicit numbered plan before any tool call.
   alwaysStrategize: z.boolean().optional(),
+  // Structured output contract: when non-empty, runs must reply with JSON
+  // carrying these properties (enforced in execute-agent).
+  outputFields: z.array(z.object({ name: z.string().trim().min(1).max(60), type: z.enum(['string', 'number', 'boolean', 'object', 'array']).default('string'), description: z.string().max(300).optional() })).max(20).optional(),
   schedule: scheduleSchema.default({ type: 'manual', timezone: 'UTC', isActive: false }),
 })
 
@@ -103,6 +106,7 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
         subagentIds: data.subagentIds ?? [],
         autoAnswerFromMemory: data.autoAnswerFromMemory === true,
         alwaysStrategize: data.alwaysStrategize === true,
+        ...(data.outputFields?.length ? { outputFields: data.outputFields, responseFormat: 'structured' } : {}),
       },
     },
   })
@@ -142,6 +146,12 @@ export const PUT = withAuthenticatedApi(async (request, auth) => {
         ...(body.subagentIds !== undefined && { subagentIds: body.subagentIds }),
         ...(body.autoAnswerFromMemory !== undefined && { autoAnswerFromMemory: body.autoAnswerFromMemory }),
         ...(body.alwaysStrategize !== undefined && { alwaysStrategize: body.alwaysStrategize }),
+        // Non-empty fields switch the run contract to structured; an explicit
+        // empty array clears it back to plain text.
+        ...(body.outputFields !== undefined && {
+          outputFields: body.outputFields.length ? body.outputFields : undefined,
+          responseFormat: body.outputFields.length ? 'structured' : undefined,
+        }),
         // A saved NON-EMPTY goal supersedes any prior AI-suggested one; saving
         // other fields with the goal still blank keeps the proposal visible.
         ...(typeof body.goal === 'string' && body.goal.trim() ? { suggestedGoal: undefined } : {}),

@@ -140,6 +140,7 @@ export function FlowCanvas({
   onReorderContainer,
   onChangeNodeType,
   onAddContainerStep,
+  jamPeers,
 }: {
   graph: FlowGraph
   /** Threaded into StepCard so the trigger card's webhook panel can mint a trigger secret. */
@@ -167,6 +168,8 @@ export function FlowCanvas({
   onReorderContainer?: (containerId: string, from: number, to: number, branchIndex?: number) => void
   onChangeNodeType?: (nodeId: string, type: EditableType) => void
   onAddContainerStep?: (containerId: string, type: EditableType) => void
+  /** Flow Jam presence: peers keyed by the node they have selected. */
+  jamPeers?: { userId: string; name: string; selectedNodeId: string | null }[]
 }) {
   const [dragId, setDragId] = useState<string | null>(null)
   // Branch labels rendered by the canvas itself (outside StepCard) must not
@@ -317,6 +320,7 @@ export function FlowCanvas({
         onDragEndNode={() => setDragId(null)}
         onChangeType={node.type !== 'trigger' && onChangeNodeType ? (type) => onChangeNodeType(node.id, type) : undefined}
         onAddStep={(node.type === 'loop' || node.type === 'parallel') && onAddContainerStep ? (type) => onAddContainerStep(node.id, type) : undefined}
+        jamEditors={jamPeers?.filter((peer) => peer.selectedNodeId === node.id)}
       />
     </div>
   )

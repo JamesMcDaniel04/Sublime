@@ -327,6 +327,7 @@ export function StepCard({
   onDragEndNode,
   onChangeType,
   onAddStep,
+  jamEditors,
 }: {
   node: FlowNode
   /** Needed by the trigger card's webhook panel to mint a trigger secret. */
@@ -353,6 +354,8 @@ export function StepCard({
   onDragEndNode?: () => void
   onChangeType?: (type: EditableType) => void
   onAddStep?: (type: EditableType) => void
+  /** Flow Jam: teammates currently editing this node (presence). */
+  jamEditors?: { userId: string; name: string }[]
 }) {
   const triggerSubtype =
     node.type === 'trigger' ? String((node.data.trigger as { type?: string } | undefined)?.type ?? 'manual') : ''
@@ -607,6 +610,15 @@ export function StepCard({
           >
             {issues.errors + issues.warnings}
           </button>
+        )}
+        {jamEditors && jamEditors.length > 0 && (
+          <span
+            className="flex shrink-0 items-center gap-1 rounded-full border border-indigo-200 bg-indigo-50 px-2 py-0.5 text-[11px] font-semibold text-indigo-700"
+            title={`${jamEditors.map((editor) => editor.name).join(', ')} editing`}
+          >
+            <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-indigo-500" />
+            {jamEditors.length === 1 ? `${jamEditors[0].name} is here` : `${jamEditors.length} teammates here`}
+          </span>
         )}
         {status && (
           <span className="flex shrink-0 items-center gap-1.5 rounded-full border border-slate-200 px-2.5 py-1 text-xs font-semibold text-slate-700">

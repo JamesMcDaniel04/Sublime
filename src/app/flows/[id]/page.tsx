@@ -1132,6 +1132,7 @@ function FlowBuilder() {
                     }
               }
               onMoveAfter={viewingVersion ? () => {} : (nodeId, afterId) => commitGraph(moveNodeAfter(graph, nodeId, afterId))}
+              jamPeers={peers}
               onChangeNodeType={viewingVersion ? undefined : (nodeId, type) => commitGraph(changeNodeType(graph, nodeId, type))}
               onAddContainerStep={
                 viewingVersion
