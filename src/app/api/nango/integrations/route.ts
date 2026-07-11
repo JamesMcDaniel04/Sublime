@@ -2,10 +2,20 @@ import { getNangoClient } from '@/lib/nango/client'
 import { nangoApiError } from '@/lib/nango/errors'
 import { withAuthenticatedApi } from '@/lib/server/api-handler'
 import { cacheGet, cacheSet } from '@/lib/cache'
+import { capabilityForProviderConfigKey, type DeliveryCapability } from '@/lib/nango/delivery'
 
 export const runtime = 'nodejs'
 
-type IntegrationChip = { id: string; provider: string; name: string; logo?: string }
+type IntegrationChip = {
+  id: string
+  provider: string
+  name: string
+  logo?: string
+  /** The scan-plane delivery capability this integration maps to, if any —
+   *  powers the per-connection "Learning" toggle on the client (only
+   *  connections the scan plane can actually sample have one). */
+  capability?: DeliveryCapability
+}
 
 // The enabled integrations are a property of the Nango ENVIRONMENT (one per
 // deployment), identical for every user — but this was a live Nango round-trip
@@ -31,6 +41,7 @@ export const GET = withAuthenticatedApi(async () => {
     provider: config.provider,
     name: config.display_name || config.provider,
     logo: config.logo,
+    capability: capabilityForProviderConfigKey(config.unique_key),
   }))
 
   if (integrations.length) await cacheSet(CACHE_KEY, integrations, CACHE_TTL_MS)

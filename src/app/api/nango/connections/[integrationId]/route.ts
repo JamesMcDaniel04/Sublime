@@ -1,7 +1,10 @@
+import { after } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { getNangoClient, NANGO_ORG_TAG } from '@/lib/nango/client'
 import { nangoApiError } from '@/lib/nango/errors'
 import { ApiError, withAuthenticatedApi } from '@/lib/server/api-handler'
+import { purgeConnectionLearnings } from '@/lib/intelligence/connection-scan'
+import { capabilityForProviderConfigKey, capabilitiesToPurgeOnDisconnect, type DeliveryCapability } from '@/lib/nango/delivery'
 
 export const runtime = 'nodejs'
 
@@ -35,12 +38,38 @@ export const DELETE = withAuthenticatedApi(async (request, auth) => {
     throw nangoApiError(error)
   }
 
+  const organizationId = auth.organizationId
   await prisma.nangoConnection.deleteMany({
     where: {
-      organizationId: auth.organizationId,
+      organizationId,
       connectionId: { in: matching.map((connection) => connection.connection_id) },
     },
   })
+
+  // Best-effort purge of this capability's scan-derived learnings (Task 5,
+  // Fix B2) — never blocks the disconnect response. Reconcile first: another
+  // providerConfigKey can map to the same capability (e.g. "google-mail" and
+  // "gmail" both → gmail), so only purge if NO remaining connected Nango
+  // connection still maps to it. `after` (Next 15) keeps this running past
+  // the response on serverless, same reasoning as the mcp/klavis disconnects.
+  const affectedCapability = capabilityForProviderConfigKey(integrationId)
+  if (affectedCapability) {
+    const stillConnectedRows = await prisma.nangoConnection.findMany({
+      where: { organizationId, status: 'connected' },
+      select: { providerConfigKey: true },
+    })
+    const stillConnectedCapabilities = [
+      ...new Set(stillConnectedRows.map((row) => capabilityForProviderConfigKey(row.providerConfigKey)).filter((c): c is DeliveryCapability => Boolean(c))),
+    ]
+    const toPurge = capabilitiesToPurgeOnDisconnect([affectedCapability], stillConnectedCapabilities)
+    if (toPurge.length > 0) {
+      after(() =>
+        Promise.all(
+          toPurge.map((capability) => purgeConnectionLearnings({ organizationId, plane: 'nango', connectionRef: capability })),
+        ).catch(() => undefined),
+      )
+    }
+  }
 
   return { success: true }
 })

@@ -5,6 +5,8 @@ import {
   gmailSendEmail,
   salesforceCreateRecord,
   DELIVERY_TOOLS,
+  capabilityForProviderConfigKey,
+  capabilitiesToPurgeOnDisconnect,
   type NangoProxyArgs,
 } from '../delivery'
 
@@ -63,4 +65,50 @@ test('DELIVERY_TOOLS run() dispatches through the adapter with a custom proxy', 
     assert.equal(typeof tool.description, 'string')
     assert.equal((tool.inputSchema as { type: string }).type, 'object')
   }
+})
+
+// ── capabilityForProviderConfigKey ──────────────────────────────────────────
+
+test('capabilityForProviderConfigKey: maps a known providerConfigKey to its capability', () => {
+  assert.equal(capabilityForProviderConfigKey('slack'), 'slack')
+  assert.equal(capabilityForProviderConfigKey('google-mail'), 'gmail')
+  assert.equal(capabilityForProviderConfigKey('gmail'), 'gmail')
+  assert.equal(capabilityForProviderConfigKey('salesforce'), 'salesforce')
+  assert.equal(capabilityForProviderConfigKey('salesforce-sandbox'), 'salesforce')
+})
+
+test('capabilityForProviderConfigKey: unknown providerConfigKey has no capability', () => {
+  assert.equal(capabilityForProviderConfigKey('notion'), undefined)
+})
+
+// ── capabilitiesToPurgeOnDisconnect ─────────────────────────────────────────
+// Pure reconciliation for Nango purge-on-disconnect (Task 5, Fix B2):
+// learnings are keyed by *capability*, and more than one Nango connection
+// (even under different providerConfigKeys, e.g. "google-mail" vs "gmail")
+// can map to the same one — so a capability must only be purged when NO
+// remaining connected Nango connection still maps to it.
+
+test('capabilitiesToPurgeOnDisconnect: disconnecting the only connection for a capability purges it', () => {
+  const result = capabilitiesToPurgeOnDisconnect(['slack'], [])
+  assert.deepEqual(result, ['slack'])
+})
+
+test('capabilitiesToPurgeOnDisconnect: disconnecting one of two connections sharing a capability does not purge', () => {
+  // e.g. "google-mail" was disconnected, but "gmail" (same capability) is
+  // still connected.
+  const result = capabilitiesToPurgeOnDisconnect(['gmail'], ['gmail'])
+  assert.deepEqual(result, [])
+})
+
+test('capabilitiesToPurgeOnDisconnect: a capability still connected is never purged', () => {
+  const result = capabilitiesToPurgeOnDisconnect(['slack', 'gmail'], ['slack'])
+  assert.deepEqual(result, ['gmail'])
+})
+
+test('capabilitiesToPurgeOnDisconnect: no affected capabilities purges nothing', () => {
+  assert.deepEqual(capabilitiesToPurgeOnDisconnect([], ['slack']), [])
+})
+
+test('capabilitiesToPurgeOnDisconnect: dedupes repeated affected capabilities', () => {
+  assert.deepEqual(capabilitiesToPurgeOnDisconnect(['slack', 'slack'], []), ['slack'])
 })

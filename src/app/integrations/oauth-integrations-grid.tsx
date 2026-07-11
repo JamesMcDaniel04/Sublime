@@ -8,14 +8,21 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { EmptyState } from '@/components/ui/empty-state'
+import { Switch } from '@/components/ui/switch'
 import { IntegrationLogo } from '@/components/integrations/integration-logo'
 import { useCachedJson } from '@/lib/client/use-cached-json'
+import { useScanExclusions } from '@/lib/client/use-scan-exclusions'
+import { connectionSourceRef } from '@/lib/intelligence/scan-exclusions'
 
 type Integration = {
   id: string
   provider: string
   name: string
   logo?: string
+  /** The scan-plane delivery capability this integration maps to, if any —
+   *  absent means the scan plane never samples it, so there's nothing to
+   *  toggle learning for. */
+  capability?: string
 }
 
 type Connection = {
@@ -34,11 +41,26 @@ export function OAuthIntegrationsGrid() {
     useCachedJson<{ integrations?: Integration[] }>('/api/nango/integrations')
   const { data: statusData, loading: loadingStatus, refresh: refreshStatus } =
     useCachedJson<{ connections?: Record<string, Connection> }>('/api/nango/status')
+  const { data: profileData } = useCachedJson<{ profile?: { role: string } }>('/api/settings/profile')
+  const isAdmin = profileData?.profile?.role === 'ADMIN'
   const integrations = useMemo(() => integrationsData?.integrations ?? [], [integrationsData])
   const connections = statusData?.connections ?? {}
   const loading = loadingIntegrations || loadingStatus
   const [busy, setBusy] = useState<string | null>(null)
+  const [togglingLearningId, setTogglingLearningId] = useState<string | null>(null)
+  const { isLearningEnabled, setLearningEnabled } = useScanExclusions()
   const connectUIRef = useRef<ConnectUI | null>(null)
+
+  const toggleLearning = async (integration: Integration, enabled: boolean) => {
+    if (!integration.capability) return
+    setTogglingLearningId(integration.id)
+    try {
+      const ok = await setLearningEnabled(connectionSourceRef('nango', integration.capability), enabled)
+      if (!ok) toast.error('Could not update learning setting.')
+    } finally {
+      setTogglingLearningId(null)
+    }
+  }
 
   const refreshAll = useCallback(() => {
     void refreshIntegrations()
@@ -152,8 +174,20 @@ export function OAuthIntegrationsGrid() {
                   : <Button className="w-full" onClick={() => connect(integration)} loading={busy === integration.id}>
                       Connect
                     </Button>}
-                {connection?.connected && (
-                  <p className="text-xs text-muted-foreground">Learning from this connection is managed in Settings.</p>
+                {connection?.connected && integration.capability && (
+                  <div className="flex items-center justify-between gap-2 border-t pt-3">
+                    <span className="text-xs text-muted-foreground">Learning</span>
+                    <Switch
+                      checked={isLearningEnabled(connectionSourceRef('nango', integration.capability))}
+                      disabled={togglingLearningId === integration.id || !isAdmin}
+                      onCheckedChange={(enabled) => toggleLearning(integration, enabled)}
+                      aria-label={
+                        isLearningEnabled(connectionSourceRef('nango', integration.capability))
+                          ? 'Disable learning from this connection'
+                          : 'Enable learning from this connection'
+                      }
+                    />
+                  </div>
                 )}
               </CardContent>
             </Card>

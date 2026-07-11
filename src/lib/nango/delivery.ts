@@ -29,6 +29,38 @@ export const DELIVERY_PROVIDERS = {
 export type DeliveryCapability = keyof typeof DELIVERY_PROVIDERS
 
 /**
+ * providerConfigKey (e.g. "google-mail") → the scan-plane delivery
+ * capability it maps to, if any. Shared by the status route's scan trigger,
+ * the explicit disconnect route, and the integrations grid's per-connection
+ * "Learning" toggle — the same mapping must be used everywhere a Nango
+ * connection's capability needs deriving.
+ */
+export function capabilityForProviderConfigKey(providerConfigKey: string): DeliveryCapability | undefined {
+  const entry = (Object.entries(DELIVERY_PROVIDERS) as [DeliveryCapability, readonly string[]][]).find(([, keys]) =>
+    keys.includes(providerConfigKey),
+  )
+  return entry?.[0]
+}
+
+/**
+ * Pure reconciliation for Nango purge-on-disconnect (Task 5, Fix B2):
+ * learnings are keyed by *capability*, not by raw Nango connection id, and
+ * more than one connection — even under different providerConfigKeys (e.g.
+ * "google-mail" and "gmail" both map to `gmail`) — can share one. So a
+ * capability must be purged only when NO remaining connected Nango
+ * connection still maps to it.
+ *
+ * `affected` is the capability (or capabilities) touched by the connection(s)
+ * just disconnected; `stillConnected` is every capability at least one
+ * currently-connected Nango connection still maps to. Returns the subset of
+ * `affected` that is no longer in `stillConnected` — i.e. safe to purge.
+ */
+export function capabilitiesToPurgeOnDisconnect<T extends string>(affected: T[], stillConnected: T[]): T[] {
+  const remaining = new Set(stillConnected)
+  return [...new Set(affected)].filter((capability) => !remaining.has(capability))
+}
+
+/**
  * Resolve the connection to use for a capability: the acting user's own
  * connection first, then any org connection. Matches provider config keys for
  * the capability.

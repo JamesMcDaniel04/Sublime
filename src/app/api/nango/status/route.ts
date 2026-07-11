@@ -4,19 +4,11 @@ import { prisma } from '@/lib/prisma'
 import { getNangoClient, NANGO_ORG_TAG } from '@/lib/nango/client'
 import { nangoApiError } from '@/lib/nango/errors'
 import { withAuthenticatedApi } from '@/lib/server/api-handler'
-import { scanConnection, shouldScanNangoConnection } from '@/lib/intelligence/connection-scan'
-import { DELIVERY_PROVIDERS, type DeliveryCapability } from '@/lib/nango/delivery'
+import { scanConnection, shouldScanNangoConnection, purgeConnectionLearnings } from '@/lib/intelligence/connection-scan'
+import { capabilityForProviderConfigKey, capabilitiesToPurgeOnDisconnect, type DeliveryCapability } from '@/lib/nango/delivery'
 import { fromNangoProviderKey } from '@/lib/connectors/registry'
 
 export const runtime = 'nodejs'
-
-/** providerConfigKey (e.g. "google-mail") → the scan-plane delivery capability, if any. */
-function capabilityForProviderConfigKey(providerConfigKey: string): DeliveryCapability | undefined {
-  const entry = (Object.entries(DELIVERY_PROVIDERS) as [DeliveryCapability, readonly string[]][]).find(
-    ([, keys]) => keys.includes(providerConfigKey),
-  )
-  return entry?.[0]
-}
 
 type ConnectionStatus = {
   connected: boolean
@@ -116,15 +108,50 @@ export const GET = withAuthenticatedApi(async (_request, auth) => {
     }
   }
 
+  // Purge-on-disconnect (Task 5, Fix B2): a connection that vanished from
+  // Nango without going through the explicit DELETE route below (removed
+  // directly in the Nango dashboard, expired, etc.) must still purge its
+  // scan-derived learnings. Capture the about-to-be-dropped rows'
+  // capabilities BEFORE the sweep removes them.
+  const stale = await prisma.nangoConnection.findMany({
+    where: { organizationId: auth.organizationId, connectionId: { notIn: seen } },
+    select: { providerConfigKey: true },
+  })
+  const staleCapabilities = [
+    ...new Set(stale.map((row) => capabilityForProviderConfigKey(row.providerConfigKey)).filter((c): c is DeliveryCapability => Boolean(c))),
+  ]
+
   // Drop mirror rows for connections that no longer exist in Nango.
   await prisma.nangoConnection.deleteMany({
     where: { organizationId: auth.organizationId, connectionId: { notIn: seen } },
   })
 
+  const organizationId = auth.organizationId
+
+  // Reconcile: only purge a capability that NO remaining connected Nango
+  // connection still maps to (see capabilitiesToPurgeOnDisconnect) — the
+  // rows just upserted above already reflect this request's latest state.
+  if (staleCapabilities.length > 0) {
+    const stillConnectedRows = await prisma.nangoConnection.findMany({
+      where: { organizationId, status: 'connected' },
+      select: { providerConfigKey: true },
+    })
+    const stillConnectedCapabilities = [
+      ...new Set(stillConnectedRows.map((row) => capabilityForProviderConfigKey(row.providerConfigKey)).filter((c): c is DeliveryCapability => Boolean(c))),
+    ]
+    const toPurge = capabilitiesToPurgeOnDisconnect(staleCapabilities, stillConnectedCapabilities)
+    if (toPurge.length > 0) {
+      after(() =>
+        Promise.all(
+          toPurge.map((capability) => purgeConnectionLearnings({ organizationId, plane: 'nango', connectionRef: capability })),
+        ).catch(() => undefined),
+      )
+    }
+  }
+
   // Fire-and-forget usage scans for freshly-mirrored connections that map to
   // a known delivery capability (the only ones the scan plane can sample).
   // `after` (Next 15) so the scan survives past the response on serverless.
-  const organizationId = auth.organizationId
   after(() =>
     Promise.all(
       newlyConnected.map(async ({ providerConfigKey, userId }) => {
