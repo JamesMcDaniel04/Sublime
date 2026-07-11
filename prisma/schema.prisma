@@ -138,7 +138,7 @@ model AgentConnector {
   organizationId  String   @db.Uuid
   /// Canonical selection key (registry key, Klavis agentType, or connection name).
   connectorKey    String
-  /// Plane: 'builtin' | 'nango' | 'backstory' | 'klavis' | 'mcp' | 'external'.
+  /// Plane: 'builtin' | 'nango' | 'klavis' | 'mcp' | 'external'.
   kind            String   @default("external")
   /// Optional FK to a specific per-org MCP connection this binding targets.
   mcpConnectionId String?
@@ -571,10 +571,10 @@ model PeopleAiConnection {
 model McpConnection {
   id             String    @id @default(cuid())
   organizationId String    @db.Uuid
-  // Personal connection when set (e.g. the per-user Backstory MCP row);
+  // Personal connection when set (e.g. a per-user MCP row);
   // null = org-shared server added via the connections page.
   userId         String?
-  // Platform-managed provider slug ('backstory'); null = user-added server.
+  // Platform-managed provider slug; null = user-added server.
   provider       String?
   name           String
   description    String?
