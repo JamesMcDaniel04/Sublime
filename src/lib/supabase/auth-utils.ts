@@ -30,6 +30,11 @@ async function findDbUserCached(supabaseId: string): Promise<DbUserRow> {
 // infra that may never be installed, so provision the app user + organization
 // on first authenticated request when they don't exist yet.
 async function provisionUser(user: User) {
+  // Unknown identities must not be able to mint an administrator workspace in
+  // production. Self-service/JIT tenancy is an explicit deployment choice.
+  if (process.env.NODE_ENV === 'production' && process.env.AUTH_ALLOW_JIT_PROVISIONING !== 'true') {
+    return null
+  }
   const meta = (user.user_metadata || {}) as Record<string, unknown>
   const emailPrefix = (user.email || 'user').split('@')[0]
   const metaString = (key: string) => (typeof meta[key] === 'string' ? (meta[key] as string) : '')
@@ -46,7 +51,7 @@ async function provisionUser(user: User) {
           supabaseId: user.id,
           email: user.email ?? null,
           name,
-          role: 'ADMIN',
+          role: 'ADMIN', // creator owns the workspace only in explicit JIT mode
           organizationId: organization.id,
         },
         include: { organization: true },

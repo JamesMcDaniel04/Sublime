@@ -53,6 +53,7 @@ import { nextOccurrence, type AgentSchedule } from '@/lib/scheduling/due'
 import { Button } from '@/components/ui/button'
 import { TriggerFilterEditor } from './trigger-filter-editor'
 import type { ToolCatalog } from './tool-catalog-type'
+import { ToolArgsEditor } from './tool-args-editor'
 import { AdvancedParamsSection } from './advanced-params'
 import { DataTree } from './data-tree'
 import { TokenTextEditor, type TokenTextEditorHandle } from './token-text-editor'
@@ -677,7 +678,7 @@ export function StepCard({
             className="overflow-hidden"
           >
             <div onClick={stopEvent} onFocus={stopEvent} className="border-t border-slate-200 px-5 py-4">
-              {renderNodeBody({ node, flowId, agents, toolCatalog, update, onRefreshAgents, tokenWiring, showErrors, variableNames })}
+              {renderNodeBody({ node, flowId, agents, toolCatalog, update, onRefreshAgents, tokenWiring, showErrors, variableNames, dataFields })}
             </div>
           </motion.div>
         ) : (
@@ -760,6 +761,7 @@ function renderNodeBody({
   tokenWiring,
   showErrors,
   variableNames,
+  dataFields,
 }: {
   node: FlowNode
   flowId?: string
@@ -770,6 +772,7 @@ function renderNodeBody({
   tokenWiring: TokenEditorWiring
   showErrors?: boolean
   variableNames?: string[]
+  dataFields?: DataField[]
 }) {
   switch (node.type) {
     case 'trigger':
@@ -779,7 +782,7 @@ function renderNodeBody({
     case 'http':
       return <HttpBody node={node} toolCatalog={toolCatalog} update={update} tokenWiring={tokenWiring} showErrors={showErrors} />
     case 'tool':
-      return <ToolBody node={node} toolCatalog={toolCatalog} update={update} showErrors={showErrors} />
+      return <ToolBody node={node} toolCatalog={toolCatalog} update={update} showErrors={showErrors} dataFields={dataFields ?? []} tokenWiring={tokenWiring} />
     case 'condition':
       return <ConditionBody node={node} update={update} tokenWiring={tokenWiring} />
     case 'filter':
@@ -1496,11 +1499,15 @@ function ToolBody({
   toolCatalog,
   update,
   showErrors,
+  dataFields,
+  tokenWiring,
 }: {
   node: Extract<FlowNode, { type: 'tool' }>
   toolCatalog: ToolCatalog
   update: (node: FlowNode) => void
   showErrors?: boolean
+  dataFields: DataField[]
+  tokenWiring: TokenEditorWiring
 }) {
   const { connection, tool } = selectedTool(node.data.connectionId, node.data.toolName, toolCatalog)
   return (
@@ -1543,12 +1550,19 @@ function ToolBody({
       {connection ? (
         <div className="flex items-start gap-3 rounded-lg bg-slate-50 p-3 text-sm text-slate-600">
           <IntegrationLogo slug={connection.id} name={connection.name} className="h-8 w-8 rounded-lg bg-white p-1" />
-          <p>
-            {tool ? tool.description || 'Configure action inputs in the settings panel.' : 'Choose the action this connection should run.'}
-          </p>
+          <p>{tool ? tool.description || 'Runs this exact tool with the arguments below.' : 'Choose the action this connection should run.'}</p>
         </div>
       ) : (
         <p className="rounded-lg bg-slate-50 p-3 text-sm text-slate-600">Connectors available on this workspace will show here.</p>
+      )}
+      {node.data.toolName && (
+        <ToolArgsEditor
+          inputSchema={tool?.inputSchema}
+          args={node.data.args}
+          onChange={(nextArgs) => update({ ...node, data: { ...node.data, args: nextArgs } })}
+          dataFields={dataFields}
+          labelCtx={tokenWiring.labelCtx}
+        />
       )}
       <AdvancedParamsSection node={node} onChange={update} />
     </div>
@@ -1565,42 +1579,80 @@ function ConditionBody({
   tokenWiring: TokenEditorWiring
 }) {
   const { labelCtx, registerEditor, focusEditor } = tokenWiring
-  const clause = firstClause(node)
-  const setClause = (patch: Partial<ConditionClause>) => {
-    update({ ...node, data: { ...node.data, clauses: [{ ...clause, ...patch }], match: node.data.match ?? 'all' } } as FlowNode)
-  }
+  // All clauses (legacy single left/op/right normalizes to one row).
+  const clauses: ConditionClause[] = node.data.clauses?.length ? node.data.clauses : [firstClause(node)]
+  const setClauses = (next: ConditionClause[]) =>
+    update({ ...node, data: { ...node.data, clauses: next, match: node.data.match ?? 'all', left: undefined, op: undefined, right: undefined } } as FlowNode)
   return (
     <div className="space-y-3">
-      <p className="text-sm text-slate-600">{node.type === 'condition' ? 'Route the flow based on a rule.' : 'Continue only when this rule is true.'}</p>
-      <div className="grid gap-2 sm:grid-cols-[1fr_150px_1fr]">
-        <TokenTextEditor
-          ref={registerEditor('clause.left')}
-          value={clause.left}
-          labelCtx={labelCtx}
-          onFocus={focusEditor('clause.left')}
-          onChange={(left) => setClause({ left })}
-          className={cn(tokenControlClass, 'min-w-0')}
-          placeholder="Field or value"
-          ariaLabel="Field or value"
-        />
-        <select value={clause.op} onChange={(event) => setClause({ op: event.target.value as ConditionOp })} className={controlClass}>
-          {CONDITION_OPS.map((op) => (
-            <option key={op} value={op}>
-              {CONDITION_OP_LABELS[op]}
-            </option>
-          ))}
-        </select>
-        <TokenTextEditor
-          ref={registerEditor('clause.right')}
-          value={clause.right}
-          labelCtx={labelCtx}
-          onFocus={focusEditor('clause.right')}
-          onChange={(right) => setClause({ right })}
-          className={cn(tokenControlClass, 'min-w-0')}
-          placeholder="Compare to"
-          ariaLabel="Compare to"
-        />
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-sm text-slate-600">{node.type === 'condition' ? 'Route the flow based on a rule.' : 'Continue only when this rule is true.'}</p>
+        {clauses.length > 1 && (
+          <select
+            value={node.data.match ?? 'all'}
+            onChange={(event) => update({ ...node, data: { ...node.data, match: event.target.value as 'all' | 'any', clauses } } as FlowNode)}
+            className={cn(controlClass, 'w-auto py-1 text-xs')}
+            aria-label="Match all or any rules"
+          >
+            <option value="all">All match</option>
+            <option value="any">Any match</option>
+          </select>
+        )}
       </div>
+      {clauses.map((clause, index) => (
+        <div key={index} className="grid gap-2 sm:grid-cols-[1fr_150px_1fr_auto]">
+          <TokenTextEditor
+            ref={registerEditor(`clause.${index}.left`)}
+            value={clause.left}
+            labelCtx={labelCtx}
+            onFocus={focusEditor(`clause.${index}.left`)}
+            onChange={(left) => setClauses(clauses.map((c, j) => (j === index ? { ...c, left } : c)))}
+            className={cn(tokenControlClass, 'min-w-0')}
+            placeholder="Field or value"
+            ariaLabel={`Rule ${index + 1} field or value`}
+          />
+          <select
+            value={clause.op}
+            onChange={(event) => setClauses(clauses.map((c, j) => (j === index ? { ...c, op: event.target.value as ConditionOp } : c)))}
+            className={controlClass}
+          >
+            {CONDITION_OPS.map((op) => (
+              <option key={op} value={op}>
+                {CONDITION_OP_LABELS[op]}
+              </option>
+            ))}
+          </select>
+          <TokenTextEditor
+            ref={registerEditor(`clause.${index}.right`)}
+            value={clause.right}
+            labelCtx={labelCtx}
+            onFocus={focusEditor(`clause.${index}.right`)}
+            onChange={(right) => setClauses(clauses.map((c, j) => (j === index ? { ...c, right } : c)))}
+            className={cn(tokenControlClass, 'min-w-0')}
+            placeholder="Compare to"
+            ariaLabel={`Rule ${index + 1} comparison`}
+          />
+          {clauses.length > 1 ? (
+            <button
+              type="button"
+              onClick={() => setClauses(clauses.filter((_, j) => j !== index))}
+              className="self-center px-1 text-red-500 hover:text-red-700"
+              aria-label={`Remove rule ${index + 1}`}
+            >
+              <Trash2 className="h-4 w-4" />
+            </button>
+          ) : (
+            <span aria-hidden="true" />
+          )}
+        </div>
+      ))}
+      <button
+        type="button"
+        onClick={() => setClauses([...clauses, { left: '', op: 'contains', right: '' }])}
+        className="flex items-center gap-1 text-xs font-medium text-indigo-600 hover:text-indigo-700"
+      >
+        <Plus className="h-3.5 w-3.5" /> Add rule
+      </button>
     </div>
   )
 }
@@ -1710,40 +1762,76 @@ function SwitchBody({
   tokenWiring: TokenEditorWiring
 }) {
   const { labelCtx, registerEditor, focusEditor } = tokenWiring
-  const first = switchFirstCase(node)
-  const setFirst = (patch: Partial<typeof first>) => update({ ...node, data: { ...node.data, cases: [{ ...first, ...patch }] } })
+  const cases = node.data.cases.length ? node.data.cases : [switchFirstCase(node)]
+  const setCases = (next: typeof cases) => update({ ...node, data: { ...node.data, cases: next } })
   return (
     <div className="space-y-3">
       <p className="text-sm text-slate-600">Route to the first matching case, otherwise use the default path.</p>
-      <div className="grid gap-2 sm:grid-cols-[1fr_150px_1fr]">
-        <TokenTextEditor
-          ref={registerEditor('sw.left')}
-          value={first.left}
-          labelCtx={labelCtx}
-          onFocus={focusEditor('sw.left')}
-          onChange={(left) => setFirst({ left })}
-          className={cn(tokenControlClass, 'min-w-0')}
-          placeholder="Field or value"
-          ariaLabel="Field or value"
-        />
-        <select value={first.op} onChange={(event) => setFirst({ op: event.target.value as ConditionOp })} className={controlClass}>
-          {CONDITION_OPS.map((op) => (
-            <option key={op} value={op}>
-              {CONDITION_OP_LABELS[op]}
-            </option>
-          ))}
-        </select>
-        <TokenTextEditor
-          ref={registerEditor('sw.right')}
-          value={first.right}
-          labelCtx={labelCtx}
-          onFocus={focusEditor('sw.right')}
-          onChange={(right) => setFirst({ right })}
-          className={cn(tokenControlClass, 'min-w-0')}
-          placeholder="Compare to"
-          ariaLabel="Compare to"
-        />
-      </div>
+      {cases.map((c, index) => (
+        <div key={c.id} className="space-y-2 rounded-lg border border-slate-200 p-2.5">
+          <div className="flex gap-2">
+            <input
+              value={c.label ?? ''}
+              placeholder={`Case ${index + 1} label`}
+              onChange={(event) => setCases(cases.map((x, j) => (j === index ? { ...x, label: event.target.value } : x)))}
+              className={cn(controlClass, 'flex-1')}
+              aria-label={`Case ${index + 1} label`}
+            />
+            {cases.length > 1 && (
+              <button
+                type="button"
+                onClick={() => setCases(cases.filter((_, j) => j !== index))}
+                className="px-1 text-red-500 hover:text-red-700"
+                aria-label={`Remove case ${index + 1}`}
+              >
+                <Trash2 className="h-4 w-4" />
+              </button>
+            )}
+          </div>
+          <div className="grid gap-2 sm:grid-cols-[1fr_150px_1fr]">
+            <TokenTextEditor
+              ref={registerEditor(`sw.${index}.left`)}
+              value={c.left}
+              labelCtx={labelCtx}
+              onFocus={focusEditor(`sw.${index}.left`)}
+              onChange={(left) => setCases(cases.map((x, j) => (j === index ? { ...x, left } : x)))}
+              className={cn(tokenControlClass, 'min-w-0')}
+              placeholder="Field or value"
+              ariaLabel={`Case ${index + 1} value`}
+            />
+            <select
+              value={c.op}
+              onChange={(event) => setCases(cases.map((x, j) => (j === index ? { ...x, op: event.target.value as ConditionOp } : x)))}
+              className={controlClass}
+            >
+              {CONDITION_OPS.map((op) => (
+                <option key={op} value={op}>
+                  {CONDITION_OP_LABELS[op]}
+                </option>
+              ))}
+            </select>
+            <TokenTextEditor
+              ref={registerEditor(`sw.${index}.right`)}
+              value={c.right}
+              labelCtx={labelCtx}
+              onFocus={focusEditor(`sw.${index}.right`)}
+              onChange={(right) => setCases(cases.map((x, j) => (j === index ? { ...x, right } : x)))}
+              className={cn(tokenControlClass, 'min-w-0')}
+              placeholder="Compare to"
+              ariaLabel={`Case ${index + 1} comparison`}
+            />
+          </div>
+        </div>
+      ))}
+      <button
+        type="button"
+        onClick={() =>
+          setCases([...cases, { id: `case${cases.length + 1}-${Math.random().toString(36).slice(2, 6)}`, left: '', op: 'contains', right: '' }])
+        }
+        className="flex items-center gap-1 text-xs font-medium text-indigo-600 hover:text-indigo-700"
+      >
+        <Plus className="h-3.5 w-3.5" /> Add case
+      </button>
     </div>
   )
 }
