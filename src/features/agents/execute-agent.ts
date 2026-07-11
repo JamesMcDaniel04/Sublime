@@ -7,6 +7,7 @@ import { apiLogger } from '@/lib/logger'
 import { recordAudit } from '@/lib/audit'
 import { createApproval, requiresApproval } from '@/lib/agents/approval'
 import { retrieveContext, renderContext } from '@/lib/rag/retrieve'
+import { createContextAssembler } from '@/lib/context/assemble'
 import { retrieveKnowledge, renderKnowledge } from '@/lib/knowledge/retrieve'
 import { embeddingsConfigured, embedQuery, embedTexts, cosineSimilarity } from '@/lib/rag/embeddings'
 import { getGraphRagStore } from '@/lib/rag/get-store'
@@ -672,6 +673,12 @@ export async function runAgentExecution(
       bindings.set('run_agent', { provider: 'agent', serverUrl: '', toolName: 'run_agent', client: runAgentClient })
     }
 
+    // Unified retrieved-context budget: the three systems below (graph-RAG →
+    // knowledge → memory, in that priority order) share one character budget
+    // and a cross-system dedupe, so no single source floods the prompt and the
+    // same fact never arrives twice via different systems.
+    const contextAssembler = createContextAssembler()
+
     // Graph-RAG: give the agent correlated context (Sales AI signals,
     // integration/MCP data from prior runs, related accounts/opps) before it
     // acts. Best-effort and gated — a no-op when embeddings aren't configured.
@@ -692,7 +699,11 @@ export async function runAgentExecution(
         seedNodeIds,
         ...(strategize ? { topK: STRATEGIZE_RETRIEVAL.topK, hops: STRATEGIZE_RETRIEVAL.hops } : {}),
       })
-      const rendered = renderContext(ragContext)
+      const budgeted = {
+        hits: contextAssembler.take(ragContext.hits, (h) => h.text, (h) => h.score),
+        related: contextAssembler.take(ragContext.related, (r) => r.text, () => undefined),
+      }
+      const rendered = renderContext(budgeted)
       if (rendered) {
         system = `${system}\n\n${rendered}`
         // Surface the correlated context in the run's activity log so the
@@ -700,9 +711,9 @@ export async function runAgentExecution(
         // accounts the agent pulled in before acting.
         await recordEvent(execution.id, null, 'context.retrieved', {
           source: 'graph-rag',
-          hits: ragContext.hits.map((h) => ({ type: h.type, text: h.text })),
-          related: ragContext.related.map((r) => ({ type: r.type, text: r.text })),
-          summary: `Pulled ${ragContext.hits.length} correlated fact(s) + ${ragContext.related.length} connected entit(ies) from Sales AI, integrations, and prior runs.`,
+          hits: budgeted.hits.map((h) => ({ type: h.type, text: h.text })),
+          related: budgeted.related.map((r) => ({ type: r.type, text: r.text })),
+          summary: `Pulled ${budgeted.hits.length} correlated fact(s) + ${budgeted.related.length} connected entit(ies) from Sales AI, integrations, and prior runs.`,
         })
       }
     } catch (error) {
@@ -720,13 +731,14 @@ export async function runAgentExecution(
         agentId: agent.id,
         query: `${agent.objective}\n${data.input ?? ''}`.slice(0, 2000),
       })
-      const knowledgeBlock = renderKnowledge(knowledgeHits)
+      const budgetedKnowledge = contextAssembler.take(knowledgeHits, (h) => h.content, (h) => h.score)
+      const knowledgeBlock = renderKnowledge(budgetedKnowledge)
       if (knowledgeBlock) {
         system = `${system}\n\n${knowledgeBlock}`
         await recordEvent(execution.id, null, 'knowledge.retrieved', {
           source: 'uploaded-files',
-          files: [...new Set(knowledgeHits.map((h) => h.filename))],
-          summary: `Pulled ${knowledgeHits.length} passage(s) from ${new Set(knowledgeHits.map((h) => h.filename)).size} uploaded file(s).`,
+          files: [...new Set(budgetedKnowledge.map((h) => h.filename))],
+          summary: `Pulled ${budgetedKnowledge.length} passage(s) from ${new Set(budgetedKnowledge.map((h) => h.filename)).size} uploaded file(s).`,
         })
       }
     } catch (error) {
@@ -745,14 +757,15 @@ export async function runAgentExecution(
         query: `${agent.objective}\n${data.input ?? ''}`.slice(0, 2000),
       })
       const critique = typeof agentMetadata.lastCritique === 'string' ? agentMetadata.lastCritique : null
-      const memoryBlock = renderAgentMemories(memoryHits, critique)
+      const budgetedMemories = contextAssembler.take(memoryHits, (h) => `${h.title}\n${h.content}`, (h) => h.score)
+      const memoryBlock = renderAgentMemories(budgetedMemories, critique)
       if (memoryBlock) {
         system = `${system}\n\n${memoryBlock}`
-        void markMemoriesUsed(memoryHits.map((h) => h.id))
+        void markMemoriesUsed(budgetedMemories.map((h) => h.id))
         await recordEvent(execution.id, null, 'memory.retrieved', {
           source: 'agent-memory',
-          count: memoryHits.length,
-          summary: `Recalled ${memoryHits.length} memor${memoryHits.length === 1 ? 'y' : 'ies'} from previous runs${critique ? ' + a note-to-self' : ''}.`,
+          count: budgetedMemories.length,
+          summary: `Recalled ${budgetedMemories.length} memor${budgetedMemories.length === 1 ? 'y' : 'ies'} from previous runs${critique ? ' + a note-to-self' : ''}.`,
         })
       }
     } catch (error) {
