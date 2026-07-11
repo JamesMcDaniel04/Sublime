@@ -70,11 +70,7 @@ export default function FlowsPage() {
     const previous = flows
     setFlows((prev) => prev.filter((flow) => flow.id !== id))
     try {
-      const response = await fetch('/api/flows', {
-        method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id }),
-      })
+      const response = await fetch(`/api/flows/${id}/dismiss-suggestion`, { method: 'POST' })
       if (!response.ok) {
         setFlows(previous)
         toast.error('Could not dismiss that suggestion.')

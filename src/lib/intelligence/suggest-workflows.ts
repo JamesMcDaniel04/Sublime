@@ -229,38 +229,89 @@ function lastSynthesisAt(settings: unknown): Date | null {
   return Number.isNaN(parsed.getTime()) ? null : parsed
 }
 
-/** Merge-write the cooldown timestamp without clobbering unrelated settings keys. */
-async function claimSynthesisSlot(organizationId: string, existingSettings: unknown, now: Date): Promise<void> {
-  const base = existingSettings && typeof existingSettings === 'object' && !Array.isArray(existingSettings) ? (existingSettings as Record<string, unknown>) : {}
-  await prisma.organization.update({
-    where: { id: organizationId },
-    data: { settings: { ...base, lastSuggestionSynthesisAt: now.toISOString() } },
-  })
+/**
+ * Atomically claim today's synthesis slot for this org: a single UPDATE whose
+ * WHERE clause re-checks the cooldown at the database, so two concurrent
+ * triggers (post-scan hook racing the weekly cron tick) can't both pass a
+ * read-then-write check and both run. Returns true iff THIS call claimed the
+ * slot (1 row affected); false means another caller holds it for today, or
+ * won the race.
+ */
+async function claimSynthesisSlotAtomic(organizationId: string, now: Date): Promise<boolean> {
+  const nowIso = now.toISOString()
+  const affected = await prisma.$executeRaw`
+    UPDATE organizations
+    SET settings = jsonb_set(COALESCE(settings, '{}'::jsonb), '{lastSuggestionSynthesisAt}', to_jsonb(${nowIso}::text))
+    WHERE id = ${organizationId}::uuid
+      AND (
+        COALESCE(settings->>'lastSuggestionSynthesisAt', '') = ''
+        OR (settings->>'lastSuggestionSynthesisAt')::timestamptz < (${nowIso}::timestamptz - interval '1 day')
+      )
+  `
+  return affected > 0
+}
+
+/**
+ * Best-effort release of a claim made moments ago by this same call, used
+ * only when downstream work (LLM call, parsing) fails after a successful
+ * claim — so a transient blip doesn't silence suggestions for a whole day.
+ * Not atomic/conditional: it unconditionally restores whatever timestamp
+ * preceded the claim (or clears the key if there wasn't one), which is fine
+ * because by the time we're releasing, we already know we hold the claim
+ * (nothing else could have re-claimed today's slot while we held it). Never
+ * throws — a failed release just means the cooldown holds for the rest of
+ * the day, which is the safe-by-default behavior anyway.
+ */
+async function releaseSynthesisSlot(organizationId: string, previous: Date | null): Promise<void> {
+  try {
+    if (previous) {
+      const previousIso = previous.toISOString()
+      await prisma.$executeRaw`
+        UPDATE organizations
+        SET settings = jsonb_set(COALESCE(settings, '{}'::jsonb), '{lastSuggestionSynthesisAt}', to_jsonb(${previousIso}::text))
+        WHERE id = ${organizationId}::uuid
+      `
+    } else {
+      await prisma.$executeRaw`
+        UPDATE organizations
+        SET settings = COALESCE(settings, '{}'::jsonb) - 'lastSuggestionSynthesisAt'
+        WHERE id = ${organizationId}::uuid
+      `
+    }
+  } catch (error) {
+    apiLogger.warn('synthesizeWorkflowSuggestions: best-effort claim release failed', {
+      organizationId,
+      error: error instanceof Error ? error.message : String(error),
+    })
+  }
 }
 
 export type SynthesisResult =
   | { skipped: 'below-gate' | 'throttled' | 'no-profiles' | 'error' }
-  | { synthesized: true; newFlows: number; improvements: number }
+  | { synthesized: true; newFlows: number; improvements: number; discarded: number }
+
+/** Injectable seams for testing — default to the real implementations. */
+export type SynthesisOverrides = {
+  generate?: typeof generateStructured
+  generateGraph?: typeof generateFlowGraph
+  now?: () => Date
+}
 
 /**
  * Run one pass of workflow-suggestion synthesis for an org. Never throws —
  * degrades to `{ skipped: reason }` on any gate/guard/failure.
  */
-export async function synthesizeWorkflowSuggestions(organizationId: string): Promise<SynthesisResult> {
+export async function synthesizeWorkflowSuggestions(organizationId: string, overrides?: SynthesisOverrides): Promise<SynthesisResult> {
+  const generate = overrides?.generate ?? generateStructured
+  const generateGraph = overrides?.generateGraph ?? generateFlowGraph
+  const now = overrides?.now ? overrides.now() : new Date()
+
   try {
-    const [org, counts] = await Promise.all([
-      prisma.organization.findUnique({ where: { id: organizationId }, select: { settings: true } }),
-      countActiveConnections(organizationId),
-    ])
+    // Gate and profile checks read-only, and BEFORE any claim is written —
+    // an org that's below the gate or has no profiles yet must never burn a
+    // day's cooldown slot for nothing.
+    const counts = await countActiveConnections(organizationId)
     if (!meetsSuggestionGate(counts)) return { skipped: 'below-gate' }
-
-    const now = new Date()
-    const last = lastSynthesisAt(org?.settings)
-    if (last && now.getTime() - last.getTime() < SUGGESTION_SYNTHESIS_COOLDOWN_MS) return { skipped: 'throttled' }
-
-    // Claim the slot before doing any LLM work so a concurrent trigger
-    // (post-scan hook racing the weekly cron tick) can't double-run.
-    await claimSynthesisSlot(organizationId, org?.settings, now)
 
     const agentId = await orgIntelligenceAgentId(organizationId)
     const memories = await prisma.agentMemory.findMany({
@@ -271,100 +322,139 @@ export async function synthesizeWorkflowSuggestions(organizationId: string): Pro
     })
     if (memories.length === 0) return { skipped: 'no-profiles' }
 
-    const [flows, agents] = await Promise.all([loadExistingFlows(organizationId), loadExistingAgents(organizationId)])
-    const { system, user } = buildSynthesisPrompt({ profiles: memories, flows, agents })
+    // Capture the pre-claim timestamp (best-effort only — used solely to
+    // restore it if we claim the slot but then fail downstream) before the
+    // atomic claim itself, which is the actual race-safe gate.
+    const orgBeforeClaim = await prisma.organization.findUnique({ where: { id: organizationId }, select: { settings: true } })
+    const previousTimestamp = lastSynthesisAt(orgBeforeClaim?.settings)
 
-    const model = process.env.AGENT_REFLECTION_MODEL?.trim() || DEFAULT_SUMMARY_MODEL
-    const raw = await generateStructured({ system, user, schema: SUGGESTIONS_JSON_SCHEMA, schemaName: 'workflow_suggestions', maxTokens: 2000, model })
-    const parsed = parseSuggestions(raw)
-    if (!parsed) return { skipped: 'error' }
+    const claimed = await claimSynthesisSlotAtomic(organizationId, now)
+    if (!claimed) return { skipped: 'throttled' }
 
-    const validFlowIds = new Set(flows.map((f) => f.id))
-    const validAgentIds = new Set(agents.map((a) => a.id))
+    try {
+      const [flows, agents] = await Promise.all([loadExistingFlows(organizationId), loadExistingAgents(organizationId)])
+      const { system, user } = buildSynthesisPrompt({ profiles: memories, flows, agents })
 
-    let newFlowCount = 0
-    let improvementCount = 0
+      const model = process.env.AGENT_REFLECTION_MODEL?.trim() || DEFAULT_SUMMARY_MODEL
+      const raw = await generate({ system, user, schema: SUGGESTIONS_JSON_SCHEMA, schemaName: 'workflow_suggestions', maxTokens: 2000, model })
+      const parsed = parseSuggestions(raw)
+      if (!parsed) {
+        // Unparseable model output — not a real "ran today" pass. Release so
+        // tomorrow's attempt (or a retriggered one) isn't silenced.
+        await releaseSynthesisSlot(organizationId, previousTimestamp)
+        return { skipped: 'error' }
+      }
 
-    const suggestions = parsed.suggestions.slice(0, MAX_NEW_SUGGESTIONS)
-    if (suggestions.length > 0) {
-      // Resolve a user to attribute the draft's grounding/generation to — the
-      // org's oldest active member, same convention as cron dispatch's
-      // unowned-agent fallback.
-      const owner = await prisma.user.findFirst({ where: { organizationId, isActive: true }, orderBy: { createdAt: 'asc' } })
-      for (const suggestion of suggestions) {
-        const saved = await saveAgentMemory({
-          organizationId,
-          agentId,
-          kind: 'suggestion',
-          title: suggestion.title,
-          content: suggestion.description,
-        })
-        if (!saved || saved.deduped) continue
-        if (!owner) continue
-        try {
-          const { roster, toolCatalog, contextBlock, graphRules } = await buildCopilotGrounding(organizationId, owner.id)
-          const genUser = [`Build a flow that: ${suggestion.flowPrompt}`, '', contextBlock].join('\n')
-          const { graph } = await generateFlowGraph({ system: graphRules, user: genUser, roster, toolCatalog })
-          await prisma.flow.create({
-            data: {
-              name: suggestion.title.slice(0, 200),
-              description: suggestion.description,
-              organizationId,
-              userId: owner.id,
-              status: 'DRAFT',
-              graph: JSON.parse(JSON.stringify(graph)),
-              metadata: { suggested: true, sourceMemoryId: saved.id },
-            },
-          })
-          newFlowCount += 1
-        } catch (error) {
-          apiLogger.warn('synthesizeWorkflowSuggestions: draft flow generation failed', {
+      const validFlowIds = new Set(flows.map((f) => f.id))
+      const validAgentIds = new Set(agents.map((a) => a.id))
+
+      let newFlowCount = 0
+      let improvementCount = 0
+      let discardedCount = 0
+
+      const suggestions = parsed.suggestions.slice(0, MAX_NEW_SUGGESTIONS)
+      if (suggestions.length > 0) {
+        // Resolve a user to attribute the draft's grounding/generation to — the
+        // org's oldest active member, same convention as cron dispatch's
+        // unowned-agent fallback.
+        const owner = await prisma.user.findFirst({ where: { organizationId, isActive: true }, orderBy: { createdAt: 'asc' } })
+        for (const suggestion of suggestions) {
+          const saved = await saveAgentMemory({
             organizationId,
+            agentId,
+            kind: 'suggestion',
             title: suggestion.title,
-            error: error instanceof Error ? error.message : String(error),
+            content: suggestion.description,
           })
+          if (!saved || saved.deduped) continue
+          if (!owner) continue
+          try {
+            const { roster, toolCatalog, contextBlock, graphRules } = await buildCopilotGrounding(organizationId, owner.id)
+            const genUser = [`Build a flow that: ${suggestion.flowPrompt}`, '', contextBlock].join('\n')
+            const { graph, validation } = await generateGraph({ system: graphRules, user: genUser, roster, toolCatalog })
+            if (!validation.ok) {
+              // The suggestion idea itself is still good (it dedupes and
+              // shows up as a suggestion memory) — only the auto-generated
+              // draft flow is unusable, so skip creating it and count it as
+              // discarded rather than silently persisting a broken graph.
+              discardedCount += 1
+              apiLogger.warn('synthesizeWorkflowSuggestions: discarding draft flow that failed graph validation', {
+                organizationId,
+                title: suggestion.title,
+                errors: validation.errors.map((issue) => issue.message),
+              })
+              continue
+            }
+            await prisma.flow.create({
+              data: {
+                name: suggestion.title.slice(0, 200),
+                description: suggestion.description,
+                organizationId,
+                userId: owner.id,
+                status: 'DRAFT',
+                graph: JSON.parse(JSON.stringify(graph)),
+                metadata: { suggested: true, sourceMemoryId: saved.id },
+              },
+            })
+            newFlowCount += 1
+          } catch (error) {
+            discardedCount += 1
+            apiLogger.warn('synthesizeWorkflowSuggestions: draft flow generation failed', {
+              organizationId,
+              title: suggestion.title,
+              error: error instanceof Error ? error.message : String(error),
+            })
+          }
         }
       }
+
+      for (const improvement of parsed.improvements.slice(0, MAX_IMPROVEMENTS)) {
+        if (improvement.targetType === 'flow' && !validFlowIds.has(improvement.targetId)) continue
+        if (improvement.targetType === 'agent' && !validAgentIds.has(improvement.targetId)) continue
+
+        const saved =
+          improvement.targetType === 'agent'
+            ? await saveAgentMemory({
+                organizationId,
+                agentId: improvement.targetId,
+                kind: 'suggestion',
+                title: improvement.title,
+                content: improvement.rationale,
+              })
+            : await saveAgentMemory({
+                organizationId,
+                agentId,
+                kind: 'suggestion',
+                title: improvement.title,
+                content: improvement.rationale,
+                question: `${FLOW_TARGET_MARKER_PREFIX}${improvement.targetId}`,
+              })
+        if (saved && !saved.deduped) improvementCount += 1
+      }
+
+      if (newFlowCount === 0 && improvementCount === 0) {
+        return { synthesized: true, newFlows: 0, improvements: 0, discarded: discardedCount }
+      }
+
+      const parts: string[] = []
+      if (newFlowCount > 0) parts.push(`${newFlowCount} new flow draft${newFlowCount === 1 ? '' : 's'}`)
+      if (improvementCount > 0) parts.push(`${improvementCount} improvement${improvementCount === 1 ? '' : 's'}`)
+      await notify({
+        organizationId,
+        type: 'intelligence.suggestions',
+        title: 'Sublime found something',
+        body: `Suggested ${parts.join(' and ')} based on how your team uses its connected tools.`,
+        link: '/flows',
+      })
+
+      return { synthesized: true, newFlows: newFlowCount, improvements: improvementCount, discarded: discardedCount }
+    } catch (error) {
+      // Downstream failure after a successful claim (LLM error, DB error,
+      // etc.) — best-effort release so a transient blip doesn't silence
+      // suggestions for the rest of the day.
+      await releaseSynthesisSlot(organizationId, previousTimestamp)
+      throw error
     }
-
-    for (const improvement of parsed.improvements.slice(0, MAX_IMPROVEMENTS)) {
-      if (improvement.targetType === 'flow' && !validFlowIds.has(improvement.targetId)) continue
-      if (improvement.targetType === 'agent' && !validAgentIds.has(improvement.targetId)) continue
-
-      const saved =
-        improvement.targetType === 'agent'
-          ? await saveAgentMemory({
-              organizationId,
-              agentId: improvement.targetId,
-              kind: 'suggestion',
-              title: improvement.title,
-              content: improvement.rationale,
-            })
-          : await saveAgentMemory({
-              organizationId,
-              agentId,
-              kind: 'suggestion',
-              title: improvement.title,
-              content: improvement.rationale,
-              question: `${FLOW_TARGET_MARKER_PREFIX}${improvement.targetId}`,
-            })
-      if (saved && !saved.deduped) improvementCount += 1
-    }
-
-    if (newFlowCount === 0 && improvementCount === 0) return { synthesized: true, newFlows: 0, improvements: 0 }
-
-    const parts: string[] = []
-    if (newFlowCount > 0) parts.push(`${newFlowCount} new flow draft${newFlowCount === 1 ? '' : 's'}`)
-    if (improvementCount > 0) parts.push(`${improvementCount} improvement${improvementCount === 1 ? '' : 's'}`)
-    await notify({
-      organizationId,
-      type: 'intelligence.suggestions',
-      title: 'Sublime found something',
-      body: `Suggested ${parts.join(' and ')} based on how your team uses its connected tools.`,
-      link: '/flows',
-    })
-
-    return { synthesized: true, newFlows: newFlowCount, improvements: improvementCount }
   } catch (error) {
     apiLogger.warn('synthesizeWorkflowSuggestions failed', {
       organizationId,
