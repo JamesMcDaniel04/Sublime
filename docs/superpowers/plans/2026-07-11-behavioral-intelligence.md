@@ -12,6 +12,8 @@
 
 ## Global Constraints
 
+- **UX narrative (user-provided reference):** the experience presents as three stages — **01 Connect your tools** ("learning happens automatically — no migrations"), **02 Your data takes shape** (scan/profile progress visible on the Integrations page), **03 Your AI goes live** (suggested flows + auto-templates ready to deploy). Copy on new UI should echo this framing.
+
 - Scanner NEVER calls a tool whose name matches write verbs: `/(create|send|post|update|delete|write|add|remove|set|execute|run|insert|upload|patch|move|archive)/i`; allowlist `/(list|get|search|recent|fetch|read|find|history|describe)/i`; ≤ **6 tools** per scan, one call each, empty/minimal args, 15s timeout, response truncated to 8k chars.
 - Only distilled profile text persists — never raw sampled records.
 - Every learning action emits an activity event or notification (no silent learning).
@@ -60,6 +62,7 @@ export function scanEnabled(orgSettings: unknown): boolean // settings.disableCo
 - [ ] After each successful create/authorize, fire-and-forget the scan without blocking the response. Serverless caveat: plain `void` promises can be killed at response end on Vercel — use `after(() => scanConnection(...))` from `next/server` (Next 15) at each route; confirm availability (`grep '"next"' package.json`) and fall back to `void` + comment if <15.
 - [ ] Add a `POST /api/intelligence/rescan` route (body: plane+ref) for the manual Rescan action; register in route-smoke skips (POST-only).
 - [ ] Settings UI: on the /settings page (exists from the parallel session) add the "Connection scanning" toggle writing `organizations.settings.disableConnectionScans` via the existing org PATCH.
+- [ ] Integrations page: a slim "Your data takes shape" status strip — recent `intelligence.scan` notifications rendered as learning progress (e.g. "Learning from GitHub — 3 processes understood"), echoing stage 02 of the UX narrative.
 - [ ] Verify + commit.
 
 ### Task 3: Workflow suggestions (Phase 2)
@@ -70,7 +73,7 @@ export function scanEnabled(orgSettings: unknown): boolean // settings.disableCo
 - [ ] `synthesizeWorkflowSuggestions(organizationId)`: gather the org's scan insights (graph search seeded by `insight:scan:*` — or direct prisma read of memories `agentId:'org:shared'`) + last 20 run headlines → `generateStructured` → `{suggestions: [{title, description, flowPrompt}]}` (≤3 per pass).
 - [ ] For each: `saveAgentMemory({kind:'suggestion', agentId:'org:shared'})` — its embedding dedupe (≥0.86) stops re-suggesting accepted/dismissed ideas. If saved fresh (not deduped): generate a draft flow via the copilot generation path (reuse the server-side generator the `/api/flows/copilot` route uses — extract if inline) → `prisma.flow.create({status:'DRAFT', name:title, description, metadata:{suggested:true, sourceMemoryId}})`.
 - [ ] Trigger: end of every successful `scanConnection` + weekly in the cron dispatch tick (guard: ≤1 synthesis/org/day via a settings timestamp).
-- [ ] `/flows` page: "Suggested for you" section listing flows with `metadata.suggested` — open (normal builder) or dismiss (delete flow + mark memory dismissed).
+- [ ] `/flows` page: "Your AI is ready" / "Suggested for you" section (stage 03 of the UX narrative) listing flows with `metadata.suggested` — open (normal builder) or dismiss (delete flow + mark memory dismissed).
 - [ ] Verify + commit.
 
 ### Task 4: Template-from-run (Phase 3)
