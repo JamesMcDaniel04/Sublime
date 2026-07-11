@@ -35,7 +35,8 @@ const NODE_TYPES: { value: EditableType; label: string }[] = [
   { value: 'stop', label: 'Stop' },
 ]
 
-export type ToolCatalog = { id: string; name: string; tools: { name: string; description: string; inputSchema?: unknown; outputSchema?: unknown }[]; toolsError?: string }[]
+export type { ToolCatalog } from './tool-catalog-type'
+import type { ToolCatalog } from './tool-catalog-type'
 
 /** Frequencies the schedule editor offers (matches AgentSchedule types). */
 const FREQUENCIES = [

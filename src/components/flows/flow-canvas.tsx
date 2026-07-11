@@ -10,7 +10,7 @@ import type { DataField } from '@/lib/flows/datatree'
 import { humanizeTokens, type TokenLabelContext } from '@/lib/flows/token-text'
 import { StepCard, type StepStatus } from './step-card'
 import { FlowPicker } from './flow-picker'
-import type { ToolCatalog } from './step-drawer'
+import type { ToolCatalog } from './tool-catalog-type'
 
 type Agent = { id: string; title: string }
 

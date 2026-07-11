@@ -48,7 +48,7 @@ import { DATA_OP_HELPER, DATA_OP_INPUT_PLACEHOLDER, VARIABLE_VALUE_PLACEHOLDER, 
 import { humanizeTokens, type TokenLabelContext } from '@/lib/flows/token-text'
 import { parseFlowToolConnectionId } from '@/lib/flows/tool-connection-id'
 import { triggerInputFieldsFromTrigger } from '@/lib/flows/trigger'
-import type { ToolCatalog } from './step-drawer'
+import type { ToolCatalog } from './tool-catalog-type'
 import { AdvancedParamsSection } from './advanced-params'
 import { DataTree } from './data-tree'
 import { TokenTextEditor, type TokenTextEditorHandle } from './token-text-editor'

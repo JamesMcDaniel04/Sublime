@@ -40,7 +40,7 @@ import {
 import { parseFlowToolConnectionId } from '@/lib/flows/tool-connection-id'
 import { humanizeToolName } from '@/lib/flows/humanize-tool-name'
 import type { FlowInsertSeed } from './flow-canvas'
-import type { ToolCatalog } from './step-drawer'
+import type { ToolCatalog } from './tool-catalog-type'
 
 type Agent = { id: string; title: string }
 type Connection = ToolCatalog[number]
