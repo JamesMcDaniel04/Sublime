@@ -10,6 +10,7 @@ import { PageHeader } from '@/components/ui/page-header'
 import { Switch } from '@/components/ui/switch'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { toast } from 'sonner'
+import { LearningsPanel } from './learnings-panel'
 
 type Profile = { name: string; email: string; imageUrl: string | null; timezone: string; role: string }
 type Factor = { id: string; friendly_name?: string; status: string }
@@ -153,6 +154,7 @@ export default function SettingsPage() {
             )}
           </CardContent>
         </Card>
+        <LearningsPanel />
       </TabsContent>
     </Tabs>
   </div>

@@ -56,6 +56,7 @@ if (TEST_DB) {
     { name: 'GET /api/integrations/available', run: async () => (await import('../integrations/available/route')).GET(req('/api/integrations/available')) },
     { name: 'GET /api/integrations/granola', run: async () => (await import('../integrations/granola/route')).GET(req('/api/integrations/granola')) },
     { name: 'GET /api/integrations/status', run: async () => (await import('../integrations/status/route')).GET(req('/api/integrations/status')) },
+    { name: 'GET /api/intelligence/learnings', run: async () => (await import('../intelligence/learnings/route')).GET(req('/api/intelligence/learnings')) },
     { name: 'GET /api/mcp-connections', run: async () => (await import('../mcp-connections/route')).GET(req('/api/mcp-connections')) },
     { name: 'GET /api/mcp-connections/oauth/start', run: async () => (await import('../mcp-connections/oauth/start/route')).GET(req('/api/mcp-connections/oauth/start')) },
     { name: 'GET /api/mcp/connections', run: async () => (await import('../mcp/connections/route')).GET(req('/api/mcp/connections')) },
