@@ -21,7 +21,7 @@ const NAV_ITEMS: NavResult[] = [
   { label: 'Home', href: '/dashboard', icon: Brain },
   { label: 'Integrations', href: '/integrations', icon: Plug },
   { label: 'Explore', href: '/templates', icon: FileText },
-  { label: 'MCP Servers', href: '/connections', icon: Server },
+  { label: 'MCP Servers', href: '/integrations?tab=mcp', icon: Server },
 ]
 
 function runStatusIcon(status: string) {

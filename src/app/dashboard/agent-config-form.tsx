@@ -782,7 +782,7 @@ export function AgentConfigForm({
             </p>
             <div className="flex items-center gap-2">
               <Link
-                href="/connections"
+                href="/integrations?tab=mcp"
                 className="text-xs font-medium text-primary hover:underline"
               >
                 + Connect a tool
