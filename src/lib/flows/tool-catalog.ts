@@ -10,7 +10,6 @@
  * @/lib/flows/tool-connection-id for the parser the executor routes on):
  *   - MCP connection rows keep their RAW database id — backward compatible
  *     with graphs stored before multi-plane support.
- *   - people_ai:backstory  — the People.ai / Sales AI plane
  *   - klavis:<mcpAgentId>  — a Klavis-provisioned MCP server row
  *   - native:<providerId>  — a built-in integration (granola|slack|http|email)
  *   - nango:<capability>   — a Nango delivery capability (slack|gmail|salesforce)
@@ -25,7 +24,6 @@ import {
   loadMcpConnectionPlaneGroups,
   loadNangoPlaneGroups,
   loadNativePlaneGroups,
-  loadPeopleAiPlaneGroup,
   type ToolPlaneGroup,
 } from '@/features/agents/tool-planes'
 import { planesForConnectionIds } from '@/lib/flows/tool-connection-id'
@@ -42,10 +40,9 @@ export async function loadFlowToolCatalog(
   // When the caller only needs specific connections (run/publish validation),
   // load just the planes those ids reference.
   const wanted = options.connectionIds?.length ? planesForConnectionIds(options.connectionIds) : null
-  const wantPlane = (plane: 'people_ai' | 'klavis' | 'mcp' | 'native' | 'nango') => !wanted || wanted.planes.has(plane)
+  const wantPlane = (plane: 'klavis' | 'mcp' | 'native' | 'nango') => !wanted || wanted.planes.has(plane)
 
-  const [peopleAi, klavis, mcp, native, nango] = await Promise.all([
-    wantPlane('people_ai') ? loadPeopleAiPlaneGroup(organizationId, options.userId).catch(() => null) : null,
+  const [klavis, mcp, native, nango] = await Promise.all([
     wantPlane('klavis') ? loadKlavisPlaneGroups(organizationId).catch(() => [] as ToolPlaneGroup[]) : [],
     wantPlane('mcp') && (!wanted || wanted.mcpIds.length)
       ? loadMcpConnectionPlaneGroups(organizationId, options.userId, {
@@ -59,8 +56,8 @@ export async function loadFlowToolCatalog(
   ])
 
   // MCP rows stay first so existing pickers/graphs see a stable ordering, then
-  // the Sales AI plane, then the remaining planes.
-  const groups = [...mcp, ...(peopleAi ? [peopleAi] : []), ...klavis, ...native, ...nango]
+  // the remaining planes.
+  const groups = [...mcp, ...klavis, ...native, ...nango]
   const wantedIds = wanted ? new Set(options.connectionIds) : null
   return groups
     .filter((group) => !wantedIds || wantedIds.has(group.id))

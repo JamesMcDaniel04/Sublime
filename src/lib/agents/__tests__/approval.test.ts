@@ -6,8 +6,7 @@ import { requiresApproval, capabilityFromProvider } from '../approval'
 test('requiresApproval only when flag set AND provider is a write plane', () => {
   assert.equal(requiresApproval({ requireApproval: true }, 'nango:slack'), true)
   assert.equal(requiresApproval({ requireApproval: true }, 'nango:gmail'), true)
-  assert.equal(requiresApproval({ requireApproval: true }, 'people_ai'), false)
-  assert.equal(requiresApproval({ requireApproval: true }, 'backstory'), false)
+  assert.equal(requiresApproval({ requireApproval: true }, 'granola'), false)
   assert.equal(requiresApproval({ requireApproval: false }, 'nango:slack'), false)
   assert.equal(requiresApproval({}, 'nango:slack'), false)
 })

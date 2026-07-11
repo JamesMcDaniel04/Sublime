@@ -49,7 +49,7 @@ export class KlavisClient {
   constructor(private readonly options: KlavisClientOptions) {
     if (!options.apiKey) throw new Error('KlavisClient requires an API key')
     this.baseUrl = options.baseUrl || 'https://api.klavis.ai'
-    this.platformName = options.platformName || 'backstory'
+    this.platformName = options.platformName || 'sublime'
   }
 
   async createServerInstance(provider: string, userId: string): Promise<KlavisServer> {

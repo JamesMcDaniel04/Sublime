@@ -125,9 +125,9 @@ export class GranolaToolClient {
 
   // Satisfies the McpToolClient interface in execute-agent.ts:
   //   executeTool(serverUrl, name, args): Promise<any>
-  // Returns the parsed JSON object directly — the same shape as
-  // BackstoryMcpClient.executeTool (response.result), so the run loop's
-  // JSON.stringify(result) wrapping is identical for both integrations.
+  // Returns the parsed JSON object directly — an MCP tool-call result shape
+  // (response.result), so the run loop's JSON.stringify(result) wrapping is
+  // identical across integrations.
   async executeTool(
     _serverUrl: string,
     name: string,

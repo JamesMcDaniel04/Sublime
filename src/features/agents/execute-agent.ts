@@ -14,7 +14,6 @@ import { indexExecution } from '@/lib/rag/indexer'
 import { selectedStrataServers } from '@/lib/mcp/strata'
 import {
   loadKlavisPlaneGroups,
-  loadPeopleAiPlaneGroup,
   loadMcpConnectionPlaneGroups,
   loadNativePlaneGroups,
   loadNangoPlaneGroups,
@@ -245,9 +244,7 @@ async function loadTools(organizationId: string, providers: string[], ownerUserI
   }
 
   // ---- Klavis-managed MCP servers ----------------------------------------
-  // Non-Backstory providers that Klavis handles (Backstory/Sales AI is loaded
-  // unconditionally below, so it never needs to appear in the providers list).
-  const klavisProviders = providers.filter((p) => !/backstory/i.test(p))
+  const klavisProviders = providers
 
   if (process.env.KLAVIS_API_KEY && klavisProviders.length > 0) {
     const klavisGroups = await loadKlavisPlaneGroups(organizationId, {
@@ -262,14 +259,6 @@ async function loadTools(organizationId: string, providers: string[], ownerUserI
       pushGroup(group, { cap: 20 })
     }
   }
-
-  // ---- People.ai Sales AI MCP (a.k.a. Backstory MCP) -----------------------
-  // Sales AI read tools are this product's core data spine, so they load for
-  // EVERY agent whenever a People.ai client resolves — the same "connect once,
-  // available everywhere" model as the org MCP connections below. Identity
-  // order (owner connection → org service key → legacy env) lives in the loader.
-  const peopleAiGroup = await loadPeopleAiPlaneGroup(organizationId, ownerUserId)
-  if (peopleAiGroup) pushGroup(peopleAiGroup, { cap: 20 })
 
   // ---- Per-org MCP connections (all active connections, any authType) ------
   // Custom MCP connections load for every agent regardless of the providers
@@ -919,9 +908,9 @@ export async function runAgentExecution(
           })
           await recordEvent(execution.id, step.id, 'tool.completed', { name: step.node })
           // Immutable audit trail. Delivery/write planes (nango, slack, email,
-          // salesforce, people.ai) are the consequential ones; the args are
+          // salesforce) are the consequential ones; the args are
           // hashed, not stored.
-          const writePlanes = /^(nango|slack|email|backstory)/i
+          const writePlanes = /^(nango|slack|email)/i
           await recordAudit({
             organizationId,
             executionId: execution.id,

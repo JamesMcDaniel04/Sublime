@@ -17,7 +17,7 @@ const anthropicMessage = {
   content: [
     { type: 'thinking', thinking: 'let me reason', signature: 'sig-abc' },
     { type: 'text', text: 'Looking up ACME.' },
-    { type: 'tool_use', id: 'toolu_1', name: 'backstory_get_account', input: { account: 'ACME' } },
+    { type: 'tool_use', id: 'toolu_1', name: 'crm_get_account', input: { account: 'ACME' } },
   ],
   usage: { input_tokens: 10, output_tokens: 5 },
 } as never
@@ -33,7 +33,7 @@ const openaiMessage = {
 test('irFromAnthropic keeps neutral fields AND raw native content', () => {
   const ir = irFromAnthropic(anthropicMessage)
   assert.equal(ir.text, 'Looking up ACME.')
-  assert.deepEqual(ir.toolCalls, [{ id: 'toolu_1', name: 'backstory_get_account', input: { account: 'ACME' } }])
+  assert.deepEqual(ir.toolCalls, [{ id: 'toolu_1', name: 'crm_get_account', input: { account: 'ACME' } }])
   assert.equal(ir.raw?.provider, 'anthropic')
 })
 
@@ -54,7 +54,7 @@ test('cross-provider translation DROPS thinking, keeps text + tool calls', () =>
   }
   assert.equal(assistant.content, 'Looking up ACME.')
   assert.equal(assistant.tool_calls?.length, 1)
-  assert.equal(assistant.tool_calls?.[0].function.name, 'backstory_get_account')
+  assert.equal(assistant.tool_calls?.[0].function.name, 'crm_get_account')
   // No thinking leaked into the OpenAI shape.
   assert.ok(!JSON.stringify(assistant).includes('thinking'))
 })

@@ -25,7 +25,7 @@ export type ServerCreationResult = {
 
 function client() {
   if (!process.env.KLAVIS_API_KEY) throw new Error('KLAVIS_API_KEY is not configured')
-  return new KlavisClient({ apiKey: process.env.KLAVIS_API_KEY, platformName: 'backstory' })
+  return new KlavisClient({ apiKey: process.env.KLAVIS_API_KEY, platformName: 'sublime' })
 }
 
 function connectionStatus(server: KlavisServer): Exclude<ConnectionStatus, 'not_connected'> {

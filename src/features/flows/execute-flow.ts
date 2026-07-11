@@ -50,7 +50,7 @@ function jsonValue(value: unknown) {
 
 // Write planes are the consequential audit entries — the same set the agent
 // loop uses for its tool.write / tool.call distinction.
-const WRITE_PLANES = /^(nango|slack|email|backstory)/i
+const WRITE_PLANES = /^(nango|slack|email)/i
 
 /**
  * Run a flow to completion. Each agent node delegates to the real agent runtime

@@ -29,14 +29,11 @@ test('isWriteProvider classifies delivery planes as writes and reads as reads', 
   assert.equal(isWriteProvider('nango:gmail'), true)
   assert.equal(isWriteProvider('slack'), true) // built-in Slack
   assert.equal(isWriteProvider('email'), true)
-  assert.equal(isWriteProvider('backstory'), false) // People.ai read plane
   assert.equal(isWriteProvider('granola'), false)
   assert.equal(isWriteProvider('github'), false) // unknown/Klavis read
 })
 
-test('every write connector is a delivery plane; backstory is read', () => {
-  const backstory = BUILTIN_CONNECTORS.find((c) => c.providerId === 'backstory')!
-  assert.equal(backstory.isWrite, false)
+test('every write connector is a delivery plane', () => {
   assert.ok(BUILTIN_CONNECTORS.filter((c) => c.isWrite).every((c) => c.kind === 'builtin' || c.kind === 'nango'))
 })
 

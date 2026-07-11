@@ -1,9 +1,9 @@
 /**
  * Shared tool-plane loaders + executors.
  *
- * An agent draws tools from five planes — People.ai (Sales AI MCP), Klavis
- * (managed MCP servers), per-org MCP connections, native built-ins (Granola/
- * Slack/HTTP/Email), and Nango delivery (outbound writes). These loaders were
+ * An agent draws tools from four planes — Klavis (managed MCP servers),
+ * per-org MCP connections, native built-ins (Granola/Slack/HTTP/Email), and
+ * Nango delivery (outbound writes). These loaders were
  * previously inlined in execute-agent's loadTools; they live here so FLOWS get
  * the exact same tool universe (catalog + execution) without duplicating the
  * gating, scoping, caching, or error-degradation behavior.
@@ -21,8 +21,6 @@ import { prisma } from '@/lib/prisma'
 import { apiLogger } from '@/lib/logger'
 import { cacheGet, cacheSet } from '@/lib/cache'
 import { KlavisClient } from '@/lib/mcp/klavis-client'
-import { BackstoryMcpClient, backstoryMcpConfigured } from '@/lib/mcp/backstory-mcp'
-import { getPeopleAiClientForUser, getPeopleAiServiceClient } from '@/lib/peopleai/client'
 import { DELIVERY_TOOLS, nangoConfigured, resolveDeliveryConnection, type DeliveryCapability } from '@/lib/nango/delivery'
 import { McpClient, mcpConfigFromConnection } from '@/lib/mcp/mcp-client'
 import { ensureFreshConnectionToken, persistRefreshedAuthcodeTokens } from '@/lib/mcp/connection-token'
@@ -35,7 +33,7 @@ import { BUILTIN_CONNECTORS, fromKlavisAgentType, isSelected, nangoConnector, ty
 import { formatFlowToolConnectionId, type FlowToolPlane } from '@/lib/flows/tool-connection-id'
 
 // Minimal interface every plane's execution client satisfies (KlavisClient,
-// McpClient, BackstoryMcpClient, the built-in ToolClients, and adapters).
+// McpClient, the built-in ToolClients, and adapters).
 export interface McpToolClient {
   executeTool(serverUrl: string, name: string, args: Record<string, unknown>): Promise<any>
 }
@@ -124,7 +122,7 @@ export async function loadKlavisPlaneGroups(
 ): Promise<ToolPlaneGroup[]> {
   if (!process.env.KLAVIS_API_KEY) return []
   if (options.agentTypes && options.agentTypes.length === 0) return []
-  const client = new KlavisClient({ apiKey: process.env.KLAVIS_API_KEY, platformName: 'backstory' })
+  const client = new KlavisClient({ apiKey: process.env.KLAVIS_API_KEY, platformName: 'sublime' })
   const agents = await prisma.mCPAgent.findMany({
     where: {
       organizationId,
@@ -166,111 +164,6 @@ export async function loadKlavisPlaneGroups(
     }
     return group
   }))
-}
-
-// ── People.ai Sales AI MCP (a.k.a. Backstory MCP) ─────────────────────────────
-
-/**
- * The People.ai / Sales AI plane. Loads whenever a People.ai client resolves —
- * the "connect once, available everywhere" model. Identity order matters for
- * data isolation:
- *  1. The acting OWNER's delegated connection (mcp_* token).
- *  2. The org service key (PAI-Client-Id/Secret) for ownerless runs.
- *  3. Legacy env-configured service account (BACKSTORY_MCP_*), logged loudly
- *     because it is not tenant-isolated.
- * Returns null when nothing resolves (unentitled org) or discovery fails.
- */
-export async function loadPeopleAiPlaneGroup(
-  organizationId: string,
-  ownerUserId?: string | null,
-): Promise<ToolPlaneGroup | null> {
-  const base = {
-    id: formatFlowToolConnectionId('people_ai', 'backstory'),
-    plane: 'people_ai' as const,
-    name: 'Backstory',
-    provider: 'backstory',
-    isWrite: false,
-  }
-  try {
-    let paiClient = ownerUserId ? await getPeopleAiClientForUser(ownerUserId, organizationId) : null
-    let identity: 'user' | 'service' | 'legacy-env' = 'user'
-    if (!paiClient) {
-      paiClient = getPeopleAiServiceClient()
-      identity = 'service'
-    }
-
-    if (paiClient) {
-      const adapter: McpToolClient = {
-        executeTool: (_serverUrl, name, args) => paiClient!.callTool(name, args),
-      }
-      if (identity !== 'user') {
-        apiLogger.warn('loadTools: People.ai tools using service identity (no owner connection)', {
-          organizationId, ownerUserId: ownerUserId ?? null,
-        })
-      }
-      const available = await cachedToolDiscovery(organizationId, paiClient.serverUrl, () => paiClient!.listTools())
-      return {
-        ...base,
-        serverUrl: paiClient.serverUrl,
-        client: adapter,
-        tools: available.map((tool) => ({
-          name: tool.name,
-          description: tool.description || `${tool.name} via Backstory`,
-          inputSchema:
-            tool.inputSchema && typeof tool.inputSchema === 'object'
-              ? (tool.inputSchema as Record<string, unknown>)
-              : EMPTY_SCHEMA,
-        })),
-      }
-    }
-    if (backstoryMcpConfigured()) {
-      // A per-user Backstory connection row is the tenant-isolated path (see
-      // above); if this owner already has one bound and ready, don't also load
-      // the legacy env-wide service account — it would double up tools and,
-      // worse, isn't scoped to this org/user.
-      const boundUserConnection = ownerUserId
-        ? await prisma.mcpConnection.findFirst({
-            where: { organizationId, userId: ownerUserId, provider: 'backstory', isActive: true },
-            select: { id: true },
-          })
-        : null
-      if (boundUserConnection) {
-        apiLogger.info('Backstory MCP bound via per-user connection; env service-account path skipped', {
-          organizationId, ownerUserId,
-        })
-        return null
-      }
-      // Deprecated: this env-wide service account bypasses per-user/tenant
-      // isolation. Prefer the per-user Backstory connection above.
-      apiLogger.warn('loadTools: People.ai tools using legacy env service account (no tenant isolation)', {
-        organizationId,
-      })
-      const backstoryUrl = process.env.BACKSTORY_MCP_URL!
-      const backstoryClient = new BackstoryMcpClient()
-      const available = await cachedToolDiscovery(organizationId, backstoryUrl, () => backstoryClient.getServerTools(backstoryUrl))
-      return {
-        ...base,
-        serverUrl: backstoryUrl,
-        client: backstoryClient,
-        tools: available.map((tool) => ({
-          name: tool.name,
-          description: tool.description || `${tool.name} via backstory`,
-          inputSchema: tool.inputSchema || EMPTY_SCHEMA,
-        })),
-      }
-    }
-    return null
-  } catch (error) {
-    apiLogger.warn('loadTools: People.ai tool discovery failed, skipping provider', {
-      provider: 'backstory',
-      organizationId,
-      error: error instanceof Error ? error.message : String(error),
-    })
-    // Degrade to an empty group (no client) — the agent path skips it exactly
-    // as before, while the flow catalog keeps a graceful empty entry so stored
-    // graphs don't fail validation over a transient discovery error.
-    return { ...base, serverUrl: '', tools: [] }
-  }
 }
 
 // ── Per-org MCP connections (all active connections, any authType) ────────────
@@ -517,27 +410,12 @@ export async function resolveFlowToolExecutor(params: {
     if (!process.env.KLAVIS_API_KEY) throw new Error('Klavis is not configured for this workspace.')
     const agent = await prisma.mCPAgent.findFirst({ where: { id: ref, organizationId, isActive: true } })
     if (!agent) throw new Error('The selected Klavis connection no longer exists — pick another in the step config.')
-    const client = new KlavisClient({ apiKey: process.env.KLAVIS_API_KEY, platformName: 'backstory' })
+    const client = new KlavisClient({ apiKey: process.env.KLAVIS_API_KEY, platformName: 'sublime' })
     return {
       provider: String(agent.agentType).toLowerCase(),
       isWrite: false,
       execute: (name, args) => client.executeTool(agent.mcpServerUrl, name, args),
     }
-  }
-
-  if (plane === 'people_ai') {
-    // Same identity ladder as the agent runtime: acting user's delegated
-    // connection, then the org service key, then the legacy env service account.
-    const paiClient = (await getPeopleAiClientForUser(userId, organizationId)) ?? getPeopleAiServiceClient()
-    if (paiClient) {
-      return { provider: 'backstory', isWrite: false, execute: (name, args) => paiClient.callTool(name, args) }
-    }
-    if (backstoryMcpConfigured()) {
-      const backstoryUrl = process.env.BACKSTORY_MCP_URL!
-      const client = new BackstoryMcpClient()
-      return { provider: 'backstory', isWrite: false, execute: (name, args) => client.executeTool(backstoryUrl, name, args) }
-    }
-    throw new Error('People.ai tools are not available for this workspace — connect People.ai first.')
   }
 
   if (plane === 'native') {

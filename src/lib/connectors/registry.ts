@@ -21,7 +21,7 @@
 import { slackConfigured } from '@/lib/integrations/slack'
 import { emailConfigured } from '@/lib/integrations/email'
 
-export type ConnectorKind = 'backstory' | 'builtin' | 'nango'
+export type ConnectorKind = 'builtin' | 'nango'
 
 export type ConnectorDescriptor = {
   /** Canonical key persisted on the agent + shown in the UI. */
@@ -44,16 +44,6 @@ export type ConnectorDescriptor = {
 const has = (needle: string) => (selected: string) => selected.toLowerCase().includes(needle)
 
 export const BUILTIN_CONNECTORS: ConnectorDescriptor[] = [
-  {
-    key: 'backstory',
-    label: 'Backstory',
-    slug: 'backstory',
-    kind: 'backstory',
-    isWrite: false,
-    providerId: 'backstory',
-    matches: has('backstory'),
-    available: () => true,
-  },
   {
     key: 'Granola',
     label: 'Granola',

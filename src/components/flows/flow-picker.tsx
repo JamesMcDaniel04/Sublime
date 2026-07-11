@@ -166,7 +166,7 @@ function includesQuery(text: string, query: string): boolean {
 }
 
 // Logo slug for a catalog connection. MCP rows use their raw id (unchanged
-// behavior); plane-prefixed ids (native:slack, nango:gmail, people_ai:backstory,
+// behavior); plane-prefixed ids (native:slack, nango:gmail,
 // klavis:<rowId> — see lib/flows/tool-connection-id) use the ref, except Klavis
 // whose ref is an opaque row id — its display name (e.g. "GitHub") slugifies to
 // a recognizable icon key instead.
@@ -177,7 +177,7 @@ function connectionLogoSlug(connection: Connection): string {
 }
 
 // Connector key for tool-label humanization: prefixed planes name their
-// connector in the ref (native:slack, nango:gmail, people_ai:backstory); MCP
+// connector in the ref (native:slack, nango:gmail); MCP
 // and Klavis refs are opaque row ids, so the display name is the key instead.
 function connectionToolKey(connection: Connection): string {
   const { plane, ref } = parseFlowToolConnectionId(connection.id)

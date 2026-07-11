@@ -10,12 +10,12 @@ import type { ToolDefinition } from '@/lib/llm/model-runner'
 import type { EvalFixture } from '../types'
 
 const GET_ACCOUNT: ToolDefinition = {
-  name: 'backstory_get_account',
+  name: 'crm_get_account',
   description: 'Look up a customer account and its renewal details by name.',
   inputSchema: { type: 'object', properties: { account: { type: 'string' } }, required: ['account'] },
 }
 const GET_OPPORTUNITY: ToolDefinition = {
-  name: 'backstory_get_opportunity',
+  name: 'crm_get_opportunity',
   description: 'Look up the open opportunity (stage, amount, close date) for an account.',
   inputSchema: { type: 'object', properties: { account: { type: 'string' } }, required: ['account'] },
 }
@@ -41,7 +41,7 @@ export const fixtures: EvalFixture[] = [
       {
         text: 'Let me pull the ACME account context first.',
         toolCalls: [
-          { name: 'backstory_get_account', input: { account: 'ACME' }, result: { name: 'ACME', renewalDate: '2026-08-01', owner: 'Dana' } },
+          { name: 'crm_get_account', input: { account: 'ACME' }, result: { name: 'ACME', renewalDate: '2026-08-01', owner: 'Dana' } },
         ],
       },
       {
@@ -57,7 +57,7 @@ export const fixtures: EvalFixture[] = [
       { text: 'Done — I posted a renewal nudge for ACME (renews 2026-08-01) to #deals.' },
     ],
     expect: {
-      toolsCalled: ['backstory_get_account', 'nango_send_slack_message'],
+      toolsCalled: ['crm_get_account', 'nango_send_slack_message'],
       finalTextIncludes: ['ACME', '#deals'],
       noToolErrors: true,
       maxTurns: 3,
@@ -76,7 +76,7 @@ export const fixtures: EvalFixture[] = [
       {
         toolCalls: [
           {
-            name: 'backstory_get_opportunity',
+            name: 'crm_get_opportunity',
             input: { account: 'ACME' },
             result: { stage: 'Negotiation', amount: 120000, closeDate: '2026-08-01' },
           },
@@ -85,7 +85,7 @@ export const fixtures: EvalFixture[] = [
       { text: 'The ACME renewal is in Negotiation — $120,000, closing 2026-08-01.' },
     ],
     expect: {
-      toolsCalled: ['backstory_get_opportunity'],
+      toolsCalled: ['crm_get_opportunity'],
       toolsNotCalled: ['nango_send_slack_message'],
       finalTextIncludes: ['negotiation'],
       noToolErrors: true,

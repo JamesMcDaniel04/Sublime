@@ -20,7 +20,7 @@ export async function teardownOrganization(organizationId: string): Promise<{ kl
   try {
     if (process.env.KLAVIS_API_KEY) {
       const { KlavisClient } = await import('@/lib/mcp/klavis-client')
-      const klavisClient = new KlavisClient({ apiKey: process.env.KLAVIS_API_KEY, platformName: 'backstory' })
+      const klavisClient = new KlavisClient({ apiKey: process.env.KLAVIS_API_KEY, platformName: 'sublime' })
       const mcpAgents = await systemPrisma.mCPAgent.findMany({ where: { organizationId } })
       for (const agent of mcpAgents) {
         const instanceId = (agent.metadata as { instanceId?: string } | null)?.instanceId

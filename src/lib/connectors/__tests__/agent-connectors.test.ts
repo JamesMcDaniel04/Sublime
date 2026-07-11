@@ -10,7 +10,6 @@ const connections = new Map<string, string>([
 test('built-in / nango keys classify by registry kind, no FK', () => {
   assert.deepEqual(classifyConnector('Slack', connections), { connectorKey: 'Slack', kind: 'builtin', mcpConnectionId: null })
   assert.deepEqual(classifyConnector('gmail', connections), { connectorKey: 'gmail', kind: 'nango', mcpConnectionId: null })
-  assert.deepEqual(classifyConnector('backstory', connections), { connectorKey: 'backstory', kind: 'backstory', mcpConnectionId: null })
 })
 
 test('a key naming a per-org MCP connection resolves to an FK', () => {

@@ -46,7 +46,7 @@ test('checkTrajectory flags missing tools, forbidden tools, and missing substrin
     hitMaxTurns: false,
   }
   const failures = checkTrajectory(trajectory, {
-    toolsCalled: ['backstory_get_account'],
+    toolsCalled: ['crm_get_account'],
     toolsNotCalled: ['nango_send_slack_message'],
     finalTextIncludes: ['ACME'],
     noToolErrors: true,
@@ -61,7 +61,7 @@ test('fixtureFromTranscript lifts an Anthropic transcript into a replayable fixt
       role: 'assistant',
       content: [
         { type: 'text', text: 'Looking up ACME.' },
-        { type: 'tool_use', id: 'tu_1', name: 'backstory_get_account', input: { account: 'ACME' } },
+        { type: 'tool_use', id: 'tu_1', name: 'crm_get_account', input: { account: 'ACME' } },
       ],
     },
     { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'tu_1', content: '{"name":"ACME"}' }] },
@@ -71,7 +71,7 @@ test('fixtureFromTranscript lifts an Anthropic transcript into a replayable fixt
     name: 'from-transcript-smoke',
     system: 'You are a test agent.',
     transcript,
-    expect: { toolsCalled: ['backstory_get_account'], finalTextIncludes: ['healthy'] },
+    expect: { toolsCalled: ['crm_get_account'], finalTextIncludes: ['healthy'] },
   })
   assert.equal(fixture.input, 'Check ACME and post an update.')
   const trajectory = await replayScripted(fixture)
