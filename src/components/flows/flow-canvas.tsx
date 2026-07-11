@@ -11,6 +11,7 @@ import { humanizeTokens, type TokenLabelContext } from '@/lib/flows/token-text'
 import { StepCard, type StepStatus } from './step-card'
 import { FlowPicker } from './flow-picker'
 import type { ToolCatalog } from './tool-catalog-type'
+import type { EditableType } from './node-types'
 
 type Agent = { id: string; title: string }
 
@@ -137,6 +138,8 @@ export function FlowCanvas({
   onPickTrigger,
   onMoveAfter,
   onReorderContainer,
+  onChangeNodeType,
+  onAddContainerStep,
 }: {
   graph: FlowGraph
   /** Threaded into StepCard so the trigger card's webhook panel can mint a trigger secret. */
@@ -162,6 +165,8 @@ export function FlowCanvas({
   onPickTrigger?: (triggerType: 'manual' | 'schedule' | 'webhook' | 'signal') => void
   onMoveAfter?: (nodeId: string, afterId: string) => void
   onReorderContainer?: (containerId: string, from: number, to: number, branchIndex?: number) => void
+  onChangeNodeType?: (nodeId: string, type: EditableType) => void
+  onAddContainerStep?: (containerId: string, type: EditableType) => void
 }) {
   const [dragId, setDragId] = useState<string | null>(null)
   // Branch labels rendered by the canvas itself (outside StepCard) must not
@@ -310,6 +315,8 @@ export function FlowCanvas({
         draggable={node.type !== 'trigger' && node.type !== 'condition' && node.type !== 'switch'}
         onDragStartNode={setDragId}
         onDragEndNode={() => setDragId(null)}
+        onChangeType={node.type !== 'trigger' && onChangeNodeType ? (type) => onChangeNodeType(node.id, type) : undefined}
+        onAddStep={(node.type === 'loop' || node.type === 'parallel') && onAddContainerStep ? (type) => onAddContainerStep(node.id, type) : undefined}
       />
     </div>
   )

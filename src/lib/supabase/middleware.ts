@@ -10,6 +10,8 @@ const publicPages = new Set([
   '/auth/signup',
   '/auth/callback',
   '/auth/auth-code-error',
+  '/auth/forgot-password',
+  '/auth/update-password',
   '/privacy',
   '/terms',
 ])
@@ -63,7 +65,7 @@ export async function updateSession(request: NextRequest) {
     return copyCookies(response, NextResponse.redirect(url))
   }
 
-  if (user && isAuthPage && pathname !== '/auth/callback') {
+  if (user && isAuthPage && pathname !== '/auth/callback' && pathname !== '/auth/update-password') {
     const url = request.nextUrl.clone()
     url.pathname = '/dashboard'
     url.search = ''

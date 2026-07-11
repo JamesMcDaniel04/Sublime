@@ -30,6 +30,23 @@ async function findDbUserCached(supabaseId: string): Promise<DbUserRow> {
 // infra that may never be installed, so provision the app user + organization
 // on first authenticated request when they don't exist yet.
 async function provisionUser(user: User) {
+  const normalizedEmail = user.email?.trim().toLowerCase()
+  if (normalizedEmail) {
+    const invitation = await prisma.organizationInvitation.findFirst({
+      where: { email: normalizedEmail, acceptedAt: null, revokedAt: null, expiresAt: { gt: new Date() } },
+      orderBy: { createdAt: 'desc' },
+    })
+    if (invitation) {
+      return prisma.$transaction(async (tx) => {
+        const created = await tx.user.create({
+          data: { supabaseId: user.id, email: normalizedEmail, name: String(user.user_metadata?.full_name || normalizedEmail.split('@')[0]), role: invitation.role, organizationId: invitation.organizationId },
+          include: { organization: true },
+        })
+        await tx.organizationInvitation.update({ where: { id: invitation.id }, data: { acceptedAt: new Date() } })
+        return created
+      })
+    }
+  }
   // Unknown identities must not be able to mint an administrator workspace in
   // production. Self-service/JIT tenancy is an explicit deployment choice.
   if (process.env.NODE_ENV === 'production' && process.env.AUTH_ALLOW_JIT_PROVISIONING !== 'true') {

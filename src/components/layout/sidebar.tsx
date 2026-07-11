@@ -19,6 +19,7 @@ import {
   Plug,
   Plus,
   Search,
+  Settings,
   Trash2,
   Workflow,
 } from 'lucide-react'
@@ -90,6 +91,7 @@ const navigation = [
   { name: 'Integrations', href: '/integrations', icon: Plug },
   { name: 'Flows', href: '/flows', icon: Workflow },
   { name: 'Templates', href: '/templates', icon: FileText },
+  { name: 'Settings', href: '/settings', icon: Settings },
 ]
 
 function planLabel(plan: string) {

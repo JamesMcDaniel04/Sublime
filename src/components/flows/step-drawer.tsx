@@ -19,22 +19,7 @@ import { TokenTextEditor, type TokenTextEditorHandle } from '@/components/flows/
 import type { TokenLabelContext } from '@/lib/flows/token-text'
 import { cn } from '@/lib/utils'
 
-type EditableType = Extract<FlowNode['type'], 'agent' | 'condition' | 'loop' | 'parallel' | 'stop' | 'tool' | 'http' | 'transform' | 'filter' | 'switch' | 'variable' | 'data' | 'humanReview'>
-const NODE_TYPES: { value: EditableType; label: string }[] = [
-  { value: 'agent', label: 'Run agent' },
-  { value: 'tool', label: 'Tool call' },
-  { value: 'http', label: 'HTTP request' },
-  { value: 'transform', label: 'Set fields' },
-  { value: 'data', label: 'Data operation' },
-  { value: 'variable', label: 'Variable' },
-  { value: 'humanReview', label: 'Request information' },
-  { value: 'condition', label: 'If / else' },
-  { value: 'switch', label: 'Switch' },
-  { value: 'filter', label: 'Filter' },
-  { value: 'loop', label: 'For each' },
-  { value: 'parallel', label: 'Parallel' },
-  { value: 'stop', label: 'Stop' },
-]
+import { NODE_TYPES, type EditableType } from './node-types'
 
 export type { ToolCatalog } from './tool-catalog-type'
 import type { ToolCatalog } from './tool-catalog-type'

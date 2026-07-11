@@ -54,6 +54,7 @@ import { Button } from '@/components/ui/button'
 import { TriggerFilterEditor } from './trigger-filter-editor'
 import type { ToolCatalog } from './tool-catalog-type'
 import { ToolArgsEditor } from './tool-args-editor'
+import { NODE_TYPES, type EditableType } from './node-types'
 import { AdvancedParamsSection } from './advanced-params'
 import { DataTree } from './data-tree'
 import { TokenTextEditor, type TokenTextEditorHandle } from './token-text-editor'
@@ -324,6 +325,8 @@ export function StepCard({
   draggable,
   onDragStartNode,
   onDragEndNode,
+  onChangeType,
+  onAddStep,
 }: {
   node: FlowNode
   /** Needed by the trigger card's webhook panel to mint a trigger secret. */
@@ -348,6 +351,8 @@ export function StepCard({
   draggable?: boolean
   onDragStartNode?: (id: string) => void
   onDragEndNode?: () => void
+  onChangeType?: (type: EditableType) => void
+  onAddStep?: (type: EditableType) => void
 }) {
   const triggerSubtype =
     node.type === 'trigger' ? String((node.data.trigger as { type?: string } | undefined)?.type ?? 'manual') : ''
@@ -678,7 +683,10 @@ export function StepCard({
             className="overflow-hidden"
           >
             <div onClick={stopEvent} onFocus={stopEvent} className="border-t border-slate-200 px-5 py-4">
-              {renderNodeBody({ node, flowId, agents, toolCatalog, update, onRefreshAgents, tokenWiring, showErrors, variableNames, dataFields })}
+              {renderNodeBody({ node, flowId, agents, toolCatalog, update, onRefreshAgents, tokenWiring, showErrors, variableNames, dataFields, onAddStep })}
+              {node.type !== 'trigger' && (
+                <StepSettingsFooter node={node} update={update} onChangeType={onChangeType} tokenWiring={tokenWiring} />
+              )}
             </div>
           </motion.div>
         ) : (
@@ -751,6 +759,85 @@ export function StepCard({
   )
 }
 
+
+/** Compact "+ Add step" menu for loop bodies / parallel branches (was drawer-only). */
+function AddNestedStepMenu({ label, onPick }: { label: string; onPick: (type: EditableType) => void }) {
+  const [open, setOpen] = useState(false)
+  return (
+    <div className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen((value) => !value)}
+        className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-dashed border-slate-300 px-3 py-2 text-sm font-medium text-slate-600 hover:border-blue-400 hover:text-blue-700"
+      >
+        <Plus className="h-4 w-4" /> {label}
+      </button>
+      {open && (
+        <>
+          <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
+          <div className="absolute left-0 right-0 top-full z-20 mt-1 rounded-lg border border-slate-200 bg-white p-1 shadow-lg">
+            {NODE_TYPES.map((type) => (
+              <button
+                key={type.value}
+                type="button"
+                onClick={() => {
+                  setOpen(false)
+                  onPick(type.value)
+                }}
+                className="flex w-full items-center rounded-md px-2 py-1.5 text-left text-xs hover:bg-slate-100"
+              >
+                {type.label}
+              </button>
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  )
+}
+
+/** Step type + notes — the drawer's shared chrome, now inline on the card. */
+function StepSettingsFooter({
+  node,
+  update,
+  onChangeType,
+  tokenWiring,
+}: {
+  node: FlowNode
+  update: (node: FlowNode) => void
+  onChangeType?: (type: EditableType) => void
+  tokenWiring: TokenEditorWiring
+}) {
+  const { blockActive, unblockActive } = tokenWiring
+  return (
+    <div className="mt-4 grid gap-3 border-t border-slate-100 pt-3 sm:grid-cols-2">
+      {onChangeType && (
+        <div className="grid gap-1.5">
+          <label className={labelClass}>Step type</label>
+          <select value={node.type} onChange={(event) => onChangeType(event.target.value as EditableType)} className={controlClass}>
+            {NODE_TYPES.map((t) => (
+              <option key={t.value} value={t.value}>
+                {t.label}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
+      <div className="grid gap-1.5">
+        <label className={labelClass}>Notes (optional)</label>
+        <input
+          value={(node.data as { note?: string }).note ?? ''}
+          placeholder="Why this step exists, gotchas, links…"
+          onFocus={blockActive}
+          onBlur={unblockActive}
+          onChange={(event) => update({ ...node, data: { ...node.data, note: event.target.value || undefined } } as FlowNode)}
+          className={controlClass}
+        />
+      </div>
+    </div>
+  )
+}
+
 function renderNodeBody({
   node,
   flowId,
@@ -762,6 +849,7 @@ function renderNodeBody({
   showErrors,
   variableNames,
   dataFields,
+  onAddStep,
 }: {
   node: FlowNode
   flowId?: string
@@ -773,6 +861,7 @@ function renderNodeBody({
   showErrors?: boolean
   variableNames?: string[]
   dataFields?: DataField[]
+  onAddStep?: (type: EditableType) => void
 }) {
   switch (node.type) {
     case 'trigger':
@@ -790,9 +879,14 @@ function renderNodeBody({
     case 'transform':
       return <TransformBody node={node} update={update} tokenWiring={tokenWiring} />
     case 'loop':
-      return <LoopBody node={node} update={update} tokenWiring={tokenWiring} />
+      return <LoopBody node={node} update={update} tokenWiring={tokenWiring} onAddStep={onAddStep} />
     case 'parallel':
-      return <p className="text-sm text-slate-600">Runs {node.data.branches.length || 0} branches side by side. Add and configure branch steps from the settings panel.</p>
+      return (
+        <div className="space-y-3">
+          <p className="text-sm text-slate-600">Runs {node.data.branches.length || 0} branches side by side.</p>
+          {onAddStep && <AddNestedStepMenu label="Add parallel branch" onPick={onAddStep} />}
+        </div>
+      )
     case 'switch':
       return <SwitchBody node={node} update={update} tokenWiring={tokenWiring} />
     case 'stop':
@@ -1713,10 +1807,12 @@ function LoopBody({
   node,
   update,
   tokenWiring,
+  onAddStep,
 }: {
   node: Extract<FlowNode, { type: 'loop' }>
   update: (node: FlowNode) => void
   tokenWiring: TokenEditorWiring
+  onAddStep?: (type: EditableType) => void
 }) {
   const { labelCtx, registerEditor, focusEditor } = tokenWiring
   const usesTriggerInput = node.data.over === '{{trigger.input}}'
@@ -1747,6 +1843,7 @@ function LoopBody({
           />
         )}
       </div>
+      {onAddStep && <AddNestedStepMenu label="Add step to loop" onPick={onAddStep} />}
       <AdvancedParamsSection node={node} onChange={update} />
     </div>
   )

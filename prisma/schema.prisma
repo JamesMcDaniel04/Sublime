@@ -56,6 +56,7 @@ model Organization {
   pushSubscriptions   PushSubscription[]
   knowledgeDocuments  KnowledgeDocument[]
   sharedSkills        SharedSkill[]
+  invitations         OrganizationInvitation[]
 
   @@map("organizations")
 }
@@ -89,6 +90,23 @@ model User {
 
   @@index([organizationId])
   @@map("users")
+}
+
+model OrganizationInvitation {
+  id             String    @id @default(cuid())
+  organizationId String    @db.Uuid
+  email          String
+  role           UserRole  @default(USER)
+  invitedById    String?
+  expiresAt      DateTime  @db.Timestamptz(6)
+  acceptedAt     DateTime? @db.Timestamptz(6)
+  revokedAt      DateTime? @db.Timestamptz(6)
+  createdAt      DateTime  @default(now()) @db.Timestamptz(6)
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+  @@index([email])
+  @@map("organization_invitations")
 }
 
 model AgentTask {

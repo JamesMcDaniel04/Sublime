@@ -1095,6 +1095,16 @@ function FlowBuilder() {
                     }
               }
               onMoveAfter={viewingVersion ? () => {} : (nodeId, afterId) => commitGraph(moveNodeAfter(graph, nodeId, afterId))}
+              onChangeNodeType={viewingVersion ? undefined : (nodeId, type) => commitGraph(changeNodeType(graph, nodeId, type))}
+              onAddContainerStep={
+                viewingVersion
+                  ? undefined
+                  : (containerId, type) => {
+                      const { graph: next, nodeId } = addContainerStep(graph, containerId, type, type === 'agent' ? agents[0]?.id ?? '' : undefined)
+                      commitGraph(next)
+                      setSelectedId(nodeId)
+                    }
+              }
               onReorderContainer={
                 viewingVersion
                   ? () => {}

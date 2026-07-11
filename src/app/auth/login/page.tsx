@@ -9,15 +9,20 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { toast } from 'sonner'
+import { safeReturnToPath } from '@/lib/auth/redirect'
+import { createClient } from '@/lib/supabase/client'
 
 export default function LoginPage() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  const [mfa, setMfa] = useState<{ factorId: string; challengeId: string } | null>(null)
+  const [mfaCode, setMfaCode] = useState('')
   
   const { signIn, user, loading: authLoading } = useSupabase()
   const router = useRouter()
+  const returnTo = typeof window === 'undefined' ? '/dashboard' : safeReturnToPath(new URLSearchParams(window.location.search).get('return_to'))
 
   // Handle Supabase email verification redirected to wrong URL
   useEffect(() => {
@@ -61,8 +66,19 @@ export default function LoginPage() {
         setError(error.message)
         toast.error(error.message)
       } else if (data?.user) {
+        const supabase = createClient()
+        const assurance = await supabase.auth.mfa.getAuthenticatorAssuranceLevel()
+        if (assurance.data?.nextLevel === 'aal2' && assurance.data.currentLevel !== 'aal2') {
+          const factors = await supabase.auth.mfa.listFactors()
+          const factor = factors.data?.totp.find((candidate) => candidate.status === 'verified')
+          if (!factor) throw new Error('Two-factor authentication is required but no verified factor is available.')
+          const challenge = await supabase.auth.mfa.challenge({ factorId: factor.id })
+          if (challenge.error) throw challenge.error
+          setMfa({ factorId: factor.id, challengeId: challenge.data.id })
+          return
+        }
         // Force page refresh after successful login to ensure auth state is properly updated
-        window.location.href = '/dashboard?auth=success'
+        window.location.href = returnTo
       }
     } catch (err: any) {
       const errorMessage = err.message || 'An unexpected error occurred'
@@ -71,6 +87,16 @@ export default function LoginPage() {
     } finally {
       setLoading(false)
     }
+  }
+
+  const verifyMfa = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!mfa) return
+    setLoading(true); setError('')
+    const { error } = await createClient().auth.mfa.verify({ factorId: mfa.factorId, challengeId: mfa.challengeId, code: mfaCode })
+    setLoading(false)
+    if (error) { setError('Invalid or expired verification code.'); return }
+    window.location.href = returnTo
   }
 
   // Show loading spinner while checking auth state
@@ -107,7 +133,10 @@ export default function LoginPage() {
               </div>
             )}
 
-            <form onSubmit={handleEmailLogin} className="space-y-4">
+            {mfa ? <form onSubmit={verifyMfa} className="space-y-4">
+              <div className="space-y-2"><Label htmlFor="mfaCode">Authentication code</Label><Input id="mfaCode" inputMode="numeric" autoComplete="one-time-code" pattern="[0-9]{6}" maxLength={6} value={mfaCode} onChange={(e) => setMfaCode(e.target.value.replace(/\D/g, ''))} required /></div>
+              <Button type="submit" className="w-full" loading={loading}>Verify</Button>
+            </form> : <form onSubmit={handleEmailLogin} className="space-y-4">
               <div className="space-y-2">
                 <Label htmlFor="email">Email</Label>
                 <Input
@@ -134,7 +163,12 @@ export default function LoginPage() {
               <Button type="submit" className="w-full" loading={loading}>
                 {loading ? 'Signing in…' : 'Sign in'}
               </Button>
-            </form>
+              <div className="text-right">
+                <Link href="/auth/forgot-password" className="text-sm font-medium text-primary hover:underline">
+                  Forgot password?
+                </Link>
+              </div>
+            </form>}
 
             <div className="text-center">
               <p className="text-sm text-muted-foreground">
