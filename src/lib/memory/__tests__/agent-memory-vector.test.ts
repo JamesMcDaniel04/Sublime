@@ -92,6 +92,40 @@ if (TEST_DB) {
     }
   })
 
+  test('retrieveAgentMemory: a holder learning surfaces via extraAgentIds, but a holder suggestion does not', async () => {
+    if (!vectorReady) return
+    const vector = dims((i) => (i === 0 ? 1 : 0.01))
+    const holderAgent = await prisma.agentTask.create({
+      data: { organizationId: ids.org, type: 'system', agentType: 'SYSTEM', status: 'SYSTEM', priority: 'LOW', visibility: 'private', userId: null, description: 'org intelligence', objective: 'holds org-wide learnings' },
+    })
+    const learning = await prisma.agentMemory.create({
+      data: { organizationId: ids.org, agentId: holderAgent.id, kind: 'learning', title: 'holder learning', content: 'shared fact', status: 'open' },
+    })
+    const suggestion = await prisma.agentMemory.create({
+      data: { organizationId: ids.org, agentId: holderAgent.id, kind: 'suggestion', title: 'holder suggestion', content: 'shared idea', status: 'open' },
+    })
+    await prisma.$executeRawUnsafe(`UPDATE "agent_memories" SET "embeddingVec" = $1::vector(1024) WHERE "id" = $2`, `[${vector.join(',')}]`, learning.id)
+    await prisma.$executeRawUnsafe(`UPDATE "agent_memories" SET "embeddingVec" = $1::vector(1024) WHERE "id" = $2`, `[${vector.join(',')}]`, suggestion.id)
+
+    stubEmbedding(vector)
+    try {
+      const hits = await retrieveAgentMemory({ organizationId: ids.org, agentId: ids.agent, query: 'anything', k: 5, extraAgentIds: [holderAgent.id] })
+      const hitIds = hits.map((h: any) => h.id)
+      assert.ok(hitIds.includes(learning.id), 'holder learning must surface for a different agent')
+      assert.ok(!hitIds.includes(suggestion.id), 'holder suggestion must never surface for a different agent')
+
+      // Without extraAgentIds, neither holder row surfaces at all.
+      const withoutExtra = await retrieveAgentMemory({ organizationId: ids.org, agentId: ids.agent, query: 'anything', k: 5 })
+      const withoutExtraIds = withoutExtra.map((h: any) => h.id)
+      assert.ok(!withoutExtraIds.includes(learning.id))
+      assert.ok(!withoutExtraIds.includes(suggestion.id))
+    } finally {
+      unstubEmbedding()
+      await prisma.agentMemory.deleteMany({ where: { id: { in: [learning.id, suggestion.id] } } }).catch(() => {})
+      await prisma.agentTask.delete({ where: { id: holderAgent.id } }).catch(() => {})
+    }
+  })
+
   test('retrieveAgentMemory falls back to keyword scoring when embeddings are unconfigured', async () => {
     if (!vectorReady) return
     const row = await prisma.agentMemory.create({

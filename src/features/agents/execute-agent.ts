@@ -39,6 +39,7 @@ import {
 } from '@/lib/llm/model-runner'
 import { coerceToIR } from '@/lib/llm/ir'
 import { retrieveAgentMemory, renderAgentMemories, bestAnswerMatch, markMemoriesUsed, saveAgentMemory } from '@/lib/memory/agent-memory'
+import { findOrgIntelligenceAgentId } from '@/lib/intelligence/connection-scan'
 import { reflectAndRemember } from './reflection'
 import { shouldStrategize, goalSection, strategizeSection, STRATEGIZE_RETRIEVAL } from './strategy'
 
@@ -751,10 +752,19 @@ export async function runAgentExecution(
     // Agent memory: remembered answers, learnings, and the latest self-critique
     // from prior runs. Best-effort — never blocks a run.
     try {
+      // Widen the search over the hidden org-intelligence holder's *learnings*
+      // (distilled from connection scans across the whole org — see
+      // scanConnection) so every agent's runs benefit, not just graph-RAG
+      // callers. Read-only lookup: an org that never scanned anything has no
+      // holder, and must not get one conjured into existence by a run's mere
+      // memory retrieval — use findOrgIntelligenceAgentId (never the
+      // get-or-create orgIntelligenceAgentId) here.
+      const orgMemoryAgentId = await findOrgIntelligenceAgentId(organizationId)
       const memoryHits = await retrieveAgentMemory({
         organizationId,
         agentId: agent.id,
         query: `${agent.objective}\n${data.input ?? ''}`.slice(0, 2000),
+        extraAgentIds: orgMemoryAgentId ? [orgMemoryAgentId] : undefined,
       })
       const critique = typeof agentMetadata.lastCritique === 'string' ? agentMetadata.lastCritique : null
       const budgetedMemories = contextAssembler.take(memoryHits, (h) => `${h.title}\n${h.content}`, (h) => h.score)

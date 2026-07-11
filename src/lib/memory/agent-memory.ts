@@ -210,6 +210,26 @@ export async function saveAgentMemory(params: {
 }
 
 /**
+ * Pure eligibility predicate factored out of retrieveAgentMemory's two query
+ * paths (pgvector + keyword fallback). The calling agent's own rows are
+ * eligible regardless of kind (pre-existing behavior: an agent's own
+ * suggestions may enter its own context). A row that belongs to one of the
+ * `extraAgentIds` (e.g. the hidden org-intelligence holder) is eligible ONLY
+ * when it is a `learning` — the holder also stores `kind:'suggestion'` rows
+ * (from suggest-workflows) that must never leak into another agent's run
+ * context.
+ */
+export function isEligibleMemoryRow(params: {
+  rowAgentId: string
+  rowKind: string
+  callingAgentId: string
+  extraAgentIds: string[]
+}): boolean {
+  if (params.rowAgentId === params.callingAgentId) return true
+  return params.rowKind === 'learning' && params.extraAgentIds.includes(params.rowAgentId)
+}
+
+/**
  * Top-k open memories for this agent. Ranks in-database by pgvector cosine
  * distance (HNSW index) over ALL of the agent's open memories when
  * embeddings are available, else falls back to keyword overlap over a
@@ -222,11 +242,12 @@ export async function retrieveAgentMemory(params: {
   k?: number
   /** Additional agent ids to widen the filter over (e.g. the org-wide
    *  intelligence agent), so shared learnings surface alongside this
-   *  agent's own memories. */
+   *  agent's own memories. Only their `kind:'learning'` rows are eligible —
+   *  see isEligibleMemoryRow. */
   extraAgentIds?: string[]
 }): Promise<MemoryHit[]> {
   const k = params.k ?? MEMORY_INJECTION_LIMIT
-  const agentIds = [params.agentId, ...(params.extraAgentIds ?? [])]
+  const extraAgentIds = params.extraAgentIds ?? []
   try {
     let queryVec: number[] | null = null
     if (embeddingsConfigured()) {
@@ -236,6 +257,15 @@ export async function retrieveAgentMemory(params: {
         queryVec = null
       }
     }
+
+    // Own-agent rows are eligible regardless of kind; extra-agent (holder)
+    // rows are additionally restricted to kind:'learning' — see
+    // isEligibleMemoryRow. When there are no extraAgentIds this collapses to
+    // exactly today's `agentId = params.agentId` behavior.
+    const agentPredicate =
+      extraAgentIds.length > 0
+        ? Prisma.sql`("agentId" = ${params.agentId} OR ("agentId" IN (${Prisma.join(extraAgentIds)}) AND "kind" = 'learning'))`
+        : Prisma.sql`"agentId" = ${params.agentId}`
 
     if (queryVec) {
       const vectorLiteral = toSqlVector(queryVec)
@@ -249,7 +279,7 @@ export async function retrieveAgentMemory(params: {
                  ("embeddingVec" <=> ${vectorLiteral}::vector(1024)) AS distance
           FROM "agent_memories"
           WHERE "organizationId" = ${params.organizationId}::uuid
-            AND "agentId" IN (${Prisma.join(agentIds)})
+            AND ${agentPredicate}
             AND "status" = 'open'
             AND "embeddingVec" IS NOT NULL
           ORDER BY distance ASC
@@ -260,9 +290,16 @@ export async function retrieveAgentMemory(params: {
     }
 
     // Keyword fallback: no embeddings configured (or the query embed call
-    // failed) — score a bounded scan of the agent's open memories.
+    // failed) — score a bounded scan of the agent's open memories. Same
+    // eligibility restriction as the pgvector path above.
     const rows = await prisma.agentMemory.findMany({
-      where: { organizationId: params.organizationId, agentId: { in: agentIds }, status: 'open' },
+      where: {
+        organizationId: params.organizationId,
+        status: 'open',
+        ...(extraAgentIds.length > 0
+          ? { OR: [{ agentId: params.agentId }, { agentId: { in: extraAgentIds }, kind: 'learning' }] }
+          : { agentId: params.agentId }),
+      },
       select: { id: true, kind: true, title: true, content: true, question: true },
       orderBy: { createdAt: 'desc' },
       take: AGENT_MEMORY_CAP,

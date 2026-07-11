@@ -4,6 +4,7 @@ import {
   bestAnswerMatch,
   renderAgentMemories,
   decideMemoryDedup,
+  isEligibleMemoryRow,
   MEMORY_SIMILARITY_THRESHOLD,
   MEMORY_INJECTION_LIMIT,
 } from '../agent-memory'
@@ -135,4 +136,49 @@ test('decideMemoryDedup: suggestion dedup is unchanged — no sourceRef scoping 
     match: { status: 'open', sourceRef: null },
   })
   assert.equal(belowThreshold, 'insert')
+})
+
+// ── isEligibleMemoryRow ──────────────────────────────────────────────────
+// Pure eligibility predicate factored out of retrieveAgentMemory's two query
+// paths (pgvector + keyword fallback), so the org-intelligence holder's
+// *learnings* can widen every run's context via extraAgentIds while its
+// *suggestions* (same holder agent, different kind) never leak into a run.
+
+test('isEligibleMemoryRow: own-agent row is eligible regardless of kind', () => {
+  assert.equal(
+    isEligibleMemoryRow({ rowAgentId: 'agentA', rowKind: 'learning', callingAgentId: 'agentA', extraAgentIds: [] }),
+    true,
+  )
+  assert.equal(
+    isEligibleMemoryRow({ rowAgentId: 'agentA', rowKind: 'suggestion', callingAgentId: 'agentA', extraAgentIds: [] }),
+    true,
+  )
+})
+
+test('isEligibleMemoryRow: holder learning is eligible via extraAgentIds', () => {
+  assert.equal(
+    isEligibleMemoryRow({ rowAgentId: 'holder', rowKind: 'learning', callingAgentId: 'agentA', extraAgentIds: ['holder'] }),
+    true,
+  )
+})
+
+test('isEligibleMemoryRow: holder suggestion is NOT eligible even via extraAgentIds', () => {
+  assert.equal(
+    isEligibleMemoryRow({ rowAgentId: 'holder', rowKind: 'suggestion', callingAgentId: 'agentA', extraAgentIds: ['holder'] }),
+    false,
+  )
+})
+
+test('isEligibleMemoryRow: no extraAgentIds → only own agent is eligible', () => {
+  assert.equal(
+    isEligibleMemoryRow({ rowAgentId: 'holder', rowKind: 'learning', callingAgentId: 'agentA', extraAgentIds: [] }),
+    false,
+  )
+})
+
+test('isEligibleMemoryRow: an unrelated agent id (not calling agent, not in extraAgentIds) is never eligible', () => {
+  assert.equal(
+    isEligibleMemoryRow({ rowAgentId: 'other', rowKind: 'learning', callingAgentId: 'agentA', extraAgentIds: ['holder'] }),
+    false,
+  )
 })
