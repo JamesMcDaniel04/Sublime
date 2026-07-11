@@ -15,12 +15,13 @@
  * lands here cannot forge it.
  */
 
-import { NextRequest, NextResponse } from 'next/server'
+import { NextRequest, NextResponse, after } from 'next/server'
 import { Prisma } from '@prisma/client'
 import { prisma } from '@/lib/prisma'
 import { apiLogger } from '@/lib/logger'
 import { decryptSecret, encryptSecret } from '@/lib/crypto/secrets'
 import { exchangeCode, safeReturnToPath } from '@/lib/mcp/oauth-authcode'
+import { scanConnection } from '@/lib/intelligence/connection-scan'
 import { OAUTH_COOKIE } from '../start/route'
 
 interface OAuthCookiePayload {
@@ -93,6 +94,7 @@ export async function GET(request: NextRequest) {
       expiresAt: Date.now() + expiresInS * 1000,
     }
 
+    let connectionRef: string
     if (payload.connectionId) {
       const updated = await prisma.mcpConnection.updateMany({
         where: { id: payload.connectionId, organizationId: payload.organizationId },
@@ -104,8 +106,9 @@ export async function GET(request: NextRequest) {
         },
       })
       if (updated.count !== 1) throw new Error('Connection to re-authorize was not found')
+      connectionRef = payload.connectionId
     } else {
-      await prisma.mcpConnection.create({
+      const created = await prisma.mcpConnection.create({
         data: {
           organizationId: payload.organizationId,
           name: payload.name,
@@ -115,7 +118,17 @@ export async function GET(request: NextRequest) {
           isActive: true,
         },
       })
+      connectionRef = created.id
     }
+
+    // Fire-and-forget usage scan now that the connection is authorized.
+    // `after` (Next 15) keeps this alive past the redirect response.
+    const organizationId = payload.organizationId
+    const userId = payload.userId ?? null
+    const connectionName = payload.name
+    after(() =>
+      scanConnection({ organizationId, userId, plane: 'mcp', connectionRef, connectionName }).catch(() => undefined),
+    )
 
     const safeReturnTo = safeReturnToPath(payload.returnTo)
     const successPath = safeReturnTo

@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { after } from 'next/server'
 import {
   createServersForTenant,
   getConnectionStatuses,
@@ -7,6 +8,9 @@ import {
 import { PROVIDERS, PROVIDER_CAPABILITIES, type MCPProvider } from '@/lib/mcp/provider-capabilities'
 import { KlavisError } from '@/lib/mcp/klavis-client'
 import { ApiError, withAuthenticatedApi } from '@/lib/server/api-handler'
+import { prisma } from '@/lib/prisma'
+import { scanConnection } from '@/lib/intelligence/connection-scan'
+import { fromKlavisAgentType } from '@/lib/connectors/registry'
 
 const providerSchema = z.enum(PROVIDERS as [MCPProvider, ...MCPProvider[]])
 
@@ -56,6 +60,33 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
       auth.organizationId,
       providers,
     )
+
+    // Fire-and-forget usage scans for every provider that connected cleanly.
+    // `after` (Next 15) keeps this running past the response on serverless —
+    // a bare `void` promise can be killed at response end there.
+    const organizationId = auth.organizationId
+    const userId = auth.dbUser.id
+    after(() =>
+      Promise.all(
+        results
+          .filter((result) => result.status !== 'error')
+          .map(async (result) => {
+            const agent = await prisma.mCPAgent.findFirst({
+              where: { userId, organizationId, agentType: result.provider.toUpperCase() },
+              select: { id: true },
+            })
+            if (!agent) return
+            await scanConnection({
+              organizationId,
+              userId,
+              plane: 'klavis',
+              connectionRef: agent.id,
+              connectionName: fromKlavisAgentType(result.provider).label,
+            })
+          }),
+      ).catch(() => undefined),
+    )
+
     return { success: results.every((result) => result.status !== 'error'), results }
   } catch (error) {
     asApiError(error)

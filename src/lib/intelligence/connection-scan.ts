@@ -270,11 +270,14 @@ export async function scanConnection(params: {
       })
     }
 
+    // title/body split so the Integrations page learning-progress strip can
+    // render "Learning from <name> — <body>" without re-parsing the title.
     await notify({
       organizationId,
       userId: userId ?? undefined,
       type: 'intelligence.scan',
-      title: `Scanned ${connectionName} — learned ${profile.processes.length} processes`,
+      title: connectionName,
+      body: `${profile.processes.length} process${profile.processes.length === 1 ? '' : 'es'} understood`,
       link: '/integrations',
     })
 

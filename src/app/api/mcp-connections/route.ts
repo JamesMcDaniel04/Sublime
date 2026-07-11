@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { Prisma } from '@prisma/client'
+import { after } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { ApiError, withAuthenticatedApi } from '@/lib/server/api-handler'
 import {
@@ -9,6 +10,7 @@ import {
 } from '@/lib/crypto/secrets'
 import { assertPublicUrl, SsrfError } from '@/lib/net/ssrf'
 import { cacheDelete } from '@/lib/cache'
+import { scanConnection } from '@/lib/intelligence/connection-scan'
 
 // Mirror of execute-agent's toolDiscoveryCacheKey (org-scoped) — kept in sync
 // deliberately; busting it makes a connection edit take effect before the TTL.
@@ -119,6 +121,20 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
       isActive: data.isActive ?? true,
     },
   })
+
+  // Fire-and-forget usage scan (api-key/none connections are already fully
+  // authorized at create time — oauth2 connections through this endpoint are
+  // set up via the separate oauth start/callback flow, which scans on its own
+  // success path). `after` (Next 15) keeps this alive past the response.
+  if (connection.isActive && (data.authType === 'api_key' || data.authType === 'none')) {
+    const organizationId = auth.organizationId
+    const userId = auth.dbUser.id
+    const connectionRef = connection.id
+    const connectionName = connection.name
+    after(() =>
+      scanConnection({ organizationId, userId, plane: 'mcp', connectionRef, connectionName }).catch(() => undefined),
+    )
+  }
 
   return { success: true, connection: serializeConnection(connection) }
 })

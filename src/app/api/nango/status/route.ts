@@ -1,10 +1,22 @@
 import type { Prisma } from '@prisma/client'
+import { after } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { getNangoClient, NANGO_ORG_TAG } from '@/lib/nango/client'
 import { nangoApiError } from '@/lib/nango/errors'
 import { withAuthenticatedApi } from '@/lib/server/api-handler'
+import { scanConnection } from '@/lib/intelligence/connection-scan'
+import { DELIVERY_PROVIDERS, type DeliveryCapability } from '@/lib/nango/delivery'
+import { fromNangoProviderKey } from '@/lib/connectors/registry'
 
 export const runtime = 'nodejs'
+
+/** providerConfigKey (e.g. "google-mail") → the scan-plane delivery capability, if any. */
+function capabilityForProviderConfigKey(providerConfigKey: string): DeliveryCapability | undefined {
+  const entry = (Object.entries(DELIVERY_PROVIDERS) as [DeliveryCapability, readonly string[]][]).find(
+    ([, keys]) => keys.includes(providerConfigKey),
+  )
+  return entry?.[0]
+}
 
 type ConnectionStatus = {
   connected: boolean
@@ -29,6 +41,19 @@ export const GET = withAuthenticatedApi(async (_request, auth) => {
 
   const connections: Record<string, ConnectionStatus> = {}
   const seen: string[] = []
+
+  // This route re-mirrors every Nango connection on every integrations page
+  // load — only fire a scan for connections we haven't mirrored before, so a
+  // repeat page view doesn't re-scan an already-known connection.
+  const existingIds = new Set(
+    (
+      await prisma.nangoConnection.findMany({
+        where: { organizationId: auth.organizationId },
+        select: { connectionId: true },
+      })
+    ).map((row) => row.connectionId),
+  )
+  const newlyConnected: { connectionId: string; providerConfigKey: string; userId: string | null }[] = []
 
   for (const connection of response.connections ?? []) {
     seen.push(connection.connection_id)
@@ -82,12 +107,36 @@ export const GET = withAuthenticatedApi(async (_request, auth) => {
         metadata,
       },
     })
+
+    if (connected && !existingIds.has(connection.connection_id)) {
+      newlyConnected.push({ connectionId: connection.connection_id, providerConfigKey: key, userId: endUser?.id ?? null })
+    }
   }
 
   // Drop mirror rows for connections that no longer exist in Nango.
   await prisma.nangoConnection.deleteMany({
     where: { organizationId: auth.organizationId, connectionId: { notIn: seen } },
   })
+
+  // Fire-and-forget usage scans for freshly-mirrored connections that map to
+  // a known delivery capability (the only ones the scan plane can sample).
+  // `after` (Next 15) so the scan survives past the response on serverless.
+  const organizationId = auth.organizationId
+  after(() =>
+    Promise.all(
+      newlyConnected.map(async ({ providerConfigKey, userId }) => {
+        const capability = capabilityForProviderConfigKey(providerConfigKey)
+        if (!capability) return
+        await scanConnection({
+          organizationId,
+          userId,
+          plane: 'nango',
+          connectionRef: capability,
+          connectionName: fromNangoProviderKey(providerConfigKey).label,
+        })
+      }),
+    ).catch(() => undefined),
+  )
 
   return { success: true, connections }
 })

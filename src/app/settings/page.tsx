@@ -7,12 +7,14 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { PageHeader } from '@/components/ui/page-header'
+import { Switch } from '@/components/ui/switch'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { toast } from 'sonner'
 
 type Profile = { name: string; email: string; imageUrl: string | null; timezone: string; role: string }
 type Factor = { id: string; friendly_name?: string; status: string }
 type Member = { id: string; email: string | null; name: string | null; role: 'ADMIN' | 'USER'; isActive: boolean }
+type OrgSettings = { disableConnectionScans?: boolean }
 
 export default function SettingsPage() {
   const supabase = createClient()
@@ -24,15 +26,41 @@ export default function SettingsPage() {
   const [code, setCode] = useState('')
   const [members, setMembers] = useState<Member[]>([])
   const [inviteEmail, setInviteEmail] = useState('')
+  const [orgSettings, setOrgSettings] = useState<OrgSettings>({})
+  const [savingScanToggle, setSavingScanToggle] = useState(false)
 
   async function load() {
-    const [response, factorResult, memberResponse] = await Promise.all([fetch('/api/settings/profile', { cache: 'no-store' }), supabase.auth.mfa.listFactors(), fetch('/api/settings/members', { cache: 'no-store' })])
+    const [response, factorResult, memberResponse, orgResponse] = await Promise.all([
+      fetch('/api/settings/profile', { cache: 'no-store' }),
+      supabase.auth.mfa.listFactors(),
+      fetch('/api/settings/members', { cache: 'no-store' }),
+      fetch('/api/organizations', { cache: 'no-store' }),
+    ])
     const data = await response.json()
     if (data.success) { setProfile(data.profile); setEmail(data.profile.email || '') }
     setFactors((factorResult.data?.totp || []) as Factor[])
     const memberData = await memberResponse.json(); if (memberData.success) setMembers(memberData.members)
+    const orgData = await orgResponse.json()
+    if (orgData.success) setOrgSettings((orgData.organizations?.[0]?.settings || {}) as OrgSettings)
   }
   useEffect(() => { void load() }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  async function toggleConnectionScanning(enabled: boolean) {
+    setSavingScanToggle(true)
+    try {
+      const response = await fetch('/api/organizations', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ settings: { disableConnectionScans: !enabled } }),
+      })
+      const data = await response.json()
+      if (!response.ok) { toast.error(data.error || 'Could not update setting'); return }
+      setOrgSettings((data.organization?.settings || {}) as OrgSettings)
+      toast.success(enabled ? 'Connection scanning enabled' : 'Connection scanning disabled')
+    } finally {
+      setSavingScanToggle(false)
+    }
+  }
 
   async function saveProfile(event: React.FormEvent) {
     event.preventDefault()
@@ -84,7 +112,7 @@ export default function SettingsPage() {
   }
 
   return <div className="space-y-6"><PageHeader eyebrow="Account" title="Settings" description="Manage your profile, sign-in security, and active sessions." />
-    <Tabs defaultValue="profile"><TabsList><TabsTrigger value="profile">Profile</TabsTrigger><TabsTrigger value="security">Security</TabsTrigger><TabsTrigger value="members">Members</TabsTrigger></TabsList>
+    <Tabs defaultValue="profile"><TabsList><TabsTrigger value="profile">Profile</TabsTrigger><TabsTrigger value="security">Security</TabsTrigger><TabsTrigger value="members">Members</TabsTrigger><TabsTrigger value="workspace">Workspace</TabsTrigger></TabsList>
       <TabsContent value="profile" className="mt-6">{profile && <Card className="max-w-2xl"><CardHeader><CardTitle>Profile</CardTitle></CardHeader><CardContent><form className="space-y-4" onSubmit={saveProfile}>
         <div className="space-y-2"><Label htmlFor="name">Display name</Label><Input id="name" value={profile.name || ''} onChange={(e) => setProfile({ ...profile, name: e.target.value })} /></div>
         <div className="space-y-2"><Label htmlFor="timezone">Timezone</Label><Input id="timezone" placeholder="America/Denver" value={profile.timezone} onChange={(e) => setProfile({ ...profile, timezone: e.target.value })} /></div>
@@ -105,6 +133,27 @@ export default function SettingsPage() {
         <form className="flex gap-3" onSubmit={inviteMember}><Input type="email" placeholder="colleague@example.com" value={inviteEmail} onChange={(e) => setInviteEmail(e.target.value)} required /><Button type="submit">Invite</Button></form>
         {members.map((member) => <div key={member.id} className="flex items-center gap-3 rounded-md border p-3"><div className="min-w-0 flex-1"><p className="truncate text-sm font-medium">{member.name || member.email}</p><p className="truncate text-xs text-muted-foreground">{member.email}</p></div><Button variant="outline" onClick={() => updateMember(member, { role: member.role === 'ADMIN' ? 'USER' : 'ADMIN' })}>{member.role}</Button><Button variant="outline" onClick={() => updateMember(member, { isActive: !member.isActive })}>{member.isActive ? 'Suspend' : 'Reactivate'}</Button></div>)}
       </CardContent></Card></TabsContent>
+      <TabsContent value="workspace" className="mt-6">
+        <Card className="max-w-2xl">
+          <CardHeader><CardTitle>Connection scanning</CardTitle></CardHeader>
+          <CardContent>
+            <div className="flex items-center justify-between gap-4 rounded-md border p-3">
+              <div>
+                <p className="text-sm font-medium">Learn from connected tools</p>
+                <p className="text-sm text-muted-foreground">When you connect a tool, Sublime samples recent usage (read-only) to learn how your team works. Learning happens automatically — no migrations required.</p>
+              </div>
+              <Switch
+                checked={orgSettings.disableConnectionScans !== true}
+                disabled={savingScanToggle || profile?.role !== 'ADMIN'}
+                onCheckedChange={toggleConnectionScanning}
+              />
+            </div>
+            {profile && profile.role !== 'ADMIN' && (
+              <p className="mt-3 text-xs text-muted-foreground">Only workspace admins can change this setting.</p>
+            )}
+          </CardContent>
+        </Card>
+      </TabsContent>
     </Tabs>
   </div>
 }
