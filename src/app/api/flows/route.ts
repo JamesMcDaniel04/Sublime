@@ -4,6 +4,7 @@ import { ApiError, withAuthenticatedApi } from '@/lib/server/api-handler'
 import { agentVisibilityScope } from '@/lib/server/visibility'
 import { flowGraphSchema, emptyGraph } from '@/lib/flows/graph'
 import { serializeFlow } from '@/lib/flows/serialize'
+import { hasSaveConflict } from '@/lib/flows/save-conflict'
 import { normalizeFlowTrigger, preserveWebhookSecretHash, triggerFromGraph } from '@/lib/flows/trigger'
 
 // Strip undefined + narrow to plain JSON so Prisma's InputJsonValue accepts the
@@ -51,11 +52,23 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
 })
 
 export const PUT = withAuthenticatedApi(async (request, auth) => {
-  const body = z.object({ id: z.string().min(1) }).merge(flowSchema.partial()).parse(await request.json())
+  const body = z
+    .object({ id: z.string().min(1), baseUpdatedAt: z.string().optional() })
+    .merge(flowSchema.partial())
+    .parse(await request.json())
   const existing = await prisma.flow.findFirst({
     where: { id: body.id, organizationId: auth.organizationId, ...agentVisibilityScope(auth.dbUser.id) },
   })
   if (!existing) throw new ApiError('Flow not found', 404, 'NOT_FOUND')
+  // Optimistic concurrency: reject a save based on a stale copy instead of
+  // silently clobbering another editor's changes (two tabs / Flow Jam).
+  if (hasSaveConflict(existing.updatedAt, body.baseUpdatedAt)) {
+    throw new ApiError(
+      'Someone else saved this flow since you loaded it — copy any unsaved edits, then reload to pick up their changes.',
+      409,
+      'FLOW_SAVE_CONFLICT',
+    )
+  }
   const nextTrigger =
     body.trigger !== undefined
       ? normalizeFlowTrigger(body.trigger)

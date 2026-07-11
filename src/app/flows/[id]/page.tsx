@@ -240,6 +240,8 @@ function FlowBuilder() {
   const [toolCatalog, setToolCatalog] = useState<ToolCatalog>([])
   // Serialized snapshot of the last-saved state, for the unsaved-changes dot.
   const [savedSnapshot, setSavedSnapshot] = useState('')
+  // Optimistic-concurrency base: the flow's updatedAt as of load/last save.
+  const baseUpdatedAtRef = useRef<string | undefined>(undefined)
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
   // Run the user explicitly picked (dropdown or ?run= deep-link). While set,
   // the poll tick refreshes that run's details instead of stealing selection.
@@ -264,6 +266,7 @@ function FlowBuilder() {
           setVersion(flow.version ?? 1)
           setPublished(Boolean(flow.published))
           setSavedSnapshot(JSON.stringify({ name: flow.name, description: flow.description || '', graph: g, status: flow.status }))
+          baseUpdatedAtRef.current = flow.updatedAt
         }
         setAgents(agentsData.success ? agentsData.agents.map((a: Agent) => ({ id: a.id, title: a.title })) : [])
       })
@@ -527,13 +530,14 @@ function FlowBuilder() {
       const response = await fetch('/api/flows', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id, name, description, graph, status: status.toUpperCase() }),
+        body: JSON.stringify({ id, name, description, graph, status: status.toUpperCase(), baseUpdatedAt: baseUpdatedAtRef.current }),
       })
+      const data = await response.json().catch(() => ({}))
       if (!response.ok) {
-        const data = await response.json().catch(() => ({}))
-        toast.error(data.error || 'Could not save the flow.')
+        toast.error(data.error || 'Could not save the flow.', response.status === 409 ? { duration: 10000 } : undefined)
         return false
       }
+      if (data.flow?.updatedAt) baseUpdatedAtRef.current = data.flow.updatedAt
       setSavedSnapshot(JSON.stringify({ name, description, graph, status }))
       return true
     } finally {
