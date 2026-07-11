@@ -6,6 +6,7 @@ import { qwenConfigured } from '@/lib/llm/qwen'
 import { ApiError, withAuthenticatedApi } from '@/lib/server/api-handler'
 import { buildAssistantContext } from '@/features/agents/assistant-context'
 import { checkMonthlyTokenBudget, recordTokenUsage } from '@/lib/usage/budget'
+import { saveAgentMemory } from '@/lib/memory/agent-memory'
 import { agentIdFromRequest, requireAgent, deriveTitle, LEGACY_SESSION_ID } from './shared'
 
 export const runtime = 'nodejs'
@@ -266,6 +267,23 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
       ...(proposal ? { metadata: { proposal } as unknown as Prisma.InputJsonValue } : {}),
     },
   })
+  // Memory writeback (seam 7): durable user guidance given in chat should
+  // inform future RUNS, not just this conversation. Declarative statements
+  // (long enough, not a question) are saved as user_answer memories;
+  // saveAgentMemory embeds + dedupes + caps, so casual chatter can't flood it.
+  const trimmedMessage = message.trim()
+  if (trimmedMessage.length >= 40 && !trimmedMessage.endsWith('?')) {
+    const lastAssistant = [...conversation].reverse().find((row) => row.role === 'assistant')
+    void saveAgentMemory({
+      organizationId: auth.organizationId,
+      agentId,
+      kind: 'user_answer',
+      title: deriveTitle(trimmedMessage),
+      content: trimmedMessage,
+      ...(lastAssistant ? { question: lastAssistant.content.slice(0, 500) } : {}),
+    }).catch(() => undefined)
+  }
+
   // Bump the session so it sorts to the top of history (and set its title on the
   // first message). Best-effort — ordering is cosmetic, not correctness.
   await prisma.agentChatSession
