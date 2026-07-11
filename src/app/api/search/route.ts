@@ -19,6 +19,8 @@ export const GET = withAuthenticatedApi(async (request, auth) => {
       where: {
         organizationId: auth.organizationId,
         status: { not: 'DELETED' },
+        // org-intelligence holder (see lib/intelligence) is infrastructure, never a listed agent
+        agentType: { not: 'SYSTEM' },
         AND: [
           { OR: [{ description: text }, { objective: text }, { folder: text }] },
           agentVisibilityScope(auth.dbUser.id),

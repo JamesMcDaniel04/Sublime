@@ -148,9 +148,18 @@ function truncateSample(value: unknown): string {
  * Get-or-create the single hidden AgentTask that holds org-wide learnings
  * from connection scans. Uses `status: 'SYSTEM'` (not 'ACTIVE') so it never
  * shows up in any ACTIVE-status agent listing, and `agentType: 'SYSTEM'` /
- * `type: 'system'` so it's unambiguously not a user-facing agent. Memories
- * saved under this agent's id are org-wide, shared learnings — not scoped to
- * any single agent's own run history.
+ * `type: 'system'` so it's unambiguously not a user-facing agent.
+ * `visibility: 'private'` with no `userId` means `agentVisibilityScope`
+ * (src/lib/server/visibility.ts) hides it from every user-facing listing
+ * that applies that scope — no real user ever matches its (absent) owner.
+ * Memories saved under this agent's id are org-wide, shared learnings — not
+ * scoped to any single agent's own run history.
+ *
+ * A partial unique index on `agent_tasks (organizationId) WHERE agentType =
+ * 'SYSTEM'` (see prisma/migrations/20260711130000_org_settings_flow_metadata)
+ * prevents two concurrent first-scans for the same org from creating two
+ * holder rows; on that race, the losing `create` throws Prisma P2002 and we
+ * re-read the winner's row instead.
  */
 export async function orgIntelligenceAgentId(organizationId: string): Promise<string> {
   const existing = await prisma.agentTask.findFirst({
@@ -158,20 +167,33 @@ export async function orgIntelligenceAgentId(organizationId: string): Promise<st
     select: { id: true },
   })
   if (existing) return existing.id
-  const created = await prisma.agentTask.create({
-    data: {
-      organizationId,
-      type: 'system',
-      agentType: 'SYSTEM',
-      status: 'SYSTEM',
-      priority: 'LOW',
-      visibility: 'shared',
-      description: 'Organization intelligence',
-      objective: 'Holds org-wide learnings from connection scans',
-    },
-    select: { id: true },
-  })
-  return created.id
+  try {
+    const created = await prisma.agentTask.create({
+      data: {
+        organizationId,
+        type: 'system',
+        agentType: 'SYSTEM',
+        status: 'SYSTEM',
+        priority: 'LOW',
+        visibility: 'private',
+        userId: null,
+        description: 'Organization intelligence',
+        objective: 'Holds org-wide learnings from connection scans',
+      },
+      select: { id: true },
+    })
+    return created.id
+  } catch (error) {
+    const isUniqueViolation =
+      typeof error === 'object' && error !== null && 'code' in error && (error as { code?: string }).code === 'P2002'
+    if (!isUniqueViolation) throw error
+    const winner = await prisma.agentTask.findFirst({
+      where: { organizationId, type: 'system', agentType: 'SYSTEM' },
+      select: { id: true },
+    })
+    if (winner) return winner.id
+    throw error
+  }
 }
 
 async function loadScanGroup(

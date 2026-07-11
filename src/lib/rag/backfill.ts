@@ -157,7 +157,8 @@ export async function backfillOrganization(organizationId: string): Promise<Back
   const edges: GraphEdge[] = [...book.edges]
 
   const agents = await prisma.agentTask.findMany({
-    where: { organizationId, status: { not: 'DELETED' } }, take: CAPS.agents, orderBy: { createdAt: 'desc' },
+    // org-intelligence holder (see lib/intelligence) is infrastructure, never a listed agent
+    where: { organizationId, status: { not: 'DELETED' }, agentType: { not: 'SYSTEM' } }, take: CAPS.agents, orderBy: { createdAt: 'desc' },
   })
   for (const agent of agents) {
     const meta = (agent.metadata && typeof agent.metadata === 'object' ? agent.metadata : {}) as Record<string, unknown>
