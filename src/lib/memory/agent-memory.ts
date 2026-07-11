@@ -25,13 +25,52 @@ async function tryEmbed(text: string): Promise<number[] | null> {
   }
 }
 
+export type MemoryDedupMatch = { status: string; sourceRef: string | null }
+
 /**
- * Persist one agent memory. Suggestions are deduped against open OR dismissed
- * suggestions (>= threshold cosine bumps timesUsed on the survivor instead of
- * inserting). A dismissed match keeps its 'dismissed' status — dismissing a
- * suggestion is durable and must not be undone by a later run re-proposing
- * the same thing. Enforces the per-agent cap by superseding the oldest
- * learnings. Never throws.
+ * Pure dedup decision, factored out of saveAgentMemory's nearest-neighbor
+ * lookup so the dismiss-durability rule is unit-testable without a
+ * pgvector-backed database.
+ *
+ * `match` is the single nearest open/dismissed row of the same kind (or
+ * null if none exists); `similarity` is its cosine similarity (1 - distance)
+ * to the memory being saved. Returns:
+ * - 'insert': no match, or the match is below MEMORY_SIMILARITY_THRESHOLD,
+ *   or (learnings only) the match belongs to a different sourceRef.
+ * - 'dedupe': bump the match's timesUsed instead of inserting a new row.
+ *   The caller must NOT touch the match's status — a dismissed match stays
+ *   dismissed; that durability is the entire point of this function.
+ *
+ * Suggestions dedupe on kind + status alone (unchanged, pre-existing
+ * behavior — suggestions may not carry a sourceRef). Learnings additionally
+ * require the match to share the same sourceRef (`<plane>:<connectionRef>`)
+ * as the memory being saved, so learnings distilled from different
+ * connections never merge into each other even if the text is similar.
+ */
+export function decideMemoryDedup(params: {
+  kind: MemoryKind
+  similarity: number
+  match: MemoryDedupMatch | null
+  requestSourceRef?: string | null
+}): 'insert' | 'dedupe' {
+  if (!params.match || params.similarity < MEMORY_SIMILARITY_THRESHOLD) return 'insert'
+  if (params.kind === 'suggestion') return 'dedupe'
+  if (params.kind === 'learning') {
+    return params.match.sourceRef === (params.requestSourceRef ?? null) ? 'dedupe' : 'insert'
+  }
+  return 'insert'
+}
+
+/**
+ * Persist one agent memory. Suggestions and connection-scan learnings are
+ * deduped against open OR dismissed rows of the same kind (>= threshold
+ * cosine bumps timesUsed on the survivor instead of inserting); learnings
+ * are additionally scoped by sourceRef so learnings from different
+ * connections never merge (see decideMemoryDedup). A dismissed match keeps
+ * its 'dismissed' status — dismissing a suggestion or learning is durable
+ * and must not be undone by a later run re-proposing the same thing.
+ * Enforces the per-agent cap by superseding the oldest learnings. Never
+ * throws.
  */
 export async function saveAgentMemory(params: {
   organizationId: string
@@ -49,23 +88,42 @@ export async function saveAgentMemory(params: {
     const embedText = params.kind === 'user_answer' ? params.question ?? params.content : `${params.title}\n${params.content}`
     const embedding = await tryEmbed(embedText)
 
-    if (params.kind === 'suggestion' && embedding) {
-      // Nearest-neighbor via pgvector: the single closest open/dismissed
-      // suggestion, compared against the threshold. SET LOCAL scopes the
-      // widened search_path to this transaction only (see retrieveKnowledge
-      // for the same Supabase extensions-schema note).
+    if ((params.kind === 'suggestion' || params.kind === 'learning') && embedding) {
+      // Nearest-neighbor via pgvector: the single closest open/dismissed row
+      // of the same kind, compared against the threshold. SET LOCAL scopes
+      // the widened search_path to this transaction only (see
+      // retrieveKnowledge for the same Supabase extensions-schema note).
       const vectorLiteral = toSqlVector(embedding)
       const nearest = await prisma.$transaction(async (tx) => {
         await tx.$executeRawUnsafe('SET LOCAL search_path = public, extensions')
         // HNSW iterative scan keeps recall once the org filter narrows the
         // index's global-nearest candidates (see knowledge/retrieve.ts).
         await tx.$executeRawUnsafe("SET LOCAL hnsw.iterative_scan = 'relaxed_order'")
-        return tx.$queryRaw<Array<{ id: string; distance: number }>>`
-          SELECT "id", ("embeddingVec" <=> ${vectorLiteral}::vector(1024)) AS distance
+        if (params.kind === 'suggestion') {
+          return tx.$queryRaw<Array<{ id: string; status: string; sourceRef: string | null; distance: number }>>`
+            SELECT "id", "status", "sourceRef", ("embeddingVec" <=> ${vectorLiteral}::vector(1024)) AS distance
+            FROM "agent_memories"
+            WHERE "organizationId" = ${params.organizationId}::uuid
+              AND "agentId" = ${params.agentId}
+              AND "kind" = 'suggestion'
+              AND "status" IN ('open', 'dismissed')
+              AND "embeddingVec" IS NOT NULL
+            ORDER BY distance ASC
+            LIMIT 1
+          `
+        }
+        // Learnings: additionally scoped by sourceRef so a near-duplicate
+        // from a different connection is never treated as a match (see
+        // decideMemoryDedup). No sourceRef on this write means there's
+        // nothing safe to scope against, so skip the lookup entirely.
+        if (!params.sourceRef) return []
+        return tx.$queryRaw<Array<{ id: string; status: string; sourceRef: string | null; distance: number }>>`
+          SELECT "id", "status", "sourceRef", ("embeddingVec" <=> ${vectorLiteral}::vector(1024)) AS distance
           FROM "agent_memories"
           WHERE "organizationId" = ${params.organizationId}::uuid
             AND "agentId" = ${params.agentId}
-            AND "kind" = 'suggestion'
+            AND "kind" = 'learning'
+            AND "sourceRef" = ${params.sourceRef}
             AND "status" IN ('open', 'dismissed')
             AND "embeddingVec" IS NOT NULL
           ORDER BY distance ASC
@@ -73,8 +131,14 @@ export async function saveAgentMemory(params: {
         `
       })
       const match = nearest[0]
-      if (match && 1 - match.distance >= MEMORY_SIMILARITY_THRESHOLD) {
-        // Do NOT touch status here: a dismissed suggestion must stay dismissed.
+      const decision = decideMemoryDedup({
+        kind: params.kind,
+        similarity: match ? 1 - match.distance : -1,
+        match: match ? { status: match.status, sourceRef: match.sourceRef } : null,
+        requestSourceRef: params.sourceRef ?? null,
+      })
+      if (decision === 'dedupe' && match) {
+        // Do NOT touch status here: a dismissed match must stay dismissed.
         await prisma.agentMemory.update({
           where: { id: match.id, organizationId: params.organizationId },
           data: { timesUsed: { increment: 1 }, lastUsedAt: new Date() },

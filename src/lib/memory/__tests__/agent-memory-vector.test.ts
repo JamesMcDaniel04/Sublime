@@ -179,6 +179,87 @@ if (TEST_DB) {
     }
   })
 
+  test('saveAgentMemory keeps a dismissed learning dismissed on rescan (same sourceRef, near-dup)', async () => {
+    if (!vectorReady) return
+    const vector = dims((i) => (i === 0 ? 1 : 0.01))
+    stubEmbedding(vector)
+    let firstId: string | undefined
+    try {
+      const first = await saveAgentMemory({
+        organizationId: ids.org,
+        agentId: ids.agent,
+        kind: 'learning',
+        title: 'How we use Slack: channel triage',
+        content: 'The team triages support requests in #support',
+        sourceRef: 'mcp:connABC',
+      })
+      assert.ok(first)
+      firstId = first!.id
+
+      // Simulate the DELETE /api/intelligence/learnings soft-delete.
+      await prisma.agentMemory.update({ where: { id: firstId, organizationId: ids.org }, data: { status: 'dismissed' } })
+
+      // Rescan re-derives a near-identical learning for the same connection.
+      const second = await saveAgentMemory({
+        organizationId: ids.org,
+        agentId: ids.agent,
+        kind: 'learning',
+        title: 'How we use Slack: channel triage (again)',
+        content: 'The team triages support requests in #support',
+        sourceRef: 'mcp:connABC',
+      })
+      assert.ok(second)
+      assert.equal(second!.deduped, true)
+      assert.equal(second!.id, firstId, 'must dedupe onto the existing row, not insert a fresh one')
+
+      const row = await prisma.agentMemory.findUnique({ where: { id: firstId, organizationId: ids.org } })
+      assert.equal(row.status, 'dismissed', 'a dismissed learning must stay dismissed across rescan')
+
+      const allForAgent = await prisma.agentMemory.findMany({ where: { organizationId: ids.org, agentId: ids.agent, sourceRef: 'mcp:connABC' } })
+      assert.equal(allForAgent.length, 1, 'no new open row should have been inserted')
+    } finally {
+      unstubEmbedding()
+      if (firstId) await prisma.agentMemory.delete({ where: { id: firstId } }).catch(() => {})
+    }
+  })
+
+  test('saveAgentMemory does not dedupe near-identical learnings across different sourceRefs', async () => {
+    if (!vectorReady) return
+    const vector = dims((i) => (i === 0 ? 1 : 0.01))
+    stubEmbedding(vector)
+    let firstId: string | undefined
+    let secondId: string | undefined
+    try {
+      const first = await saveAgentMemory({
+        organizationId: ids.org,
+        agentId: ids.agent,
+        kind: 'learning',
+        title: 'How we use Notion: doc triage',
+        content: 'The team triages docs in the shared workspace',
+        sourceRef: 'mcp:connOne',
+      })
+      assert.ok(first)
+      firstId = first!.id
+
+      const second = await saveAgentMemory({
+        organizationId: ids.org,
+        agentId: ids.agent,
+        kind: 'learning',
+        title: 'How we use Notion: doc triage',
+        content: 'The team triages docs in the shared workspace',
+        sourceRef: 'mcp:connTwo',
+      })
+      assert.ok(second)
+      secondId = second!.id
+      assert.equal(second!.deduped, false, 'a different connection must not dedupe against another connection\'s learning')
+      assert.notEqual(second!.id, firstId)
+    } finally {
+      unstubEmbedding()
+      if (firstId) await prisma.agentMemory.delete({ where: { id: firstId } }).catch(() => {})
+      if (secondId) await prisma.agentMemory.delete({ where: { id: secondId } }).catch(() => {})
+    }
+  })
+
   test('saveAgentMemory also writes the pgvector column alongside the legacy Json column', async () => {
     if (!vectorReady) return
     stubEmbedding(dims(() => 0.02))

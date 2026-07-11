@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import {
   bestAnswerMatch,
   renderAgentMemories,
+  decideMemoryDedup,
   MEMORY_SIMILARITY_THRESHOLD,
   MEMORY_INJECTION_LIMIT,
 } from '../agent-memory'
@@ -45,4 +46,93 @@ test('renderAgentMemories renders headings, caps, and critique', () => {
   assert.match(block, /fewer tool calls/)
   assert.equal(renderAgentMemories([], null), '')
   assert.match(renderAgentMemories([], 'note'), /## Notes to self from last run/)
+})
+
+// ── decideMemoryDedup ────────────────────────────────────────────────────
+// Pure decision extracted from saveAgentMemory's nearest-neighbor dedup-on-
+// write, so the dismiss-durability logic (a dismissed match must never flip
+// back to open, and never gets shadowed by a fresh insert) is unit-testable
+// without a pgvector-backed database.
+
+const NEAR = MEMORY_SIMILARITY_THRESHOLD + 0.01
+const FAR = MEMORY_SIMILARITY_THRESHOLD - 0.2
+
+test('decideMemoryDedup: dismissed learning + same sourceRef + near-dup → dedupe (stays dismissed)', () => {
+  const decision = decideMemoryDedup({
+    kind: 'learning',
+    similarity: NEAR,
+    match: { status: 'dismissed', sourceRef: 'mcp:conn123' },
+    requestSourceRef: 'mcp:conn123',
+  })
+  assert.equal(decision, 'dedupe')
+})
+
+test('decideMemoryDedup: open learning + same sourceRef + near-dup → dedupe (bump, no new row)', () => {
+  const decision = decideMemoryDedup({
+    kind: 'learning',
+    similarity: NEAR,
+    match: { status: 'open', sourceRef: 'mcp:conn123' },
+    requestSourceRef: 'mcp:conn123',
+  })
+  assert.equal(decision, 'dedupe')
+})
+
+test('decideMemoryDedup: learning near-dup but DIFFERENT sourceRef → insert (never merges across connections)', () => {
+  const decision = decideMemoryDedup({
+    kind: 'learning',
+    similarity: NEAR,
+    match: { status: 'open', sourceRef: 'mcp:otherConn' },
+    requestSourceRef: 'mcp:conn123',
+  })
+  assert.equal(decision, 'insert')
+})
+
+test('decideMemoryDedup: learning with no requestSourceRef never dedupes (no match to scope against)', () => {
+  const decision = decideMemoryDedup({
+    kind: 'learning',
+    similarity: NEAR,
+    match: null,
+    requestSourceRef: undefined,
+  })
+  assert.equal(decision, 'insert')
+})
+
+test('decideMemoryDedup: no nearest match at all → insert', () => {
+  assert.equal(decideMemoryDedup({ kind: 'learning', similarity: -1, match: null, requestSourceRef: 'mcp:conn123' }), 'insert')
+  assert.equal(decideMemoryDedup({ kind: 'suggestion', similarity: -1, match: null }), 'insert')
+})
+
+test('decideMemoryDedup: below-threshold similarity → insert even with matching sourceRef', () => {
+  const decision = decideMemoryDedup({
+    kind: 'learning',
+    similarity: FAR,
+    match: { status: 'open', sourceRef: 'mcp:conn123' },
+    requestSourceRef: 'mcp:conn123',
+  })
+  assert.equal(decision, 'insert')
+})
+
+test('decideMemoryDedup: suggestion dedup is unchanged — no sourceRef scoping required', () => {
+  // Suggestions may not carry a sourceRef at all; a near-dup dedupes on
+  // kind + status alone, same as before this fix.
+  const dismissed = decideMemoryDedup({
+    kind: 'suggestion',
+    similarity: NEAR,
+    match: { status: 'dismissed', sourceRef: null },
+  })
+  assert.equal(dismissed, 'dedupe')
+
+  const open = decideMemoryDedup({
+    kind: 'suggestion',
+    similarity: NEAR,
+    match: { status: 'open', sourceRef: null },
+  })
+  assert.equal(open, 'dedupe')
+
+  const belowThreshold = decideMemoryDedup({
+    kind: 'suggestion',
+    similarity: FAR,
+    match: { status: 'open', sourceRef: null },
+  })
+  assert.equal(belowThreshold, 'insert')
 })
