@@ -230,7 +230,14 @@ export const DELETE = withAuthenticatedApi(async (request, auth) => {
   // Best-effort purge of this connection's scan-derived learnings (Task
   // 4.5) — never blocks the disconnect response; purgeConnectionLearnings
   // already logs its own failures, `.catch` here is belt-and-suspenders.
-  void purgeConnectionLearnings({ organizationId: auth.organizationId, plane: 'mcp', connectionRef: existing.id }).catch(() => undefined)
+  // `after` (Next 15) keeps this running past the response on serverless —
+  // a bare `void` promise can be killed at response end there (same
+  // reasoning as the scanConnection call in POST above).
+  const organizationId = auth.organizationId
+  const connectionId = existing.id
+  after(() =>
+    purgeConnectionLearnings({ organizationId, plane: 'mcp', connectionRef: connectionId }).catch(() => undefined),
+  )
 
   return { success: true }
 })

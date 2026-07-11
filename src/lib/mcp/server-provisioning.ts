@@ -1,3 +1,4 @@
+import { after } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { cacheGet, cacheSet, cacheDelete } from '@/lib/cache'
 import { KlavisClient, type KlavisServer } from './klavis-client'
@@ -239,6 +240,12 @@ export async function removeServerConnection(organizationId: string, provider: M
 
   // Best-effort purge of this connection's scan-derived learnings (Task
   // 4.5) — never blocks the disconnect; purgeConnectionLearnings already
-  // logs its own failures, `.catch` here is belt-and-suspenders.
-  void purgeConnectionLearnings({ organizationId, plane: 'klavis', connectionRef: connection.id }).catch(() => undefined)
+  // logs its own failures, `.catch` here is belt-and-suspenders. `after`
+  // (Next 15) keeps this running past the response on serverless — a bare
+  // `void` promise can be killed at response end there (same reasoning as
+  // the scanConnection call in the connections route).
+  const connectionId = connection.id
+  after(() =>
+    purgeConnectionLearnings({ organizationId, plane: 'klavis', connectionRef: connectionId }).catch(() => undefined),
+  )
 }
