@@ -1268,3 +1268,58 @@ test('a condition on the main chain still routes normally after the body guard',
   assert.equal(result.status, 'succeeded')
   assert.equal(result.output, 'took-true')
 })
+
+test('trigger filter false → run succeeds immediately with a skipped trigger, nothing else runs', async () => {
+  let agentRan = false
+  const graph: FlowGraph = {
+    nodes: [
+      {
+        id: 'trigger',
+        type: 'trigger',
+        data: { trigger: { type: 'webhook', filter: { match: 'all', clauses: [{ left: '{{trigger.input.status}}', op: 'eq', right: 'urgent' }] } } },
+      },
+      { id: 'a1', type: 'agent', data: { agentId: 'a1', input: 'go' } },
+    ],
+    edges: [{ id: 'e1', source: 'trigger', target: 'a1' }],
+  }
+  const runAgent: RunAgentFn = async () => {
+    agentRan = true
+    return { output: 'x' }
+  }
+  const result = await interpretFlow(graph, { status: 'routine' }, { runAgent })
+  assert.equal(result.status, 'succeeded')
+  assert.equal(agentRan, false)
+  assert.equal(result.output, 'Trigger filter did not match — run skipped.')
+  assert.equal(result.steps.length, 1)
+  assert.equal(result.steps[0].status, 'skipped')
+})
+
+test('trigger filter true → normal execution', async () => {
+  const graph: FlowGraph = {
+    nodes: [
+      {
+        id: 'trigger',
+        type: 'trigger',
+        data: { trigger: { type: 'webhook', filter: { match: 'all', clauses: [{ left: '{{trigger.input.status}}', op: 'eq', right: 'urgent' }] } } },
+      },
+      { id: 'a1', type: 'agent', data: { agentId: 'a1', input: 'go' } },
+    ],
+    edges: [{ id: 'e1', source: 'trigger', target: 'a1' }],
+  }
+  const result = await interpretFlow(graph, { status: 'urgent' }, { runAgent: stub({ a1: 'ran-normally' }) })
+  assert.equal(result.status, 'succeeded')
+  assert.equal(result.output, 'ran-normally')
+})
+
+test('a trigger without a filter (or with empty clauses) is unaffected', async () => {
+  const graph: FlowGraph = {
+    nodes: [
+      { id: 'trigger', type: 'trigger', data: { trigger: { type: 'webhook', filter: { match: 'all', clauses: [] } } } },
+      { id: 'a1', type: 'agent', data: { agentId: 'a1', input: 'go' } },
+    ],
+    edges: [{ id: 'e1', source: 'trigger', target: 'a1' }],
+  }
+  const result = await interpretFlow(graph, { status: 'anything' }, { runAgent: stub({ a1: 'ran' }) })
+  assert.equal(result.status, 'succeeded')
+  assert.equal(result.output, 'ran')
+})

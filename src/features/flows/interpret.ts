@@ -623,6 +623,21 @@ export async function interpretFlow(graph: FlowGraph, input: unknown, opts: Opts
     }
   }
 
+  // Trigger-level filter ("only run when…"): a run whose trigger payload fails
+  // the filter completes immediately as skipped — no steps execute. Evaluated
+  // here (not in the dispatchers) so webhook/schedule/signal/manual all share
+  // one path and the skipped run stays visible in run history.
+  const triggerNode = graph.nodes.find((node) => node.type === 'trigger')
+  const triggerFilter =
+    triggerNode?.type === 'trigger'
+      ? ((triggerNode.data.trigger as { filter?: Parameters<typeof evalCondition>[0] } | undefined)?.filter ?? undefined)
+      : undefined
+  if (triggerFilter?.clauses?.length && !evalCondition(triggerFilter, ctx)) {
+    const output = 'Trigger filter did not match — run skipped.'
+    emit({ nodeId: triggerNode!.id, status: 'skipped', output })
+    return { status: 'succeeded', steps, output }
+  }
+
   let lastOutput: unknown = input
   let current: FlowNode | undefined = byId.get('trigger') ?? graph.nodes[0]
 

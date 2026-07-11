@@ -52,6 +52,8 @@ type TriggerData = {
   input?: string
   inputFields?: TriggerInputField[]
   signal?: string
+  /** "Only run when…": the run is skipped unless these clauses match the trigger payload. */
+  filter?: { match?: 'all' | 'any'; clauses?: ConditionClause[] }
 }
 
 const fieldClass =
@@ -1337,6 +1339,90 @@ function InputFieldsEditor({ fields, onChange }: { fields: TriggerInputField[]; 
 }
 
 /** The trigger node's editor: manual, a real schedule, or an inbound webhook. */
+/**
+ * "Only run when…" — optional trigger-level filter. A run whose trigger
+ * payload fails these clauses is skipped before any step executes (see
+ * interpretFlow). Empty clause list = no filter (the stored `filter` is
+ * dropped so old graphs stay byte-identical).
+ */
+function TriggerFilterEditor({
+  filter,
+  onChange,
+}: {
+  filter: TriggerData['filter']
+  onChange: (filter: TriggerData['filter']) => void
+}) {
+  const clauses = filter?.clauses ?? []
+  const update = (next: ConditionClause[]) =>
+    onChange(next.length ? { match: filter?.match ?? 'all', clauses: next } : undefined)
+  return (
+    <div>
+      <div className="flex items-center justify-between">
+        <label className={labelClass}>Only run when…</label>
+        {clauses.length > 1 && (
+          <select
+            className="rounded border border-border bg-background px-1.5 py-0.5 text-xs"
+            value={filter?.match ?? 'all'}
+            onChange={(e) => onChange({ match: e.target.value as 'all' | 'any', clauses })}
+            aria-label="Match all or any filter conditions"
+          >
+            <option value="all">All match</option>
+            <option value="any">Any match</option>
+          </select>
+        )}
+      </div>
+      {clauses.map((clause, i) => (
+        <div key={i} className="mt-1.5 flex items-center gap-1.5">
+          <input
+            className={smallField}
+            value={clause.left}
+            placeholder="{{trigger.input.status}}"
+            onChange={(e) => update(clauses.map((c, j) => (j === i ? { ...c, left: e.target.value } : c)))}
+            aria-label={`Filter ${i + 1} value`}
+          />
+          <select
+            className={smallField}
+            value={clause.op}
+            onChange={(e) => update(clauses.map((c, j) => (j === i ? { ...c, op: e.target.value as ConditionOp } : c)))}
+            aria-label={`Filter ${i + 1} operator`}
+          >
+            {CONDITION_OPS.map((op) => (
+              <option key={op} value={op}>
+                {CONDITION_OP_LABELS[op]}
+              </option>
+            ))}
+          </select>
+          <input
+            className={smallField}
+            value={clause.right}
+            placeholder="urgent"
+            onChange={(e) => update(clauses.map((c, j) => (j === i ? { ...c, right: e.target.value } : c)))}
+            aria-label={`Filter ${i + 1} comparison`}
+          />
+          <button
+            type="button"
+            onClick={() => update(clauses.filter((_, j) => j !== i))}
+            className="px-1 text-red-500 hover:text-red-700"
+            aria-label="Remove filter condition"
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      ))}
+      <button
+        type="button"
+        className="mt-1.5 text-xs font-medium text-indigo-600 hover:text-indigo-800"
+        onClick={() => update([...clauses, { left: '', op: 'eq', right: '' }])}
+      >
+        + Add condition
+      </button>
+      <p className="mt-1 text-xs text-muted-foreground">
+        Runs that don&apos;t match are skipped before any step executes.
+      </p>
+    </div>
+  )
+}
+
 function TriggerEditor({
   flowId,
   trigger,
@@ -1430,6 +1516,13 @@ function TriggerEditor({
         fields={trigger.inputFields ?? []}
         onChange={(inputFields) => onChange({ ...trigger, inputFields: inputFields.length ? inputFields : undefined })}
       />
+
+      {type !== 'manual' && (
+        <TriggerFilterEditor
+          filter={trigger.filter}
+          onChange={(filter) => onChange({ ...trigger, filter })}
+        />
+      )}
 
       {type === 'schedule' && (
         <div className="space-y-3">
