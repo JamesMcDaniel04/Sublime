@@ -19,7 +19,6 @@ import {
   Plug,
   Plus,
   Search,
-  Settings,
   Trash2,
   Workflow,
 } from 'lucide-react'
@@ -91,7 +90,6 @@ const navigation = [
   { name: 'Integrations', href: '/integrations', icon: Plug },
   { name: 'Flows', href: '/flows', icon: Workflow },
   { name: 'Templates', href: '/templates', icon: FileText },
-  { name: 'Settings', href: '/settings', icon: Settings },
 ]
 
 function planLabel(plan: string) {
@@ -510,7 +508,15 @@ export function Sidebar() {
               )}
             </div>
           )}
-          <div className="flex items-center gap-2 px-1">
+          {/* The user row IS the Settings entry point (not a nav item). */}
+          <Link
+            href="/settings"
+            aria-label="Open settings"
+            className={cn(
+              'flex items-center gap-2 rounded-lg px-1 py-1 transition-colors hover:bg-gray-100',
+              pathname.startsWith('/settings') && 'bg-gray-100',
+            )}
+          >
             <div className="flex h-8 w-8 items-center justify-center rounded-full bg-gray-200 text-xs font-semibold text-gray-600">
               {(user?.firstName || 'U').charAt(0).toUpperCase()}
             </div>
@@ -521,7 +527,7 @@ export function Sidebar() {
             {activeOrg && (
               <span className="rounded-full bg-gray-200 px-2 py-0.5 text-xs text-gray-600">{planLabel(activeOrg.plan)}</span>
             )}
-          </div>
+          </Link>
         </div>
       </div>
 
