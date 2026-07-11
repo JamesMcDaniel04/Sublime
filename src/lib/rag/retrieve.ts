@@ -112,5 +112,12 @@ export function renderContext(context: RetrievedContext): string {
     lines.push('', 'Connected to the above:')
     for (const r of context.related) lines.push(`- [${r.type}] ${r.text}`)
   }
+  // Grounding contract (mirrors the uploaded-file knowledge block): claims
+  // sourced from this context must say where they came from, so answers stay
+  // auditable against the graph instead of blending facts invisibly.
+  lines.push(
+    '',
+    'When your answer uses a fact from this correlated context, attribute it inline (e.g. "per the account status" or "from a prior run"). Never present a correlated fact as something you observed live this run.',
+  )
   return lines.join('\n')
 }

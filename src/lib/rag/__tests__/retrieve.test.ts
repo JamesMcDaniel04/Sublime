@@ -77,3 +77,12 @@ test('renderContext produces empty string for an empty pack, markdown otherwise'
   assert.match(md, /Correlated context/)
   assert.match(md, /Falken/)
 })
+
+test('renderContext carries the citation/grounding instruction when context exists', async () => {
+  const rendered = renderContext({
+    hits: [{ id: 'account:a1', type: 'account', text: 'Account a1 — Sales AI status: healthy', score: 0.9, props: {} }],
+    related: [],
+  })
+  assert.match(rendered, /attribute it inline/)
+  assert.match(rendered, /Never present a correlated fact as something you observed live/)
+})

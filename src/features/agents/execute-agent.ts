@@ -27,6 +27,8 @@ import { agentVisibilityScope } from '@/lib/server/visibility'
 import { notify } from '@/lib/notifications/service'
 import { checkMonthlyTokenBudget, recordTokenUsage } from '@/lib/usage/budget'
 import { buildAgentSystemPrompt } from './system-prompt'
+import { structuredResponseInstruction, parseStructuredAgentOutput } from '@/features/flows/agent-response'
+import type { OutputField } from '@/lib/flows/graph'
 import {
   createModelRunner,
   generateHeadline,
@@ -352,6 +354,14 @@ export async function runAgentExecution(
   if (!agent) throw new Error('Agent not found or inactive')
 
   const agentMetadata = metadataOf(agent.metadata)
+  // Structured-output contract (same as flow agent steps): an agent whose
+  // metadata declares outputFields + responseFormat 'structured' must reply
+  // with JSON carrying those properties. Prompt side below; validation at the
+  // final-output settle. (Config UI is a follow-up — metadata is the surface.)
+  const structuredFields: OutputField[] =
+    agentMetadata.responseFormat === 'structured' && Array.isArray(agentMetadata.outputFields)
+      ? (agentMetadata.outputFields as OutputField[]).filter((field) => typeof field?.name === 'string' && field.name.trim())
+      : []
   const model = agentMetadata.model || DEFAULT_AGENT_MODEL
   const runner = createModelRunner(model)
 
@@ -563,6 +573,9 @@ export async function runAgentExecution(
           .catch(() => [])
       : []
     let system = buildAgentSystemPrompt(agent.objective, skillIds, communitySkills)
+    if (structuredFields.length) {
+      system += `\n\n${structuredResponseInstruction(structuredFields)}`
+    }
 
     // Scope Klavis Strata to the servers this agent selected, so its discovery/
     // execute meta-tools only reach the intended tools rather than all ~90.
@@ -1099,7 +1112,18 @@ export async function runAgentExecution(
     }
 
     const summary = finalText || 'Agent reached the maximum number of tool-call turns.'
-    const output = { summary }
+    let output: Record<string, unknown> = { summary }
+    if (structuredFields.length) {
+      const parsed = parseStructuredAgentOutput(finalText, structuredFields)
+      if (parsed.output) {
+        output = { summary, structured: parsed.output }
+      } else {
+        // Loud, but the text answer keeps its value: surface the contract
+        // violation on the run instead of silently shipping unstructured text.
+        output = { summary, structuredError: parsed.error }
+        await recordEvent(execution.id, null, 'agent.structured_output_invalid', { error: parsed.error })
+      }
+    }
     const headline = await generateHeadline(summary)
 
     await prisma.executionMessage.create({
@@ -1112,7 +1136,7 @@ export async function runAgentExecution(
         where: { id: execution.id },
         data: {
           status: 'completed',
-          output,
+          output: jsonValue(output),
           transcript: jsonValue(transcript),
           inputTokens: { increment: usage.inputTokens },
           outputTokens: { increment: usage.outputTokens },
@@ -1126,7 +1150,7 @@ export async function runAgentExecution(
         data: {
           lastExecutedAt: new Date(),
           executionCount: { increment: 1 },
-          lastResult: output,
+          lastResult: jsonValue(output),
         },
       }),
     ])
