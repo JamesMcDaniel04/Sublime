@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import { prisma } from '@/lib/prisma'
 import { ApiError, withAuthenticatedApi } from '@/lib/server/api-handler'
+import { isValidScanExclusionEntry } from '@/lib/intelligence/scan-exclusions'
 
 const ORG_SELECT = { id: true, name: true, slug: true, plan: true, logoUrl: true, settings: true } as const
 
@@ -27,6 +28,11 @@ const LOGO_MAX_LENGTH = 300_000 // ~220KB of image data once base64-encoded
 // blob (never replaces it) so unrelated/future keys survive untouched.
 const settingsPatchSchema = z.object({
   disableConnectionScans: z.boolean().optional(),
+  // Per-connection learning opt-out (Task 4.5): entries shaped
+  // `<plane>:<connectionRef>` — the connections the usage scan must skip.
+  // The full replacement array is sent each time (read-modify-write from the
+  // client), same convention as disableConnectionScans above.
+  scanExclusions: z.array(z.string().refine(isValidScanExclusionEntry, 'Invalid scan exclusion entry')).max(500).optional(),
 })
 
 const patchSchema = z.object({

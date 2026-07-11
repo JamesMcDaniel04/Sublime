@@ -8,12 +8,17 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Pagination, paginate } from '@/components/ui/pagination'
 import { IntegrationLogo } from '@/components/integrations/integration-logo'
+import { Switch } from '@/components/ui/switch'
 import { useCachedJson } from '@/lib/client/use-cached-json'
+import { useScanExclusions } from '@/lib/client/use-scan-exclusions'
+import { connectionSourceRef } from '@/lib/intelligence/scan-exclusions'
 
 type Tool = { name: string; description?: string }
 
 type Connection = {
   provider: string
+  /** The underlying mCPAgent row id — absent until a connection exists. */
+  id?: string
   status: 'pending_auth' | 'active' | 'error' | 'not_connected'
   oauthUrl?: string
   toolCount?: number
@@ -115,6 +120,19 @@ export function MCPIntegrationCards() {
   const [connecting, setConnecting] = useState<string | null>(null)
   const [expanded, setExpanded] = useState<string | null>(null)
   const [actionError, setActionError] = useState('')
+  const [togglingLearning, setTogglingLearning] = useState<string | null>(null)
+  const { isLearningEnabled, setLearningEnabled } = useScanExclusions()
+
+  const toggleLearning = async (connection: Connection, enabled: boolean) => {
+    if (!connection.id) return
+    setTogglingLearning(connection.provider)
+    try {
+      const ok = await setLearningEnabled(connectionSourceRef('klavis', connection.id), enabled)
+      if (!ok) setActionError('Could not update learning setting.')
+    } finally {
+      setTogglingLearning(null)
+    }
+  }
 
   const connect = async (provider: string) => {
     setConnecting(provider)
@@ -206,6 +224,18 @@ export function MCPIntegrationCards() {
                   <Button className="w-full" disabled={connecting === connection.provider} onClick={() => connect(connection.provider)}>
                     {connecting === connection.provider ? 'Connecting...' : 'Connect'}
                   </Button>
+                )}
+
+                {connection.id && (
+                  <div className="flex items-center justify-between gap-2 border-t pt-3">
+                    <span className="text-xs text-gray-500">Learning</span>
+                    <Switch
+                      checked={isLearningEnabled(connectionSourceRef('klavis', connection.id))}
+                      disabled={togglingLearning === connection.provider}
+                      onCheckedChange={(enabled) => toggleLearning(connection, enabled)}
+                      aria-label={isLearningEnabled(connectionSourceRef('klavis', connection.id)) ? 'Disable learning from this connection' : 'Enable learning from this connection'}
+                    />
+                  </div>
                 )}
               </CardContent>
             </Card>

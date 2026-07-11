@@ -10,6 +10,8 @@ import { Button } from '@/components/ui/button'
 import { EmptyState } from '@/components/ui/empty-state'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Switch } from '@/components/ui/switch'
+import { useScanExclusions } from '@/lib/client/use-scan-exclusions'
+import { connectionSourceRef } from '@/lib/intelligence/scan-exclusions'
 
 // ── Auth-badge labels ─────────────────────────────────────────────────────────
 
@@ -32,6 +34,8 @@ function McpServersPanelInner() {
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editingConnection, setEditingConnection] = useState<SerializedConnection | null>(null)
   const [deletingId, setDeletingId] = useState<string | null>(null)
+  const [togglingLearningId, setTogglingLearningId] = useState<string | null>(null)
+  const { isLearningEnabled, setLearningEnabled } = useScanExclusions()
 
   const load = useCallback(async () => {
     const response = await fetch('/api/mcp-connections', { cache: 'no-store' })
@@ -124,6 +128,16 @@ function McpServersPanelInner() {
       }
     } finally {
       setDeletingId(null)
+    }
+  }
+
+  const toggleLearning = async (conn: SerializedConnection, enabled: boolean) => {
+    setTogglingLearningId(conn.id)
+    try {
+      const ok = await setLearningEnabled(connectionSourceRef('mcp', conn.id), enabled)
+      if (!ok) toast.error('Could not update learning setting.')
+    } finally {
+      setTogglingLearningId(null)
     }
   }
 
@@ -280,6 +294,16 @@ function McpServersPanelInner() {
                       </div>
                     </>
                   )}
+                </div>
+
+                <div className="flex items-center justify-between gap-2 border-t pt-3">
+                  <span className="text-xs text-muted-foreground">Learning</span>
+                  <Switch
+                    checked={isLearningEnabled(connectionSourceRef('mcp', conn.id))}
+                    disabled={togglingLearningId === conn.id}
+                    onCheckedChange={(enabled) => toggleLearning(conn, enabled)}
+                    aria-label={isLearningEnabled(connectionSourceRef('mcp', conn.id)) ? 'Disable learning from this server' : 'Enable learning from this server'}
+                  />
                 </div>
               </div>
             ))}

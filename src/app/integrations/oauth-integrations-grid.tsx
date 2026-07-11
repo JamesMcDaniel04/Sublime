@@ -152,6 +152,9 @@ export function OAuthIntegrationsGrid() {
                   : <Button className="w-full" onClick={() => connect(integration)} loading={busy === integration.id}>
                       Connect
                     </Button>}
+                {connection?.connected && (
+                  <p className="text-xs text-muted-foreground">Learning from this connection is managed in Settings.</p>
+                )}
               </CardContent>
             </Card>
           )

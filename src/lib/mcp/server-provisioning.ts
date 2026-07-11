@@ -150,6 +150,9 @@ export type ConnectionStatusInfo = {
   oauthUrl?: string
   toolCount?: number
   tools?: McpToolInfo[]
+  /** The underlying mCPAgent row id — the scan plane's `connectionRef` for
+   *  this provider. Absent when there's no connection yet (not_connected). */
+  id?: string
 }
 
 export async function getConnectionStatuses(
@@ -201,7 +204,7 @@ export async function getConnectionStatuses(
       }
 
       if (tools && toolCount === undefined) toolCount = tools.length
-      return { provider, status, oauthUrl, toolCount, tools }
+      return { provider, status, oauthUrl, toolCount, tools, id: connection.id }
     }),
   )
 

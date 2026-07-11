@@ -37,6 +37,7 @@ export const GET = withAuthenticatedApi(async (_request, auth) => {
     const capability = PROVIDER_CAPABILITIES[provider]
     return {
       provider,
+      id: status?.id,
       status: status?.status || 'not_connected',
       oauthUrl: status?.oauthUrl,
       toolCount: status?.toolCount,

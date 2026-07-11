@@ -26,6 +26,14 @@ import { notify } from '@/lib/notifications/service'
 import { indexConnectionScan } from '@/lib/rag/indexer'
 import { formatFlowToolConnectionId } from '@/lib/flows/tool-connection-id'
 import { loadKlavisPlaneGroups, loadMcpConnectionPlaneGroups, loadNangoPlaneGroups, type ToolPlaneGroup } from '@/features/agents/tool-planes'
+import { connectionSourceRef, isScanExcluded, type ScanPlane } from './scan-exclusions'
+
+// Re-exported so existing server-side importers of connection-scan.ts (this
+// module owns the domain) keep working unchanged — the implementations live
+// in scan-exclusions.ts (a zero-import module) so client components can pull
+// them in without dragging prisma/server code into the browser bundle.
+export { SCAN_PLANES, connectionSourceRef, isValidScanExclusionEntry, isScanExcluded } from './scan-exclusions'
+export type { ScanPlane } from './scan-exclusions'
 
 export const MAX_SCAN_TOOLS = 6
 export const SCAN_TOOL_TIMEOUT_MS = 15_000
@@ -62,33 +70,6 @@ export function scanEnabled(orgSettings: unknown): boolean {
     return (orgSettings as Record<string, unknown>).disableConnectionScans !== true
   }
   return true
-}
-
-/** Scan planes a connection can live on — single source of truth for the
- *  `<plane>:<connectionRef>` key format shared by settings.scanExclusions,
- *  AgentMemory.sourceRef, and the graph node id (`insight:scan:<key>`). */
-export const SCAN_PLANES = ['klavis', 'nango', 'mcp'] as const
-export type ScanPlane = (typeof SCAN_PLANES)[number]
-
-/** Pure: the stable key identifying one connection across settings, memory
- *  sourceRef, and graph node ids. */
-export function connectionSourceRef(plane: ScanPlane, connectionRef: string): string {
-  return `${plane}:${connectionRef}`
-}
-
-/** Pure: true when `value` is shaped `<plane>:<nonEmptyRef>` for a known scan
- *  plane — the allowed shape for a settings.scanExclusions entry. */
-export function isValidScanExclusionEntry(value: string): boolean {
-  return SCAN_PLANES.some((plane) => value.startsWith(`${plane}:`) && value.length > plane.length + 1)
-}
-
-/** Pure: true when `sourceRef` is listed in the org's per-connection learning
- *  opt-out (settings.scanExclusions). Malformed/missing settings read as "no
- *  exclusions" — same fail-open posture as `scanEnabled`. */
-export function isScanExcluded(orgSettings: unknown, sourceRef: string): boolean {
-  if (!orgSettings || typeof orgSettings !== 'object' || Array.isArray(orgSettings)) return false
-  const exclusions = (orgSettings as Record<string, unknown>).scanExclusions
-  return Array.isArray(exclusions) && exclusions.includes(sourceRef)
 }
 
 /** A Nango connection is "connected" for scan-triggering purposes. */
