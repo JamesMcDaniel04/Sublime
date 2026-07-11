@@ -2,6 +2,9 @@ import { z } from 'zod'
 import { withAuthenticatedApi } from '@/lib/server/api-handler'
 import { prisma } from '@/lib/prisma'
 import { recordAudit } from '@/lib/audit'
+import { createAdminClient } from '@/lib/supabase/admin'
+import { ApiError } from '@/lib/server/api-handler'
+import { teardownOrganization } from '@/lib/org-teardown'
 
 const updateSchema = z.object({
   name: z.string().trim().min(1).max(100),
@@ -29,4 +32,21 @@ export const PATCH = withAuthenticatedApi(async (request, auth) => {
   })
   void recordAudit({ organizationId: auth.organizationId, actorUserId: auth.dbUser.id, action: 'user.profile.updated', resourceType: 'user', resourceId: auth.dbUser.id })
   return { success: true, profile: user }
+})
+
+export const DELETE = withAuthenticatedApi(async (request, auth) => {
+  const input = z.object({ confirmation: z.literal('DELETE') }).parse(await request.json())
+  void input
+  const [memberCount, adminCount] = await Promise.all([
+    prisma.user.count({ where: { organizationId: auth.organizationId, isActive: true } }),
+    prisma.user.count({ where: { organizationId: auth.organizationId, isActive: true, role: 'ADMIN' } }),
+  ])
+  if (memberCount > 1 && auth.dbUser.role === 'ADMIN' && adminCount <= 1) {
+    throw new ApiError('Promote another administrator before deleting your account', 409, 'LAST_ADMIN')
+  }
+  if (memberCount === 1) await teardownOrganization(auth.organizationId)
+  else await prisma.user.delete({ where: { id: auth.dbUser.id, organizationId: auth.organizationId } })
+  const { error } = await createAdminClient().auth.admin.deleteUser(auth.user.id)
+  if (error) throw new ApiError('Account data was removed, but the identity provider cleanup failed', 502, 'AUTH_DELETE_FAILED', error)
+  return { success: true }
 })

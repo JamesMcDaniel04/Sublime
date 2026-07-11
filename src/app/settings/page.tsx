@@ -44,7 +44,8 @@ export default function SettingsPage() {
 
   async function changeEmail() {
     const { error } = await supabase.auth.updateUser({ email: email.trim().toLowerCase() })
-    error ? toast.error(error.message) : toast.success('Check both addresses to confirm the change')
+    if (error) toast.error(error.message)
+    else toast.success('Check both addresses to confirm the change')
   }
   async function changePassword() {
     if (password.length < 12) return toast.error('Use at least 12 characters')
@@ -88,7 +89,9 @@ export default function SettingsPage() {
         <div className="space-y-2"><Label htmlFor="name">Display name</Label><Input id="name" value={profile.name || ''} onChange={(e) => setProfile({ ...profile, name: e.target.value })} /></div>
         <div className="space-y-2"><Label htmlFor="timezone">Timezone</Label><Input id="timezone" placeholder="America/Denver" value={profile.timezone} onChange={(e) => setProfile({ ...profile, timezone: e.target.value })} /></div>
         <Button type="submit">Save profile</Button>
-      </form></CardContent></Card>}</TabsContent>
+      </form></CardContent></Card>}
+        <Card className="mt-6 max-w-2xl border-red-200"><CardHeader><CardTitle>Delete account</CardTitle></CardHeader><CardContent><p className="mb-4 text-sm text-muted-foreground">Permanently removes your account. If you are the only member, the workspace and its data are also deleted.</p><Button variant="outline" onClick={async () => { if (window.prompt('Type DELETE to permanently delete your account') !== 'DELETE') return; const response = await fetch('/api/settings/profile', { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ confirmation: 'DELETE' }) }); const data = await response.json(); if (!response.ok) return toast.error(data.error || 'Could not delete account'); await supabase.auth.signOut(); window.location.replace('/') }}>Delete account</Button></CardContent></Card>
+      </TabsContent>
       <TabsContent value="security" className="mt-6 space-y-6">
         <Card className="max-w-2xl"><CardHeader><CardTitle>Email address</CardTitle></CardHeader><CardContent className="flex gap-3"><Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} /><Button onClick={changeEmail}>Change email</Button></CardContent></Card>
         <Card className="max-w-2xl"><CardHeader><CardTitle>Password</CardTitle></CardHeader><CardContent className="flex gap-3"><Input type="password" autoComplete="new-password" placeholder="At least 12 characters" value={password} onChange={(e) => setPassword(e.target.value)} /><Button onClick={changePassword}>Change password</Button></CardContent></Card>
@@ -96,7 +99,7 @@ export default function SettingsPage() {
           {factors.map((factor) => <div key={factor.id} className="flex items-center justify-between rounded-md border p-3"><span className="text-sm">{factor.friendly_name || 'Authenticator app'} · {factor.status}</span><Button variant="outline" onClick={() => removeMfa(factor.id)}>Remove</Button></div>)}
           {enrollment ? <div className="space-y-3"><div className="w-48" dangerouslySetInnerHTML={{ __html: enrollment.qr }} /><p className="text-sm text-muted-foreground">Scan the code, then enter the six-digit verification code.</p><div className="flex gap-3"><Input inputMode="numeric" autoComplete="one-time-code" value={code} onChange={(e) => setCode(e.target.value)} /><Button onClick={verifyMfa}>Verify</Button></div></div> : <Button variant="outline" onClick={enrollMfa}>Add authenticator</Button>}
         </CardContent></Card>
-        <Card className="max-w-2xl"><CardHeader><CardTitle>Sessions</CardTitle></CardHeader><CardContent><Button variant="outline" onClick={async () => { const { error } = await supabase.auth.signOut({ scope: 'others' }); error ? toast.error(error.message) : toast.success('Other sessions signed out') }}>Sign out other sessions</Button></CardContent></Card>
+        <Card className="max-w-2xl"><CardHeader><CardTitle>Sessions</CardTitle></CardHeader><CardContent><Button variant="outline" onClick={async () => { const { error } = await supabase.auth.signOut({ scope: 'others' }); if (error) toast.error(error.message); else toast.success('Other sessions signed out') }}>Sign out other sessions</Button></CardContent></Card>
       </TabsContent>
       <TabsContent value="members" className="mt-6"><Card className="max-w-3xl"><CardHeader><CardTitle>Workspace members</CardTitle></CardHeader><CardContent className="space-y-4">
         <form className="flex gap-3" onSubmit={inviteMember}><Input type="email" placeholder="colleague@example.com" value={inviteEmail} onChange={(e) => setInviteEmail(e.target.value)} required /><Button type="submit">Invite</Button></form>

@@ -71,7 +71,7 @@ import {
 export type StepStatus = 'queued' | 'running' | 'succeeded' | 'failed' | 'waiting' | 'skipped' | 'stopped' | 'resumed'
 
 type Agent = { id: string; title: string }
-// Mirrors the drawer's TriggerData (step-drawer.tsx) so the card can edit the
+// The full trigger shape the card edits inline (the old drawer's TriggerData):
 // full trigger configuration inline without dropping fields on mutation.
 type TriggerData = {
   type?: 'manual' | 'schedule' | 'webhook' | 'signal'
@@ -272,7 +272,7 @@ function collapsedAffordance(node: FlowNode): React.ReactNode | null {
 // Sentinel for activeFieldRef: a non-token input (labels, field names, KV
 // keys, …) is focused, so datatree inserts must be a no-op — falling back to
 // the step's primary field would silently write to a field the user is not
-// editing. Mirrors step-drawer.tsx.
+// editing.
 const NON_TOKEN_FOCUSED = 'non-token-focused'
 
 // Where a datatree click lands when no chip editor has been focused yet: the
@@ -383,7 +383,7 @@ export function StepCard({
     onClick?.()
   }
   // Chip-editor handles keyed by field, so a datatree click inserts a token
-  // chip at the caret of the last-focused editor (mirrors step-drawer.tsx).
+  // chip at the caret of the last-focused editor.
   const editorHandles = useRef<Map<string, TokenTextEditorHandle | null>>(new Map())
   const editorRefCallbacks = useRef<Map<string, (handle: TokenTextEditorHandle | null) => void>>(new Map())
   const activeFieldRef = useRef<string | null>(null)

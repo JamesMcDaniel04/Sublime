@@ -23,7 +23,7 @@ import { storedRunInput, prefillTextFromRunInput } from '@/lib/flows/reuse-input
 import { FlowCanvas, type FlowInsertSeed } from '@/components/flows/flow-canvas'
 import { startCanvasPan } from '@/components/flows/canvas-pan'
 import { CanvasRail } from '@/components/flows/canvas-rail'
-import { StepDrawer, type ToolCatalog } from '@/components/flows/step-drawer'
+import type { ToolCatalog } from '@/components/flows/tool-catalog-type'
 import { CopilotPanel } from '@/components/flows/copilot-panel'
 import { RunPanel, type FlowRunDetail } from '@/components/flows/run-panel'
 import { CheckerPanel } from '@/components/flows/checker-panel'
@@ -1126,41 +1126,8 @@ function FlowBuilder() {
           onJump={jumpToNode}
         />
 
-        {selectedNode && !viewingVersion && (
-          <ResizablePanel storageKey="flow.drawerWidth">
-            <StepDrawer
-              node={selectedNode}
-              flowId={id}
-              issues={issuesByNode[selectedNode.id]?.items}
-              agents={agents}
-              toolCatalog={toolCatalog}
-              dataFields={dataFields}
-              labelCtx={labelCtx}
-              variableNames={upstreamVariables.map((variable) => variable.name)}
-              onChange={(node) => setGraph((g) => updateNode(g, node))}
-              onChangeType={(type) => commitGraph(changeNodeType(graph, selectedNode.id, type))}
-              onDuplicate={() => {
-                const { graph: next, nodeId } = duplicateNode(graph, selectedNode.id)
-                commitGraph(next)
-                setSelectedId(nodeId)
-              }}
-              onAddStep={
-                selectedNode.type === 'loop' || selectedNode.type === 'parallel'
-                  ? (type) => {
-                      const { graph: next, nodeId } = addContainerStep(graph, selectedNode.id, type, type === 'agent' ? agents[0]?.id ?? '' : undefined)
-                      commitGraph(next)
-                      setSelectedId(nodeId)
-                    }
-                  : undefined
-              }
-              onDelete={() => {
-                commitGraph(deleteNode(graph, selectedNode.id))
-                setSelectedId(null)
-              }}
-              onClose={() => setSelectedId(null)}
-            />
-          </ResizablePanel>
-        )}
+        {/* Step configuration lives entirely inline on the step cards — the
+            side drawer was removed once the cards reached full parity. */}
 
         {showCopilot && (
           <ResizablePanel storageKey="flow.copilotWidth">

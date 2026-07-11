@@ -12,7 +12,6 @@ import assert from 'node:assert/strict'
 import React, { useState } from 'react'
 import { render, act, cleanup } from '@testing-library/react'
 import { StepCard } from '../step-card'
-import { StepDrawer } from '../step-drawer'
 import { updateNode } from '@/lib/flows/mutate'
 import type { FlowGraph, FlowNode } from '@/lib/flows/graph'
 
@@ -36,16 +35,6 @@ function CardHarness({ capture }: { capture: (n: FlowNode) => void }) {
   return React.createElement(StepCard, {
     node, title: 'HTTP', selected: true, agents: [], toolCatalog: [], dataFields: [], labelCtx: {} as never,
     onChange: (n: FlowNode) => setGraph((g) => updateNode(g, n)), onClick: () => {},
-  })
-}
-
-function DrawerHarness({ capture }: { capture: (n: FlowNode) => void }) {
-  const [graph, setGraph] = useState<FlowGraph>({ nodes: [httpNode()], edges: [] } as FlowGraph)
-  const node = graph.nodes.find((n) => n.id === 'h1') as FlowNode
-  capture(node)
-  return React.createElement(StepDrawer, {
-    node, flowId: 'f1', agents: [], toolCatalog: [], dataFields: [], labelCtx: {} as never,
-    onChange: (n: FlowNode) => setGraph((g) => updateNode(g, n)), onChangeType: () => {}, onDelete: () => {}, onClose: () => {},
   })
 }
 
@@ -73,14 +62,3 @@ test('inline card URL survives a blur', () => {
   cleanup()
 })
 
-test('drawer URL field accepts and retains a typed URL', () => {
-  let latest: FlowNode | null = null
-  const { container } = render(React.createElement(DrawerHarness, { capture: (n) => { latest = n } }))
-  const editor = container.querySelector('[aria-label="Request URL"]') as HTMLElement
-  assert.ok(editor, 'Request URL field renders')
-  const url = 'https://api.example.com/webhook'
-  typeInto(editor, url)
-  assert.equal((container.querySelector('[aria-label="Request URL"]') as HTMLElement).textContent, url)
-  assert.equal((latest as unknown as { data: { url: string } }).data.url, url)
-  cleanup()
-})
