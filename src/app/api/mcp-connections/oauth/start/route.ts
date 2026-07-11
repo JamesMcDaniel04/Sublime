@@ -25,8 +25,8 @@ import {
   registerClient,
   safeReturnToPath,
 } from '@/lib/mcp/oauth-authcode'
+import { OAUTH_COOKIE } from '../cookie'
 
-export const OAUTH_COOKIE = 'bmcp_oauth'
 const COOKIE_MAX_AGE_S = 600 // 10 minutes to complete the login
 
 export const GET = withAuthenticatedApi(async (request, auth) => {

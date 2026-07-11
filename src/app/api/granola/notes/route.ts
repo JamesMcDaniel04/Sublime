@@ -1,7 +1,7 @@
 import { getGranolaApiKey, GRANOLA_BASE_URL } from '@/lib/integrations/granola'
 import { withAuthenticatedApi } from '@/lib/server/api-handler'
 
-export type GranolaNoteSummary = {
+type GranolaNoteSummary = {
   id: string
   title: string
   owner: { name: string; email: string } | null

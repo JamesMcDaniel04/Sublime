@@ -22,7 +22,7 @@ import { apiLogger } from '@/lib/logger'
 import { decryptSecret, encryptSecret } from '@/lib/crypto/secrets'
 import { exchangeCode, safeReturnToPath } from '@/lib/mcp/oauth-authcode'
 import { scanConnection } from '@/lib/intelligence/connection-scan'
-import { OAUTH_COOKIE } from '../start/route'
+import { OAUTH_COOKIE } from '../cookie'
 
 interface OAuthCookiePayload {
   state: string
