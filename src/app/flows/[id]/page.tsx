@@ -30,6 +30,9 @@ import { CheckerPanel } from '@/components/flows/checker-panel'
 import { ResizablePanel } from '@/components/flows/resizable-panel'
 import { TestPanel } from '@/components/flows/test-panel'
 import { VersionsPanel } from '@/components/flows/versions-panel'
+import { useFlowJam } from '@/components/flows/use-flow-jam'
+import { JamButton } from '@/components/flows/jam-button'
+import { useAuth } from '@/hooks/use-auth'
 import type { StepStatus } from '@/components/flows/step-card'
 
 type Agent = { id: string; title: string }
@@ -242,6 +245,32 @@ function FlowBuilder() {
   const [savedSnapshot, setSavedSnapshot] = useState('')
   // Optimistic-concurrency base: the flow's updatedAt as of load/last save.
   const baseUpdatedAtRef = useRef<string | undefined>(undefined)
+  // Flow Jam: live presence + graph sync. Remote graphs apply outside the
+  // undo stack and must not echo back out (applyingRemoteRef gates the
+  // broadcast effect below).
+  const { user: jamUser } = useAuth()
+  const applyingRemoteRef = useRef(false)
+  const { peers, broadcastGraph, broadcastSaved } = useFlowJam({
+    flowId: id,
+    userId: jamUser?.id,
+    userName: jamUser?.firstName || 'Teammate',
+    selectedNodeId: selectedId,
+    onRemoteGraph: (remote) => {
+      applyingRemoteRef.current = true
+      setGraph(remote)
+    },
+    onRemoteSaved: (updatedAt) => {
+      baseUpdatedAtRef.current = updatedAt
+    },
+  })
+  useEffect(() => {
+    if (applyingRemoteRef.current) {
+      applyingRemoteRef.current = false
+      return
+    }
+    broadcastGraph(graph)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [graph])
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
   // Run the user explicitly picked (dropdown or ?run= deep-link). While set,
   // the poll tick refreshes that run's details instead of stealing selection.
@@ -537,7 +566,10 @@ function FlowBuilder() {
         toast.error(data.error || 'Could not save the flow.', response.status === 409 ? { duration: 10000 } : undefined)
         return false
       }
-      if (data.flow?.updatedAt) baseUpdatedAtRef.current = data.flow.updatedAt
+      if (data.flow?.updatedAt) {
+        baseUpdatedAtRef.current = data.flow.updatedAt
+        broadcastSaved(data.flow.updatedAt)
+      }
       setSavedSnapshot(JSON.stringify({ name, description, graph, status }))
       return true
     } finally {
@@ -945,6 +977,7 @@ function FlowBuilder() {
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
+        <JamButton flowId={id} peers={peers} />
         <Button variant="outline" size="sm" onClick={() => setShowTest((v) => !v)}>
           <FlaskConical className="mr-1.5 h-4 w-4" /> Test
         </Button>

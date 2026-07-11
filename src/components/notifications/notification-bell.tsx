@@ -31,6 +31,7 @@ function levelIcon(level: string) {
 // Flow notifications carry the FLOW id in executionId and deep-link to that
 // flow's activity page — a flow run id is not resolvable by the dashboard.
 function notificationHref(n: NotificationItem): string {
+  if (n.type === 'flow.jam' && n.executionId) return `/flows/${n.executionId}` // straight into the jam
   if (n.type.startsWith('flow.') && n.executionId) return `/flows/${n.executionId}/activity`
   return n.executionId ? `/dashboard?run=${n.executionId}` : '/dashboard'
 }

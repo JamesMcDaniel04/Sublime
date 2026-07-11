@@ -66,9 +66,12 @@ if (TEST_DB) {
     // suite's strict <500 threshold; this is the "needs an external service"
     // skip category, not a guard/logic bug.
     { name: 'GET /api/organizations', run: async () => (await import('../organizations/route')).GET(req('/api/organizations')) },
+    { name: 'GET /api/organizations/members', run: async () => (await import('../organizations/members/route')).GET(req('/api/organizations/members')) },
     { name: 'GET /api/peopleai/webhook-secret', run: async () => (await import('../peopleai/webhook-secret/route')).GET(req('/api/peopleai/webhook-secret')) },
     { name: 'GET /api/push/key', run: async () => (await import('../push/key/route')).GET(req('/api/push/key')) },
     { name: 'GET /api/search', run: async () => (await import('../search/route')).GET(req('/api/search?q=smoke')) },
+    { name: 'GET /api/settings/members', run: async () => (await import('../settings/members/route')).GET(req('/api/settings/members')) },
+    { name: 'GET /api/settings/profile', run: async () => (await import('../settings/profile/route')).GET(req('/api/settings/profile')) },
     { name: 'GET /api/signal-subscriptions', run: async () => (await import('../signal-subscriptions/route')).GET(req('/api/signal-subscriptions')) },
     { name: 'GET /api/signals', run: async () => (await import('../signals/route')).GET(req('/api/signals')) },
     { name: 'GET /api/signals/custom', run: async () => (await import('../signals/custom/route')).GET(req('/api/signals/custom')) },
