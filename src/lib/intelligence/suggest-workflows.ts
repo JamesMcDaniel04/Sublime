@@ -373,16 +373,24 @@ export async function synthesizeWorkflowSuggestions(organizationId: string, over
             const genUser = [`Build a flow that: ${suggestion.flowPrompt}`, '', contextBlock].join('\n')
             const { graph, validation } = await generateGraph({ system: graphRules, user: genUser, roster, toolCatalog })
             if (!validation.ok) {
-              // The suggestion idea itself is still good (it dedupes and
-              // shows up as a suggestion memory) — only the auto-generated
-              // draft flow is unusable, so skip creating it and count it as
-              // discarded rather than silently persisting a broken graph.
+              // The draft flow is unusable, so skip creating it and count it
+              // as discarded rather than silently persisting a broken graph.
+              // But the suggestion memory we just saved (guaranteed fresh,
+              // non-deduped — see the `saved.deduped` check above) must not
+              // stick around as `open`: if we left it, the identical idea
+              // would dedupe on the next pass (decideMemoryDedup) and
+              // `continue` before ever reaching generation again, so a
+              // transient failure here would silently and permanently block
+              // this suggestion from ever getting a draft flow. Delete it
+              // (best-effort) so a later pass re-derives and retries the
+              // idea from scratch instead.
               discardedCount += 1
               apiLogger.warn('synthesizeWorkflowSuggestions: discarding draft flow that failed graph validation', {
                 organizationId,
                 title: suggestion.title,
                 errors: validation.errors.map((issue) => issue.message),
               })
+              await prisma.agentMemory.delete({ where: { id: saved.id, organizationId } }).catch(() => undefined)
               continue
             }
             await prisma.flow.create({
@@ -398,12 +406,18 @@ export async function synthesizeWorkflowSuggestions(organizationId: string, over
             })
             newFlowCount += 1
           } catch (error) {
+            // Same reasoning as the !validation.ok branch above: a thrown
+            // generation failure (e.g. a transient LLM/grounding error) must
+            // not permanently strand this suggestion behind a dedupe wall —
+            // delete the just-saved (non-deduped) memory so a later pass can
+            // retry.
             discardedCount += 1
             apiLogger.warn('synthesizeWorkflowSuggestions: draft flow generation failed', {
               organizationId,
               title: suggestion.title,
               error: error instanceof Error ? error.message : String(error),
             })
+            await prisma.agentMemory.delete({ where: { id: saved.id, organizationId } }).catch(() => undefined)
           }
         }
       }

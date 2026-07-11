@@ -53,6 +53,24 @@ if (TEST_DB) {
     return agentId
   }
 
+  // Embedding stub (mirrors agent-memory-vector.test.ts): forces saveAgentMemory's
+  // pgvector dedupe path to actually run for kind:'suggestion' writes, so the
+  // retry/dedupe tests below can prove a fix-C regression would have deduped
+  // (and therefore skipped generation) instead of merely asserting on
+  // pass-through behavior that never engages dedupe at all.
+  let origFetch: typeof fetch
+  function stubEmbedding(vector: number[]) {
+    origFetch = global.fetch
+    process.env.VOYAGE_API_KEY = 'test-key'
+    // @ts-expect-error test stub
+    global.fetch = async () => ({ ok: true, json: async () => ({ data: [{ embedding: vector, index: 0 }] }) })
+  }
+  function unstubEmbedding() {
+    global.fetch = origFetch
+    delete process.env.VOYAGE_API_KEY
+  }
+  const fixedVector = Array.from({ length: 1024 }, () => 0.03)
+
   before(async () => {
     ;({ prisma } = await import('@/lib/prisma'))
     ;({ synthesizeWorkflowSuggestions } = await import('../suggest-workflows'))
@@ -102,7 +120,7 @@ if (TEST_DB) {
     assert.deepEqual(secondAttempt, { synthesized: true, newFlows: 0, improvements: 0, discarded: 0 })
   })
 
-  test('a draft flow that fails graph validation is discarded, but its suggestion memory is kept', async () => {
+  test('a draft flow that fails graph validation is discarded, and its suggestion memory is deleted so a later pass can retry', async () => {
     const org = await makeOrgWithConnections(3)
     const agentId = await addLearningMemory(org.id)
     await prisma.user.create({ data: { organizationId: org.id, supabaseId: crypto.randomUUID(), isActive: true } })
@@ -127,10 +145,119 @@ if (TEST_DB) {
     const flows = await prisma.flow.findMany({ where: { organizationId: org.id } })
     assert.equal(flows.length, 0)
 
+    // Task 5 fix C: a transient/unusable-draft failure must not permanently
+    // block this suggestion behind a dedupe wall — the just-saved memory is
+    // deleted (not left `open`), so an identical idea proposed on a later
+    // pass inserts fresh instead of deduping onto a dead end.
     const suggestionMemories = await prisma.agentMemory.findMany({
       where: { organizationId: org.id, agentId, kind: 'suggestion' },
     })
-    assert.equal(suggestionMemories.length, 1)
-    assert.equal(suggestionMemories[0].title, 'Daily standup digest')
+    assert.equal(suggestionMemories.length, 0, 'the failed draft\'s suggestion memory must not linger and block a retry')
+  })
+
+  test('fix C: a generation failure does not block retry — pass 2 (next day) creates the flow once validation passes', async () => {
+    const org = await makeOrgWithConnections(3)
+    const agentId = await addLearningMemory(org.id)
+    await prisma.user.create({ data: { organizationId: org.id, supabaseId: crypto.randomUUID(), isActive: true } })
+
+    stubEmbedding(fixedVector)
+    try {
+      const suggestion = { title: 'Weekly GitHub digest', description: 'Summarize new issues to Slack.', flowPrompt: 'Every Monday, summarize new GitHub issues into a Slack message.' }
+      const generate = async () => JSON.stringify({ suggestions: [suggestion], improvements: [] })
+
+      // Pass 1 (day 1): the idea is good, but the auto-generated draft fails
+      // validation.
+      const pass1 = await synthesizeWorkflowSuggestions(org.id, {
+        generate,
+        generateGraph: async () => ({
+          graph: { nodes: [], edges: [] } as any,
+          validation: { ok: false, errors: [{ message: 'trigger node missing' }], warnings: [] } as any,
+          needsAttention: [{ message: 'trigger node missing' }],
+        }),
+      })
+      assert.equal((pass1 as any).discarded, 1)
+      assert.equal((pass1 as any).newFlows, 0)
+
+      const afterPass1 = await prisma.agentMemory.findMany({ where: { organizationId: org.id, agentId, kind: 'suggestion' } })
+      assert.equal(afterPass1.length, 0, 'the failed suggestion memory must be deleted, not left open to dedupe-block the retry')
+
+      // Pass 2 (simulated next day, past the 24h cooldown): the identical
+      // idea (same title/description → same stubbed embedding) is proposed
+      // again, and this time the draft validates.
+      const tomorrow = new Date(Date.now() + 25 * 60 * 60 * 1000)
+      const pass2 = await synthesizeWorkflowSuggestions(org.id, {
+        generate,
+        generateGraph: async () => ({
+          graph: { nodes: [{ id: 'n1', type: 'trigger', data: {} }], edges: [] } as any,
+          validation: { ok: true, errors: [], warnings: [] } as any,
+          needsAttention: [],
+        }),
+        now: () => tomorrow,
+      })
+      assert.equal((pass2 as any).synthesized, true)
+      assert.equal((pass2 as any).newFlows, 1, 'the retry must create the flow — proves pass 1’s memory did not dedupe-block it')
+
+      const flows = await prisma.flow.findMany({ where: { organizationId: org.id } })
+      assert.equal(flows.length, 1, 'success path leaves exactly one flow')
+
+      const afterPass2 = await prisma.agentMemory.findMany({ where: { organizationId: org.id, agentId, kind: 'suggestion' } })
+      assert.equal(afterPass2.length, 1, 'success path leaves exactly one suggestion memory')
+    } finally {
+      unstubEmbedding()
+    }
+  })
+
+  test('fix C: a pre-dismissed suggestion dedupes onto the dismissed row and never regenerates', async () => {
+    const org = await makeOrgWithConnections(3)
+    const agentId = await addLearningMemory(org.id)
+    await prisma.user.create({ data: { organizationId: org.id, supabaseId: crypto.randomUUID(), isActive: true } })
+
+    stubEmbedding(fixedVector)
+    try {
+      // A previously-dismissed suggestion for the same idea (same stubbed
+      // embedding as whatever the model proposes below).
+      const dismissed = await prisma.agentMemory.create({
+        data: {
+          organizationId: org.id,
+          agentId,
+          kind: 'suggestion',
+          title: 'Monthly expense report',
+          content: 'Summarize expense submissions to finance.',
+          status: 'dismissed',
+        },
+      })
+      await prisma.$executeRawUnsafe(
+        `UPDATE "agent_memories" SET "embeddingVec" = $1::vector(1024) WHERE "id" = $2`,
+        `[${fixedVector.join(',')}]`,
+        dismissed.id,
+      )
+
+      let generateGraphCalls = 0
+      const result = await synthesizeWorkflowSuggestions(org.id, {
+        generate: async () =>
+          JSON.stringify({
+            suggestions: [{ title: 'Monthly expense report (again)', description: 'Summarize expense submissions to finance.', flowPrompt: 'Every month, summarize expense submissions for finance.' }],
+            improvements: [],
+          }),
+        generateGraph: async () => {
+          generateGraphCalls += 1
+          return { graph: { nodes: [], edges: [] } as any, validation: { ok: true, errors: [], warnings: [] } as any, needsAttention: [] }
+        },
+      })
+
+      assert.equal((result as any).synthesized, true)
+      assert.equal((result as any).newFlows, 0, 'a dismissed idea must never regenerate a draft flow')
+      assert.equal(generateGraphCalls, 0, 'dedupe onto the dismissed row must short-circuit before generation is attempted')
+
+      const flows = await prisma.flow.findMany({ where: { organizationId: org.id } })
+      assert.equal(flows.length, 0)
+
+      const suggestionMemories = await prisma.agentMemory.findMany({ where: { organizationId: org.id, agentId, kind: 'suggestion' } })
+      assert.equal(suggestionMemories.length, 1, 'no new memory row — dedupes onto the existing dismissed one')
+      assert.equal(suggestionMemories[0].id, dismissed.id)
+      assert.equal(suggestionMemories[0].status, 'dismissed', 'a dismissed suggestion must stay dismissed')
+    } finally {
+      unstubEmbedding()
+    }
   })
 }
