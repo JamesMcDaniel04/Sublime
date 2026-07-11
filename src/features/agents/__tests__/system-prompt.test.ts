@@ -1,7 +1,6 @@
 import { describe, it } from 'node:test'
 import assert from 'node:assert/strict'
 import { buildAgentSystemPrompt } from '../system-prompt.js'
-import { getSkill, listSkills } from '../../../lib/skills/compose.js'
 
 describe('buildAgentSystemPrompt', () => {
   it('embeds the raw objective and adds no skill block when none are attached', () => {
@@ -10,16 +9,16 @@ describe('buildAgentSystemPrompt', () => {
     assert.ok(!prompt.includes('## Attached skill:'))
   })
 
-  it('composes an attached skill into the system prompt (the gap that scheduled runs missed)', () => {
-    const fixture = listSkills()[0]
-    assert.ok(fixture, 'expected at least one bundled skill to test against')
-    const skill = getSkill(fixture.id)
-    assert.ok(skill, 'fixture skill should resolve with instructions')
-
-    const prompt = buildAgentSystemPrompt('Do the work.', [fixture.id])
+  it('composes an attached (community) skill into the system prompt (the gap that scheduled runs missed)', () => {
+    const extra = {
+      id: 'community-skill-1',
+      name: 'Pipeline Summary',
+      instructions: 'Summarize the pipeline with per-account risk and next steps, grounded in retrieved data.',
+    }
+    const prompt = buildAgentSystemPrompt('Do the work.', [extra.id], [extra])
     assert.ok(prompt.includes('Do the work.'))
-    assert.ok(prompt.includes(`## Attached skill: ${skill!.name}`))
-    assert.ok(prompt.includes(skill!.instructions.slice(0, 40)))
+    assert.ok(prompt.includes(`## Attached skill: ${extra.name}`))
+    assert.ok(prompt.includes(extra.instructions.slice(0, 40)))
   })
 
   it('ignores unknown skill ids without throwing', () => {

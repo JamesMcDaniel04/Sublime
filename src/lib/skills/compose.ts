@@ -1,4 +1,4 @@
-import skills from './backstory-skills.json'
+import skills from './sublime-skills.json'
 
 export type SkillSummary = {
   id: string
