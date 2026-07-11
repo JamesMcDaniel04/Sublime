@@ -21,6 +21,7 @@ import { defaultStepLabel, stepLabelsOf } from '@/lib/flows/token-text'
 import { missingRequiredInputFields } from '@/lib/flows/input-validation'
 import { storedRunInput, prefillTextFromRunInput } from '@/lib/flows/reuse-input'
 import { FlowCanvas, type FlowInsertSeed } from '@/components/flows/flow-canvas'
+import { startCanvasPan } from '@/components/flows/canvas-pan'
 import { CanvasRail } from '@/components/flows/canvas-rail'
 import { StepDrawer, type ToolCatalog } from '@/components/flows/step-drawer'
 import { CopilotPanel } from '@/components/flows/copilot-panel'
@@ -200,6 +201,33 @@ function FlowBuilder() {
     if (typeof window !== 'undefined') window.localStorage.setItem('flows.canvasZoom', String(clamped))
   }, [])
   const canvasScrollRef = useRef<HTMLDivElement>(null)
+  // Click-and-hold drag-to-scroll on the empty canvas background. The pan
+  // session lives in canvas-pan.ts (pure, unit-tested); after a real drag the
+  // container's click must be suppressed so releasing doesn't deselect.
+  const panRef = useRef<ReturnType<typeof startCanvasPan>>(null)
+  const suppressCanvasClickRef = useRef(false)
+  const onCanvasPointerDown = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    const container = canvasScrollRef.current
+    if (!container) return
+    const pan = startCanvasPan(container, event)
+    if (!pan) return
+    panRef.current = pan
+    container.setPointerCapture?.(event.pointerId)
+    document.body.style.cursor = 'grabbing'
+    document.body.style.userSelect = 'none'
+  }, [])
+  const onCanvasPointerMove = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    panRef.current?.move(event.clientY)
+  }, [])
+  const onCanvasPointerEnd = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    const pan = panRef.current
+    if (!pan) return
+    panRef.current = null
+    suppressCanvasClickRef.current = pan.end().dragged
+    document.body.style.cursor = ''
+    document.body.style.userSelect = ''
+    canvasScrollRef.current?.releasePointerCapture?.(event.pointerId)
+  }, [])
   const [testInput, setTestInput] = useState('')
   const [runs, setRuns] = useState<{ id: string; status: string; startedAt?: string }[]>([])
   const [selectedRun, setSelectedRun] = useState<FlowRunDetail | null>(null)
@@ -966,8 +994,19 @@ function FlowBuilder() {
       <div className="relative flex min-h-0 flex-1">
         <div
           ref={canvasScrollRef}
-          className="min-w-0 flex-1 overflow-y-auto bg-white p-8"
-          onClick={() => setSelectedId(null)}
+          className="min-w-0 flex-1 cursor-grab overflow-y-auto bg-white p-8"
+          onClick={() => {
+            // A completed drag-to-scroll must not read as a background click.
+            if (suppressCanvasClickRef.current) {
+              suppressCanvasClickRef.current = false
+              return
+            }
+            setSelectedId(null)
+          }}
+          onPointerDown={onCanvasPointerDown}
+          onPointerMove={onCanvasPointerMove}
+          onPointerUp={onCanvasPointerEnd}
+          onPointerCancel={onCanvasPointerEnd}
           style={{
             backgroundImage: 'radial-gradient(circle, rgba(15, 23, 42, 0.22) 1px, transparent 1px)',
             backgroundSize: '28px 28px',
