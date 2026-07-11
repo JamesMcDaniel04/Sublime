@@ -117,11 +117,6 @@ function AgentHQ() {
       setAuthError(null)
       setAuthStatus(null)
     } catch (error) {
-      // The gate: no active Sales AI connection — send to the connect flow.
-      if (error instanceof SnapshotError && error.code === 'ENTITLEMENT_REQUIRED') {
-        window.location.assign('/connect')
-        return
-      }
       const status = error instanceof SnapshotError ? error.status ?? 500 : 500
       setAuthStatus(status)
       setAuthError(error instanceof Error ? error.message : `Couldn't load agents (HTTP ${status}).`)

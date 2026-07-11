@@ -21,7 +21,6 @@ import { prisma } from '@/lib/prisma'
 import { apiLogger } from '@/lib/logger'
 import { decryptSecret, encryptSecret } from '@/lib/crypto/secrets'
 import { exchangeCode, safeReturnToPath } from '@/lib/mcp/oauth-authcode'
-import { bustBackstoryReadyCache } from '@/lib/mcp/backstory-connection'
 import { OAUTH_COOKIE } from '../start/route'
 
 interface OAuthCookiePayload {
@@ -105,7 +104,6 @@ export async function GET(request: NextRequest) {
         },
       })
       if (updated.count !== 1) throw new Error('Connection to re-authorize was not found')
-      if (payload.userId) bustBackstoryReadyCache(payload.organizationId, payload.userId)
     } else {
       await prisma.mcpConnection.create({
         data: {

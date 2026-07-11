@@ -69,7 +69,6 @@ if (TEST_DB) {
     { name: 'GET /api/peopleai/webhook-secret', run: async () => (await import('../peopleai/webhook-secret/route')).GET(req('/api/peopleai/webhook-secret')) },
     { name: 'GET /api/push/key', run: async () => (await import('../push/key/route')).GET(req('/api/push/key')) },
     { name: 'GET /api/search', run: async () => (await import('../search/route')).GET(req('/api/search?q=smoke')) },
-    { name: 'GET /api/setup/status', run: async () => (await import('../setup/status/route')).GET(req('/api/setup/status')) },
     { name: 'GET /api/signal-subscriptions', run: async () => (await import('../signal-subscriptions/route')).GET(req('/api/signal-subscriptions')) },
     { name: 'GET /api/signals', run: async () => (await import('../signals/route')).GET(req('/api/signals')) },
     { name: 'GET /api/signals/custom', run: async () => (await import('../signals/custom/route')).GET(req('/api/signals/custom')) },
@@ -110,9 +109,8 @@ if (TEST_DB) {
   // Completeness self-check: enumerate every route.ts whose GET is wrapped in
   // withAuthenticatedApi and require each to be covered or explicitly skipped.
   // NOTE: session-auth GET routes that read getAuthWithUser() directly instead
-  // of withAuthenticatedApi (peopleai/status, peopleai/connect, peopleai/callback)
-  // are outside this set by construction — the seam can't reach them; that
-  // boundary is documented in the WS-R6 plan, not enforced here.
+  // of withAuthenticatedApi are outside this set by construction — the seam
+  // can't reach them; that boundary is documented in the WS-R6 plan.
   test('every withAuthenticatedApi GET route is covered or explicitly skipped', () => {
     const apiDir = fileURLToPath(new URL('..', import.meta.url))
     const walk = (dir: string): string[] => {

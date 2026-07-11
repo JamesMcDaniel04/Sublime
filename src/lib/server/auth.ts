@@ -1,6 +1,4 @@
 import { getAuthWithUser } from '@/lib/supabase/auth-utils'
-import { resolveEntitlement } from '@/lib/entitlement'
-import { backstoryGateEnabled, backstoryMcpReady, ensureBackstoryConnection } from '@/lib/mcp/backstory-connection'
 
 type AuthResult = NonNullable<Awaited<ReturnType<typeof getAuthWithUser>>>
 
@@ -37,33 +35,7 @@ export class AuthContextError extends Error {
   }
 }
 
-/**
- * The entitlement gate is enforced in production (Backstory Studio is
- * exclusively for People.ai Sales AI customers). In development it defaults
- * off so a fresh clone works; force with ENTITLEMENT_GATE=on|off.
- */
-export function entitlementGateEnabled(): boolean {
-  const flag = process.env.ENTITLEMENT_GATE
-  if (flag === 'on') return true
-  if (flag === 'off') return false
-  return process.env.NODE_ENV === 'production'
-}
-
-/** Throws 403 ENTITLEMENT_REQUIRED when the org has no active Sales AI entitlement. */
-export async function assertEntitled(organizationId: string): Promise<void> {
-  const entitlement = await resolveEntitlement(organizationId)
-  if (!entitlement.entitled) {
-    throw new AuthContextError(
-      'An active Backstory Sales AI connection is required.',
-      403,
-      'ENTITLEMENT_REQUIRED',
-    )
-  }
-}
-
-export async function requireAuthContext(
-  options?: { skipBackstoryGate?: boolean; skipEntitlementGate?: boolean },
-): Promise<AuthContext> {
+export async function requireAuthContext(): Promise<AuthContext> {
   if (testAuthContext && testAuthActive()) return testAuthContext
 
   const auth = await getAuthWithUser()
@@ -74,25 +46,6 @@ export async function requireAuthContext(
 
   if (!auth.dbUser || !auth.organizationId) {
     throw new AuthContextError('Organization access required', 403)
-  }
-
-  // Native Backstory MCP: seed the per-user connection row (idempotent, never
-  // throws), then hard-gate the platform until the user has authorized it.
-  await ensureBackstoryConnection(auth.organizationId, auth.dbUser.id)
-
-  if (!options?.skipEntitlementGate && entitlementGateEnabled()) {
-    await assertEntitled(auth.organizationId)
-  }
-
-  if (!options?.skipBackstoryGate && backstoryGateEnabled()) {
-    const ready = await backstoryMcpReady(auth.organizationId, auth.dbUser.id)
-    if (!ready) {
-      throw new AuthContextError(
-        'Connect your Backstory MCP account to continue.',
-        403,
-        'BACKSTORY_MCP_REQUIRED',
-      )
-    }
   }
 
   return {
