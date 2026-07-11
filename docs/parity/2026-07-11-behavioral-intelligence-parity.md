@@ -15,9 +15,9 @@
 | # | Criterion | Status |
 |---|-----------|--------|
 | 1 | Visible learning progress on connect (Attio tracker, Glean 2-phase, LemonLime study period) | ✅ notification + "Your data takes shape" strip (Task 2) |
-| 2 | **"What was learned" view — inspect, correct, delete individual learnings** (Lindy Memories is the benchmark) | ❌ GAP → Task 4.5 |
-| 3 | **Per-connection learning opt-out** (LemonLime per-tool scoping; Glean per-source rules) — org-wide toggle alone is insufficient | ❌ GAP → Task 4.5 |
-| 4 | **Purge learnings when a connection is deleted** (Glean delete-instance purges ≤5 min; LemonLime purges on disconnect) | ❌ GAP → Task 4.5 |
+| 2 | **"What was learned" view — inspect, correct, delete individual learnings** (Lindy Memories is the benchmark) | ⚠️ PARTIAL — inspect + delete (durable soft-dismiss) shipped (Task 4.5); inline edit/correct deferred (Minor follow-up) |
+| 3 | **Per-connection learning opt-out** (LemonLime per-tool scoping; Glean per-source rules) — org-wide toggle alone is insufficient | ✅ per-connection opt-out for mcp + klavis (Task 4.5) + nango (Task 5 fix), `scanExclusions` enforced in the scan gate |
+| 4 | **Purge learnings when a connection is deleted** (Glean delete-instance purges ≤5 min; LemonLime purges on disconnect) | ✅ purge-on-disconnect (memories by sourceRef + graph scan node) for mcp + klavis (Task 4.5) + nango with reconciliation (Task 5 fix) |
 | 5 | Suggestions land as drafts; human activates; nothing auto-publishes | ✅ designed (Task 3) |
 | 6 | Suggestion dedupe + dismissal memory (never re-suggest a dismissed idea) | ✅ designed (Task 3, embedding dedupe) |
 | 7 | Auto-generated content clearly labeled with provenance (source run/scan) | ✅ designed (Tasks 3–4) |

@@ -223,8 +223,12 @@ if (TEST_DB) {
         organizationId: ids.org,
         agentId: ids.agent,
         kind: 'learning',
-        title: 'How we use Slack: channel triage',
-        content: 'The team triages support requests in #support',
+        // Unique embed text (distinct from the sourceRef-persistence test's
+        // "channel triage" learning above): the embedding cache is keyed by
+        // text, and that test stubs a different vector — a shared text would
+        // serve its stale vector here and defeat the near-dup match.
+        title: 'How we use Slack: escalation cadence [dismiss-rescan fixture]',
+        content: 'On-call rotates weekly and escalates P1 incidents in a dedicated channel',
         sourceRef: 'mcp:connABC',
       })
       assert.ok(first)
@@ -238,8 +242,8 @@ if (TEST_DB) {
         organizationId: ids.org,
         agentId: ids.agent,
         kind: 'learning',
-        title: 'How we use Slack: channel triage (again)',
-        content: 'The team triages support requests in #support',
+        title: 'How we use Slack: escalation cadence [dismiss-rescan fixture] (rescanned)',
+        content: 'On-call rotates weekly and escalates P1 incidents in a dedicated channel',
         sourceRef: 'mcp:connABC',
       })
       assert.ok(second)
