@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { useState } from 'react'
 import { AlertCircle, CheckCircle2, ChevronDown, Loader2, Wrench } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -125,19 +125,7 @@ export function MCPIntegrationCards() {
   const [page, setPage] = useState(1)
   const [query, setQuery] = useState('')
   const [recommendations, setRecommendations] = useState<IntegrationMatch[] | null>(null)
-  const syncedAuthorized = useRef(false)
   const { isLearningEnabled, setLearningEnabled } = useScanExclusions()
-
-  useEffect(() => {
-    if (syncedAuthorized.current || strataLoading || strataData?.strata) return
-    syncedAuthorized.current = true
-    fetch('/api/mcp/connections/sync', { method: 'POST' })
-      .then((response) => {
-        if (!response.ok) throw new Error('Could not sync Klavis authorizations')
-        return refresh()
-      })
-      .catch((caught) => setActionError(caught instanceof Error ? caught.message : 'Could not sync Klavis authorizations'))
-  }, [refresh, strataData?.strata, strataLoading])
 
   const toggleLearning = async (connection: Connection, enabled: boolean) => {
     if (!connection.id) return
@@ -321,7 +309,7 @@ export function MCPIntegrationCards() {
       <Pagination page={currentPage} pageCount={pageCount} onPageChange={setPage} />
       {!connections.length && !loading && (
         <p className="rounded-xl border border-dashed p-6 text-center text-sm text-gray-500">
-          No verified Klavis authorizations were found for the configured authorization identity.
+          Klavis did not return any available integrations for this API key.
         </p>
       )}
     </div>

@@ -46,12 +46,12 @@ export const GET = withAuthenticatedApi(async (request, auth) => {
   const liveNames = new Set(catalog!.map((server) => server.name.toLowerCase()))
   const statuses = await getConnectionStatuses(auth.organizationId, auth.dbUser.id)
   const byProvider = new Map(statuses.map((status) => [status.provider, status]))
-  // Strict authorization surface: provider support is not enough. A card is
-  // returned only after Klavis confirms the user-scoped instance is active.
-  const connections = PROVIDERS.filter((provider) => {
-    const status = byProvider.get(provider)
-    return status?.status === 'active' && liveNames.has(PROVIDER_CAPABILITIES[provider].klavisName.toLowerCase())
-  }).map((provider) => {
+  // The API key's live catalogue is the source of truth for which providers
+  // this Klavis account supports. Per-user instance status is a separate UI
+  // state (not connected / pending auth / active), never an inclusion gate.
+  const connections = PROVIDERS.filter((provider) =>
+    liveNames.has(PROVIDER_CAPABILITIES[provider].klavisName.toLowerCase()),
+  ).map((provider) => {
     const status = byProvider.get(provider)
     const capability = PROVIDER_CAPABILITIES[provider]
     const catalogEntry = catalog!.find((server) => server.name.toLowerCase() === capability.klavisName.toLowerCase())

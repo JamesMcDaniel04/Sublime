@@ -86,19 +86,6 @@ export class KlavisClient {
       }))
   }
 
-  /** Whether Klavis has stored credentials for this app user + provider. */
-  async isUserAuthorized(userId: string, serverName: string): Promise<boolean> {
-    try {
-      const data = await this.api(`/user/${encodeURIComponent(userId)}/auth/${encodeURIComponent(serverName)}`)
-      return Boolean(data?.success && data?.isAuthenticated)
-    } catch (error) {
-      // Klavis uses validation/not-found responses for an auth record that has
-      // not been created yet. That is a normal "not authorized" result.
-      if (error instanceof KlavisError && (error.status === 400 || error.status === 404 || error.status === 422)) return false
-      throw error
-    }
-  }
-
   async deleteServerInstance(instanceId: string) {
     await this.api(`/mcp-server/instance/${instanceId}`, { method: 'DELETE' })
   }
