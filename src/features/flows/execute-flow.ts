@@ -18,7 +18,7 @@ import { ApiError } from '@/lib/server/api-handler'
 import { triggerFromGraph, triggerInputFieldsFromTrigger } from '@/lib/flows/trigger'
 import { missingRequiredInputFields } from '@/lib/flows/input-validation'
 import { shouldReuseInput, storedRunInput } from '@/lib/flows/reuse-input'
-import { interpretFlow, type RunAgentFn, type RunActionFn } from './interpret'
+import { interpretFlow, type RunAgentFn, type RunActionFn, type RunFlowFn } from './interpret'
 import { flowActionRetries, flowActionTimeoutMs, runWithRetries, shouldRetryAfterTimeout } from './action-reliability'
 import { prepareHttpRequest, responseOutput, redactHttpStepInput, withBearerAuthorization } from './http'
 import { resolveHttpConnectionToken } from './http-auth'
@@ -43,10 +43,16 @@ export type FlowExecutionJob = {
   usePublished?: boolean
   // How this run was started — persisted on the FlowRun for provenance.
   trigger?: { type: 'manual' | 'schedule' | 'webhook' | 'signal'; [key: string]: unknown }
+  // Synchronous subflow nesting depth — bounds runaway flow->flow recursion.
+  subflowDepth?: number
 }
 
 // Bound HTTP responses so downstream prompts/logs stay manageable.
 const HTTP_MAX_RESPONSE_CHARS = 50_000
+// Synchronous subflow nesting: a flow calling a flow calling a flow... is
+// refused past this depth to bound runaway recursion (e.g. a flow that
+// subflows itself).
+const MAX_SUBFLOW_DEPTH = 5
 
 function jsonValue(value: unknown) {
   return JSON.parse(JSON.stringify(value ?? null))
@@ -66,6 +72,9 @@ export async function runFlowExecution(
 ): Promise<{ flowRunId: string; status: string; output: unknown }> {
   const flow = await prisma.flow.findFirst({ where: { id: job.flowId, organizationId: job.organizationId } })
   if (!flow) throw new Error('Flow not found')
+  if ((job.subflowDepth ?? 0) > MAX_SUBFLOW_DEPTH) {
+    throw new ApiError('Subflow nesting is too deep.', 400, 'SUBFLOW_DEPTH_EXCEEDED')
+  }
   const resuming = Boolean(job.flowRunId && job.reply !== undefined)
 
   // Resume: atomically claim the run — only a genuinely `waiting` run may be
@@ -349,6 +358,49 @@ export async function runFlowExecution(
     }
   }
 
+  // Adapter: each subflow node runs the child flow synchronously and records a
+  // FlowRunStep linking the child run. Mirrors the runAgent adapter above.
+  const runFlow: RunFlowFn = async (node) => {
+    const step = await prisma.flowRunStep.create({
+      data: {
+        flowRunId: run.id,
+        nodeId: node.id,
+        order: order++,
+        status: 'running',
+        input: jsonValue({ flowId: node.flowId, input: node.input }),
+        startedAt: new Date(),
+      },
+    })
+    const finishStep = async (data: Record<string, unknown>) => {
+      await prisma.flowRunStep.updateMany({ where: { id: step.id, status: 'running' }, data })
+    }
+    try {
+      const res = await runFlowExecution({
+        flowId: node.flowId,
+        organizationId: job.organizationId,
+        userId: job.userId,
+        input: node.input,
+        usePublished: true,
+        trigger: { type: 'signal', via: 'subflow' },
+        subflowDepth: (job.subflowDepth ?? 0) + 1,
+      })
+      if (res.status === 'waiting') {
+        await finishStep({ status: 'waiting', childFlowRunId: res.flowRunId, finishedAt: new Date() })
+        return { waiting: { status: 'waiting' } }
+      }
+      if (res.status === 'failed') {
+        await finishStep({ status: 'failed', childFlowRunId: res.flowRunId, error: 'The subflow failed.', finishedAt: new Date() })
+        return { error: 'The subflow failed.' }
+      }
+      await finishStep({ status: 'succeeded', childFlowRunId: res.flowRunId, output: jsonValue(res.output), finishedAt: new Date() })
+      return { output: res.output }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      await finishStep({ status: 'failed', error: message.slice(0, 300), finishedAt: new Date() })
+      return { error: message }
+    }
+  }
+
   // Deterministic steps: MCP tool calls and HTTP requests. Same FlowRunStep
   // bookkeeping as agent steps so the run panel shows their input/output.
   const runAction: RunActionFn = async (node) => {
@@ -531,6 +583,7 @@ export async function runFlowExecution(
   const result = await interpretFlow(graph, input, {
     runAgent,
     runAction,
+    runFlow,
     onStep,
     ...(resuming ? { completed, resumeNodeId, resumeReply: job.reply } : {}),
   })

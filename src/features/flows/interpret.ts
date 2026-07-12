@@ -18,6 +18,9 @@ export type RunAgentFn = (node: { id: string; agentId: string; input: string; re
 // `resume` marks the node a paused run is re-entering (e.g. after an approval
 // decision) so the adapter can consume the decision instead of re-executing.
 export type RunActionFn = (node: { id: string; kind: 'tool' | 'http'; config: Record<string, unknown>; resume?: boolean }) => Promise<RunAgentResult>
+// Synchronous subflow: run a child flow to completion and block on its output.
+export type RunFlowResult = { output?: unknown; error?: string; waiting?: { status: string; question?: string } }
+export type RunFlowFn = (node: { id: string; flowId: string; input: unknown; resume?: boolean }) => Promise<RunFlowResult>
 export type InterpretResult = {
   status: 'succeeded' | 'failed' | 'waiting'
   steps: StepOutcome[]
@@ -31,6 +34,7 @@ export type InterpretResult = {
 type Opts = {
   runAgent: RunAgentFn
   runAction?: RunActionFn
+  runFlow?: RunFlowFn
   maxSteps?: number
   maxLoopIterations?: number
   onStep?: (outcome: StepOutcome) => void
@@ -569,6 +573,35 @@ export async function interpretFlow(graph: FlowGraph, input: unknown, opts: Opts
       } else {
         output = asStructured(res.output)
       }
+      ctx.step[node.id] = { output }
+      emit({ nodeId: node.id, status: 'succeeded', output })
+      return { kind: 'ok', output }
+    }
+
+    if (node.type === 'subflow') {
+      // Map parent context -> child input (JSON object of templated values, same
+      // shape as a tool node's args). No mapping -> pass the current loop item (or {}).
+      let childInput: unknown = ctx.item ?? {}
+      if (node.data.input?.trim()) {
+        try {
+          childInput = resolveTemplateValue(JSON.parse(node.data.input), ctx)
+        } catch {
+          childInput = resolveTemplateValue(node.data.input, ctx)
+        }
+      }
+      const res: RunFlowResult = opts.runFlow
+        ? await opts.runFlow({ id: node.id, flowId: node.data.flowId, input: childInput, resume: opts.resumeNodeId === node.id })
+        : { error: 'Subflow steps are not supported in this runtime.' }
+      if (res.waiting) {
+        emit({ nodeId: node.id, status: 'waiting' })
+        return { kind: 'pause', nodeId: node.id, question: res.waiting.question }
+      }
+      if (res.error) {
+        emit({ nodeId: node.id, status: 'failed', error: res.error })
+        if ((node.data.onError ?? 'stop') === 'continue') return { kind: 'ok', output: undefined }
+        return { kind: 'fail', error: res.error }
+      }
+      const output = asStructured(res.output)
       ctx.step[node.id] = { output }
       emit({ nodeId: node.id, status: 'succeeded', output })
       return { kind: 'ok', output }
