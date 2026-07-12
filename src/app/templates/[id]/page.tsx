@@ -2,9 +2,11 @@
 
 import { useEffect, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
+import Link from 'next/link'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { IntegrationChip } from '@/components/integrations/integration-chip'
+import { missingIntegrations, connectedSlugSet } from '@/lib/templates/relevance'
 
 type Template = {
   id: string
@@ -17,8 +19,12 @@ type Template = {
   exampleOutput?: string
   icon?: string
   allowSubagents?: boolean
-  // Set on templates that provision a complete multi-step Flow (agents + graph).
-  playbook?: string
+  // Seed-catalogue metadata (additive; absent on legacy DB-authored templates).
+  kind?: 'agent' | 'flow'
+  seed?: boolean
+  seedKey?: string
+  requiredIntegrations?: string[]
+  departments?: string[]
 }
 
 export default function TemplateDetails() {
@@ -27,12 +33,22 @@ export default function TemplateDetails() {
   const [template, setTemplate] = useState<Template | null>(null)
   const [creating, setCreating] = useState(false)
   const [deploying, setDeploying] = useState(false)
+  const [connected, setConnected] = useState<Set<string>>(new Set())
 
   useEffect(() => {
     fetch('/api/agent-templates', { cache: 'no-store' })
       .then((response) => response.json())
       .then((data) => setTemplate((data.templates || []).find((item: Template) => item.id === id) || null))
   }, [id])
+
+  useEffect(() => {
+    fetch('/api/integrations/available', { cache: 'no-store' })
+      .then((response) => response.json())
+      .then((data) => setConnected(connectedSlugSet(data.tools || [])))
+      .catch(() => setConnected(new Set()))
+  }, [])
+
+  const missing = template ? missingIntegrations(template.requiredIntegrations ?? [], connected) : []
 
   const createAgent = async () => {
     if (!template) return
@@ -56,14 +72,21 @@ export default function TemplateDetails() {
     if (response.ok) router.push('/dashboard')
   }
 
-  // Playbook templates provision the full motion: agents + a wired Flow.
-  const deployPlaybook = async () => {
-    if (!template?.playbook) return
+  // Seed templates provision via the catalogue endpoint (materializes agents +
+  // a wired Flow, or a single agent). Legacy non-seed templates keep the
+  // existing createAgent path.
+  const provision = async () => {
+    if (!template?.seed) return createAgent()
     setDeploying(true)
-    const response = await fetch(`/api/playbooks/${template.playbook}`, { method: 'POST' })
+    const response = await fetch('/api/templates/provision', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ seedKey: template.seedKey }),
+    })
     const data = await response.json().catch(() => ({}))
     setDeploying(false)
-    if (response.ok && data.flowId) router.push(`/flows/${data.flowId}`)
+    if (response.ok && data.kind === 'flow' && data.flowId) router.push(`/flows/${data.flowId}`)
+    else if (response.ok && data.kind === 'agent' && data.agentId) router.push('/dashboard')
   }
 
   return (
@@ -83,14 +106,19 @@ export default function TemplateDetails() {
                 <p className="mt-2 text-gray-600">{template.description}</p>
               </div>
               <div className="flex shrink-0 gap-2">
-                {template.playbook && (
-                  <Button onClick={deployPlaybook} loading={deploying}>
-                    {deploying ? 'Deploying…' : 'Deploy as Flow'}
+                {missing.length > 0 ? (
+                  <Button asChild>
+                    <Link href="/integrations">Connect to use</Link>
+                  </Button>
+                ) : (
+                  <Button onClick={provision} loading={creating || deploying}>
+                    {creating || deploying
+                      ? 'Creating…'
+                      : template.seed
+                        ? template.kind === 'flow' ? 'Use template' : 'Create agent'
+                        : 'Use template'}
                   </Button>
                 )}
-                <Button variant={template.playbook ? 'outline' : 'default'} onClick={createAgent} loading={creating}>
-                  {creating ? 'Creating…' : 'Use template'}
-                </Button>
               </div>
             </div>
             <pre className="whitespace-pre-wrap rounded-lg border bg-gray-50 p-4 text-sm shadow-1">{template.instructions}</pre>
@@ -111,6 +139,18 @@ export default function TemplateDetails() {
                 <div className="flex flex-wrap gap-2">
                   {template.integrations.map((integration) => <IntegrationChip key={integration} name={integration} />)}
                 </div>
+                {missing.length > 0 && (
+                  <p className="mt-2 text-xs text-muted-foreground">
+                    Missing: {missing.join(', ')}
+                  </p>
+                )}
+              </div>
+            )}
+
+            {template.departments && template.departments.length > 0 && (
+              <div>
+                <p className="eyebrow mb-2">Departments</p>
+                <p className="text-sm text-gray-600">{template.departments.join(', ')}</p>
               </div>
             )}
           </>
