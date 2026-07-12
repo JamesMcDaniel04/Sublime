@@ -3,6 +3,7 @@ import { resolveTemplate, resolveTemplateValue, asStructured, evalCondition, eva
 import { shouldRetryAfterTimeout } from './action-reliability'
 import { structuredResponseInstruction, parseStructuredAgentOutput } from './agent-response'
 import { runDataOp } from '@/lib/flows/data-ops'
+import { resolveInputParams, bindOutputFields } from '@/lib/flows/io-nodes'
 
 export type StepOutcome = {
   nodeId: string
@@ -43,6 +44,10 @@ type Opts = {
   // it); a humanReview step has no adapter, so the interpreter itself turns
   // this reply into the resuming step's output.
   resumeReply?: string
+  // The webhook-derived payload for a webhook-triggered run — the secondary
+  // source for input-node precedence (user > webhook > default). Absent for
+  // manual/API/flow-as-tool runs, where the trigger input is the sole user source.
+  webhookInput?: unknown
 }
 
 // Result of executing a single node — an output, or a control signal that
@@ -497,6 +502,25 @@ export async function interpretFlow(graph: FlowGraph, input: unknown, opts: Opts
       return { kind: 'ok', output }
     }
 
+    if (node.type === 'input') {
+      const resolved = resolveInputParams(node.data.params, {
+        user: (ctx.trigger.input && typeof ctx.trigger.input === 'object' && !Array.isArray(ctx.trigger.input))
+          ? (ctx.trigger.input as Record<string, unknown>)
+          : undefined,
+        webhook: (opts.webhookInput && typeof opts.webhookInput === 'object' && !Array.isArray(opts.webhookInput))
+          ? (opts.webhookInput as Record<string, unknown>)
+          : undefined,
+      })
+      if ('error' in resolved) {
+        emit({ nodeId: node.id, status: 'failed', error: resolved.error })
+        return { kind: 'fail', error: resolved.error }
+      }
+      ctx.input = { ...(ctx.input ?? {}), ...resolved.values }
+      ctx.step[node.id] = { output: resolved.values }
+      emit({ nodeId: node.id, status: 'succeeded', output: resolved.values })
+      return { kind: 'ok', output: resolved.values }
+    }
+
     if (node.type === 'agent') {
       const outputFields = node.data.outputFields ?? []
       const structured = node.data.responseFormat === 'structured' && outputFields.some((field) => field.name.trim())
@@ -540,7 +564,7 @@ export async function interpretFlow(graph: FlowGraph, input: unknown, opts: Opts
       const perItem = await mapLimit(items, node.data.concurrency ?? 1, async (item, index) => {
         // `variables` is shared by reference: writes inside the body persist
         // past the loop (one flow-global symbol table, MS parity).
-        const itemCtx: FlowContext = { trigger: ctx.trigger, step: { ...ctx.step }, item, loop: { index, count: items.length }, variables: ctx.variables }
+        const itemCtx: FlowContext = { trigger: ctx.trigger, step: { ...ctx.step }, item, loop: { index, count: items.length }, variables: ctx.variables, input: ctx.input }
         return execBody(node.data.body, itemCtx)
       })
       // Propagate the first hard control (stop / fail / pause); a 'drop' (filter)
@@ -559,7 +583,7 @@ export async function interpretFlow(graph: FlowGraph, input: unknown, opts: Opts
     if (node.type === 'parallel') {
       const results = await Promise.all(
         node.data.branches.map(async (branch) => {
-          const branchCtx: FlowContext = { trigger: ctx.trigger, step: { ...ctx.step }, item: ctx.item, loop: ctx.loop, variables: ctx.variables }
+          const branchCtx: FlowContext = { trigger: ctx.trigger, step: { ...ctx.step }, item: ctx.item, loop: ctx.loop, variables: ctx.variables, input: ctx.input }
           const res = await execBody(branch, branchCtx)
           return { key: branch[0] ?? node.id, res }
         }),
@@ -620,6 +644,9 @@ export async function interpretFlow(graph: FlowGraph, input: unknown, opts: Opts
     for (const [nodeId, output] of Object.entries(opts.completed)) {
       const node = byId.get(nodeId)
       if (node?.type === 'variable' && node.data.name.trim()) variables[node.data.name.trim()] = output
+      if (node?.type === 'input' && output && typeof output === 'object' && !Array.isArray(output)) {
+        ctx.input = { ...(ctx.input ?? {}), ...(output as Record<string, unknown>) }
+      }
     }
   }
 

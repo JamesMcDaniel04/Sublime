@@ -14,6 +14,9 @@ export type FlowContext = {
   // `{{var.<name>}}` tokens. One shared map per run (loop/parallel bodies
   // mutate the same object so writes persist past the container).
   variables?: Record<string, unknown>
+  // First-class input node bindings, read via `{{input.<name>}}`. Absent when
+  // the flow declares no input node (back-compat: {{trigger.input}} still works).
+  input?: Record<string, unknown>
 }
 
 /** Read a dot-path off the context (e.g. 'trigger.input', 'step.n1.output.score', 'item'). */
