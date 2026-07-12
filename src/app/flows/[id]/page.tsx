@@ -211,6 +211,10 @@ function FlowBuilder() {
   // Session logic lives in canvas-pan.ts (pure, unit-tested); after a real
   // drag the container's click is suppressed so releasing doesn't deselect.
   const [canvasPan, setCanvasPan] = useState({ x: 0, y: 0 })
+  const [snapToGrid, setSnapToGrid] = useState(() => {
+    if (typeof window === 'undefined') return false
+    return window.localStorage.getItem('flows.snapToGrid') === 'true'
+  })
   const canvasPanRef = useRef(canvasPan)
   canvasPanRef.current = canvasPan
   const panRef = useRef<ReturnType<typeof startCanvasPan>>(null)
@@ -219,13 +223,16 @@ function FlowBuilder() {
     const container = canvasScrollRef.current
     if (!container) return
     const origin = canvasPanRef.current
-    const pan = startCanvasPan(event, (dx, dy) => setCanvasPan({ x: origin.x + dx, y: origin.y + dy }))
+    const pan = startCanvasPan(event, (dx, dy) => {
+      const next = { x: origin.x + dx, y: origin.y + dy }
+      setCanvasPan(snapToGrid ? { x: Math.round(next.x / 28) * 28, y: Math.round(next.y / 28) * 28 } : next)
+    })
     if (!pan) return
     panRef.current = pan
     container.setPointerCapture?.(event.pointerId)
     document.body.style.cursor = 'grabbing'
     document.body.style.userSelect = 'none'
-  }, [])
+  }, [snapToGrid])
   const onCanvasPointerMove = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
     panRef.current?.move(event.clientX, event.clientY)
   }, [])
@@ -1206,6 +1213,22 @@ function FlowBuilder() {
             setZoom(1)
             setCanvasPan({ x: 0, y: 0 })
             canvasScrollRef.current?.scrollTo({ top: 0, behavior: 'smooth' })
+          }}
+          onAutoFormat={() => {
+            setSelectedId(null)
+            setZoom(1)
+            setCanvasPan({ x: 0, y: 0 })
+            canvasScrollRef.current?.scrollTo({ top: 0, behavior: 'smooth' })
+            toast.success('Workflow formatted.')
+          }}
+          onCollapseAll={() => setSelectedId(null)}
+          snapToGrid={snapToGrid}
+          onToggleSnap={() => {
+            setSnapToGrid((current) => {
+              const next = !current
+              window.localStorage.setItem('flows.snapToGrid', String(next))
+              return next
+            })
           }}
           nodes={canvasGraph.nodes.filter((n) => n.type !== 'trigger').map((n) => ({ id: n.id, title: labelForNode(n.id) }))}
           onJump={jumpToNode}

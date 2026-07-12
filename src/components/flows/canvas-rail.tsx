@@ -1,7 +1,7 @@
 'use client'
 
 import { useMemo, useState } from 'react'
-import { Maximize2, Search, ZoomIn, ZoomOut } from 'lucide-react'
+import { AlignVerticalJustifyCenter, ChevronDown, Grid3X3, Maximize2, Search, ZoomIn, ZoomOut } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 /** Floating zoom / fit / search rail anchored to the canvas scroll container. */
@@ -9,12 +9,20 @@ export function CanvasRail({
   zoom,
   onZoom,
   onFit,
+  onAutoFormat,
+  onCollapseAll,
+  snapToGrid,
+  onToggleSnap,
   nodes,
   onJump,
 }: {
   zoom: number
   onZoom: (zoom: number) => void
   onFit: () => void
+  onAutoFormat: () => void
+  onCollapseAll: () => void
+  snapToGrid: boolean
+  onToggleSnap: () => void
   nodes: { id: string; title: string }[]
   onJump: (id: string) => void
 }) {
@@ -45,6 +53,45 @@ export function CanvasRail({
         className="flex h-9 w-9 items-center justify-center text-slate-500 transition-colors hover:bg-slate-50 hover:text-slate-900"
       >
         <ZoomIn className="h-4 w-4" />
+      </button>
+      <button
+        type="button"
+        onClick={(event) => {
+          stop(event)
+          onAutoFormat()
+        }}
+        aria-label="Auto format"
+        title="Auto format"
+        className="flex h-9 w-9 items-center justify-center border-t border-slate-200 text-slate-500 transition-colors hover:bg-slate-50 hover:text-slate-900"
+      >
+        <AlignVerticalJustifyCenter className="h-4 w-4" />
+      </button>
+      <button
+        type="button"
+        onClick={(event) => {
+          stop(event)
+          onCollapseAll()
+        }}
+        aria-label="Collapse all steps"
+        title="Collapse all steps"
+        className="flex h-9 w-9 items-center justify-center border-t border-slate-200 text-slate-500 transition-colors hover:bg-slate-50 hover:text-slate-900"
+      >
+        <ChevronDown className="h-4 w-4" />
+      </button>
+      <button
+        type="button"
+        onClick={(event) => {
+          stop(event)
+          onToggleSnap()
+        }}
+        aria-label={snapToGrid ? 'Disable snap to grid' : 'Enable snap to grid'}
+        title={snapToGrid ? 'Snap to grid: on' : 'Snap to grid: off'}
+        className={cn(
+          'flex h-9 w-9 items-center justify-center border-t border-slate-200 text-slate-500 transition-colors hover:bg-slate-50 hover:text-slate-900',
+          snapToGrid && 'bg-blue-50 text-blue-700',
+        )}
+      >
+        <Grid3X3 className="h-4 w-4" />
       </button>
       <div className="w-full border-t border-slate-200 py-1 text-center text-[10px] font-semibold text-slate-500">
         {Math.round(zoom * 100)}%
