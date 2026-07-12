@@ -394,6 +394,11 @@ export async function loadFlowPlaneGroups(
     take: 100,
   })
   const groups: ToolPlaneGroup[] = []
+  // Tool names must be unique — two flows whose names slug identically would
+  // otherwise both become `flow_<slug>` and one would silently overwrite the
+  // other in execute-agent's bindings Map. Disambiguate collisions with a
+  // short, stable flow-id suffix (the first flow keeps the clean slug).
+  const usedSlugs = new Set<string>()
   for (const flow of flows) {
     if (!isAgentCallableFlow(flow.metadata)) continue
     const parsed = flowGraphSchema.safeParse(flow.publishedGraph ?? flow.graph)
@@ -427,6 +432,9 @@ export async function loadFlowPlaneGroups(
         return res.output ?? null
       },
     }
+    let toolSlug = flowToolSlug(flow.name)
+    if (usedSlugs.has(toolSlug)) toolSlug = `${toolSlug}_${flow.id.slice(0, 6)}`.slice(0, 60)
+    usedSlugs.add(toolSlug)
     groups.push({
       id: formatFlowToolConnectionId('flow', flow.id),
       plane: 'flow',
@@ -435,7 +443,7 @@ export async function loadFlowPlaneGroups(
       serverUrl: '',
       isWrite: false,
       client,
-      tools: [{ name: flowToolSlug(flow.name), description, inputSchema: flowInputJsonSchema(params) }],
+      tools: [{ name: toolSlug, description, inputSchema: flowInputJsonSchema(params) }],
     })
   }
   return groups

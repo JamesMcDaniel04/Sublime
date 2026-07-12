@@ -699,6 +699,13 @@ export async function interpretFlow(graph: FlowGraph, input: unknown, opts: Opts
       if (node?.type === 'input' && output && typeof output === 'object' && !Array.isArray(output)) {
         ctx.input = { ...(ctx.input ?? {}), ...(output as Record<string, unknown>) }
       }
+      // Restore the explicit flow output too: an output node that ran before a
+      // downstream pause is in `completed` and is skipped on resume, so without
+      // this terminalOutput() would fall back to lastOutput and return the wrong
+      // value (the reply string instead of the bound output object).
+      if (node?.type === 'output' && output && typeof output === 'object' && !Array.isArray(output)) {
+        explicitOutput = { value: output }
+      }
     }
   }
 
