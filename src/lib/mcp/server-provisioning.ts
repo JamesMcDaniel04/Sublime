@@ -106,6 +106,7 @@ export async function createServersForTenant(
   userId: string,
   organizationId: string,
   selectedProviders: MCPProvider[] = [...PROVIDERS],
+  klavisUserId = `${organizationId}:${userId}`,
 ): Promise<ServerCreationResult[]> {
   const klavis = client()
   const results: ServerCreationResult[] = []
@@ -128,7 +129,7 @@ export async function createServersForTenant(
       }
     }
     if (!server) {
-      server = await klavis.createServerInstance(provider, `${organizationId}:${userId}`)
+      server = await klavis.createServerInstance(provider, klavisUserId)
     }
 
     await saveConnection(provider, userId, organizationId, server)

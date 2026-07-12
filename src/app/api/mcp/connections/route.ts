@@ -46,6 +46,8 @@ export const GET = withAuthenticatedApi(async (request, auth) => {
   const liveNames = new Set(catalog!.map((server) => server.name.toLowerCase()))
   const statuses = await getConnectionStatuses(auth.organizationId, auth.dbUser.id)
   const byProvider = new Map(statuses.map((status) => [status.provider, status]))
+  // Strict authorization surface: provider support is not enough. A card is
+  // returned only after Klavis confirms the user-scoped instance is active.
   const connections = PROVIDERS.filter((provider) => {
     const status = byProvider.get(provider)
     return status?.status === 'active' && liveNames.has(PROVIDER_CAPABILITIES[provider].klavisName.toLowerCase())

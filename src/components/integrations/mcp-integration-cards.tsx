@@ -13,6 +13,7 @@ import { Switch } from '@/components/ui/switch'
 import { useCachedJson } from '@/lib/client/use-cached-json'
 import { useScanExclusions } from '@/lib/client/use-scan-exclusions'
 import { connectionSourceRef } from '@/lib/intelligence/scan-exclusions'
+import { fromKlavisAgentType } from '@/lib/connectors/registry'
 
 type Tool = { name: string; description?: string }
 
@@ -252,13 +253,14 @@ export function MCPIntegrationCards() {
           const isOpen = expanded === connection.provider
           const tools = connection.tools ?? []
           const isActive = connection.status === 'active'
+          const presentation = fromKlavisAgentType(connection.provider)
           return (
             <Card key={connection.provider}>
               <CardHeader>
                 <CardTitle className="flex items-center justify-between text-base capitalize">
                   <span className="flex items-center gap-2">
-                    <IntegrationLogo slug={connection.provider} name={connection.provider} />
-                    {connection.provider}
+                    <IntegrationLogo slug={presentation.slug} name={presentation.label} />
+                    {presentation.label}
                   </span>
                   <Badge variant="outline">{connection.status.replace('_', ' ')}</Badge>
                 </CardTitle>
@@ -319,7 +321,7 @@ export function MCPIntegrationCards() {
       <Pagination page={currentPage} pageCount={pageCount} onPageChange={setPage} />
       {!connections.length && !loading && (
         <p className="rounded-xl border border-dashed p-6 text-center text-sm text-gray-500">
-          No integrations are authorized in Klavis for this user. Authorize an integration in Klavis, then refresh this page to import it.
+          No verified Klavis authorizations were found for the configured authorization identity.
         </p>
       )}
     </div>
