@@ -295,6 +295,9 @@ export async function interpretFlow(graph: FlowGraph, input: unknown, opts: Opts
     steps.push(outcome)
     opts.onStep?.(outcome)
   }
+  // The last output node's bound return object (if any). When set, it becomes
+  // the flow's returned output in place of the implicit lastOutput.
+  let explicitOutput: { value: unknown } | undefined
   let visits = 0
   const overBudget = () => ++visits > maxSteps
 
@@ -502,6 +505,18 @@ export async function interpretFlow(graph: FlowGraph, input: unknown, opts: Opts
       return { kind: 'ok', output }
     }
 
+    if (node.type === 'output') {
+      const bound = bindOutputFields(node.data.fields, (template) => resolveTemplateValue(template, ctx))
+      if ('error' in bound) {
+        emit({ nodeId: node.id, status: 'failed', error: bound.error })
+        return { kind: 'fail', error: bound.error }
+      }
+      explicitOutput = { value: bound.output }
+      ctx.step[node.id] = { output: bound.output }
+      emit({ nodeId: node.id, status: 'succeeded', output: bound.output })
+      return { kind: 'ok', output: bound.output }
+    }
+
     if (node.type === 'input') {
       const resolved = resolveInputParams(node.data.params, {
         user: (ctx.trigger.input && typeof ctx.trigger.input === 'object' && !Array.isArray(ctx.trigger.input))
@@ -666,6 +681,9 @@ export async function interpretFlow(graph: FlowGraph, input: unknown, opts: Opts
   }
 
   let lastOutput: unknown = input
+  // Prefer the explicit output node's bound object when one ran; otherwise the
+  // implicit lastOutput (back-compat for flows with no output node).
+  const terminalOutput = () => (explicitOutput ? explicitOutput.value : lastOutput)
   let current: FlowNode | undefined = byId.get('trigger') ?? graph.nodes[0]
 
   while (current) {
@@ -691,7 +709,7 @@ export async function interpretFlow(graph: FlowGraph, input: unknown, opts: Opts
     if (res.kind === 'fail') return { status: 'failed', steps, output: lastOutput, error: res.error }
     if (res.kind === 'pause') return { status: 'waiting', steps, output: lastOutput, waiting: { nodeId: res.nodeId, question: res.question } }
     // A stop node or a main-chain filter that didn't pass ends the flow cleanly.
-    if (res.kind === 'stop' || res.kind === 'drop') return { status: 'succeeded', steps, output: lastOutput }
+    if (res.kind === 'stop' || res.kind === 'drop') return { status: 'succeeded', steps, output: terminalOutput() }
     if (res.kind === 'ok' && res.output !== undefined) lastOutput = res.output
 
     const edge = outgoing(current.id)
@@ -703,5 +721,5 @@ export async function interpretFlow(graph: FlowGraph, input: unknown, opts: Opts
     current = next
   }
 
-  return { status: 'succeeded', steps, output: lastOutput }
+  return { status: 'succeeded', steps, output: terminalOutput() }
 }
