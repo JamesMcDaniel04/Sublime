@@ -17,16 +17,19 @@ function jsonValue(value: unknown) {
 
 /** Create one AgentTask mirroring POST /api/agents' create shape (an ACTIVE, runnable agent). */
 async function materializeAgent(
-  spec: { title: string; instructions: string; model?: string; integrations: string[] },
+  spec: { title: string; instructions: string; model?: string; integrations: string[]; description?: string },
   organizationId: string,
   userId: string,
 ): Promise<string> {
+  // Preserve the catalogue description a user saw on the template card; fall
+  // back to the title only when the spec carries none (embedded flow specs).
+  const description = spec.description?.trim() || spec.title
   const agent = await prisma.agentTask.create({
     data: {
       type: 'agent',
       agentType: 'CUSTOM',
       priority: 'MEDIUM',
-      description: spec.title,
+      description,
       objective: spec.instructions,
       context: {},
       schedule: { type: 'manual', timezone: 'UTC', isActive: false },
@@ -36,7 +39,7 @@ async function materializeAgent(
       userId,
       metadata: {
         title: spec.title,
-        description: spec.title,
+        description,
         model: spec.model ?? DEFAULT_AGENT_MODEL,
         integrations: spec.integrations,
         skills: [],
@@ -65,7 +68,7 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
   if (seed.kind === 'agent') {
     const integrations = seed.integrations ?? []
     const agentId = await materializeAgent(
-      { title: seed.name, instructions: seed.instructions ?? seed.description, model: seed.model, integrations },
+      { title: seed.name, instructions: seed.instructions ?? seed.description, model: seed.model, integrations, description: seed.description },
       organizationId,
       userId,
     )
