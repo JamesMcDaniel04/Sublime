@@ -939,6 +939,8 @@ function renderNodeBody({
       return <DataBody node={node} update={update} tokenWiring={tokenWiring} showErrors={showErrors} />
     case 'humanReview':
       return <HumanReviewBody node={node} update={update} tokenWiring={tokenWiring} showErrors={showErrors} />
+    case 'errorShield':
+      return <ErrorShieldBody node={node} onAddStep={onAddStep} />
   }
 }
 
@@ -1932,6 +1934,24 @@ function LoopBody({
       </div>
       {onAddStep && <AddNestedStepMenu label="Add step to loop" onPick={onAddStep} />}
       <AdvancedParamsSection node={node} onChange={update} />
+    </div>
+  )
+}
+
+function ErrorShieldBody({
+  node,
+  onAddStep,
+}: {
+  node: Extract<FlowNode, { type: 'errorShield' }>
+  onAddStep?: (type: EditableType) => void
+}) {
+  return (
+    <div className="space-y-3">
+      <p className="text-sm text-slate-600">
+        Runs the body below. If a body step fails, the fallback runs instead — with the error available as{' '}
+        <code className="rounded bg-slate-100 px-1 py-0.5 text-xs">{'{{error}}'}</code> — and this step still succeeds.
+      </p>
+      {onAddStep && <AddNestedStepMenu label="Add step to body" onPick={onAddStep} />}
     </div>
   )
 }

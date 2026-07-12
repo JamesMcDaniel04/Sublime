@@ -688,6 +688,34 @@ export async function interpretFlow(graph: FlowGraph, input: unknown, opts: Opts
       return { kind: 'ok', output }
     }
 
+    if (node.type === 'errorShield') {
+      const bodyCtx: FlowContext = { trigger: ctx.trigger, step: { ...ctx.step }, item: ctx.item, loop: ctx.loop, variables: ctx.variables, input: ctx.input, thread: ctx.thread }
+      const bodyRes = await execBody(node.data.body, bodyCtx)
+      const control = bodyRes.control
+      // Only a hard failure is shielded → fallback. pause/stop/drop propagate.
+      if (control && control.kind === 'fail') {
+        const fbCtx: FlowContext = { trigger: ctx.trigger, step: { ...ctx.step }, item: ctx.item, loop: ctx.loop, variables: ctx.variables, input: ctx.input, thread: ctx.thread, error: control.error }
+        const fbRes = await execBody(node.data.fallback, fbCtx)
+        if (fbRes.control && fbRes.control.kind !== 'drop') {
+          // The fallback itself failed/paused/stopped — surface that, unshielded.
+          emit({ nodeId: node.id, status: fbRes.control.kind === 'fail' ? 'failed' : fbRes.control.kind === 'pause' ? 'waiting' : 'stopped' })
+          return fbRes.control
+        }
+        const output = fbRes.output
+        ctx.step[node.id] = { output }
+        emit({ nodeId: node.id, status: 'succeeded', output })
+        return { kind: 'ok', output }
+      }
+      if (control && control.kind !== 'drop') {
+        emit({ nodeId: node.id, status: control.kind === 'pause' ? 'waiting' : 'stopped' })
+        return control
+      }
+      const output = bodyRes.output
+      ctx.step[node.id] = { output }
+      emit({ nodeId: node.id, status: 'succeeded', output })
+      return { kind: 'ok', output }
+    }
+
     return { kind: 'skip' }
   }
 
@@ -715,7 +743,10 @@ export async function interpretFlow(graph: FlowGraph, input: unknown, opts: Opts
   // Node ids that live inside a container must not be reached by the main walk.
   const contained = new Set(
     graph.nodes.flatMap((node) =>
-      node.type === 'loop' ? node.data.body : node.type === 'parallel' ? node.data.branches.flat() : [],
+      node.type === 'loop' ? node.data.body
+      : node.type === 'parallel' ? node.data.branches.flat()
+      : node.type === 'errorShield' ? [...node.data.body, ...node.data.fallback]
+      : [],
     ),
   )
 
