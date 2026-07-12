@@ -243,18 +243,18 @@ export function MCPIntegrationCards() {
           const isActive = connection.status === 'active'
           const presentation = fromKlavisAgentType(connection.provider)
           return (
-            <Card key={connection.provider}>
-              <CardHeader>
-                <CardTitle className="flex items-center justify-between text-base capitalize">
-                  <span className="flex items-center gap-2">
+            <Card key={connection.provider} className="flex h-full flex-col">
+              <CardHeader className="pb-4">
+                <CardTitle className="flex items-center justify-between gap-3 text-base capitalize">
+                  <span className="flex min-w-0 items-center gap-2">
                     <IntegrationLogo slug={presentation.slug} name={presentation.label} />
-                    {presentation.label}
+                    <span className="truncate">{presentation.label}</span>
                   </span>
-                  <Badge variant="outline">{connection.status.replace('_', ' ')}</Badge>
+                  <Badge variant="outline" className="shrink-0">{connection.status.replace('_', ' ')}</Badge>
                 </CardTitle>
               </CardHeader>
-              <CardContent className="space-y-3 text-sm">
-                <p className="text-gray-500">{connection.capabilities?.description || 'Klavis MCP connection'}</p>
+              <CardContent className="flex flex-1 flex-col gap-3 text-sm">
+                <p className="line-clamp-3 h-[3.75rem] text-gray-500">{connection.capabilities?.description || 'Klavis MCP connection'}</p>
 
                 {tools.length > 0 && (
                   <div className="rounded-lg border">
@@ -280,27 +280,29 @@ export function MCPIntegrationCards() {
                   </div>
                 )}
 
-                {isActive ? (
-                  <Button className="w-full" variant="outline" disabled={connecting === connection.provider} onClick={() => disconnect(connection.provider)}>
-                    {connecting === connection.provider ? 'Disconnecting...' : 'Disconnect'}
-                  </Button>
-                ) : (
-                  <Button className="w-full" disabled={connecting === connection.provider} onClick={() => connect(connection.provider)}>
-                    {connecting === connection.provider ? 'Opening Klavis...' : connection.status === 'pending_auth' ? 'Authorize with Klavis' : 'Connect with Klavis'}
-                  </Button>
-                )}
+                <div className="mt-auto space-y-3 pt-1">
+                  {isActive ? (
+                    <Button className="w-full" variant="outline" disabled={connecting === connection.provider} onClick={() => disconnect(connection.provider)}>
+                      {connecting === connection.provider ? 'Disconnecting...' : 'Disconnect'}
+                    </Button>
+                  ) : (
+                    <Button className="w-full" disabled={connecting === connection.provider} onClick={() => connect(connection.provider)}>
+                      {connecting === connection.provider ? 'Connecting...' : 'Connect'}
+                    </Button>
+                  )}
 
-                {connection.id && (
-                  <div className="flex items-center justify-between gap-2 border-t pt-3">
-                    <span className="text-xs text-gray-500">Learning</span>
-                    <Switch
-                      checked={isLearningEnabled(connectionSourceRef('klavis', connection.id))}
-                      disabled={togglingLearning === connection.provider}
-                      onCheckedChange={(enabled) => toggleLearning(connection, enabled)}
-                      aria-label={isLearningEnabled(connectionSourceRef('klavis', connection.id)) ? 'Disable learning from this connection' : 'Enable learning from this connection'}
-                    />
-                  </div>
-                )}
+                  {isActive && connection.id && (
+                    <div className="flex items-center justify-between gap-2 border-t pt-3">
+                      <span className="text-xs text-gray-500">Learning</span>
+                      <Switch
+                        checked={isLearningEnabled(connectionSourceRef('klavis', connection.id))}
+                        disabled={togglingLearning === connection.provider}
+                        onCheckedChange={(enabled) => toggleLearning(connection, enabled)}
+                        aria-label={isLearningEnabled(connectionSourceRef('klavis', connection.id)) ? 'Disable learning from this connection' : 'Enable learning from this connection'}
+                      />
+                    </div>
+                  )}
+                </div>
               </CardContent>
             </Card>
           )
