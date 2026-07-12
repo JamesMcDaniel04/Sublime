@@ -81,6 +81,18 @@ const LOCAL_LOGOS: Record<string, string> = {
   qwen: '/logos/qwen.webp',
 }
 
+// Providers that do not publish a Simple Icons asset. Google's favicon
+// service returns the actual company site icon at a stable, high-resolution
+// URL; keeping these mappings here also makes every integration surface use
+// the same brand mark instead of an initial tile.
+const BRAND_LOGOS: Record<string, string> = {
+  plai: 'https://www.google.com/s2/favicons?domain=plai.io&sz=128',
+  close: 'https://www.google.com/s2/favicons?domain=close.com&sz=128',
+  motion: 'https://www.google.com/s2/favicons?domain=usemotion.com&sz=128',
+  microsoftteams: 'https://www.google.com/s2/favicons?domain=teams.microsoft.com&sz=128',
+  amplitude: 'https://www.google.com/s2/favicons?domain=amplitude.com&sz=128',
+}
+
 function localLogo(slug: string): string | undefined {
   const key = slug.replace(/[-_\s]/g, '')
   // Custom Sublime MCP connections slugify to sublime_mcp / sublimemcp /
@@ -101,9 +113,10 @@ export function IntegrationLogo({
   className?: string
 }) {
   const key = (slug || '').toLowerCase()
-  // A bundled asset for this provider wins over any passed src or the CDN.
-  const effectiveSrc = localLogo(key) ?? src
+  // A bundled asset wins; otherwise prefer an explicit catalogue logo, then
+  // the small set of provider-specific fallbacks above.
   const normalized = normalizeIconSlug(key)
+  const effectiveSrc = localLogo(key) ?? src ?? BRAND_LOGOS[key] ?? BRAND_LOGOS[normalized]
   const iconSlug = SIMPLE_ICON_SLUGS[key] ?? SIMPLE_ICON_SLUGS[normalized] ?? (normalized || null)
   // 0 = explicit/local src, 1 = simple-icons, 2 = initial fallback.
   const initialStage = effectiveSrc ? 0 : slug ? 1 : 2
