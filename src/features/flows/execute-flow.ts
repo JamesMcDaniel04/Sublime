@@ -675,7 +675,10 @@ export async function runFlowExecution(
     runFlow,
     routeAi,
     onStep,
-    ...(resuming ? { completed, resumeNodeId, resumeReply: job.reply } : {}),
+    // resumeKey names the EXACT paused iteration (see resume-scan.ts) — the
+    // interpreter's guards match on it, so dropping it here would silently
+    // downgrade every loop resume to the bare-id fallback (reply lost).
+    ...(resuming ? { completed, resumeNodeId, resumeKey, resumeReply: job.reply } : {}),
   })
   await Promise.all(pending) // ensure all container-step rows are written
   const status = result.status === 'succeeded' ? 'succeeded' : result.status === 'waiting' ? 'waiting' : 'failed'

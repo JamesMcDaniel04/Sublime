@@ -39,6 +39,13 @@ const parseIterationPath = (iterationPath: string | null): number[] | undefined 
  * — each at a HIGHER order than the leaf it wraps — so plain last-wins-by-
  * order picks the container, not the leaf that's actually waiting on a reply.
  * Only a non-container row may become the resume target.
+ *
+ * Among non-container waiting rows the FIRST wins: a non-threaded loop can
+ * pause several iterations of one body node in a single run, but the
+ * interpreter surfaces the FIRST pause as the run's question — so the reply
+ * must target that same iteration. (Answering it re-runs the flow, which then
+ * re-asks the next unresolved iteration: a sequential Q&A.) With a single
+ * waiting row — every non-loop pause — first-wins and last-wins are identical.
  */
 export function resolveResumeState(priorSteps: PriorStepRow[], nodeTypeById: Map<string, string>): ResumeState {
   const completed: Record<string, unknown> = {}
@@ -53,7 +60,7 @@ export function resolveResumeState(priorSteps: PriorStepRow[], nodeTypeById: Map
     if (step.status === 'waiting') {
       const approvalId = (step.output as { waiting?: { approvalId?: string } } | null)?.waiting?.approvalId
       if (typeof approvalId === 'string' && approvalId) pausedApprovalIds.add(approvalId)
-      if (!CONTAINER_NODE_TYPES.has(nodeTypeById.get(step.nodeId) ?? '')) {
+      if (resumeKey === undefined && !CONTAINER_NODE_TYPES.has(nodeTypeById.get(step.nodeId) ?? '')) {
         resumeNodeId = step.nodeId
         resumeExecutionId = step.agentExecutionId ?? undefined
         resumeKey = completedKey(step.nodeId, parseIterationPath(step.iterationPath))
