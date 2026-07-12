@@ -61,7 +61,10 @@ type Opts = {
   // the bare `resumeNodeId` — so a resume matches exactly the one iteration
   // that paused, not every not-yet-completed iteration of that node id. For a
   // non-loop pause this is byte-identical to `resumeNodeId` (bare id), so
-  // normal (non-loop) pause/resume is unaffected.
+  // normal (non-loop) pause/resume is unaffected. When omitted, guards fall
+  // back to `resumeNodeId` as the key — identical for every non-loop node,
+  // and a SAFE non-match (re-pause, never cross-wire) for loop-body nodes,
+  // whose keys always carry an iteration path.
   resumeKey?: string
   // The user's reply for the resuming node. Agent steps receive the reply
   // inside their adapter (execute-flow re-enters the paused execution with
@@ -301,6 +304,10 @@ function resolveConfigValue(value: string | undefined, ctx: FlowContext): unknow
 export async function interpretFlow(graph: FlowGraph, input: unknown, opts: Opts): Promise<InterpretResult> {
   const maxSteps = opts.maxSteps ?? 100
   const maxLoop = opts.maxLoopIterations ?? 500
+  // Resume target key (see the Opts doc): callers that predate resumeKey pass
+  // only resumeNodeId — for them the bare id IS the key of any non-loop node,
+  // while a loop-body node's path-carrying key safely never matches it.
+  const resumeKey = opts.resumeKey ?? opts.resumeNodeId
   const byId = new Map(graph.nodes.map((node) => [node.id, node]))
   // Declared variable types: each name's initialize node (anywhere in the
   // graph, container bodies included) governs how later set/increment values
@@ -335,7 +342,7 @@ export async function interpretFlow(graph: FlowGraph, input: unknown, opts: Opts
     const timeoutMs = node.data.timeoutMs
     // Key-matched, not bare-id: only the exact iteration that paused resumes
     // (see the `resumeKey` doc on Opts above).
-    const resume = opts.resumeKey !== undefined && opts.resumeKey === completedKey(node.id, extra.iterationPath)
+    const resume = resumeKey !== undefined && resumeKey === completedKey(node.id, extra.iterationPath)
     let attempt = 0
     for (;;) {
       const call = opts.runAgent({ id: node.id, agentId: node.data.agentId, input: resolvedInput, prompt: extra.prompt, model: node.data.model, resume, thread: extra.thread, iterationPath: extra.iterationPath })
@@ -404,7 +411,7 @@ export async function interpretFlow(graph: FlowGraph, input: unknown, opts: Opts
       // Key-matched (not bare-id): in a loop body, multiple simultaneous
       // humanReview pauses share the same node id — only the iteration whose
       // key matches consumes this reply; the others fall through and re-pause.
-      if (opts.resumeKey !== undefined && opts.resumeKey === completedKey(node.id, ctx.iterationPath)) {
+      if (resumeKey !== undefined && resumeKey === completedKey(node.id, ctx.iterationPath)) {
         const output = opts.resumeReply ?? ''
         ctx.step[node.id] = { output }
         emit({ nodeId: node.id, status: 'succeeded', output, iterationPath: ctx.iterationPath })
@@ -522,7 +529,7 @@ export async function interpretFlow(graph: FlowGraph, input: unknown, opts: Opts
             id: node.id,
             kind: node.type,
             config,
-            resume: opts.resumeKey !== undefined && opts.resumeKey === completedKey(node.id, ctx.iterationPath),
+            resume: resumeKey !== undefined && resumeKey === completedKey(node.id, ctx.iterationPath),
             iterationPath: ctx.iterationPath,
           })
         : { error: `${node.type} steps are not supported in this runtime.` }
@@ -634,7 +641,7 @@ export async function interpretFlow(graph: FlowGraph, input: unknown, opts: Opts
             id: node.id,
             flowId: node.data.flowId,
             input: childInput,
-            resume: opts.resumeKey !== undefined && opts.resumeKey === completedKey(node.id, ctx.iterationPath),
+            resume: resumeKey !== undefined && resumeKey === completedKey(node.id, ctx.iterationPath),
             iterationPath: ctx.iterationPath,
           })
         : { error: 'Subflow steps are not supported in this runtime.' }
