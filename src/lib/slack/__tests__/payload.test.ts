@@ -79,3 +79,24 @@ test('normalizes a slash-command form payload', () => {
   assert.equal(result.dedupId, '13345224609.738474920.8088930838d88f008e0')
   assert.equal(normalizeSlackCommandPayload({ team_id: 'T1' }), null) // no command → not a slash payload
 })
+
+test('drops a forged non-hooks.slack.com response_url at ingress (SSRF defense in depth)', () => {
+  const base = {
+    token: 'ignored', team_id: 'T0AAA111', channel_id: 'C0CHAN111', user_id: 'U0USER111',
+    command: '/deploy', text: 'prod', trigger_id: '13345224609.738474920.8088930838d88f008e0', api_app_id: 'A0AAA111',
+  }
+  const ssrf = normalizeSlackCommandPayload({ ...base, response_url: 'http://169.254.169.254/latest/meta-data/' })
+  assert.ok(ssrf)
+  assert.equal(ssrf.input.response_url, undefined)
+
+  const evil = normalizeSlackCommandPayload({ ...base, response_url: 'https://evil.example.com/webhook' })
+  assert.ok(evil)
+  assert.equal(evil.input.response_url, undefined)
+
+  const notHttps = normalizeSlackCommandPayload({ ...base, response_url: 'http://hooks.slack.com/commands/T/1/a' })
+  assert.ok(notHttps)
+  assert.equal(notHttps.input.response_url, undefined)
+
+  const ok = normalizeSlackCommandPayload({ ...base, response_url: 'https://hooks.slack.com/commands/T0AAA111/123/abc' })
+  assert.equal(ok?.input.response_url, 'https://hooks.slack.com/commands/T0AAA111/123/abc')
+})

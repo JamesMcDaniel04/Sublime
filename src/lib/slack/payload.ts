@@ -35,6 +35,21 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 const str = (value: unknown): string => (typeof value === 'string' ? value : '')
 
+/** Defense in depth: real Slack response_urls are always
+ * `https://hooks.slack.com/...`. A forged slash-command POST could set
+ * response_url to an internal/metadata host — drop anything else here so a
+ * bad value never even reaches the run's trigger JSON (postSlackResponseUrl
+ * also enforces this at the fetch site). */
+function isSlackResponseUrl(value: string): boolean {
+  if (!value) return false
+  try {
+    const parsed = new URL(value)
+    return parsed.protocol === 'https:' && parsed.hostname === 'hooks.slack.com'
+  } catch {
+    return false
+  }
+}
+
 export function normalizeSlackEventPayload(envelope: unknown): NormalizedSlackEvent | null {
   if (!isRecord(envelope) || envelope.type !== 'event_callback' || !isRecord(envelope.event)) return null
   const event = envelope.event
@@ -76,7 +91,7 @@ export function normalizeSlackCommandPayload(params: Record<string, string>): No
       ts: '', // slash commands carry no message ts — replies use response_url
       team: params.team_id ?? '',
       command: params.command,
-      ...(params.response_url ? { response_url: params.response_url } : {}),
+      ...(isSlackResponseUrl(params.response_url ?? '') ? { response_url: params.response_url } : {}),
     },
     dedupId: params.trigger_id,
   }

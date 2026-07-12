@@ -24,9 +24,23 @@ export async function postSlackMessage(args: {
   if (body.ok !== true) throw new Error(`Slack API error: ${body.error ?? 'unknown'}`)
 }
 
+/** SSRF guard: `response_url` is copied verbatim from a slash-command
+ * request body, gated only by an HMAC that Den never verifies against Slack
+ * (see postSlackResponseUrl doc). A forged payload could point it at an
+ * internal/metadata host (e.g. `http://169.254.169.254/...`). Real Slack
+ * response_urls are always `https://hooks.slack.com/...` — enforce that
+ * exact host, not a general "public URL" check. */
+function assertSlackResponseUrl(responseUrl: string): void {
+  const parsed = new URL(responseUrl)
+  if (parsed.protocol !== 'https:' || parsed.hostname !== 'hooks.slack.com') {
+    throw new Error(`Refusing to post to non-Slack response_url host: ${parsed.hostname || responseUrl}`)
+  }
+}
+
 /** Slash-command reply via response_url (valid ~30 min; caller falls back to
  * chat.postMessage on failure). */
 export async function postSlackResponseUrl(args: { responseUrl: string; text: string; fetchImpl?: typeof fetch }): Promise<void> {
+  assertSlackResponseUrl(args.responseUrl)
   const fetchImpl = args.fetchImpl ?? fetch
   const response = await fetchImpl(args.responseUrl, {
     method: 'POST',

@@ -416,6 +416,57 @@ if (TEST_DB) {
     assert.equal(refreshed.flowRunId, runA2.id, 'same-flow updates still refresh the run pointer')
   })
 
+  test('upsertThreadSession race: two CONCURRENT calls with different flowIds for a brand-new thread → exactly one owns the row, stably (create-first atomicity, not check-then-act)', async () => {
+    const { upsertThreadSession } = await import('../session')
+    const flowA = await prisma.flow.create({
+      data: {
+        name: 'race-a', organizationId: ids.org, userId: ids.user, status: 'ACTIVE', graph: stopGraph, publishedGraph: stopGraph,
+        trigger: { type: 'slack', events: ['message.channels'], channels: ['C0RACE1'], threadMemory: true },
+      },
+    })
+    const flowB = await prisma.flow.create({
+      data: {
+        name: 'race-b', organizationId: ids.org, userId: ids.user, status: 'ACTIVE', graph: stopGraph, publishedGraph: stopGraph,
+        trigger: { type: 'slack', events: ['message.channels'], channels: ['C0RACE1'], threadMemory: true },
+      },
+    })
+    const runA = await prisma.flowRun.create({
+      data: { flowId: flowA.id, organizationId: ids.org, userId: ids.user, status: 'succeeded', input: { prompt: 'a' } },
+    })
+    const runB = await prisma.flowRun.create({
+      data: { flowId: flowB.id, organizationId: ids.org, userId: ids.user, status: 'succeeded', input: { prompt: 'b' } },
+    })
+    const channel = 'C0RACE1'
+    const threadTs = '1752301150.000100' // fresh thread — no session exists yet for either racer to find
+
+    // Both racers fire their upsert for the SAME (bindingId, channel, threadTs)
+    // key at the same time. The old findUnique-then-upsert could let both miss
+    // the read and have the second's update stomp the first's row. The fix's
+    // create-first approach means the unique constraint — not a timing
+    // accident — decides the winner, and it must be a STABLE winner (never
+    // later overwritten by the loser).
+    await Promise.all([
+      upsertThreadSession({ organizationId: ids.org, bindingId, channel, threadTs, flowId: flowA.id, flowRunId: runA.id }),
+      upsertThreadSession({ organizationId: ids.org, bindingId, channel, threadTs, flowId: flowB.id, flowRunId: runB.id }),
+    ])
+
+    const sessions = await prisma.slackThreadSession.findMany({ where: { organizationId: ids.org, bindingId, channel, threadTs } })
+    assert.equal(sessions.length, 1, 'the unique constraint allows exactly one row for this thread key')
+    const winner = sessions[0]
+    assert.ok(winner.flowId === flowA.id || winner.flowId === flowB.id)
+    const winnerRunId = winner.flowId === flowA.id ? runA.id : runB.id
+    assert.equal(winner.flowRunId, winnerRunId, 'the winning row\'s pointers are internally consistent, not a torn mix of both racers')
+
+    // The loser retrying its own upsert again must NOT steal the thread —
+    // same-flow-only-refreshes semantics are preserved post-race.
+    const loserFlowId = winner.flowId === flowA.id ? flowB.id : flowA.id
+    const loserRunId = winner.flowId === flowA.id ? runB.id : runA.id
+    await upsertThreadSession({ organizationId: ids.org, bindingId, channel, threadTs, flowId: loserFlowId, flowRunId: loserRunId })
+    const after = await prisma.slackThreadSession.findFirst({ where: { organizationId: ids.org, bindingId, channel, threadTs } })
+    assert.equal(after.flowId, winner.flowId, 'the winner stays stable — the loser can never retroactively steal the thread')
+    assert.equal(after.flowRunId, winner.flowRunId)
+  })
+
   test('continue-mode double-delivery dedup: two sibling deliveries in continue-mode produce exactly ONE new run', async () => {
     const flow = await prisma.flow.create({
       data: {
