@@ -24,6 +24,12 @@ export type FlowContext = {
   // (per loop) + 0-based iteration, so the agent adapter can continue ONE
   // conversation across iterations. Absent in normal (unthreaded) bodies.
   thread?: { key: string; iteration: number }
+  // Cumulative loop-nesting path (outermost -> innermost 0-based index),
+  // distinct from `loop` (which is scalar/innermost-only, for {{loop.index}}
+  // templates). Used ONLY to disambiguate a loop-body node's persisted output
+  // across iterations on resume (see completed-key.ts) — absent outside any
+  // loop body.
+  iterationPath?: number[]
 }
 
 /** Read a dot-path off the context (e.g. 'trigger.input', 'step.n1.output.score', 'item'). */

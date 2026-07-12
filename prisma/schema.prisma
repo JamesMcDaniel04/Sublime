@@ -738,6 +738,7 @@ model FlowRunStep {
   nodeId           String
   agentExecutionId String?
   childFlowRunId   String?   // subflow step: the child FlowRun this step ran
+  iterationPath    String?   // dot-joined 0-based loop indices ("0", "0.2" nested) disambiguating a loop-body step across iterations; null outside any loop body
   order            Int       @default(0)
   status           String    @default("queued") // queued | running | succeeded | failed | skipped | waiting
   input            Json      @default("{}")
