@@ -327,6 +327,10 @@ export async function runFlowExecution(
     )
   }
 
+  // Loop-thread: the most-recent execution id per (loop, agent-node) thread, so
+  // each iteration seeds its conversation from the previous one.
+  const threadExecutions = new Map<string, string>()
+
   // Adapter: each agent node runs the real agent and records a FlowRunStep row.
   const runAgent: RunAgentFn = async (node) => {
     const step = await prisma.flowRunStep.create({
@@ -368,11 +372,21 @@ export async function runFlowExecution(
       }
       // Resuming this node? Re-enter the paused agent execution with the reply.
       const resumeThis = node.resume && resumeNodeId === node.id && resumeExecutionId
+      // Loop-thread (threadAgent): the prior iteration's execution id (if any)
+      // seeds this run's transcript so the conversation carries forward.
+      // Iteration 0 has no predecessor to continue, so it always starts fresh.
+      const threadKey = node.thread ? `${node.thread.key}:${node.id}` : undefined
+      const continueExecutionId = threadKey && node.thread!.iteration > 0 ? threadExecutions.get(threadKey) : undefined
       const result = (await runAgentExecution(
         resumeThis
           ? { agentId: node.agentId, organizationId: job.organizationId, userId: job.userId, executionId: resumeExecutionId, resume: true, reply: job.reply, onExecutionCreated }
-          : { agentId: node.agentId, organizationId: job.organizationId, userId: job.userId, input: node.input, onExecutionCreated },
+          : { agentId: node.agentId, organizationId: job.organizationId, userId: job.userId, input: node.input, onExecutionCreated, ...(continueExecutionId ? { continueExecutionId } : {}) },
       )) as { summary?: string; status?: string; question?: string; executionId?: string }
+
+      // Record this run's execution id as the next iteration's continuation
+      // point (threading applies to SAVED agents only — an inline step returns
+      // above via the `!node.agentId` early branch and never reaches here).
+      if (threadKey && result.executionId) threadExecutions.set(threadKey, result.executionId)
 
       if (typeof result?.status === 'string' && result.status.startsWith('waiting')) {
         // Persist the pause reason on the step so the runs API can surface it.

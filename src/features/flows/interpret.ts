@@ -622,10 +622,18 @@ export async function interpretFlow(graph: FlowGraph, input: unknown, opts: Opts
 
     if (node.type === 'loop') {
       const items = loopItems(resolveTemplate(node.data.over, ctx)).slice(0, maxLoop)
-      const perItem = await mapLimit(items, node.data.concurrency ?? 1, async (item, index) => {
+      const threaded = node.data.threadAgent === true
+      // Threading ONE conversation across iterations requires sequential
+      // execution — you cannot append turns to one conversation concurrently.
+      const concurrency = threaded ? 1 : (node.data.concurrency ?? 1)
+      const perItem = await mapLimit(items, concurrency, async (item, index) => {
         // `variables` is shared by reference: writes inside the body persist
         // past the loop (one flow-global symbol table, MS parity).
-        const itemCtx: FlowContext = { trigger: ctx.trigger, step: { ...ctx.step }, item, loop: { index, count: items.length }, variables: ctx.variables, input: ctx.input }
+        const itemCtx: FlowContext = {
+          trigger: ctx.trigger, step: { ...ctx.step }, item, loop: { index, count: items.length },
+          variables: ctx.variables, input: ctx.input,
+          ...(threaded ? { thread: { key: node.id, iteration: index } } : {}),
+        }
         return execBody(node.data.body, itemCtx)
       })
       // Propagate the first hard control (stop / fail / pause); a 'drop' (filter)

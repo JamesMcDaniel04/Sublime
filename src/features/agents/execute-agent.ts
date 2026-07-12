@@ -56,6 +56,12 @@ export type AgentExecutionJob = {
   // ancestor agent ids, used to bound recursion and prevent cycles.
   depth?: number
   ancestorAgentIds?: string[]
+  // Loop-thread (Gumloop-parity threadAgent loop mode): seed this NEW run's
+  // transcript from a prior execution's conversation (reload + append the new
+  // input as a user turn) instead of starting fresh, so iterations of a
+  // threaded loop chain one conversation forward. Only consulted when this is
+  // a brand-new run (no executionId/resume) — see the transcript-init branch.
+  continueExecutionId?: string
 }
 
 // Sub-agent handoff bounds. Kept conservative: sub-runs execute inline within
@@ -461,6 +467,21 @@ export async function runAgentExecution(
     startTurn = Number(metadataOf(queuedExecution.metadata).turnCursor) || 0
     completedToolSteps = await loadCompletedToolSteps(queuedExecution.id)
     await recordEvent(queuedExecution.id, null, 'run.resumed', { fromTurn: startTurn })
+  } else if (data.continueExecutionId) {
+    // Loop-thread: seed this run's transcript from a prior execution's
+    // conversation, then append the new input as a fresh user turn — multi-turn
+    // batch memory across loop iterations. A missing/blank prior transcript
+    // degrades to a fresh conversation.
+    const prior = await prisma.agentExecution.findFirst({
+      where: { id: data.continueExecutionId, agentTaskId: agentId, organizationId },
+      select: { transcript: true },
+    })
+    if (Array.isArray(prior?.transcript) && prior.transcript.length) {
+      transcript = coerceToIR(prior.transcript as unknown[])
+      runner.appendUserMessage(transcript, data.input || agent.objective)
+    } else {
+      transcript = runner.start(data.input || agent.objective)
+    }
   } else {
     transcript = runner.start(data.input || agent.objective)
   }
