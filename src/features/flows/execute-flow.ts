@@ -69,7 +69,7 @@ const WRITE_PLANES = /^(nango|slack|email)/i
  */
 export async function runFlowExecution(
   job: FlowExecutionJob,
-): Promise<{ flowRunId: string; status: string; output: unknown }> {
+): Promise<{ flowRunId: string; status: string; output: unknown; error?: string }> {
   const flow = await prisma.flow.findFirst({ where: { id: job.flowId, organizationId: job.organizationId } })
   if (!flow) throw new Error('Flow not found')
   if ((job.subflowDepth ?? 0) > MAX_SUBFLOW_DEPTH) {
@@ -385,12 +385,21 @@ export async function runFlowExecution(
         subflowDepth: (job.subflowDepth ?? 0) + 1,
       })
       if (res.status === 'waiting') {
-        await finishStep({ status: 'waiting', childFlowRunId: res.flowRunId, finishedAt: new Date() })
-        return { waiting: { status: 'waiting' } }
+        // Synchronous subflow, v1: a child that itself pauses (its own
+        // humanReview/approval/ask-user node) is a clean subflow error, never
+        // a parent pause — full pausable-subflow resume (re-entering the
+        // paused child, forwarding the reply) is deferred to a later
+        // iteration. The parent FlowRun must NEVER be set to `waiting` for a
+        // subflow, so this always finishes the step `failed`, never `waiting`.
+        const message =
+          "A subflow's child flow paused for human input, which subflows don't support — inline the interaction, or call the flow as an agent tool instead."
+        await finishStep({ status: 'failed', childFlowRunId: res.flowRunId, error: message, finishedAt: new Date() })
+        return { error: message }
       }
       if (res.status === 'failed') {
-        await finishStep({ status: 'failed', childFlowRunId: res.flowRunId, error: 'The subflow failed.', finishedAt: new Date() })
-        return { error: 'The subflow failed.' }
+        const message = res.error ?? 'The subflow failed.'
+        await finishStep({ status: 'failed', childFlowRunId: res.flowRunId, error: message, finishedAt: new Date() })
+        return { error: message }
       }
       await finishStep({ status: 'succeeded', childFlowRunId: res.flowRunId, output: jsonValue(res.output), finishedAt: new Date() })
       return { output: res.output }
@@ -658,7 +667,7 @@ export async function runFlowExecution(
       .catch(() => undefined)
   }
 
-  return { flowRunId: run.id, status, output: result.output }
+  return { flowRunId: run.id, status, output: result.output, error: runError ?? undefined }
 }
 
 /**

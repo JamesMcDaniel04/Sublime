@@ -19,7 +19,10 @@ export type RunAgentFn = (node: { id: string; agentId: string; input: string; re
 // decision) so the adapter can consume the decision instead of re-executing.
 export type RunActionFn = (node: { id: string; kind: 'tool' | 'http'; config: Record<string, unknown>; resume?: boolean }) => Promise<RunAgentResult>
 // Synchronous subflow: run a child flow to completion and block on its output.
-export type RunFlowResult = { output?: unknown; error?: string; waiting?: { status: string; question?: string } }
+// v1 is synchronous-only — a child that would itself pause is surfaced as a
+// plain `error` (the execute-flow.ts adapter performs that translation), never
+// a `waiting` result, so this contract has no waiting case to represent.
+export type RunFlowResult = { output?: unknown; error?: string }
 export type RunFlowFn = (node: { id: string; flowId: string; input: unknown; resume?: boolean }) => Promise<RunFlowResult>
 export type InterpretResult = {
   status: 'succeeded' | 'failed' | 'waiting'
@@ -589,13 +592,14 @@ export async function interpretFlow(graph: FlowGraph, input: unknown, opts: Opts
           childInput = resolveTemplateValue(node.data.input, ctx)
         }
       }
+      // Synchronous subflow, v1: a child that would itself pause is never a
+      // pause here — the adapter (execute-flow.ts's runFlow) translates a
+      // child `waiting` result into a plain `error` before it ever reaches
+      // this contract, so there is no `waiting` case to branch on. A subflow
+      // can only ever end this node in `error` or success.
       const res: RunFlowResult = opts.runFlow
         ? await opts.runFlow({ id: node.id, flowId: node.data.flowId, input: childInput, resume: opts.resumeNodeId === node.id })
         : { error: 'Subflow steps are not supported in this runtime.' }
-      if (res.waiting) {
-        emit({ nodeId: node.id, status: 'waiting' })
-        return { kind: 'pause', nodeId: node.id, question: res.waiting.question }
-      }
       if (res.error) {
         emit({ nodeId: node.id, status: 'failed', error: res.error })
         if ((node.data.onError ?? 'stop') === 'continue') return { kind: 'ok', output: undefined }
