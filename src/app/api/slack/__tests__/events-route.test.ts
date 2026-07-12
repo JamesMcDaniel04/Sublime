@@ -12,11 +12,15 @@ if (TEST_DB) {
   let prisma: any
   let seeded: any
   let bindingId: string
+  let encryptSecretJson: (plaintext: string) => { value: string }
+  let claimSlackEvent: (bindingId: string, dedupId: string) => Promise<boolean>
+  let releaseSlackEvent: (bindingId: string, dedupId: string) => Promise<void>
 
   before(async () => {
     ;({ prisma } = await import('@/lib/prisma'))
     const { seedTestOrg } = await import('@/lib/server/__tests__/test-auth')
-    const { encryptSecretJson } = await import('@/lib/slack/connections')
+    ;({ encryptSecretJson } = await import('@/lib/slack/connections'))
+    ;({ claimSlackEvent, releaseSlackEvent } = await import('@/lib/slack/dedup'))
     seeded = await seedTestOrg(prisma)
     const binding = await prisma.slackWorkspaceConnection.create({
       data: {
@@ -63,18 +67,44 @@ if (TEST_DB) {
     assert.deepEqual(await res.json(), { challenge: 'ch4LL3nge' })
   })
 
-  test('bad signature → 401; unknown binding → 404', async () => {
+  test('bad signature → 401; unknown binding → SAME 401 (no existence oracle)', async () => {
     const { POST } = await import('@/app/api/slack/events/[bindingId]/route')
     const raw = mentionEnvelope('Ev0BAD0001')
     const bad = await POST(signed(raw, 'application/json', { signature: 'v0=' + 'ab'.repeat(32) }))
     assert.equal(bad.status, 401)
-    const req404 = new NextRequest(new URL('http://test/api/slack/events/nonexistent'), {
+    const badBody = await bad.json()
+    const reqUnknown = new NextRequest(new URL('http://test/api/slack/events/nonexistent'), {
       method: 'POST', headers: { 'content-type': 'application/json' }, body: raw,
     })
-    assert.equal((await POST(req404)).status, 404)
+    const unknown = await POST(reqUnknown)
+    // Unknown bindingId must be indistinguishable from a bad signature — a
+    // distinct status (e.g. 404) would let a caller enumerate valid ids.
+    assert.equal(unknown.status, 401)
+    assert.deepEqual(await unknown.json(), badBody)
   })
 
-  test('valid event acks 200 fast; duplicate event_id is dropped (ok:duplicate)', async () => {
+  test('corrupt signing secret → 401, fails closed (no dispatch)', async () => {
+    const { POST } = await import('@/app/api/slack/events/[bindingId]/route')
+    const corrupt = await prisma.slackWorkspaceConnection.create({
+      data: {
+        organizationId: seeded.organizationId, teamId: 'T0CORRUPT', teamName: 'Corrupt',
+        botUserId: 'U0BOTCRPT',
+        botToken: encryptSecretJson('xoxb-test'),
+        // Malformed payload — decryptSecretJson throws on this shape.
+        signingSecret: { nope: true },
+      },
+    })
+    const req = new NextRequest(new URL(`http://test/api/slack/events/${corrupt.id}`), {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-slack-request-timestamp': String(Math.floor(Date.now() / 1000)), 'x-slack-signature': 'v0=' + 'cd'.repeat(32) },
+      body: mentionEnvelope('Ev0CORRUPT'),
+    })
+    const res = await POST(req)
+    assert.equal(res.status, 401)
+    assert.deepEqual(await res.json(), { ok: false })
+  })
+
+  test('valid event acks 200 fast; duplicate event_id is dropped (ok:duplicate), DB-backed', async () => {
     const { POST } = await import('@/app/api/slack/events/[bindingId]/route')
     const raw = mentionEnvelope('Ev0DEDUP01')
     const first = await POST(signed(raw, 'application/json'))
@@ -82,6 +112,24 @@ if (TEST_DB) {
     assert.deepEqual(await first.json(), { ok: true })
     const second = await POST(signed(raw, 'application/json'))
     assert.deepEqual(await second.json(), { ok: true, duplicate: true })
+    // Backed by an actual row in slack_processed_events, not a cache entry.
+    const row = await prisma.slackProcessedEvent.findFirst({ where: { bindingId, dedupId: 'Ev0DEDUP01' } })
+    assert.ok(row)
+  })
+
+  test('claimSlackEvent: concurrent claims of the same id — exactly one wins the race', async () => {
+    const dedupId = 'Ev0RACE001'
+    const [a, b] = await Promise.all([claimSlackEvent(bindingId, dedupId), claimSlackEvent(bindingId, dedupId)])
+    const winners = [a, b].filter(Boolean)
+    assert.equal(winners.length, 1)
+  })
+
+  test('releaseSlackEvent: after release, a repeat claim of the same id succeeds again (retry recovery)', async () => {
+    const dedupId = 'Ev0RECOVER01'
+    assert.equal(await claimSlackEvent(bindingId, dedupId), true)
+    assert.equal(await claimSlackEvent(bindingId, dedupId), false) // still claimed
+    await releaseSlackEvent(bindingId, dedupId)
+    assert.equal(await claimSlackEvent(bindingId, dedupId), true) // re-claimable after release
   })
 
   test('echo guard: events from the binding bot user or any bot_id are dropped', async () => {

@@ -2,16 +2,24 @@ import { NextRequest, NextResponse, after } from 'next/server'
 import { systemPrisma } from '@/lib/prisma'
 import { apiLogger } from '@/lib/logger'
 import { rateLimit } from '@/lib/ratelimit'
-import { cacheGet, cacheSet } from '@/lib/cache'
 import { decryptSecretJson } from '@/lib/slack/connections'
 import { verifySlackSignature } from '@/lib/slack/verify'
 import { normalizeSlackEventPayload, normalizeSlackCommandPayload } from '@/lib/slack/payload'
 import { routeSlackEvent } from '@/lib/slack/dispatch'
+import { claimSlackEvent, releaseSlackEvent } from '@/lib/slack/dedup'
 
 export const runtime = 'nodejs'
 export const maxDuration = 300
 
-const DEDUP_TTL_MS = 10 * 60_000
+// Generic, identical response for every ingress-auth failure — bad signature,
+// unknown bindingId, inactive binding, and a corrupt signing secret are all
+// indistinguishable from the outside. Distinguishing them (e.g. 404 for
+// "doesn't exist" vs 401 for "exists but bad sig") is a bindingId existence
+// oracle: it would let a caller enumerate valid binding ids by status code
+// alone. Fail closed, identically, every time.
+function unauthorized(): NextResponse {
+  return NextResponse.json({ ok: false }, { status: 401 })
+}
 
 /**
  * `after()` requires a request-scoped work store, present only when Next.js
@@ -26,6 +34,7 @@ function runAfterResponse(task: () => Promise<void>): void {
   try {
     after(task)
   } catch {
+    apiLogger.warn('slack after() unavailable — running dispatch detached (no serverless keep-alive)')
     void task()
   }
 }
@@ -48,16 +57,30 @@ export async function POST(request: NextRequest) {
     // systemPrisma: session-less ingress; the binding row (URL id) is the sole
     // tenant selector — payload team/org claims are never trusted.
     const binding = await systemPrisma.slackWorkspaceConnection.findFirst({ where: { id: bindingId, status: 'active' } })
-    if (!binding) return NextResponse.json({ ok: false }, { status: 404 })
+    // Unknown/inactive binding fails closed with the SAME response as a bad
+    // signature (see `unauthorized` above) — never 404. A distinct status
+    // here would let a caller enumerate valid binding ids for free.
+    if (!binding) return unauthorized()
+
+    // A corrupt/malformed signing-secret payload must fail closed, not throw
+    // into the outer catch's generic 500 — same posture as every other
+    // ingress-auth failure: log for operators, 401 for the caller, no dispatch.
+    let signingSecret: string
+    try {
+      signingSecret = decryptSecretJson(binding.signingSecret)
+    } catch (error) {
+      apiLogger.error('slack ingress: corrupt signing secret', { bindingId: binding.id, error: error instanceof Error ? error.message : String(error) })
+      return unauthorized()
+    }
 
     // Slack signs EVERY request, including url_verification.
     const verified = verifySlackSignature({
       rawBody,
       timestamp: request.headers.get('x-slack-request-timestamp'),
       signature: request.headers.get('x-slack-signature'),
-      signingSecret: decryptSecretJson(binding.signingSecret),
+      signingSecret,
     })
-    if (!verified) return NextResponse.json({ ok: false, error: 'Invalid signature' }, { status: 401 })
+    if (!verified) return unauthorized()
 
     const contentType = (request.headers.get('content-type') || '').toLowerCase()
     const isForm = contentType.includes('application/x-www-form-urlencoded')
@@ -80,11 +103,14 @@ export async function POST(request: NextRequest) {
     // Unsupported event types still ack 200 — a non-2xx would make Slack retry.
     if (!normalized) return NextResponse.json({ ok: true, ignored: true })
 
-    // Dedup: Slack retries on slow acks — drop event_ids/trigger_ids seen in
-    // the last 10 minutes.
-    const dedupKey = `slack-event:${binding.id}:${normalized.dedupId}`
-    if (await cacheGet<number>(dedupKey)) return NextResponse.json({ ok: true, duplicate: true })
-    await cacheSet(dedupKey, 1, DEDUP_TTL_MS)
+    // Dedup: Slack retries on slow acks — drop event_ids/trigger_ids already
+    // claimed. Atomic DB insert (see dedup.ts): the `create` either succeeds
+    // (first time — dispatch) or hits the unique constraint (duplicate —
+    // drop), decided by the database, not a check-then-set cache read. Global
+    // across instances, no Redis needed.
+    if (!(await claimSlackEvent(binding.id, normalized.dedupId))) {
+      return NextResponse.json({ ok: true, duplicate: true })
+    }
 
     // Echo guard: never react to our own (or any bot's) messages — reply loops.
     if (normalized.authorBotId || normalized.input.user === binding.botUserId) {
@@ -99,9 +125,13 @@ export async function POST(request: NextRequest) {
     }
     // Ack fast: routing + dispatch continues past the response via after().
     runAfterResponse(() =>
-      routeSlackEvent(routeArgs).catch((error) =>
-        apiLogger.error('slack event routing failed', { bindingId: binding.id, error: error instanceof Error ? error.message : String(error) }),
-      ),
+      routeSlackEvent(routeArgs).catch(async (error) => {
+        apiLogger.error('slack event routing failed', { bindingId: binding.id, error: error instanceof Error ? error.message : String(error) })
+        // Dispatch never ran to completion — release the claim so this
+        // event_id/trigger_id isn't permanently deduped away. Slack's own
+        // retry (or a manual replay) can then re-claim and re-run it.
+        await releaseSlackEvent(binding.id, normalized.dedupId)
+      }),
     )
     if (normalized.input.kind === 'slash_command') {
       return NextResponse.json({ response_type: 'ephemeral', text: 'Working on it…' })

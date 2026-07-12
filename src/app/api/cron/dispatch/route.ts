@@ -26,6 +26,7 @@ import { AGENT_RUN_TIMEOUT_MS } from '@/lib/agents/timeouts'
 import { reapStuckFlowRuns } from '@/lib/flows/reap'
 import { blocksSchedule } from '@/lib/flows/schedule-blocking'
 import { captureError } from '@/lib/observability/sentry'
+import { pruneSlackProcessedEvents } from '@/lib/slack/dedup'
 
 export const runtime = 'nodejs'
 export const maxDuration = 1200
@@ -98,6 +99,12 @@ export async function GET(request: Request) {
       apiLogger.error('cron/dispatch: flow reaper failed', { error: capError(error) })
       captureError(error, { source: 'cron.dispatch.flowReaper' })
     }
+
+    // Best-effort: drop claimed Slack dedup rows old enough that Slack would
+    // no longer retry the same event_id/trigger_id — keeps the table bounded.
+    await pruneSlackProcessedEvents().catch((error) => {
+      apiLogger.error('cron/dispatch: slack dedup prune failed', { error: capError(error) })
+    })
 
     // Single-owner scheduling: when the BullMQ worker is live in queue mode it
     // owns RECURRING dispatch (via its JobScheduler), so this cron must not also
