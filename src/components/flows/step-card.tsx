@@ -31,7 +31,9 @@ import {
   Repeat,
   Rows3,
   Settings2,
+  ShieldAlert,
   SlidersHorizontal,
+  Sparkles,
   Split,
   ToggleLeft,
   Trash2,
@@ -126,6 +128,8 @@ const NODE_ICON: Record<FlowNode['type'], typeof Bot> = {
   input: LogIn,
   output: LogOut,
   subflow: Workflow,
+  router: Sparkles,
+  errorShield: ShieldAlert,
 }
 
 const NODE_TONE: Record<FlowNode['type'], string> = {
@@ -146,6 +150,8 @@ const NODE_TONE: Record<FlowNode['type'], string> = {
   input: 'bg-teal-600 text-white',
   output: 'bg-rose-500 text-white',
   subflow: 'bg-indigo-600 text-white',
+  router: 'bg-fuchsia-500 text-white',
+  errorShield: 'bg-rose-600 text-white',
 }
 
 const STATUS_DOT: Record<StepStatus, string> = {

@@ -50,6 +50,10 @@ function defaultData(type: FlowNode['type'], extra?: { bodyId?: string; agentId?
       return { fields: [] }
     case 'subflow':
       return { flowId: '' }
+    case 'router':
+      return { input: '{{trigger.input}}', branches: [{ id: 'branch1', label: '' }] }
+    case 'errorShield':
+      return { body: extra?.bodyId ? [extra.bodyId] : [], fallback: [] }
     case 'trigger':
       return { trigger: { type: 'manual' } }
   }

@@ -73,6 +73,11 @@ const agentNode = z.object({
     // MS-parity "request human assistance when unsure": when false, a step
     // that pauses to ask a human fails instead of waiting.
     humanAssistance: z.boolean().optional(),
+    // Inline-prompt mode: when agentId is blank, the step runs this prompt as an
+    // ephemeral one-shot model call (no saved AgentTask). model overrides the
+    // default; ignored when agentId is set (a saved agent brings its own model).
+    prompt: z.string().optional(),
+    model: z.string().optional(),
   }),
 })
 /** One left/op/right comparison; a condition ANDs/ORs a list of these. */
@@ -150,13 +155,26 @@ const loopNode = z.object({
     over: z.string(),
     concurrency: z.number().int().min(1).max(20).optional(),
     body: z.array(z.string()),
+    // Loop-thread: keep ONE agent conversation across iterations (multi-turn
+    // batch memory) instead of a fresh conversation each item. Forces sequential
+    // execution (concurrency 1) — you cannot thread one conversation concurrently.
+    threadAgent: z.boolean().optional(),
   }),
 })
 const parallelNode = z.object({
   id: z.string(),
   type: z.literal('parallel'),
-  data: z.object({ label: z.string().optional(),
-    note: z.string().optional(), branches: z.array(z.array(z.string())) }),
+  data: z.object({
+    label: z.string().optional(),
+    note: z.string().optional(),
+    branches: z.array(z.array(z.string())),
+    // Reconvergence strategy for the branch outputs. Unset = today's opaque
+    // keyed object { [branchHeadNodeId]: output } (byte-identical back-compat).
+    // 'array' = outputs in branch order; 'object' = keyed by `labels`;
+    // 'merge' = shallow-merge branch objects into one.
+    join: z.enum(['object', 'array', 'merge']).optional(),
+    labels: z.array(z.string()).optional(),
+  }),
 })
 // Deterministic "Set fields": build an object from templated assignments. Its
 // output is the assembled object; downstream steps map its fields.
@@ -317,8 +335,39 @@ const subflowNode = z.object({
   }),
 })
 
+// AI ROUTER: an LLM picks one labelled branch from the resolved input + each
+// branch's description. Routed on the MAIN CHAIN by edge branch = chosen id
+// (like switch), with a `default` edge fallback. The pick is delegated to an
+// injected adapter (RouteAiFn) so the interpreter stays pure; on resume the
+// interpreter reuses the branch chosen on the first run (determinism).
+const routerNode = z.object({
+  id: z.string(),
+  type: z.literal('router'),
+  data: z.object({
+    label: z.string().optional(),
+    note: z.string().optional(),
+    input: z.string().optional(),
+    instructions: z.string().optional(),
+    branches: z.array(z.object({ id: z.string(), label: z.string().optional(), description: z.string().optional() })).default([]),
+  }),
+})
+// ERROR SHIELD: a container that runs `body`; if the body FAILS, it runs
+// `fallback` instead and shields the error (the step succeeds with the
+// fallback's output). pause/stop/drop are NOT shielded (they propagate). The
+// caught error is exposed to the fallback via {{error}}.
+const errorShieldNode = z.object({
+  id: z.string(),
+  type: z.literal('errorShield'),
+  data: z.object({
+    label: z.string().optional(),
+    note: z.string().optional(),
+    body: z.array(z.string()).default([]),
+    fallback: z.array(z.string()).default([]),
+  }),
+})
+
 export const flowNodeSchema = z.discriminatedUnion('type', [
-  triggerNode, agentNode, conditionNode, loopNode, parallelNode, stopNode, toolNode, httpNode, transformNode, filterNode, switchNode, variableNode, dataNode, humanReviewNode, inputNode, outputNode, subflowNode,
+  triggerNode, agentNode, conditionNode, loopNode, parallelNode, stopNode, toolNode, httpNode, transformNode, filterNode, switchNode, variableNode, dataNode, humanReviewNode, inputNode, outputNode, subflowNode, routerNode, errorShieldNode,
 ])
 export const flowEdgeSchema = z.object({
   id: z.string(),
