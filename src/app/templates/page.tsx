@@ -359,7 +359,7 @@ function ExplorePage() {
   // "Use template" for a Starter-catalogue seed: materializes the seed's real
   // agent/flow rows server-side, then routes to the newly created object.
   // Missing integrations never block this — the org can connect them after.
-  const useSeedTemplate = async (t: TemplateItem) => {
+  const provisionSeedTemplate = async (t: TemplateItem) => {
     if (!t.seedKey || provisioningKey) return
     setProvisioningKey(t.seedKey)
     try {
@@ -443,7 +443,7 @@ function ExplorePage() {
               variant={missing.length > 0 ? 'outline' : 'default'}
               className="w-full"
               loading={isProvisioning}
-              onClick={(e) => { e.preventDefault(); e.stopPropagation(); useSeedTemplate(t) }}
+              onClick={(e) => { e.preventDefault(); e.stopPropagation(); provisionSeedTemplate(t) }}
             >
               {isProvisioning ? 'Setting up…' : 'Use template'}
             </Button>
