@@ -1,6 +1,7 @@
 import { FIELD_TYPES, type FlowGraph, type FlowNode } from '@/lib/flows/graph'
 import { FLOW_TRIGGER_TYPES } from '@/lib/flows/trigger'
 import { parseFlowToolConnectionId } from '@/lib/flows/tool-connection-id'
+import { SLACK_EVENT_KINDS } from '@/lib/slack/payload'
 
 export type FlowValidationIssue = {
   level: 'error' | 'warning'
@@ -196,6 +197,21 @@ function validateTriggerConfig(issues: FlowValidationIssue[], trigger: unknown) 
         }
       })
     }
+  }
+  if (type === 'slack') {
+    const events = Array.isArray(trigger.events) ? trigger.events : []
+    if (events.length === 0) {
+      add(issues, 'error', 'MISSING_SLACK_EVENTS', 'A Slack trigger needs at least one event kind (mention, DM, channel message, or slash command).', 'trigger')
+    }
+    for (const kind of events) {
+      if (typeof kind !== 'string' || !(SLACK_EVENT_KINDS as readonly string[]).includes(kind)) {
+        add(issues, 'error', 'INVALID_SLACK_EVENT', `Slack trigger has an unknown event kind "${String(kind)}".`, 'trigger')
+      }
+    }
+    if (events.includes('slash_command') && !String(trigger.command ?? '').trim()) {
+      add(issues, 'error', 'MISSING_SLACK_COMMAND', 'A slash-command Slack trigger needs the command (e.g. /deploy).', 'trigger')
+    }
+    return
   }
   if (type !== 'schedule') return
   const schedule = trigger.schedule

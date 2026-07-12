@@ -22,6 +22,7 @@ import {
   LogIn,
   LogOut,
   Mail,
+  MessageSquare,
   MoreHorizontal,
   PanelRight,
   Pencil,
@@ -54,6 +55,7 @@ import { DATA_OP_HELPER, DATA_OP_INPUT_PLACEHOLDER, VARIABLE_VALUE_PLACEHOLDER, 
 import { humanizeTokens, type TokenLabelContext } from '@/lib/flows/token-text'
 import { parseFlowToolConnectionId } from '@/lib/flows/tool-connection-id'
 import { KNOWN_SIGNALS, triggerInputFieldsFromTrigger } from '@/lib/flows/trigger'
+import { SLACK_EVENT_KINDS, type SlackEventKind } from '@/lib/slack/payload'
 import { nextOccurrence, type AgentSchedule } from '@/lib/scheduling/due'
 import { Button } from '@/components/ui/button'
 import { TriggerFilterEditor } from './trigger-filter-editor'
@@ -79,11 +81,16 @@ type Agent = { id: string; title: string }
 // The full trigger shape the card edits inline (the old drawer's TriggerData):
 // full trigger configuration inline without dropping fields on mutation.
 type TriggerData = {
-  type?: 'manual' | 'schedule' | 'webhook' | 'signal'
+  type?: 'manual' | 'schedule' | 'webhook' | 'signal' | 'slack'
   schedule?: { type?: string; time?: string; cron?: string; timezone?: string; runAt?: string; isActive?: boolean }
   input?: string
   inputFields?: TriggerInputField[]
   signal?: string
+  events?: string[]
+  command?: string
+  channels?: string[]
+  keyword?: string
+  threadMemory?: boolean
   /** "Only run when…": the run is skipped unless these clauses match the trigger payload. */
   filter?: { match?: 'all' | 'any'; clauses?: ConditionClause[] }
 }
@@ -106,6 +113,17 @@ const TRIGGER_SUBTYPE_ICON: Record<string, typeof Bot> = {
   schedule: Clock,
   signal: Radio,
   manual: Zap,
+  slack: MessageSquare,
+}
+
+// Labels for the Slack trigger's event-kind checkboxes, keyed off the
+// client-safe SLACK_EVENT_KINDS list so the builder always matches the
+// ingress/routing layer's supported event set.
+const SLACK_EVENT_LABELS: Record<SlackEventKind, string> = {
+  app_mention: '@mentions of the bot',
+  'message.im': 'Direct messages',
+  'message.channels': 'Channel messages',
+  slash_command: 'A slash command',
 }
 
 const NODE_ICON: Record<FlowNode['type'], typeof Bot> = {
@@ -962,6 +980,7 @@ function TriggerBody({
   const [choosingInput, setChoosingInput] = useState(false)
   const [webhook, setWebhook] = useState<{ url: string; secret: string | null } | null>(null)
   const [minting, setMinting] = useState(false)
+  const [slackBinding, setSlackBinding] = useState<{ id: string; teamName: string | null; status: string; ingressUrl: string } | null>(null)
   const trigger = triggerData(node)
   const type = trigger.type ?? 'manual'
   const schedule = trigger.schedule ?? { type: 'daily', time: '09:00', timezone: 'UTC', isActive: true }
@@ -991,6 +1010,20 @@ function TriggerBody({
   const removeField = (index: number) => {
     setTrigger({ ...trigger, inputFields: fields.filter((_, fieldIndex) => fieldIndex !== index) })
   }
+
+  useEffect(() => {
+    if (type !== 'slack') return
+    let cancelled = false
+    fetch('/api/slack/connections')
+      .then((res) => res.json())
+      .then((data) => {
+        if (!cancelled) setSlackBinding(data.connections?.[0] ?? null)
+      })
+      .catch(() => undefined)
+    return () => {
+      cancelled = true
+    }
+  }, [type])
 
   const setSchedule = (patch: Partial<NonNullable<TriggerData['schedule']>>) =>
     setTrigger({ ...trigger, type: 'schedule', schedule: { ...schedule, ...patch, isActive: true } })
@@ -1074,7 +1107,7 @@ function TriggerBody({
           className={controlClass}
           value={type}
           onChange={(event) => {
-            const next = event.target.value as 'manual' | 'schedule' | 'webhook' | 'signal'
+            const next = event.target.value as 'manual' | 'schedule' | 'webhook' | 'signal' | 'slack'
             setTrigger(next === 'schedule' ? { ...trigger, type: next, schedule: { ...schedule, isActive: true } } : { ...trigger, type: next })
           }}
         >
@@ -1082,6 +1115,7 @@ function TriggerBody({
           <option value="schedule">Schedule</option>
           <option value="webhook">When an HTTP request is received</option>
           <option value="signal">When a signal fires</option>
+          <option value="slack">When a Slack message arrives</option>
         </select>
       </div>
 
@@ -1182,6 +1216,68 @@ function TriggerBody({
           )}
           <p className="text-xs text-slate-500">
             POST to the URL with the <code className="font-mono">x-trigger-secret</code> header; the JSON body, or its <code className="font-mono">input</code> field, becomes the flow input. Runs the <strong>published</strong> version.
+          </p>
+        </div>
+      )}
+
+      {type === 'slack' && (
+        <div className="space-y-3">
+          <div className="grid gap-2">
+            <label className={labelClass}>Respond to</label>
+            {SLACK_EVENT_KINDS.map((kind) => (
+              <label key={kind} className="flex items-center gap-2 text-sm text-slate-700">
+                <input
+                  type="checkbox"
+                  checked={(trigger.events ?? []).includes(kind)}
+                  onChange={(event) => {
+                    const events = new Set(trigger.events ?? [])
+                    if (event.target.checked) events.add(kind)
+                    else events.delete(kind)
+                    setTrigger({ ...trigger, events: Array.from(events) })
+                  }}
+                />
+                {SLACK_EVENT_LABELS[kind]}
+              </label>
+            ))}
+          </div>
+          {(trigger.events ?? []).includes('slash_command') && (
+            <div className="grid gap-2">
+              <label className={labelClass}>Slash command</label>
+              <input className={cn(controlClass, 'font-mono')} value={trigger.command ?? ''} placeholder="/deploy" onChange={(event) => setTrigger({ ...trigger, command: event.target.value || undefined })} />
+            </div>
+          )}
+          <div className="grid gap-2">
+            <label className={labelClass}>Only these channels (optional, comma-separated channel IDs)</label>
+            <input
+              className={cn(controlClass, 'font-mono')}
+              value={(trigger.channels ?? []).join(', ')}
+              placeholder="C0123ABC, C0456DEF"
+              onChange={(event) => {
+                const channels = event.target.value.split(',').map((entry) => entry.trim()).filter(Boolean)
+                setTrigger({ ...trigger, channels: channels.length ? channels : undefined })
+              }}
+            />
+          </div>
+          <div className="grid gap-2">
+            <label className={labelClass}>Only when the message contains (optional)</label>
+            <input className={controlClass} value={trigger.keyword ?? ''} placeholder="deploy" onChange={(event) => setTrigger({ ...trigger, keyword: event.target.value || undefined })} />
+          </div>
+          <label className="flex items-center gap-2 text-sm text-slate-700">
+            <input type="checkbox" checked={trigger.threadMemory === true} onChange={(event) => setTrigger({ ...trigger, threadMemory: event.target.checked || undefined })} />
+            Remember the conversation within a thread
+          </label>
+          {slackBinding ? (
+            <div className="space-y-2 rounded-lg border border-slate-200 bg-slate-50 p-2.5">
+              <p className="text-xs text-slate-600">
+                Slack bot: <strong>{slackBinding.teamName ?? 'Connected workspace'}</strong> ({slackBinding.status})
+              </p>
+              {copyBlock('Ingress URL', slackBinding.ingressUrl)}
+            </div>
+          ) : (
+            <p className="text-xs text-amber-700">No Slack bot connected — add one on the Integrations page first.</p>
+          )}
+          <p className="text-xs text-slate-500">
+            The Slack message arrives as <code className="font-mono">{'{{trigger.input.text}}'}</code> (plus channel, user, ts). Runs the <strong>published</strong> version and replies into the originating thread.
           </p>
         </div>
       )}

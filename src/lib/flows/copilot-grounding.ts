@@ -44,7 +44,8 @@ export const graphRules =
   'Loop threading: set loop.data.threadAgent true to keep ONE agent conversation across iterations (the agent remembers earlier items); this forces sequential execution. Omit it for independent per-item runs. ' +
   'Parallel join: parallel.data.join is object (default: keyed by branch), array (outputs in branch order), or merge (shallow-merge branch objects); parallel.data.labels names the branches for join=object. ' +
   'Error shield node data: {body:[...ids], fallback:[...ids]}; runs body, and on a body FAILURE runs fallback instead (the caught error is {{error}}). Use it to wrap risky steps with a recovery path. Branching nodes (condition/switch/router) and Input/Output cannot go inside body/fallback. ' +
-  'When a later step references {{step.<agentNodeId>.output.<field>}}, that agent node MUST set responseFormat: "structured" and declare outputFields: [{name,type}] matching the referenced fields.'
+  'When a later step references {{step.<agentNodeId>.output.<field>}}, that agent node MUST set responseFormat: "structured" and declare outputFields: [{name,type}] matching the referenced fields. ' +
+  'Slack trigger: trigger data {type:"slack", events:[…], command?, channels?, keyword?, threadMemory?}; events is a non-empty subset of app_mention/message.im/message.channels/slash_command; slash_command requires command (e.g. "/deploy"); the Slack message arrives as {{trigger.input.text}} with {{trigger.input.channel}}, {{trigger.input.user}}, {{trigger.input.ts}}; set threadMemory true for multi-turn thread conversations.'
 
 export async function buildCopilotGrounding(
   organizationId: string,
