@@ -55,6 +55,14 @@ type Opts = {
   // was paused and should re-run with the user's reply injected.
   completed?: Record<string, unknown>
   resumeNodeId?: string
+  // The resume target as a KEY (see completed-key.ts / resume-scan.ts):
+  // `completedKey(resumeNodeId, resumeIterationPath)`. Every resume guard
+  // compares THIS against `completedKey(node.id, ctx.iterationPath)` — never
+  // the bare `resumeNodeId` — so a resume matches exactly the one iteration
+  // that paused, not every not-yet-completed iteration of that node id. For a
+  // non-loop pause this is byte-identical to `resumeNodeId` (bare id), so
+  // normal (non-loop) pause/resume is unaffected.
+  resumeKey?: string
   // The user's reply for the resuming node. Agent steps receive the reply
   // inside their adapter (execute-flow re-enters the paused execution with
   // it); a humanReview step has no adapter, so the interpreter itself turns
@@ -325,7 +333,9 @@ export async function interpretFlow(graph: FlowGraph, input: unknown, opts: Opts
   ): Promise<RunAgentResult> => {
     const retries = node.data.retries ?? 0
     const timeoutMs = node.data.timeoutMs
-    const resume = opts.resumeNodeId === node.id
+    // Key-matched, not bare-id: only the exact iteration that paused resumes
+    // (see the `resumeKey` doc on Opts above).
+    const resume = opts.resumeKey !== undefined && opts.resumeKey === completedKey(node.id, extra.iterationPath)
     let attempt = 0
     for (;;) {
       const call = opts.runAgent({ id: node.id, agentId: node.data.agentId, input: resolvedInput, prompt: extra.prompt, model: node.data.model, resume, thread: extra.thread, iterationPath: extra.iterationPath })
@@ -391,7 +401,10 @@ export async function interpretFlow(graph: FlowGraph, input: unknown, opts: Opts
     if (node.type === 'humanReview') {
       // Request information: a first-class pause with no agent involved.
       // Resuming this exact node? The reviewer's reply IS the step output.
-      if (opts.resumeNodeId === node.id) {
+      // Key-matched (not bare-id): in a loop body, multiple simultaneous
+      // humanReview pauses share the same node id — only the iteration whose
+      // key matches consumes this reply; the others fall through and re-pause.
+      if (opts.resumeKey !== undefined && opts.resumeKey === completedKey(node.id, ctx.iterationPath)) {
         const output = opts.resumeReply ?? ''
         ctx.step[node.id] = { output }
         emit({ nodeId: node.id, status: 'succeeded', output, iterationPath: ctx.iterationPath })
@@ -505,7 +518,13 @@ export async function interpretFlow(graph: FlowGraph, input: unknown, opts: Opts
               timeoutMs: node.data.timeoutMs,
             }
       const res: RunAgentResult = opts.runAction
-        ? await opts.runAction({ id: node.id, kind: node.type, config, resume: opts.resumeNodeId === node.id, iterationPath: ctx.iterationPath })
+        ? await opts.runAction({
+            id: node.id,
+            kind: node.type,
+            config,
+            resume: opts.resumeKey !== undefined && opts.resumeKey === completedKey(node.id, ctx.iterationPath),
+            iterationPath: ctx.iterationPath,
+          })
         : { error: `${node.type} steps are not supported in this runtime.` }
       if (res.waiting) {
         // A write tool queued for approval pauses the run, same as an agent step.
@@ -611,7 +630,13 @@ export async function interpretFlow(graph: FlowGraph, input: unknown, opts: Opts
       // this contract, so there is no `waiting` case to branch on. A subflow
       // can only ever end this node in `error` or success.
       const res: RunFlowResult = opts.runFlow
-        ? await opts.runFlow({ id: node.id, flowId: node.data.flowId, input: childInput, resume: opts.resumeNodeId === node.id, iterationPath: ctx.iterationPath })
+        ? await opts.runFlow({
+            id: node.id,
+            flowId: node.data.flowId,
+            input: childInput,
+            resume: opts.resumeKey !== undefined && opts.resumeKey === completedKey(node.id, ctx.iterationPath),
+            iterationPath: ctx.iterationPath,
+          })
         : { error: 'Subflow steps are not supported in this runtime.' }
       if (res.error) {
         emit({ nodeId: node.id, status: 'failed', error: res.error })

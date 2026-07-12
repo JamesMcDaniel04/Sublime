@@ -18,8 +18,20 @@ export type ResumeState = {
   completed: Record<string, unknown>
   resumeNodeId?: string
   resumeExecutionId?: string
+  // The resume target as a KEY, not a bare id — `completedKey(resumeNodeId,
+  // resumeIterationPath)` — so a resume matches EXACTLY the one iteration
+  // that paused, not every not-yet-completed iteration of that node id (see
+  // interpret.ts's resume guards, which compare against this instead of the
+  // bare `resumeNodeId`). For a non-loop pause (no iterationPath) this is
+  // byte-identical to `resumeNodeId`.
+  resumeKey?: string
   pausedApprovalIds: Set<string>
 }
+
+// Same parse the completed-map side uses (below) — so the two sides' keys
+// always agree on format.
+const parseIterationPath = (iterationPath: string | null): number[] | undefined =>
+  iterationPath ? iterationPath.split('.').map(Number) : undefined
 
 /**
  * Reconstruct resume state from a run's persisted steps (order asc). A pause
@@ -32,11 +44,11 @@ export function resolveResumeState(priorSteps: PriorStepRow[], nodeTypeById: Map
   const completed: Record<string, unknown> = {}
   let resumeNodeId: string | undefined
   let resumeExecutionId: string | undefined
+  let resumeKey: string | undefined
   const pausedApprovalIds = new Set<string>()
   for (const step of priorSteps) {
     if (step.status === 'succeeded' || step.status === 'skipped') {
-      const path = step.iterationPath ? step.iterationPath.split('.').map(Number) : undefined
-      completed[completedKey(step.nodeId, path)] = step.output
+      completed[completedKey(step.nodeId, parseIterationPath(step.iterationPath))] = step.output
     }
     if (step.status === 'waiting') {
       const approvalId = (step.output as { waiting?: { approvalId?: string } } | null)?.waiting?.approvalId
@@ -44,8 +56,9 @@ export function resolveResumeState(priorSteps: PriorStepRow[], nodeTypeById: Map
       if (!CONTAINER_NODE_TYPES.has(nodeTypeById.get(step.nodeId) ?? '')) {
         resumeNodeId = step.nodeId
         resumeExecutionId = step.agentExecutionId ?? undefined
+        resumeKey = completedKey(step.nodeId, parseIterationPath(step.iterationPath))
       }
     }
   }
-  return { completed, resumeNodeId, resumeExecutionId, pausedApprovalIds }
+  return { completed, resumeNodeId, resumeExecutionId, resumeKey, pausedApprovalIds }
 }

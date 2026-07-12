@@ -271,6 +271,7 @@ export async function runFlowExecution(
   let completed: Record<string, unknown> = {}
   let resumeNodeId: string | undefined
   let resumeExecutionId: string | undefined
+  let resumeKey: string | undefined
   // Approval ids persisted on the run's waiting step rows. A resuming tool
   // step may only consume a decision reply whose approvalId is in this set —
   // and each id is consumed at most once — so in loops/parallel one item's
@@ -279,7 +280,7 @@ export async function runFlowExecution(
   let order = 0
   if (resuming) {
     const priorSteps = await prisma.flowRunStep.findMany({ where: { flowRunId: run.id }, orderBy: { order: 'asc' } })
-    ;({ completed, resumeNodeId, resumeExecutionId, pausedApprovalIds } = resolveResumeState(priorSteps, nodeTypeById))
+    ;({ completed, resumeNodeId, resumeExecutionId, resumeKey, pausedApprovalIds } = resolveResumeState(priorSteps, nodeTypeById))
     // Resuming creates NEW step rows for the re-run node — resolve every stale
     // waiting row now so it can never shadow a later pause in deriveRunWaiting,
     // and continue the order counter after all prior rows so new steps always
@@ -370,7 +371,12 @@ export async function runFlowExecution(
         return { output: text }
       }
       // Resuming this node? Re-enter the paused agent execution with the reply.
-      const resumeThis = node.resume && resumeNodeId === node.id && resumeExecutionId
+      // `node.resume` is already key-matched to the exact iteration that
+      // paused (interpretFlow computes it from `resumeKey`, not a bare
+      // nodeId) — trust it here rather than re-deriving a bare-id match,
+      // which would (as it once did) re-match EVERY not-yet-completed
+      // iteration of this node id, not just the one that paused.
+      const resumeThis = node.resume && resumeExecutionId
       // Loop-thread (threadAgent): the prior iteration's execution id (if any)
       // seeds this run's transcript so the conversation carries forward.
       // Iteration 0 has no predecessor to continue, so it always starts fresh.
