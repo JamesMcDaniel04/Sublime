@@ -31,6 +31,8 @@ import { HttpToolClient, httpTools } from '@/lib/integrations/http'
 import { EmailToolClient, emailTools } from '@/lib/integrations/email'
 import { BUILTIN_CONNECTORS, fromKlavisAgentType, isSelected, nangoConnector, type ConnectorDescriptor } from '@/lib/connectors/registry'
 import { formatFlowToolConnectionId, type FlowToolPlane } from '@/lib/flows/tool-connection-id'
+import { flowGraphSchema } from '@/lib/flows/graph'
+import { inputParamsFromGraph, flowInputJsonSchema, flowToolSlug, isAgentCallableFlow } from '@/lib/flows/flow-tool'
 
 // Minimal interface every plane's execution client satisfies (KlavisClient,
 // McpClient, the built-in ToolClients, and adapters).
@@ -369,6 +371,66 @@ export async function loadNangoPlaneGroups(
   return groups
 }
 
+// ── Flow tool plane (workflows-as-tools) ──────────────────────────────────────
+
+/**
+ * Agent-callable flows as a tool plane. Each org-opted flow (metadata.agentCallable)
+ * becomes one ToolPlaneGroup whose inputSchema is the flow's input-node params and
+ * whose client dispatches the flow and returns its output-node object. Dispatch is
+ * a DYNAMIC import to break the execute-flow -> tool-planes cycle. Only surfaces
+ * when a userId is available (dispatch runs as that user).
+ */
+export async function loadFlowPlaneGroups(
+  organizationId: string,
+  userId: string,
+  options: { flowIds?: string[] } = {},
+): Promise<ToolPlaneGroup[]> {
+  const flows = await prisma.flow.findMany({
+    where: {
+      organizationId,
+      status: 'ACTIVE',
+      ...(options.flowIds?.length ? { id: { in: options.flowIds } } : {}),
+    },
+    take: 100,
+  })
+  const groups: ToolPlaneGroup[] = []
+  for (const flow of flows) {
+    if (!isAgentCallableFlow(flow.metadata)) continue
+    const parsed = flowGraphSchema.safeParse(flow.publishedGraph ?? flow.graph)
+    if (!parsed.success) continue
+    const params = inputParamsFromGraph(parsed.data)
+    const description = flow.description?.trim() || `Run the "${flow.name}" flow and return its output.`
+    const client: McpToolClient = {
+      executeTool: async (_serverUrl, _name, args) => {
+        const { dispatchFlowExecution } = await import('@/features/flows/execute-flow')
+        const res = await dispatchFlowExecution({
+          flowId: flow.id,
+          organizationId,
+          userId,
+          input: (args && typeof args === 'object' ? args : {}) as Record<string, unknown>,
+          usePublished: flow.publishedGraph != null,
+          trigger: { type: 'signal', via: 'flow-tool' },
+        })
+        if ('queued' in res) {
+          return { error: 'This flow runs in the background; agent-callable flows require inline execution mode.' }
+        }
+        return res.output ?? null
+      },
+    }
+    groups.push({
+      id: formatFlowToolConnectionId('flow', flow.id),
+      plane: 'flow',
+      name: flow.name,
+      provider: 'flow',
+      serverUrl: '',
+      isWrite: false,
+      client,
+      tools: [{ name: flowToolSlug(flow.name), description, inputSchema: flowInputJsonSchema(params) }],
+    })
+  }
+  return groups
+}
+
 // ── Flow tool-step execution ──────────────────────────────────────────────────
 
 export type FlowToolExecutor = {
@@ -433,6 +495,24 @@ export async function resolveFlowToolExecutor(params: {
       return { provider: ref, isWrite: descriptor.isWrite, execute: (name, args) => client.executeTool('', name, args) }
     }
     throw new Error(`Unknown built-in integration "${ref}" — pick another in the step config.`)
+  }
+
+  if (plane === 'flow') {
+    const flow = await prisma.flow.findFirst({ where: { id: ref, organizationId } })
+    if (!flow) throw new Error('The selected flow no longer exists — pick another in the step config.')
+    return {
+      provider: 'flow',
+      isWrite: false,
+      execute: async (_name, args) => {
+        const { dispatchFlowExecution } = await import('@/features/flows/execute-flow')
+        const res = await dispatchFlowExecution({
+          flowId: flow.id, organizationId, userId,
+          input: args, usePublished: flow.publishedGraph != null, trigger: { type: 'signal', via: 'flow-tool' },
+        })
+        if ('queued' in res) throw new Error('This flow runs in the background; call it from a subflow step instead.')
+        return res.output ?? null
+      },
+    }
   }
 
   // nango — outbound delivery as the acting user (write plane; approval-gated).

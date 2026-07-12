@@ -13,6 +13,7 @@ test('format/parse round-trips every plane', () => {
     mcp: 'cmcpconnrow456',
     native: 'slack',
     nango: 'gmail',
+    flow: 'flw_1',
   } as const
   for (const plane of FLOW_TOOL_PLANES) {
     const id = formatFlowToolConnectionId(plane, refs[plane])
@@ -29,6 +30,7 @@ test('prefixed planes produce <plane>:<ref> ids', () => {
   assert.equal(formatFlowToolConnectionId('nango', 'slack'), 'nango:slack')
   assert.equal(formatFlowToolConnectionId('native', 'http'), 'native:http')
   assert.equal(formatFlowToolConnectionId('klavis', 'row1'), 'klavis:row1')
+  assert.equal(formatFlowToolConnectionId('flow', 'flw_1'), 'flow:flw_1')
 })
 
 test('unknown prefixes fall back to the mcp plane with the FULL id as ref', () => {
@@ -43,10 +45,10 @@ test('a leading colon is not a prefix', () => {
 test('dispatch routing: each id kind routes to its plane executor', () => {
   // The flow tool-step dispatcher routes on parse(...).plane — this pins the
   // decision for one id of every kind, including legacy raw MCP row ids.
-  const routed = ['klavis:row1', 'cmlegacyrawid', 'native:granola', 'nango:salesforce'].map(
+  const routed = ['klavis:row1', 'cmlegacyrawid', 'native:granola', 'nango:salesforce', 'flow:flw_1'].map(
     (id) => parseFlowToolConnectionId(id).plane,
   )
-  assert.deepEqual(routed, ['klavis', 'mcp', 'native', 'nango'])
+  assert.deepEqual(routed, ['klavis', 'mcp', 'native', 'nango', 'flow'])
 })
 
 test('planesForConnectionIds targets only the referenced planes and collects raw mcp ids', () => {

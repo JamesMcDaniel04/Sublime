@@ -10,17 +10,18 @@
  *       klavis:<mcpAgentId>   — a Klavis-provisioned MCP server row
  *       native:<providerId>   — a built-in integration (granola|slack|http|email)
  *       nango:<capability>    — a Nango delivery capability (slack|gmail|salesforce)
+ *       flow:<flowId>         — an agent-callable flow (workflows-as-tools)
  *
  * Parsing is pure so execution routing and the catalog agree on one scheme.
  * An id with an unrecognized prefix is treated as a raw MCP row id (colons are
  * technically legal there), which preserves backward compatibility.
  */
 
-export const FLOW_TOOL_PLANES = ['klavis', 'mcp', 'native', 'nango'] as const
+export const FLOW_TOOL_PLANES = ['klavis', 'mcp', 'native', 'nango', 'flow'] as const
 export type FlowToolPlane = (typeof FLOW_TOOL_PLANES)[number]
 
 /** Planes that use a `<plane>:<ref>` prefix (mcp rows stay raw). */
-const PREFIXED_PLANES = new Set<FlowToolPlane>(['klavis', 'native', 'nango'])
+const PREFIXED_PLANES = new Set<FlowToolPlane>(['klavis', 'native', 'nango', 'flow'])
 
 export type ParsedFlowToolConnectionId = { plane: FlowToolPlane; ref: string }
 
