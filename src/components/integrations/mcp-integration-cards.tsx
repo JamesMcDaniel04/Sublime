@@ -5,9 +5,10 @@ import { AlertCircle, CheckCircle2, ChevronDown, Loader2, Wrench } from 'lucide-
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Input } from '@/components/ui/input'
 import { Pagination, paginate } from '@/components/ui/pagination'
 import { IntegrationLogo } from '@/components/integrations/integration-logo'
+import { IntegrationAiSearch } from '@/components/integrations/integration-ai-search'
+import type { IntegrationMatch } from '@/lib/integrations/ai-search'
 import { Switch } from '@/components/ui/switch'
 import { useCachedJson } from '@/lib/client/use-cached-json'
 import { useScanExclusions } from '@/lib/client/use-scan-exclusions'
@@ -29,7 +30,7 @@ type Connection = {
 type StrataServer = { name: string; label: string; description?: string; toolCount?: number }
 type StrataCatalog = { strata: boolean; connectionName?: string; servers?: StrataServer[]; error?: string }
 
-const STRATA_PAGE_SIZE = 15
+const INTEGRATIONS_PAGE_SIZE = 9
 
 function toolLabel(name: string) {
   return name.replace(/[_-]+/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
@@ -48,29 +49,28 @@ function strataSlug(name: string) {
 function StrataCatalogue({ servers, connectionName }: { servers: StrataServer[]; connectionName?: string }) {
   const [page, setPage] = useState(1)
   const [query, setQuery] = useState('')
+  const [recommendations, setRecommendations] = useState<IntegrationMatch[] | null>(null)
 
-  const filtered = query.trim()
-    ? servers.filter((s) => `${s.label} ${s.description ?? ''}`.toLowerCase().includes(query.trim().toLowerCase()))
-    : servers
-  const { pageItems, pageCount, page: current } = paginate(filtered, page, STRATA_PAGE_SIZE)
+  const recommendedIds = recommendations ? new Set(recommendations.map((match) => match.id)) : null
+  const filtered = recommendedIds
+    ? servers.filter((server) => recommendedIds.has(server.name))
+    : query.trim()
+      ? servers.filter((s) => `${s.label} ${s.description ?? ''}`.toLowerCase().includes(query.trim().toLowerCase()))
+      : servers
+  const { pageItems, pageCount, page: current } = paginate(filtered, page, INTEGRATIONS_PAGE_SIZE)
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <p className="text-sm text-muted-foreground">
-          {servers.length} tools available to every agent via{' '}
-          <span className="font-medium text-foreground">{connectionName || 'Klavis Strata'}</span>.
-        </p>
-        <Input
-          value={query}
-          onChange={(event) => {
-            setQuery(event.target.value)
-            setPage(1)
-          }}
-          placeholder="Search tools"
-          className="h-9 w-56"
-        />
-      </div>
+      <p className="text-sm text-muted-foreground">
+        {servers.length} tools available to every agent via{' '}
+        <span className="font-medium text-foreground">{connectionName || 'Klavis Strata'}</span>.
+      </p>
+      <IntegrationAiSearch
+        items={servers.map((server) => ({ id: server.name, name: server.label, description: server.description || `Use ${server.label} from your agents.` }))}
+        query={query}
+        onQueryChange={(value) => { setQuery(value); setPage(1) }}
+        onRecommendations={(matches) => { setRecommendations(matches); setPage(1) }}
+      />
 
       {filtered.length === 0 ? (
         <p className="py-8 text-center text-sm text-muted-foreground">No tools match “{query.trim()}”.</p>
@@ -121,6 +121,9 @@ export function MCPIntegrationCards() {
   const [expanded, setExpanded] = useState<string | null>(null)
   const [actionError, setActionError] = useState('')
   const [togglingLearning, setTogglingLearning] = useState<string | null>(null)
+  const [page, setPage] = useState(1)
+  const [query, setQuery] = useState('')
+  const [recommendations, setRecommendations] = useState<IntegrationMatch[] | null>(null)
   const { isLearningEnabled, setLearningEnabled } = useScanExclusions()
 
   const toggleLearning = async (connection: Connection, enabled: boolean) => {
@@ -174,11 +177,29 @@ export function MCPIntegrationCards() {
   // Only block on the spinner when there's no cached data to show yet.
   if (loading && !connections.length) return <div className="flex items-center gap-2 text-sm text-gray-500"><Loader2 className="h-4 w-4 animate-spin" /> Loading Klavis connections...</div>
 
+  const recommendedIds = recommendations ? new Set(recommendations.map((match) => match.id)) : null
+  const visibleConnections = recommendedIds
+    ? connections.filter((connection) => recommendedIds.has(connection.provider))
+    : query.trim()
+      ? connections.filter((connection) => `${connection.provider} ${connection.capabilities?.description ?? ''}`.toLowerCase().includes(query.trim().toLowerCase()))
+      : connections
+  const { pageItems, pageCount, page: currentPage } = paginate(visibleConnections, page, INTEGRATIONS_PAGE_SIZE)
+
   return (
     <div className="space-y-4">
       {error && <div className="flex gap-2 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700"><AlertCircle className="h-4 w-4" /> {error}</div>}
+      <IntegrationAiSearch
+        items={connections.map((connection) => ({
+          id: connection.provider,
+          name: connection.provider.replace(/_/g, ' ').replace(/\b\w/g, (letter) => letter.toUpperCase()),
+          description: connection.capabilities?.description || 'Klavis MCP integration',
+        }))}
+        query={query}
+        onQueryChange={(value) => { setQuery(value); setPage(1) }}
+        onRecommendations={(matches) => { setRecommendations(matches); setPage(1) }}
+      />
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-        {connections.map((connection) => {
+        {pageItems.map((connection) => {
           const isOpen = expanded === connection.provider
           const tools = connection.tools ?? []
           const isActive = connection.status === 'active'
@@ -242,6 +263,7 @@ export function MCPIntegrationCards() {
           )
         })}
       </div>
+      <Pagination page={currentPage} pageCount={pageCount} onPageChange={setPage} />
       {!connections.length && <p className="text-sm text-gray-500">No Klavis providers are configured.</p>}
     </div>
   )
