@@ -14,6 +14,7 @@ import { getGraphRagStore } from '@/lib/rag/get-store'
 import { indexExecution } from '@/lib/rag/indexer'
 import { selectedStrataServers } from '@/lib/mcp/strata'
 import {
+  loadFlowPlaneGroups,
   loadKlavisPlaneGroups,
   loadMcpConnectionPlaneGroups,
   loadNativePlaneGroups,
@@ -288,6 +289,14 @@ async function loadTools(organizationId: string, providers: string[], ownerUserI
   // connection. Failures never abort the run.
   for (const group of await loadNangoPlaneGroups(organizationId, ownerUserId, { providers })) {
     pushGroup(group, { namePrefix: 'nango' })
+  }
+
+  // ---- Flow tool plane (agent -> flow) -------------------------------------
+  // Org-opted flows (metadata.agentCallable) appear as `flow_<slug>` tools whose
+  // input schema is the flow's input node and whose result is its output node.
+  // Only when an acting user is known (dispatch runs as that user).
+  if (ownerUserId) {
+    for (const group of await loadFlowPlaneGroups(organizationId, ownerUserId)) pushGroup(group)
   }
 
   // Select which tools to expose: over the cap, rank by relevance to the

@@ -2,6 +2,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { inputParamsFromGraph, outputFieldsFromGraph, flowInputJsonSchema, flowToolSlug, isAgentCallableFlow } from '../flow-tool'
 import { parseFlowToolConnectionId, formatFlowToolConnectionId } from '../tool-connection-id'
+import { toolName } from '@/features/agents/tool-planes'
 import type { FlowGraph } from '@/lib/flows/graph'
 
 const graph: FlowGraph = {
@@ -44,4 +45,8 @@ test('isAgentCallableFlow reads the org opt-in', () => {
   assert.equal(isAgentCallableFlow({ agentCallable: true }), true)
   assert.equal(isAgentCallableFlow({ agentCallable: false }), false)
   assert.equal(isAgentCallableFlow(null), false)
+})
+
+test('agent flow tool name = flow_<slug>', () => {
+  assert.equal(toolName('flow', flowToolSlug('Score Account')), 'flow_score_account')
 })
