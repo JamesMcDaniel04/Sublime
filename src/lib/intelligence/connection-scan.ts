@@ -319,7 +319,10 @@ export async function scanConnection(params: {
       userId: userId ?? undefined,
       type: 'intelligence.scan',
       title: connectionName,
-      body: `${profile.processes.length} process${profile.processes.length === 1 ? '' : 'es'} understood`,
+      body: [
+        `${profile.processes.length} process${profile.processes.length === 1 ? '' : 'es'} understood`,
+        ...profile.processes.slice(0, 5).map((process) => `• ${process}`),
+      ].join('\n'),
       link: '/integrations',
     })
 

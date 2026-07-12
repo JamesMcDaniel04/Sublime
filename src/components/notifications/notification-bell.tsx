@@ -5,6 +5,7 @@ import { AlertCircle, Bell, CheckCircle2, HelpCircle, Info } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { getSnapshot } from '@/lib/client/snapshot'
 import { cn } from '@/lib/utils'
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 
 type NotificationItem = {
   id: string
@@ -18,6 +19,7 @@ type NotificationItem = {
 }
 
 type PushState = 'unknown' | 'unavailable' | 'available' | 'enabled'
+type NotificationDetail = { notification: NotificationItem; processes: string[] }
 
 function levelIcon(level: string) {
   switch (level) {
@@ -50,6 +52,8 @@ export function NotificationBell() {
   const [items, setItems] = useState<NotificationItem[]>([])
   const [unread, setUnread] = useState(0)
   const [pushState, setPushState] = useState<PushState>('unknown')
+  const [detail, setDetail] = useState<NotificationDetail | null>(null)
+  const [detailLoading, setDetailLoading] = useState(false)
 
   const load = useCallback(async () => {
     // Shared app-shell snapshot (deduped with the dashboard + sidebar) rather
@@ -125,6 +129,19 @@ export function NotificationBell() {
     }
   }
 
+  const openDetail = async (notification: NotificationItem) => {
+    setOpen(false)
+    setDetail({ notification, processes: [] })
+    setDetailLoading(true)
+    try {
+      const response = await fetch(`/api/notifications/${encodeURIComponent(notification.id)}`, { cache: 'no-store' })
+      const data = await response.json().catch(() => ({}))
+      if (response.ok) setDetail({ notification: data.notification, processes: data.processes ?? [] })
+    } finally {
+      setDetailLoading(false)
+    }
+  }
+
   return (
     <div className="relative">
       <Button
@@ -154,24 +171,50 @@ export function NotificationBell() {
             </div>
             <div className="max-h-96 overflow-y-auto">
               {items.length === 0 && <p className="px-3 py-6 text-center text-sm text-gray-400">No notifications yet.</p>}
-              {items.map((n) => (
-                <a
-                  key={n.id}
-                  href={notificationHref(n)}
-                  className={cn('flex gap-2 border-b px-3 py-2.5 hover:bg-gray-50', !n.readAt && 'bg-indigo-50/40')}
-                >
+              {items.map((n) => {
+                const content = <>
                   {levelIcon(n.level)}
                   <div className="min-w-0 flex-1">
                     <div className="text-sm font-medium">{n.title}</div>
                     {n.body && <div className="line-clamp-2 text-xs text-gray-500">{n.body}</div>}
                     <div className="mt-0.5 text-[11px] text-gray-400">{new Date(n.createdAt).toLocaleString()}</div>
                   </div>
-                </a>
-              ))}
+                </>
+                const rowClass = cn('flex w-full gap-2 border-b px-3 py-2.5 text-left hover:bg-gray-50', !n.readAt && 'bg-indigo-50/40')
+                return n.type === 'intelligence.scan' ? (
+                  <button key={n.id} type="button" onClick={() => openDetail(n)} className={rowClass}>{content}</button>
+                ) : (
+                  <a key={n.id} href={notificationHref(n)} className={rowClass}>{content}</a>
+                )
+              })}
             </div>
           </div>
         </>
       )}
+      <Dialog open={Boolean(detail)} onOpenChange={(next) => { if (!next) setDetail(null) }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>What Sublime learned from {detail?.notification.title}</DialogTitle>
+          </DialogHeader>
+          {detailLoading ? (
+            <p className="text-sm text-gray-500">Loading process details…</p>
+          ) : detail?.processes.length ? (
+            <div className="space-y-3">
+              <p className="text-sm text-gray-500">{detail.processes.length} process{detail.processes.length === 1 ? '' : 'es'} understood:</p>
+              <ol className="space-y-2">
+                {detail.processes.map((process, index) => (
+                  <li key={`${index}-${process}`} className="flex gap-3 rounded-lg border bg-gray-50 p-3 text-sm text-gray-700">
+                    <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-indigo-100 text-xs font-semibold text-indigo-700">{index + 1}</span>
+                    <span>{process}</span>
+                  </li>
+                ))}
+              </ol>
+            </div>
+          ) : (
+            <p className="text-sm text-gray-500">No concrete processes were identified in this scan.</p>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

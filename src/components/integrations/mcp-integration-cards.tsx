@@ -1,17 +1,19 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { AlertCircle, CheckCircle2, ChevronDown, Loader2, Wrench } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Input } from '@/components/ui/input'
 import { Pagination, paginate } from '@/components/ui/pagination'
 import { IntegrationLogo } from '@/components/integrations/integration-logo'
+import { IntegrationAiSearch } from '@/components/integrations/integration-ai-search'
+import type { IntegrationMatch } from '@/lib/integrations/ai-search'
 import { Switch } from '@/components/ui/switch'
 import { useCachedJson } from '@/lib/client/use-cached-json'
 import { useScanExclusions } from '@/lib/client/use-scan-exclusions'
 import { connectionSourceRef } from '@/lib/intelligence/scan-exclusions'
+import { fromKlavisAgentType } from '@/lib/connectors/registry'
 
 type Tool = { name: string; description?: string }
 
@@ -29,7 +31,7 @@ type Connection = {
 type StrataServer = { name: string; label: string; description?: string; toolCount?: number }
 type StrataCatalog = { strata: boolean; connectionName?: string; servers?: StrataServer[]; error?: string }
 
-const STRATA_PAGE_SIZE = 15
+const INTEGRATIONS_PAGE_SIZE = 9
 
 function toolLabel(name: string) {
   return name.replace(/[_-]+/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
@@ -48,29 +50,28 @@ function strataSlug(name: string) {
 function StrataCatalogue({ servers, connectionName }: { servers: StrataServer[]; connectionName?: string }) {
   const [page, setPage] = useState(1)
   const [query, setQuery] = useState('')
+  const [recommendations, setRecommendations] = useState<IntegrationMatch[] | null>(null)
 
-  const filtered = query.trim()
-    ? servers.filter((s) => `${s.label} ${s.description ?? ''}`.toLowerCase().includes(query.trim().toLowerCase()))
-    : servers
-  const { pageItems, pageCount, page: current } = paginate(filtered, page, STRATA_PAGE_SIZE)
+  const recommendedIds = recommendations ? new Set(recommendations.map((match) => match.id)) : null
+  const filtered = recommendedIds
+    ? servers.filter((server) => recommendedIds.has(server.name))
+    : query.trim()
+      ? servers.filter((s) => `${s.label} ${s.description ?? ''}`.toLowerCase().includes(query.trim().toLowerCase()))
+      : servers
+  const { pageItems, pageCount, page: current } = paginate(filtered, page, INTEGRATIONS_PAGE_SIZE)
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <p className="text-sm text-muted-foreground">
-          {servers.length} tools available to every agent via{' '}
-          <span className="font-medium text-foreground">{connectionName || 'Klavis Strata'}</span>.
-        </p>
-        <Input
-          value={query}
-          onChange={(event) => {
-            setQuery(event.target.value)
-            setPage(1)
-          }}
-          placeholder="Search tools"
-          className="h-9 w-56"
-        />
-      </div>
+      <p className="text-sm text-muted-foreground">
+        {servers.length} tools available to every agent via{' '}
+        <span className="font-medium text-foreground">{connectionName || 'Klavis Strata'}</span>.
+      </p>
+      <IntegrationAiSearch
+        items={servers.map((server) => ({ id: server.name, name: server.label, description: server.description || `Use ${server.label} from your agents.` }))}
+        query={query}
+        onQueryChange={(value) => { setQuery(value); setPage(1) }}
+        onRecommendations={(matches) => { setRecommendations(matches); setPage(1) }}
+      />
 
       {filtered.length === 0 ? (
         <p className="py-8 text-center text-sm text-muted-foreground">No tools match “{query.trim()}”.</p>
@@ -121,7 +122,22 @@ export function MCPIntegrationCards() {
   const [expanded, setExpanded] = useState<string | null>(null)
   const [actionError, setActionError] = useState('')
   const [togglingLearning, setTogglingLearning] = useState<string | null>(null)
+  const [page, setPage] = useState(1)
+  const [query, setQuery] = useState('')
+  const [recommendations, setRecommendations] = useState<IntegrationMatch[] | null>(null)
+  const syncedAuthorized = useRef(false)
   const { isLearningEnabled, setLearningEnabled } = useScanExclusions()
+
+  useEffect(() => {
+    if (syncedAuthorized.current || strataLoading || strataData?.strata) return
+    syncedAuthorized.current = true
+    fetch('/api/mcp/connections/sync', { method: 'POST' })
+      .then((response) => {
+        if (!response.ok) throw new Error('Could not sync Klavis authorizations')
+        return refresh()
+      })
+      .catch((caught) => setActionError(caught instanceof Error ? caught.message : 'Could not sync Klavis authorizations'))
+  }, [refresh, strataData?.strata, strataLoading])
 
   const toggleLearning = async (connection: Connection, enabled: boolean) => {
     if (!connection.id) return
@@ -149,6 +165,28 @@ export function MCPIntegrationCards() {
       if (res?.oauthUrl) {
         const popup = window.open(res.oauthUrl, '_blank', 'width=600,height=700')
         if (!popup) setActionError('Your browser blocked the sign-in popup — allow popups for this site and click Connect again.')
+        else {
+          let attempts = 0
+          const timer = window.setInterval(async () => {
+            attempts += 1
+            try {
+              const statusResponse = await fetch('/api/mcp/connections?fresh=1', { cache: 'no-store' })
+              const statusData = await statusResponse.json()
+              const current = statusData.connections?.find((connection: Connection) => connection.provider === provider)
+              if (current?.status === 'active') {
+                window.clearInterval(timer)
+                popup.close()
+                await refresh()
+                setActionError('')
+              } else if (attempts >= 60 || (popup.closed && attempts >= 3)) {
+                window.clearInterval(timer)
+                await refresh()
+              }
+            } catch {
+              if (attempts >= 60) window.clearInterval(timer)
+            }
+          }, 2_000)
+        }
       } else if (res?.status !== 'active') {
         const name = provider.charAt(0).toUpperCase() + provider.slice(1)
         setActionError(`${name} authenticates in your Klavis dashboard, not via a popup. Once it shows Authorized there, it appears connected here.`)
@@ -156,6 +194,21 @@ export function MCPIntegrationCards() {
       await refresh() // server cache is busted on connect; pull the fresh status
     } catch (caught) {
       setActionError(caught instanceof Error ? caught.message : 'Connection failed')
+    } finally {
+      setConnecting(null)
+    }
+  }
+
+  const disconnect = async (provider: string) => {
+    setConnecting(provider)
+    setActionError('')
+    try {
+      const response = await fetch(`/api/mcp/connections?provider=${encodeURIComponent(provider)}`, { method: 'DELETE' })
+      const result = await response.json().catch(() => ({}))
+      if (!response.ok) throw new Error(result.error || 'Disconnect failed')
+      await refresh()
+    } catch (caught) {
+      setActionError(caught instanceof Error ? caught.message : 'Disconnect failed')
     } finally {
       setConnecting(null)
     }
@@ -174,21 +227,40 @@ export function MCPIntegrationCards() {
   // Only block on the spinner when there's no cached data to show yet.
   if (loading && !connections.length) return <div className="flex items-center gap-2 text-sm text-gray-500"><Loader2 className="h-4 w-4 animate-spin" /> Loading Klavis connections...</div>
 
+  const recommendedIds = recommendations ? new Set(recommendations.map((match) => match.id)) : null
+  const visibleConnections = recommendedIds
+    ? connections.filter((connection) => recommendedIds.has(connection.provider))
+    : query.trim()
+      ? connections.filter((connection) => `${connection.provider} ${connection.capabilities?.description ?? ''}`.toLowerCase().includes(query.trim().toLowerCase()))
+      : connections
+  const { pageItems, pageCount, page: currentPage } = paginate(visibleConnections, page, INTEGRATIONS_PAGE_SIZE)
+
   return (
     <div className="space-y-4">
       {error && <div className="flex gap-2 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700"><AlertCircle className="h-4 w-4" /> {error}</div>}
+      <IntegrationAiSearch
+        items={connections.map((connection) => ({
+          id: connection.provider,
+          name: connection.provider.replace(/_/g, ' ').replace(/\b\w/g, (letter) => letter.toUpperCase()),
+          description: connection.capabilities?.description || 'Klavis MCP integration',
+        }))}
+        query={query}
+        onQueryChange={(value) => { setQuery(value); setPage(1) }}
+        onRecommendations={(matches) => { setRecommendations(matches); setPage(1) }}
+      />
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-        {connections.map((connection) => {
+        {pageItems.map((connection) => {
           const isOpen = expanded === connection.provider
           const tools = connection.tools ?? []
           const isActive = connection.status === 'active'
+          const presentation = fromKlavisAgentType(connection.provider)
           return (
             <Card key={connection.provider}>
               <CardHeader>
                 <CardTitle className="flex items-center justify-between text-base capitalize">
                   <span className="flex items-center gap-2">
-                    <IntegrationLogo slug={connection.provider} name={connection.provider} />
-                    {connection.provider}
+                    <IntegrationLogo slug={presentation.slug} name={presentation.label} />
+                    {presentation.label}
                   </span>
                   <Badge variant="outline">{connection.status.replace('_', ' ')}</Badge>
                 </CardTitle>
@@ -220,9 +292,13 @@ export function MCPIntegrationCards() {
                   </div>
                 )}
 
-                {!isActive && (
+                {isActive ? (
+                  <Button className="w-full" variant="outline" disabled={connecting === connection.provider} onClick={() => disconnect(connection.provider)}>
+                    {connecting === connection.provider ? 'Disconnecting...' : 'Disconnect'}
+                  </Button>
+                ) : (
                   <Button className="w-full" disabled={connecting === connection.provider} onClick={() => connect(connection.provider)}>
-                    {connecting === connection.provider ? 'Connecting...' : 'Connect'}
+                    {connecting === connection.provider ? 'Opening Klavis...' : connection.status === 'pending_auth' ? 'Authorize with Klavis' : 'Connect with Klavis'}
                   </Button>
                 )}
 
@@ -242,7 +318,12 @@ export function MCPIntegrationCards() {
           )
         })}
       </div>
-      {!connections.length && <p className="text-sm text-gray-500">No Klavis providers are configured.</p>}
+      <Pagination page={currentPage} pageCount={pageCount} onPageChange={setPage} />
+      {!connections.length && !loading && (
+        <p className="rounded-xl border border-dashed p-6 text-center text-sm text-gray-500">
+          No verified Klavis authorizations were found for the configured authorization identity.
+        </p>
+      )}
     </div>
   )
 }

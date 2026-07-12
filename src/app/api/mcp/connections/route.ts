@@ -2,6 +2,7 @@ import { z } from 'zod'
 import { after } from 'next/server'
 import {
   createServersForTenant,
+  bustConnectionStatuses,
   getConnectionStatuses,
   removeServerConnection,
 } from '@/lib/mcp/server-provisioning'
@@ -11,6 +12,7 @@ import { ApiError, withAuthenticatedApi } from '@/lib/server/api-handler'
 import { prisma } from '@/lib/prisma'
 import { scanConnection } from '@/lib/intelligence/connection-scan'
 import { fromKlavisAgentType } from '@/lib/connectors/registry'
+import { KlavisClient } from '@/lib/mcp/klavis-client'
 
 const providerSchema = z.enum(PROVIDERS as [MCPProvider, ...MCPProvider[]])
 
@@ -29,25 +31,43 @@ function asApiError(error: unknown): never {
   throw error
 }
 
-export const GET = withAuthenticatedApi(async (_request, auth) => {
+export const GET = withAuthenticatedApi(async (request, auth) => {
+  const apiKey = process.env.KLAVIS_API_KEY
+  if (!apiKey) throw new ApiError('KLAVIS_API_KEY is not configured', 503, 'KLAVIS_UNAVAILABLE')
+  if (request.nextUrl.searchParams.get('fresh') === '1') {
+    await bustConnectionStatuses(auth.organizationId, auth.dbUser.id)
+  }
+  let catalog
+  try {
+    catalog = await new KlavisClient({ apiKey, platformName: 'sublime' }).listServerCatalog()
+  } catch (error) {
+    asApiError(error)
+  }
+  const liveNames = new Set(catalog!.map((server) => server.name.toLowerCase()))
   const statuses = await getConnectionStatuses(auth.organizationId, auth.dbUser.id)
   const byProvider = new Map(statuses.map((status) => [status.provider, status]))
-  const connections = PROVIDERS.map((provider) => {
+  // Strict authorization surface: provider support is not enough. A card is
+  // returned only after Klavis confirms the user-scoped instance is active.
+  const connections = PROVIDERS.filter((provider) => {
+    const status = byProvider.get(provider)
+    return status?.status === 'active' && liveNames.has(PROVIDER_CAPABILITIES[provider].klavisName.toLowerCase())
+  }).map((provider) => {
     const status = byProvider.get(provider)
     const capability = PROVIDER_CAPABILITIES[provider]
+    const catalogEntry = catalog!.find((server) => server.name.toLowerCase() === capability.klavisName.toLowerCase())
     return {
       provider,
       id: status?.id,
       status: status?.status || 'not_connected',
       oauthUrl: status?.oauthUrl,
-      toolCount: status?.toolCount,
-      capabilities: capability,
+      toolCount: status?.toolCount ?? catalogEntry?.toolCount,
+      capabilities: { ...capability, description: catalogEntry?.description || capability.description },
       // Prefer the live tool list (real descriptions from the server); fall back
       // to the curated catalog so cards always explain what each tool does.
       tools: status?.tools?.length ? status.tools : capability.tools,
     }
   })
-  return { success: true, connections }
+  return { success: true, gateway: { provider: 'klavis', connected: true, providerCount: catalog!.length }, connections }
 })
 
 export const POST = withAuthenticatedApi(async (request, auth) => {

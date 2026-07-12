@@ -237,6 +237,100 @@ const RAW = {
       { name: 'export_frames', description: 'Export frames or nodes as images' },
     ],
   },
+  plai: {
+    klavisName: 'Plai',
+    description: 'Create and manage AI-powered advertising campaigns',
+    tools: [
+      { name: 'list_campaigns', description: 'List advertising campaigns and their status' },
+      { name: 'get_campaign', description: 'Read campaign settings and performance' },
+      { name: 'create_campaign', description: 'Create an advertising campaign' },
+    ],
+  },
+  posthog: {
+    klavisName: 'PostHog',
+    description: 'Query product analytics, events, insights, and feature flags',
+    tools: [
+      { name: 'query_events', description: 'Query captured product events' },
+      { name: 'list_insights', description: 'List saved analytics insights' },
+      { name: 'list_feature_flags', description: 'List feature flags and their status' },
+    ],
+  },
+  postman: {
+    klavisName: 'Postman',
+    description: 'Manage Postman workspaces, collections, and API requests',
+    tools: [
+      { name: 'list_collections', description: 'List API collections in a workspace' },
+      { name: 'get_collection', description: 'Read a collection and its requests' },
+      { name: 'run_collection', description: 'Run requests from a collection' },
+    ],
+  },
+  youtube: {
+    klavisName: 'YouTube',
+    description: 'Search and manage YouTube videos, channels, and playlists',
+    tools: [
+      { name: 'search_videos', description: 'Search for videos and channels' },
+      { name: 'get_video', description: 'Read video details and statistics' },
+      { name: 'list_playlist_items', description: 'List videos in a playlist' },
+    ],
+  },
+  close: {
+    klavisName: 'Close',
+    description: 'Manage Close CRM leads, contacts, opportunities, and activities',
+    tools: [
+      { name: 'list_leads', description: 'Search and list CRM leads' },
+      { name: 'create_lead', description: 'Create a lead and its contacts' },
+      { name: 'update_opportunity', description: 'Update an opportunity or pipeline status' },
+    ],
+  },
+  gitlab: {
+    klavisName: 'GitLab',
+    description: 'Manage GitLab projects, merge requests, issues, and pipelines',
+    tools: [
+      { name: 'list_projects', description: 'List accessible GitLab projects' },
+      { name: 'list_merge_requests', description: 'List and read merge requests' },
+      { name: 'create_issue', description: 'Create an issue in a project' },
+      { name: 'get_pipeline', description: 'Read pipeline status and jobs' },
+    ],
+  },
+  motion: {
+    klavisName: 'Motion',
+    description: 'Manage Motion projects, tasks, schedules, and workspaces',
+    tools: [
+      { name: 'list_tasks', description: 'List tasks in a workspace or project' },
+      { name: 'create_task', description: 'Create and schedule a task' },
+      { name: 'update_task', description: 'Update task details or completion state' },
+    ],
+  },
+  microsoft_teams: {
+    klavisName: 'Microsoft Teams',
+    description: 'Collaborate through Microsoft Teams chats, channels, meetings, and messages',
+    tools: [
+      { name: 'list_teams', description: 'List teams and channels available to the account' },
+      { name: 'list_messages', description: 'Read recent channel or chat messages' },
+      { name: 'send_message', description: 'Send a message to a channel or chat' },
+      { name: 'list_meetings', description: 'List scheduled Teams meetings' },
+    ],
+  },
+  hugging_face: {
+    klavisName: 'Hugging Face',
+    description: 'Discover and work with Hugging Face models, datasets, and Spaces',
+    tools: [
+      { name: 'search_models', description: 'Search models on the Hugging Face Hub' },
+      { name: 'get_model', description: 'Read model metadata and documentation' },
+      { name: 'search_datasets', description: 'Search datasets available on the Hub' },
+      { name: 'run_inference', description: 'Run inference with a hosted model' },
+    ],
+  },
+  amplitude: {
+    klavisName: 'Amplitude',
+    description: 'Query Amplitude product analytics, cohorts, events, and dashboards',
+    tools: [
+      { name: 'query_events', description: 'Query product events and user activity' },
+      { name: 'list_charts', description: 'List saved charts and dashboards' },
+      { name: 'get_cohort', description: 'Read a behavioral cohort and its members' },
+      { name: 'get_metrics', description: 'Retrieve product analytics metrics' },
+    ],
+  },
   // NOTE: Every provider above is authorized at the Klavis account level.
   // Providers with no per-user OAuth flow (oauthUrl: null — e.g. Snowflake's
   // account credentials, Intercom's Strata routing) are still included here so

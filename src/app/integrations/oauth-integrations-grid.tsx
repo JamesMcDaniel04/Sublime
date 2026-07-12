@@ -8,8 +8,11 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { EmptyState } from '@/components/ui/empty-state'
+import { Pagination, paginate } from '@/components/ui/pagination'
 import { Switch } from '@/components/ui/switch'
 import { IntegrationLogo } from '@/components/integrations/integration-logo'
+import { IntegrationAiSearch } from '@/components/integrations/integration-ai-search'
+import type { IntegrationMatch } from '@/lib/integrations/ai-search'
 import { useCachedJson } from '@/lib/client/use-cached-json'
 import { useScanExclusions } from '@/lib/client/use-scan-exclusions'
 import { connectionSourceRef } from '@/lib/intelligence/scan-exclusions'
@@ -33,6 +36,8 @@ type Connection = {
   lastSync?: string
 }
 
+const INTEGRATIONS_PAGE_SIZE = 9
+
 export function OAuthIntegrationsGrid() {
   // Cached (stale-while-revalidate): the integration catalog is static (also
   // server-cached), connections revalidate in the background. A revisit paints
@@ -48,6 +53,9 @@ export function OAuthIntegrationsGrid() {
   const loading = loadingIntegrations || loadingStatus
   const [busy, setBusy] = useState<string | null>(null)
   const [togglingLearningId, setTogglingLearningId] = useState<string | null>(null)
+  const [page, setPage] = useState(1)
+  const [query, setQuery] = useState('')
+  const [recommendations, setRecommendations] = useState<IntegrationMatch[] | null>(null)
   const { isLearningEnabled, setLearningEnabled } = useScanExclusions()
   const connectUIRef = useRef<ConnectUI | null>(null)
 
@@ -74,7 +82,13 @@ export function OAuthIntegrationsGrid() {
     }
   }, [])
 
-  const visibleIntegrations = integrations
+  const recommendedIds = recommendations ? new Set(recommendations.map((match) => match.id)) : null
+  const visibleIntegrations = recommendedIds
+    ? integrations.filter((integration) => recommendedIds.has(integration.id))
+    : query.trim()
+      ? integrations.filter((integration) => `${integration.name} ${integration.provider}`.toLowerCase().includes(query.trim().toLowerCase()))
+      : integrations
+  const { pageItems, pageCount, page: currentPage } = paginate(visibleIntegrations, page, INTEGRATIONS_PAGE_SIZE)
 
   const connect = async (integration: Integration) => {
     setBusy(integration.id)
@@ -139,6 +153,13 @@ export function OAuthIntegrationsGrid() {
         </Button>
       </div>
 
+      <IntegrationAiSearch
+        items={integrations.map((integration) => ({ id: integration.id, name: integration.name, description: `Connect ${integration.name} so agents can act on the user's behalf.` }))}
+        query={query}
+        onQueryChange={(value) => { setQuery(value); setPage(1) }}
+        onRecommendations={(matches) => { setRecommendations(matches); setPage(1) }}
+      />
+
       {!visibleIntegrations.length && busy !== 'loading' && (
         <EmptyState
           title="No integrations are enabled yet"
@@ -147,7 +168,7 @@ export function OAuthIntegrationsGrid() {
       )}
 
       <div className="stagger-children grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-        {visibleIntegrations.map((integration) => {
+        {pageItems.map((integration) => {
           const connection = connections[integration.id]
           return (
             <Card key={integration.id} variant="interactive">
@@ -194,6 +215,7 @@ export function OAuthIntegrationsGrid() {
           )
         })}
       </div>
+      <Pagination page={currentPage} pageCount={pageCount} onPageChange={setPage} />
     </div>
   )
 }

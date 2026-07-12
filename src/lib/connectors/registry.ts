@@ -155,11 +155,16 @@ const KLAVIS_LABELS: Record<string, string> = {
   google_cloud: 'Google Cloud', hubspot: 'HubSpot', clickup: 'ClickUp', supabase: 'Supabase',
   airtable: 'Airtable', intercom: 'Intercom', snowflake: 'Snowflake', figma: 'Figma',
   salesforce: 'Salesforce', confluence: 'Confluence', notion: 'Notion', linear: 'Linear',
-  jira: 'Jira', asana: 'Asana', gmail: 'Gmail', slack: 'Slack',
+  jira: 'Jira', asana: 'Asana', gmail: 'Gmail', slack: 'Slack', zendesk: 'Zendesk',
+  plai: 'Plai', posthog: 'PostHog', postman: 'Postman', youtube: 'YouTube',
+  close: 'Close', gitlab: 'GitLab', motion: 'Motion', microsoft_teams: 'Microsoft Teams',
+  hugging_face: 'Hugging Face', amplitude: 'Amplitude',
 }
 const KLAVIS_SLUGS: Record<string, string> = {
   google_drive: 'googledrive', google_sheets: 'googlesheets', google_docs: 'googledocs',
   google_forms: 'googleforms', google_calendar: 'googlecalendar', google_cloud: 'googlecloud',
+  microsoft_teams: 'microsoftteams',
+  hugging_face: 'huggingface',
   monday: 'mondaydotcom',
 }
 

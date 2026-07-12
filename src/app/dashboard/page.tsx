@@ -4,7 +4,7 @@ import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'rea
 import { useRouter, useSearchParams } from 'next/navigation'
 import { toast } from 'sonner'
 import { AlertCircle, FileText, List, Loader2, Play, Plus, Settings2, Sparkles, X } from 'lucide-react'
-import { AgentActivityPane, resultText } from './agent-activity-pane'
+import { AgentActivityPane, resultText, type RunMutation } from './agent-activity-pane'
 import { AgentConfigForm, type AgentDraft } from './agent-config-form'
 import { AssistantPanel } from './assistant-panel'
 import { Button } from '@/components/ui/button'
@@ -124,6 +124,21 @@ function AgentHQ() {
       setLoading(false)
     }
   }, [])
+
+  const refreshAfterRunMutation = useCallback((mutation?: RunMutation) => {
+    if (mutation) {
+      setActivities((current) => mutation.deleted
+        ? current.filter((activity) => activity.id !== mutation.id)
+        : current.map((activity) => activity.id === mutation.id && mutation.status
+          ? { ...activity, status: mutation.status }
+          : activity))
+      if (mutation.deleted) {
+        setFocusRunId((current) => current === mutation.id ? null : current)
+        setSelectedRun((current) => current?.id === mutation.id ? null : current)
+      }
+    }
+    void load(true)
+  }, [load])
 
   useEffect(() => {
     load().catch(() => setLoading(false))
@@ -568,7 +583,7 @@ function AgentHQ() {
               agent={selectedAgent}
               activities={agentActivities}
               focusRunId={focusRunId}
-              onChanged={() => load(true).catch(() => undefined)}
+              onChanged={refreshAfterRunMutation}
               onSelectRun={setSelectedRun}
             />
           )}

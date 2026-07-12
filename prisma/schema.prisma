@@ -59,6 +59,8 @@ model Organization {
   knowledgeDocuments  KnowledgeDocument[]
   sharedSkills        SharedSkill[]
   invitations         OrganizationInvitation[]
+  slackWorkspaceConnections SlackWorkspaceConnection[]
+  slackThreadSessions       SlackThreadSession[]
 
   @@map("organizations")
 }
@@ -751,6 +753,48 @@ model FlowRunStep {
 
   @@index([flowRunId, order])
   @@map("flow_run_steps")
+}
+
+/// Per-org Slack bot binding: one row per (org, Slack workspace). botToken and
+/// signingSecret hold {"value": "<encryptSecret payload>"} — never plaintext.
+model SlackWorkspaceConnection {
+  id             String   @id @default(cuid())
+  organizationId String   @db.Uuid
+  teamId         String // Slack workspace id (T…), captured from auth.test
+  teamName       String?
+  botUserId      String // U… — the bot's own user id, for echo-guarding
+  botToken       Json // encrypted at rest (secrets.ts shape)
+  signingSecret  Json // encrypted at rest
+  status         String   @default("active") // active | error | revoked
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, teamId])
+  @@map("slack_workspace_connections")
+}
+
+/// One Slack thread ↔ one flow conversation. Keyed by the reply thread; tracks
+/// the latest run and the latest agent execution (the multi-turn seed).
+model SlackThreadSession {
+  id               String   @id @default(cuid())
+  organizationId   String   @db.Uuid
+  bindingId        String
+  channel          String
+  threadTs         String // the thread root ts
+  flowId           String
+  flowRunId        String // latest run in this thread
+  agentExecutionId String? // latest agent execution (conversation seed)
+  status           String   @default("open") // open | closed
+  updatedAt        DateTime @updatedAt
+  createdAt        DateTime @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([bindingId, channel, threadTs])
+  @@index([flowRunId])
+  @@map("slack_thread_sessions")
 }
 
 /// A file uploaded as knowledge for an agent. We store the EXTRACTED TEXT (no

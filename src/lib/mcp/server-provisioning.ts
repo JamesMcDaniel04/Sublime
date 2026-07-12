@@ -106,6 +106,7 @@ export async function createServersForTenant(
   userId: string,
   organizationId: string,
   selectedProviders: MCPProvider[] = [...PROVIDERS],
+  klavisUserId = `${organizationId}:${userId}`,
 ): Promise<ServerCreationResult[]> {
   const klavis = client()
   const results: ServerCreationResult[] = []
@@ -128,7 +129,7 @@ export async function createServersForTenant(
       }
     }
     if (!server) {
-      server = await klavis.createServerInstance(provider, `${organizationId}:${userId}`)
+      server = await klavis.createServerInstance(provider, klavisUserId)
     }
 
     await saveConnection(provider, userId, organizationId, server)
@@ -220,7 +221,7 @@ export async function getConnectionStatuses(
   // short; a stable result holds for the full TTL. Errors are never cached.
   const hasPending = result.some((r) => r.status === 'pending_auth')
   if (!result.some((r) => r.status === 'error')) {
-    await cacheSet(cacheKey, result, hasPending ? 30_000 : MCP_STATUS_TTL_MS)
+    await cacheSet(cacheKey, result, hasPending ? 2_000 : MCP_STATUS_TTL_MS)
   }
   return result
 }
