@@ -913,6 +913,19 @@ function renderNodeBody({
       return (
         <div className="space-y-3">
           <p className="text-sm text-slate-600">Runs {node.data.branches.length || 0} branches side by side.</p>
+          <div className="grid gap-1.5">
+            <label className={labelClass}>Join strategy</label>
+            <select
+              value={node.data.join ?? ''}
+              onChange={(event) => update({ ...node, data: { ...node.data, join: (event.target.value || undefined) as 'object' | 'array' | 'merge' | undefined } })}
+              className={controlClass}
+            >
+              <option value="">Keyed object (default)</option>
+              <option value="object">Object (keyed by labels)</option>
+              <option value="array">Array (branch order)</option>
+              <option value="merge">Merge (shallow-merge objects)</option>
+            </select>
+          </div>
           {onAddStep && <AddNestedStepMenu label="Add parallel branch" onPick={onAddStep} />}
         </div>
       )

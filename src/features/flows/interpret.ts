@@ -5,6 +5,7 @@ import { structuredResponseInstruction, parseStructuredAgentOutput } from './age
 import { runDataOp } from '@/lib/flows/data-ops'
 import { resolveInputParams, bindOutputFields } from '@/lib/flows/io-nodes'
 import type { RouterBranchSpec } from '@/lib/flows/router'
+import { joinBranchOutputs } from '@/lib/flows/join'
 
 export type StepOutcome = {
   nodeId: string
@@ -650,7 +651,10 @@ export async function interpretFlow(graph: FlowGraph, input: unknown, opts: Opts
         emit({ nodeId: node.id, status: control.kind === 'fail' ? 'failed' : control.kind === 'pause' ? 'waiting' : 'stopped' })
         return control
       }
-      const output = Object.fromEntries(results.filter((r) => r.res.control?.kind !== 'drop').map((r) => [r.key, r.res.output]))
+      const entries = results
+        .map((r, index) => ({ key: r.key, output: r.res.output, label: node.data.labels?.[index], dropped: r.res.control?.kind === 'drop' }))
+        .filter((e) => !e.dropped)
+      const output = joinBranchOutputs(entries, node.data.join)
       ctx.step[node.id] = { output }
       emit({ nodeId: node.id, status: 'succeeded', output })
       return { kind: 'ok', output }
