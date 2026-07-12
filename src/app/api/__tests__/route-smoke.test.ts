@@ -59,7 +59,9 @@ if (TEST_DB) {
     { name: 'GET /api/intelligence/learnings', run: async () => (await import('../intelligence/learnings/route')).GET(req('/api/intelligence/learnings')) },
     { name: 'GET /api/mcp-connections', run: async () => (await import('../mcp-connections/route')).GET(req('/api/mcp-connections')) },
     { name: 'GET /api/mcp-connections/oauth/start', run: async () => (await import('../mcp-connections/oauth/start/route')).GET(req('/api/mcp-connections/oauth/start')) },
-    { name: 'GET /api/mcp/connections', run: async () => (await import('../mcp/connections/route')).GET(req('/api/mcp/connections')) },
+    // mcp/connections: skipped — needs KLAVIS_API_KEY; throws a 503 ApiError
+    // (KLAVIS_UNAVAILABLE) before any network call, same "needs an external
+    // service key" category as the Nango/Granola routes below. (Set in prod.)
     { name: 'GET /api/mcp/strata-catalog', run: async () => (await import('../mcp/strata-catalog/route')).GET(req('/api/mcp/strata-catalog')) },
     // nango/integrations, nango/status: skipped — no NANGO_SECRET_KEY in the
     // test env, so both deliberately throw a 503 ApiError (NANGO_UNAVAILABLE)
@@ -93,6 +95,9 @@ if (TEST_DB) {
     // Incident regressions: these 500'd under the tenant guard before the sweep.
     { name: 'GET /api/agents/[id]/chat/sessions', run: async () => (await import('../agents/[id]/chat/sessions/route')).GET(req(`/api/agents/${agentId}/chat/sessions`)) },
     { name: 'GET /api/agents/[id]/chat', run: async () => (await import('../agents/[id]/chat/route')).GET(req(`/api/agents/${agentId}/chat`)) },
+    // Fail-closed [id] routes: an unknown id 404s (< 500) — no seeding needed.
+    { name: 'GET /api/slack/connections/[id]/manifest', run: async () => (await import('../slack/connections/[id]/manifest/route')).GET(req('/api/slack/connections/no-such-id/manifest')) },
+    { name: 'GET /api/notifications/[id]', run: async () => (await import('../notifications/[id]/route')).GET(req('/api/notifications/no-such-id')) },
   ]
 
   for (const c of cases) {
@@ -107,6 +112,7 @@ if (TEST_DB) {
   // test below — so a newly-added route can't silently ship untested (the
   // exact blind spot behind the 2026-07-10 tenant-guard incident).
   const skipped: Array<{ route: string; reason: string }> = [
+    { route: 'mcp/connections', reason: 'needs KLAVIS_API_KEY — throws 503 before any network call' },
     { route: 'nango/integrations', reason: 'needs NANGO_SECRET_KEY — throws 503 before any network call' },
     { route: 'nango/status', reason: 'needs NANGO_SECRET_KEY — throws 503 before any network call' },
     { route: 'granola/notes/[id]', reason: 'needs a Granola key — throws 503 before any network call' },
