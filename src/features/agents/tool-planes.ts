@@ -412,7 +412,10 @@ export async function loadFlowPlaneGroups(
           trigger: { type: 'signal', via: 'flow-tool' },
         })
         if ('queued' in res) {
-          return { error: 'This flow runs in the background; agent-callable flows require inline execution mode.' }
+          // Throw (not return) so execute-agent records this as a failed tool
+          // call — every other McpToolClient signals failure by throwing; a
+          // returned {error} object would be mis-recorded as a succeeded step.
+          throw new Error('This flow runs in the background; agent-callable flows require inline execution mode.')
         }
         return res.output ?? null
       },
@@ -498,7 +501,9 @@ export async function resolveFlowToolExecutor(params: {
   }
 
   if (plane === 'flow') {
-    const flow = await prisma.flow.findFirst({ where: { id: ref, organizationId } })
+    // status: 'ACTIVE' mirrors loadFlowPlaneGroups + every sibling plane —
+    // a DRAFT/DISABLED flow must not be executable as a tool.
+    const flow = await prisma.flow.findFirst({ where: { id: ref, organizationId, status: 'ACTIVE' } })
     if (!flow) throw new Error('The selected flow no longer exists — pick another in the step config.')
     return {
       provider: 'flow',
