@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { inputParamsFromGraph, outputFieldsFromGraph, flowInputJsonSchema, flowToolSlug, isAgentCallableFlow } from '../flow-tool'
+import { inputParamsFromGraph, outputFieldsFromGraph, flowInputJsonSchema, flowToolSlug, isAgentCallableFlow, flowToolGroundingLine } from '../flow-tool'
 import { parseFlowToolConnectionId, formatFlowToolConnectionId } from '../tool-connection-id'
 import { toolName } from '@/features/agents/tool-planes'
 import type { FlowGraph } from '@/lib/flows/graph'
@@ -49,4 +49,13 @@ test('isAgentCallableFlow reads the org opt-in', () => {
 
 test('agent flow tool name = flow_<slug>', () => {
   assert.equal(toolName('flow', flowToolSlug('Score Account')), 'flow_score_account')
+})
+
+test('flowToolGroundingLine renders a callable-flow signature', () => {
+  const line = flowToolGroundingLine(
+    { id: 'flw_1', name: 'Score Account' },
+    [{ name: 'account', type: 'string', required: true }],
+    [{ name: 'score', type: 'number' }],
+  )
+  assert.equal(line, '- Score Account (flowId: flw_1) inputs: account*:string outputs: score:number')
 })
