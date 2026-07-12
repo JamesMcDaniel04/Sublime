@@ -15,15 +15,10 @@ import {
   Loader2,
   Lock,
   LogOut,
-  Monitor,
-  Moon,
-  Palette,
   Play,
   Plug,
   Plus,
   Search,
-  Settings,
-  Sun,
   Trash2,
   Workflow,
 } from 'lucide-react'
@@ -73,7 +68,6 @@ function resizeImageToDataUrl(file: File, size = 128): Promise<string> {
   })
 }
 type Usage = { executions: number; inputTokens: number; outputTokens: number; exempt?: boolean }
-type Appearance = 'light' | 'dark' | 'system'
 
 // Module-level snapshot of the sidebar's fetched data, persisted across the
 // component's remounts. Each top-level page renders its own <DashboardLayout>,
@@ -110,9 +104,6 @@ export function Sidebar() {
   const [mobileOpen, setMobileOpen] = useState(false)
   const [paletteOpen, setPaletteOpen] = useState(false)
   const [orgMenuOpen, setOrgMenuOpen] = useState(false)
-  const [userMenuOpen, setUserMenuOpen] = useState(false)
-  const [appearanceOpen, setAppearanceOpen] = useState(false)
-  const [appearance, setAppearance] = useState<Appearance>('system')
   const [organizations, setOrganizations] = useState<Organization[]>(() => sidebarCache?.organizations ?? [])
   const [uploadingLogo, setUploadingLogo] = useState(false)
   const logoInputRef = useRef<HTMLInputElement>(null)
@@ -172,27 +163,7 @@ export function Sidebar() {
 
   useEffect(() => {
     setMobileOpen(false)
-    setUserMenuOpen(false)
-    setAppearanceOpen(false)
   }, [pathname])
-
-  useEffect(() => {
-    const saved = window.localStorage.getItem('sublime.appearance')
-    if (saved === 'light' || saved === 'dark' || saved === 'system') setAppearance(saved)
-  }, [])
-
-  useEffect(() => {
-    const media = window.matchMedia('(prefers-color-scheme: dark)')
-    const apply = () => {
-      const dark = appearance === 'dark' || (appearance === 'system' && media.matches)
-      document.documentElement.classList.toggle('dark', dark)
-      document.documentElement.style.colorScheme = dark ? 'dark' : 'light'
-    }
-    apply()
-    window.localStorage.setItem('sublime.appearance', appearance)
-    media.addEventListener('change', apply)
-    return () => media.removeEventListener('change', apply)
-  }, [appearance])
 
   const activeOrg = organizations.find((org) => org.id === activeOrgId) || organizations[0] || null
 
@@ -420,6 +391,14 @@ export function Sidebar() {
                     if (file) uploadOrgLogo(file)
                   }}
                 />
+                <div className="my-1 border-t" />
+                <div className="truncate px-2 py-1 text-xs text-gray-400">{user?.emailAddress}</div>
+                <button
+                  className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-gray-700 hover:bg-gray-100"
+                  onClick={signOut}
+                >
+                  <LogOut className="h-3.5 w-3.5" /> Sign out
+                </button>
               </div>
             </>
           )}
@@ -515,7 +494,7 @@ export function Sidebar() {
         </div>
 
         {/* Footer: usage + user */}
-        <div className="relative border-t p-3">
+        <div className="border-t p-3">
           {usage && (
             <div className="mb-2 px-1">
               <div className="mb-1 flex justify-between text-xs text-gray-500">
@@ -529,71 +508,13 @@ export function Sidebar() {
               )}
             </div>
           )}
-          {userMenuOpen && (
-            <>
-              <div className="fixed inset-0 z-10" onClick={() => { setUserMenuOpen(false); setAppearanceOpen(false) }} />
-              <div className="absolute bottom-[68px] left-3 right-3 z-20 origin-bottom animate-scale-in overflow-hidden rounded-xl border bg-white p-1.5 shadow-popover">
-                <div className="border-b px-2 py-2">
-                  <p className="truncate text-sm font-medium text-gray-900">{user?.firstName || 'Account'}</p>
-                  <p className="truncate text-xs text-gray-400">{user?.emailAddress}</p>
-                </div>
-                <Link
-                  href="/settings"
-                  className="mt-1 flex w-full items-center gap-2 rounded-lg px-2 py-2 text-sm text-gray-700 hover:bg-gray-100"
-                  onClick={() => setUserMenuOpen(false)}
-                >
-                  <Settings className="h-4 w-4 text-gray-400" /> Settings
-                </Link>
-                <button
-                  type="button"
-                  className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-sm text-gray-700 hover:bg-gray-100"
-                  onClick={() => setAppearanceOpen((open) => !open)}
-                  aria-expanded={appearanceOpen}
-                >
-                  <Palette className="h-4 w-4 text-gray-400" />
-                  <span className="flex-1 text-left">Appearance</span>
-                  <ChevronRight className={cn('h-4 w-4 text-gray-400 transition-transform', appearanceOpen && 'rotate-90')} />
-                </button>
-                {appearanceOpen && (
-                  <div className="mx-1 mb-1 grid grid-cols-3 gap-1 rounded-lg bg-gray-50 p-1">
-                    {([
-                      ['light', Sun, 'Light'],
-                      ['dark', Moon, 'Dark'],
-                      ['system', Monitor, 'System'],
-                    ] as const).map(([value, Icon, label]) => (
-                      <button
-                        key={value}
-                        type="button"
-                        onClick={() => setAppearance(value)}
-                        className={cn(
-                          'flex flex-col items-center gap-1 rounded-md px-2 py-1.5 text-[11px] text-gray-500 hover:bg-white',
-                          appearance === value && 'bg-white font-medium text-gray-900 shadow-sm',
-                        )}
-                      >
-                        <Icon className="h-3.5 w-3.5" /> {label}
-                      </button>
-                    ))}
-                  </div>
-                )}
-                <div className="my-1 border-t" />
-                <button
-                  type="button"
-                  className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-sm text-red-600 hover:bg-red-50"
-                  onClick={() => { setUserMenuOpen(false); void signOut() }}
-                >
-                  <LogOut className="h-4 w-4" /> Log out
-                </button>
-              </div>
-            </>
-          )}
-          <button
-            type="button"
-            aria-label="Open account menu"
-            aria-expanded={userMenuOpen}
-            onClick={() => { setUserMenuOpen((open) => !open); setAppearanceOpen(false) }}
+          {/* The user row IS the Settings entry point (not a nav item). */}
+          <Link
+            href="/settings"
+            aria-label="Open settings"
             className={cn(
-              'flex w-full items-center gap-2 rounded-lg px-1 py-1 text-left transition-colors hover:bg-gray-100',
-              userMenuOpen && 'bg-gray-100',
+              'flex items-center gap-2 rounded-lg px-1 py-1 transition-colors hover:bg-gray-100',
+              pathname.startsWith('/settings') && 'bg-gray-100',
             )}
           >
             <div className="flex h-8 w-8 items-center justify-center rounded-full bg-gray-200 text-xs font-semibold text-gray-600">
@@ -606,8 +527,7 @@ export function Sidebar() {
             {activeOrg && (
               <span className="rounded-full bg-gray-200 px-2 py-0.5 text-xs text-gray-600">{planLabel(activeOrg.plan)}</span>
             )}
-            <ChevronsUpDown className="h-4 w-4 shrink-0 text-gray-400" />
-          </button>
+          </Link>
         </div>
       </div>
 

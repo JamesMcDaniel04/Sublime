@@ -57,6 +57,8 @@ type RunDetails = {
   messages: Array<{ id: string; role: string; content: string; createdAt: string }>
 }
 
+export type RunMutation = { id: string; status?: string; deleted?: boolean }
+
 export const groupOrder = ['running', 'cancelling', 'waiting_for_input', 'waiting_for_approval', 'failed', 'cancelled', 'completed'] as const
 
 export const groupLabels: Record<string, string> = {
@@ -568,7 +570,7 @@ function RunRow({
   agentId: string
   expanded: boolean
   onToggle: () => void
-  onChanged: () => void
+  onChanged: (mutation?: RunMutation) => void
   /** Fired after a suggestion is dismissed so the pane's badge count can refresh. */
   onSuggestionsChanged: () => void
 }) {
@@ -638,7 +640,7 @@ function RunRow({
         return
       }
       toast.success('Run cancelled.')
-      onChanged()
+      onChanged({ id: activity.id, status: data.status })
     } catch {
       toast.error('Could not cancel the run.')
     } finally {
@@ -657,7 +659,7 @@ function RunRow({
         return
       }
       toast.success('Run deleted.')
-      onChanged()
+      onChanged({ id: activity.id, deleted: true })
     } catch {
       toast.error('Could not delete the run.')
     } finally {
@@ -813,7 +815,7 @@ export function AgentActivityPane({
   activities: Activity[]
   /** Deep-linked run to auto-expand (e.g. ?run= or a fresh manual run). */
   focusRunId?: string | null
-  onChanged: () => void
+  onChanged: (mutation?: RunMutation) => void
   /** Fires with the expanded run (or null) so the right pane can show its output. */
   onSelectRun?: (activity: Activity | null) => void
 }) {
