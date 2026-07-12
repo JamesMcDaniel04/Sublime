@@ -549,3 +549,52 @@ test('subflow node inside a loop body is ALLOWED (subflow-per-item pattern)', ()
   })
   assert.ok(!r.errors.some((e) => e.code === 'IO_NODE_IN_CONTAINER'))
 })
+
+test('router: needs branches, unique ids, and is blocked inside a container', () => {
+  const r = validateFlowGraph({
+    nodes: [
+      { id: 'trigger', type: 'trigger', data: {} },
+      { id: 'loop', type: 'loop', data: { over: '{{trigger.input}}', body: ['r'] } },
+      { id: 'r', type: 'router', data: { branches: [{ id: 'a' }, { id: 'a' }] } },
+    ],
+    edges: [{ id: 'e', source: 'trigger', target: 'loop' }],
+  })
+  const codes = r.errors.map((e) => e.code)
+  assert.ok(codes.includes('DUPLICATE_ROUTER_BRANCH'))
+  assert.ok(codes.includes('ROUTER_IN_CONTAINER'))
+})
+
+test('errorShield needs a body; empty fallback is a warning', () => {
+  const r = validateFlowGraph({
+    nodes: [
+      { id: 'trigger', type: 'trigger', data: {} },
+      { id: 's', type: 'errorShield', data: { body: [], fallback: [] } },
+    ],
+    edges: [{ id: 'e', source: 'trigger', target: 's' }],
+  })
+  assert.ok(r.errors.some((e) => e.code === 'EMPTY_SHIELD_BODY'))
+  assert.ok(r.warnings.some((e) => e.code === 'EMPTY_SHIELD_FALLBACK'))
+})
+
+test('inline agent: no agentId AND no prompt is an error', () => {
+  const r = validateFlowGraph({
+    nodes: [
+      { id: 'trigger', type: 'trigger', data: {} },
+      { id: 'a', type: 'agent', data: { agentId: '', prompt: '' } },
+    ],
+    edges: [{ id: 'e', source: 'trigger', target: 'a' }],
+  }, { agents: [] })
+  assert.ok(r.errors.some((e) => e.code === 'MISSING_AGENT_OR_PROMPT'))
+})
+
+test('inline agent with a prompt and no agentId is valid', () => {
+  const r = validateFlowGraph({
+    nodes: [
+      { id: 'trigger', type: 'trigger', data: {} },
+      { id: 'a', type: 'agent', data: { agentId: '', prompt: 'Classify {{trigger.input}}' } },
+    ],
+    edges: [{ id: 'e', source: 'trigger', target: 'a' }],
+  }, { agents: [] })
+  assert.equal(r.errors.some((e) => e.code === 'MISSING_AGENT'), false)
+  assert.equal(r.errors.some((e) => e.code === 'MISSING_AGENT_OR_PROMPT'), false)
+})
