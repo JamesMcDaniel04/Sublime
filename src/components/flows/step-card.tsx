@@ -1307,6 +1307,11 @@ function AgentBody({
   const outputFields = node.data.outputFields ?? []
   const setOutputFields = (fields: OutputField[]) =>
     update({ ...node, data: { ...node.data, outputFields: fields.length ? fields : undefined } })
+  // Inline-prompt mode: an ephemeral one-shot model call with no saved
+  // AgentTask (model-runner.ts's generateText). Opens by default when the
+  // node already carries a prompt (JSON/copilot-authored), otherwise the
+  // saved-agent picker stays the default surface.
+  const [showInlinePrompt, setShowInlinePrompt] = useState(Boolean(node.data.prompt?.trim()))
   return (
     <div className="space-y-4">
       <div className="grid gap-2">
@@ -1345,7 +1350,47 @@ function AgentBody({
             <Plus className="h-4 w-4" /> New
           </a>
         </div>
+        <button
+          type="button"
+          onClick={() => setShowInlinePrompt((value) => !value)}
+          className="w-fit text-xs font-semibold text-blue-700 hover:text-blue-900"
+        >
+          {showInlinePrompt ? 'Hide inline prompt' : 'Use an inline prompt instead of a saved agent'}
+        </button>
       </div>
+      {showInlinePrompt && (
+        <div className="grid gap-3 rounded-lg border border-slate-200 bg-slate-50 p-3">
+          <div className="grid gap-2">
+            <label className={labelClass}>Prompt</label>
+            <TokenTextEditor
+              ref={registerEditor('agent.prompt')}
+              multiline
+              rows={4}
+              value={node.data.prompt ?? ''}
+              labelCtx={labelCtx}
+              onFocus={focusEditor('agent.prompt')}
+              onChange={(prompt) => update({ ...node, data: { ...node.data, prompt: prompt || undefined } })}
+              className={tokenControlClass}
+              placeholder="Run this prompt as a one-shot model call — no saved agent needed."
+              ariaLabel="Inline prompt"
+            />
+          </div>
+          <div className="grid gap-2">
+            <label className={labelClass}>Model</label>
+            <select
+              value={node.data.model ?? ''}
+              onChange={(event) => update({ ...node, data: { ...node.data, model: event.target.value || undefined } })}
+              className={cn(controlClass, 'w-full sm:w-64')}
+            >
+              <option value="">Default</option>
+              <option value="claude-opus-4-8">Claude Opus 4.8</option>
+              <option value="claude-sonnet-5">Claude Sonnet 5</option>
+              <option value="claude-haiku-4-5">Claude Haiku 4.5</option>
+              <option value="qwen-3.7">Qwen 3.7</option>
+            </select>
+          </div>
+        </div>
+      )}
       <div className="grid gap-2">
         <label className={labelClass}>Message to agent</label>
         <TokenTextEditor

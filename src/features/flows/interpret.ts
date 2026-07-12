@@ -14,7 +14,7 @@ export type StepOutcome = {
   error?: string
 }
 export type RunAgentResult = { output?: unknown; error?: string; waiting?: { status: string; question?: string } }
-export type RunAgentFn = (node: { id: string; agentId: string; input: string; resume?: boolean }) => Promise<RunAgentResult>
+export type RunAgentFn = (node: { id: string; agentId: string; input: string; prompt?: string; model?: string; resume?: boolean; thread?: { key: string; iteration: number } }) => Promise<RunAgentResult>
 // Deterministic (non-agent) steps: tool calls and HTTP requests. `config`
 // arrives with every template already resolved against the flow context.
 // `resume` marks the node a paused run is re-entering (e.g. after an approval
@@ -318,13 +318,14 @@ export async function interpretFlow(graph: FlowGraph, input: unknown, opts: Opts
   const runAgentWithReliability = async (
     node: Extract<FlowNode, { type: 'agent' }>,
     resolvedInput: string,
+    extra: { prompt?: string; thread?: FlowContext['thread'] },
   ): Promise<RunAgentResult> => {
     const retries = node.data.retries ?? 0
     const timeoutMs = node.data.timeoutMs
     const resume = opts.resumeNodeId === node.id
     let attempt = 0
     for (;;) {
-      const call = opts.runAgent({ id: node.id, agentId: node.data.agentId, input: resolvedInput, resume })
+      const call = opts.runAgent({ id: node.id, agentId: node.data.agentId, input: resolvedInput, prompt: extra.prompt, model: node.data.model, resume, thread: extra.thread })
       const raced = timeoutMs ? await raceTimeout(call, timeoutMs) : await call
       // A timeout only ABANDONS the live agent execution — Promise.race cannot
       // cancel it, so it may still be running (and spending tokens / performing
@@ -554,7 +555,9 @@ export async function interpretFlow(graph: FlowGraph, input: unknown, opts: Opts
       const structured = node.data.responseFormat === 'structured' && outputFields.some((field) => field.name.trim())
       let resolved = resolveTemplate(node.data.input ?? '{{trigger.input}}', ctx)
       if (structured) resolved = `${resolved}\n\n${structuredResponseInstruction(outputFields)}`
-      const res = await runAgentWithReliability(node, resolved)
+      const inline = !node.data.agentId?.trim()
+      const prompt = inline ? resolveTemplate(node.data.prompt ?? '', ctx) : undefined
+      const res = await runAgentWithReliability(node, resolved, { prompt, thread: ctx.thread })
       if (res.waiting) {
         if (node.data.humanAssistance === false) {
           const error = 'The agent asked for help, but human assistance is turned off for this step.'

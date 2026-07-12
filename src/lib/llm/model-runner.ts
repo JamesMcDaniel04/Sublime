@@ -306,6 +306,40 @@ export async function generateHeadline(summary: string): Promise<string | null> 
 }
 
 /**
+ * One-shot text completion — the cheap seam for inline-prompt flow agents (a
+ * "run this prompt" step with no saved AgentTask). Cross-provider fallback like
+ * generateStructured; the optional model override only threads onto the Claude
+ * path (Qwen resolves its own model). Throws only when every provider failed.
+ */
+export async function generateText(opts: { system: string; user: string; model?: string; maxTokens?: number }): Promise<string> {
+  const overrideModel = opts.model?.trim() || undefined
+  const order = structuredProviderOrder({ defaultModel: overrideModel || DEFAULT_AGENT_MODEL, qwen: hasQwen(), anthropic: hasAnthropic() })
+  if (order.length === 0) throw new Error('No model provider configured — set ANTHROPIC_API_KEY (or QWEN_API_KEY + QWEN_BASE_URL).')
+  const claudeModel = overrideModel && isClaude(overrideModel) ? overrideModel : isClaude(DEFAULT_AGENT_MODEL) ? DEFAULT_AGENT_MODEL : FALLBACK_CLAUDE_MODEL
+  let lastError: unknown
+  for (const target of order) {
+    try {
+      const client = target === 'qwen' ? qwenClient() : claudeClient()
+      const response = await client.messages.create({
+        model: target === 'qwen' ? qwenModel(FALLBACK_QWEN_MODEL) : claudeModel,
+        max_tokens: opts.maxTokens ?? 4096,
+        ...(opts.system.trim() ? { system: opts.system } : {}),
+        messages: [{ role: 'user', content: opts.user }],
+      })
+      return response.content
+        .filter((block): block is Anthropic.TextBlock => block.type === 'text')
+        .map((block) => block.text)
+        .join('')
+        .trim()
+    } catch (error) {
+      lastError = error
+      if (!isProviderAvailabilityError(error)) throw error
+    }
+  }
+  throw lastError
+}
+
+/**
  * One-shot structured-output completion against a JSON schema, used by the
  * natural-language agent builder and the assistant chat. Tries the preferred
  * provider first and FALLS BACK to the other on availability failures (quota,

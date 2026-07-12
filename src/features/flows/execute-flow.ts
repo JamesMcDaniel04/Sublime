@@ -20,7 +20,7 @@ import { missingRequiredInputFields } from '@/lib/flows/input-validation'
 import { shouldReuseInput, storedRunInput } from '@/lib/flows/reuse-input'
 import { interpretFlow, type RunAgentFn, type RunActionFn, type RunFlowFn, type RouteAiFn } from './interpret'
 import { buildRouterPrompt, routerBranchSchema, parseRouterChoice } from '@/lib/flows/router'
-import { generateStructured } from '@/lib/llm/model-runner'
+import { generateStructured, generateText } from '@/lib/llm/model-runner'
 import { flowActionRetries, flowActionTimeoutMs, runWithRetries, shouldRetryAfterTimeout } from './action-reliability'
 import { prepareHttpRequest, responseOutput, redactHttpStepInput, withBearerAuthorization } from './http'
 import { resolveHttpConnectionToken } from './http-auth'
@@ -358,6 +358,14 @@ export async function runFlowExecution(
         .catch(() => undefined)
     }
     try {
+      // Inline-prompt agent: a direct one-shot model call, no saved AgentTask.
+      // (runAgentExecution requires an ACTIVE AgentTask and cannot run a
+      // prompt-only ephemeral agent — see the design note.)
+      if (!node.agentId?.trim()) {
+        const text = await generateText({ system: node.prompt ?? '', user: node.input, model: node.model })
+        await finishStep({ status: 'succeeded', output: jsonValue(text), finishedAt: new Date() })
+        return { output: text }
+      }
       // Resuming this node? Re-enter the paused agent execution with the reply.
       const resumeThis = node.resume && resumeNodeId === node.id && resumeExecutionId
       const result = (await runAgentExecution(
