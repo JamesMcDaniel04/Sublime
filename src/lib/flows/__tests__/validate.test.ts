@@ -537,3 +537,15 @@ test('input node inside a loop body is rejected', () => {
   })
   assert.ok(r.errors.some((e) => e.code === 'IO_NODE_IN_CONTAINER'))
 })
+
+test('subflow node inside a loop body is ALLOWED (subflow-per-item pattern)', () => {
+  const r = validateFlowGraph({
+    nodes: [
+      { id: 'trigger', type: 'trigger', data: {} },
+      { id: 'loop', type: 'loop', data: { over: '{{trigger.input}}', body: ['sub'] } },
+      { id: 'sub', type: 'subflow', data: { flowId: 'flw_child', input: '{"item":"{{item}}"}' } },
+    ],
+    edges: [{ id: 'e', source: 'trigger', target: 'loop' }],
+  })
+  assert.ok(!r.errors.some((e) => e.code === 'IO_NODE_IN_CONTAINER'))
+})

@@ -555,7 +555,10 @@ export function validateFlowGraph(graph: FlowGraph, context: FlowValidationConte
         member.id,
       )
     }
-    if (member.type === 'input' || member.type === 'output' || member.type === 'subflow') {
+    // Input/Output declare the flow's callable signature and belong at the top
+    // level only. `subflow` is INTENTIONALLY allowed inside a container — a
+    // subflow-per-item is the supported nested-iteration pattern (spec §3.3).
+    if (member.type === 'input' || member.type === 'output') {
       add(issues, 'error', 'IO_NODE_IN_CONTAINER', `${nodeLabel(member)} can't run inside a For each / Parallel body. Use a subflow-per-item instead.`, member.id)
     }
     // Warning (not an error): the run still works, but resuming a paused
