@@ -4,6 +4,7 @@ import { shouldRetryAfterTimeout } from './action-reliability'
 import { structuredResponseInstruction, parseStructuredAgentOutput } from './agent-response'
 import { runDataOp } from '@/lib/flows/data-ops'
 import { resolveInputParams, bindOutputFields } from '@/lib/flows/io-nodes'
+import type { RouterBranchSpec } from '@/lib/flows/router'
 
 export type StepOutcome = {
   nodeId: string
@@ -24,6 +25,9 @@ export type RunActionFn = (node: { id: string; kind: 'tool' | 'http'; config: Re
 // a `waiting` result, so this contract has no waiting case to represent.
 export type RunFlowResult = { output?: unknown; error?: string }
 export type RunFlowFn = (node: { id: string; flowId: string; input: unknown; resume?: boolean }) => Promise<RunFlowResult>
+// AI Router branch pick. Injected (like runAgent) so the interpreter stays
+// pure: the execute-flow adapter wires this to a cheap generateStructured call.
+export type RouteAiFn = (node: { id: string; branches: RouterBranchSpec[]; instructions?: string; input: string }) => Promise<{ branch: string } | { error: string }>
 export type InterpretResult = {
   status: 'succeeded' | 'failed' | 'waiting'
   steps: StepOutcome[]
@@ -38,6 +42,7 @@ type Opts = {
   runAgent: RunAgentFn
   runAction?: RunActionFn
   runFlow?: RunFlowFn
+  routeAi?: RouteAiFn
   maxSteps?: number
   maxLoopIterations?: number
   onStep?: (outcome: StepOutcome) => void
@@ -364,15 +369,15 @@ export async function interpretFlow(graph: FlowGraph, input: unknown, opts: Opts
       return { kind: 'stop' }
     }
 
-    if (node.type === 'condition' || node.type === 'switch') {
+    if (node.type === 'condition' || node.type === 'switch' || node.type === 'router') {
       // Bodies are flat ordered lists (no edges), so branching can't route
-      // here. The main-chain walker intercepts condition/switch before
+      // here. The main-chain walker intercepts condition/switch/router before
       // execNode is consulted, so reaching this arm means the node sits inside
       // a container body — publish validation also rejects that
-      // (CONDITION_IN_CONTAINER); this guards stored pre-validation graphs,
-      // which previously mis-ran silently.
-      const label = node.type === 'condition' ? 'If / else' : 'Switch'
-      const error = `${label} can't run inside a For each / Parallel body — branching isn't supported there. Use a Filter step to gate items instead.`
+      // (CONDITION_IN_CONTAINER / ROUTER_IN_CONTAINER); this guards stored
+      // pre-validation graphs, which previously mis-ran silently.
+      const label = node.type === 'condition' ? 'If / else' : node.type === 'switch' ? 'Switch' : 'AI router'
+      const error = `${label} can't run inside a For each / Parallel body — branching isn't supported there.`
       emit({ nodeId: node.id, status: 'failed', error })
       return { kind: 'fail', error }
     }
@@ -745,6 +750,35 @@ export async function interpretFlow(graph: FlowGraph, input: unknown, opts: Opts
       const hit = current.data.cases.find((c) => evalClause({ left: c.left, op: c.op, right: c.right }, ctx))
       emit({ nodeId: current.id, status: 'succeeded', output: hit?.id ?? 'default' })
       const edge = outgoing(current.id, hit ? hit.id : 'default')
+      current = edge ? byId.get(edge.target) : undefined
+      continue
+    }
+
+    if (current.type === 'router') {
+      if (overBudget()) return { status: 'failed', steps, output: lastOutput, error: 'Flow exceeded the maximum number of steps.' }
+      let chosen: string
+      // Resume stability: reuse the branch chosen on the first run (the stored
+      // output IS the branch id). Re-calling the model could route differently.
+      const prior = opts.completed && Object.prototype.hasOwnProperty.call(opts.completed, current.id) ? opts.completed[current.id] : undefined
+      if (typeof prior === 'string' && prior) {
+        chosen = prior
+        emit({ nodeId: current.id, status: 'skipped', output: chosen })
+      } else if (!opts.routeAi) {
+        const error = 'Router steps need an AI runtime and are not supported in this runtime.'
+        emit({ nodeId: current.id, status: 'failed', error })
+        return { status: 'failed', steps, output: lastOutput, error }
+      } else {
+        const input = resolveTemplate(current.data.input ?? '{{trigger.input}}', ctx)
+        const res = await opts.routeAi({ id: current.id, branches: current.data.branches, instructions: current.data.instructions, input })
+        if ('error' in res) {
+          emit({ nodeId: current.id, status: 'failed', error: res.error })
+          return { status: 'failed', steps, output: lastOutput, error: res.error }
+        }
+        chosen = res.branch
+        ctx.step[current.id] = { output: chosen }
+        emit({ nodeId: current.id, status: 'succeeded', output: chosen })
+      }
+      const edge = outgoing(current.id, chosen)
       current = edge ? byId.get(edge.target) : undefined
       continue
     }

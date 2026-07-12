@@ -18,7 +18,9 @@ import { ApiError } from '@/lib/server/api-handler'
 import { triggerFromGraph, triggerInputFieldsFromTrigger } from '@/lib/flows/trigger'
 import { missingRequiredInputFields } from '@/lib/flows/input-validation'
 import { shouldReuseInput, storedRunInput } from '@/lib/flows/reuse-input'
-import { interpretFlow, type RunAgentFn, type RunActionFn, type RunFlowFn } from './interpret'
+import { interpretFlow, type RunAgentFn, type RunActionFn, type RunFlowFn, type RouteAiFn } from './interpret'
+import { buildRouterPrompt, routerBranchSchema, parseRouterChoice } from '@/lib/flows/router'
+import { generateStructured } from '@/lib/llm/model-runner'
 import { flowActionRetries, flowActionTimeoutMs, runWithRetries, shouldRetryAfterTimeout } from './action-reliability'
 import { prepareHttpRequest, responseOutput, redactHttpStepInput, withBearerAuthorization } from './http'
 import { resolveHttpConnectionToken } from './http-auth'
@@ -621,10 +623,24 @@ export async function runFlowExecution(
     }
   }
 
+  // AI Router: a cheap, enum-constrained one-shot model call — NOT a full agent
+  // run (no AgentExecution row, no tools/RAG). generateStructured already does
+  // cross-provider fallback and JSON-schema-constrained output.
+  const routeAi: RouteAiFn = async (node) => {
+    try {
+      const { system, user } = buildRouterPrompt(node.branches, node.instructions, node.input)
+      const raw = await generateStructured({ system, user, schema: routerBranchSchema(node.branches), schemaName: 'router_choice', maxTokens: 64 })
+      return parseRouterChoice(raw, node.branches)
+    } catch (error) {
+      return { error: error instanceof Error ? error.message : String(error) }
+    }
+  }
+
   const result = await interpretFlow(graph, input, {
     runAgent,
     runAction,
     runFlow,
+    routeAi,
     onStep,
     ...(resuming ? { completed, resumeNodeId, resumeReply: job.reply } : {}),
   })
