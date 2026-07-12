@@ -147,11 +147,101 @@ const RAW = {
       { name: 'update_page', description: 'Update or append to a page’s content' },
     ],
   },
-  // NOTE: Intercom and Snowflake are deliberately NOT in this per-provider
-  // catalog. Klavis exposes no per-user auth flow for them (oauthUrl: null —
-  // Snowflake uses account credentials, Intercom routes through Strata), so a
-  // per-provider instance can never finish connecting here. They're served via
-  // the org's Klavis Strata connection instead (see /api/mcp/strata-catalog).
+  google_calendar: {
+    klavisName: 'Google Calendar',
+    description: 'Read and manage Google Calendar events',
+    tools: [
+      { name: 'list_events', description: 'List upcoming or past events on a calendar' },
+      { name: 'create_event', description: 'Create a new calendar event' },
+      { name: 'update_event', description: 'Update the time, attendees, or details of an event' },
+    ],
+  },
+  google_docs: {
+    klavisName: 'Google Docs',
+    description: 'Read and write Google Docs documents',
+    tools: [
+      { name: 'create_document', description: 'Create a new document' },
+      { name: 'read_document', description: 'Read the content of a document' },
+      { name: 'update_document', description: 'Update the content of a document' },
+    ],
+  },
+  google_forms: {
+    klavisName: 'Google Forms',
+    description: 'Create Google Forms and read their responses',
+    tools: [
+      { name: 'create_form', description: 'Create a new form' },
+      { name: 'list_responses', description: 'List responses submitted to a form' },
+      { name: 'get_form', description: 'Read a form’s structure and questions' },
+    ],
+  },
+  google_cloud: {
+    klavisName: 'Google Cloud',
+    description: 'Inspect Google Cloud projects, resources, and logs',
+    tools: [
+      { name: 'list_projects', description: 'List accessible Google Cloud projects' },
+      { name: 'list_resources', description: 'List resources within a project' },
+      { name: 'get_logs', description: 'Read logs for a project or resource' },
+    ],
+  },
+  clickup: {
+    klavisName: 'ClickUp',
+    description: 'Manage ClickUp tasks and lists',
+    tools: [
+      { name: 'list_tasks', description: 'List tasks in a list or space' },
+      { name: 'create_task', description: 'Create a task with name and details' },
+      { name: 'update_task', description: 'Update a task’s fields or status' },
+    ],
+  },
+  supabase: {
+    klavisName: 'Supabase',
+    description: 'Query and manage Supabase Postgres databases',
+    tools: [
+      { name: 'run_sql', description: 'Run a SQL query against the database' },
+      { name: 'list_tables', description: 'List tables in the database' },
+      { name: 'insert_row', description: 'Insert a row into a table' },
+    ],
+  },
+  airtable: {
+    klavisName: 'Airtable',
+    description: 'Read and write Airtable bases',
+    tools: [
+      { name: 'list_records', description: 'List records in a table or view' },
+      { name: 'create_record', description: 'Create a record with field values' },
+      { name: 'update_record', description: 'Update fields on an existing record' },
+    ],
+  },
+  intercom: {
+    klavisName: 'Intercom',
+    description: 'Manage Intercom conversations and contacts',
+    tools: [
+      { name: 'list_conversations', description: 'List and filter support conversations' },
+      { name: 'reply_conversation', description: 'Reply to an existing conversation' },
+      { name: 'create_contact', description: 'Create a contact record' },
+    ],
+  },
+  snowflake: {
+    klavisName: 'Snowflake',
+    description: 'Query and inspect Snowflake data warehouses',
+    tools: [
+      { name: 'run_query', description: 'Run a SQL query against the warehouse' },
+      { name: 'list_tables', description: 'List tables in a schema' },
+      { name: 'describe_table', description: 'Describe a table’s columns and types' },
+    ],
+  },
+  figma: {
+    klavisName: 'Figma',
+    description: 'Read Figma files and export frames',
+    tools: [
+      { name: 'list_files', description: 'List files in a project or team' },
+      { name: 'get_file', description: 'Read a file’s structure and contents' },
+      { name: 'export_frames', description: 'Export frames or nodes as images' },
+    ],
+  },
+  // NOTE: Every provider above is authorized at the Klavis account level.
+  // Providers with no per-user OAuth flow (oauthUrl: null — e.g. Snowflake's
+  // account credentials, Intercom's Strata routing) are still included here so
+  // the capability card renders; their `connectionStatus` resolves via the
+  // account-level authNeeded === false path instead of a per-user OAuth redirect.
 } satisfies Record<string, RawCapability>
 
 // Derive the display+config shape: keep `tools` (name + description) and add

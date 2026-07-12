@@ -151,10 +151,16 @@ export function fromNangoProviderKey(providerConfigKey: string): { key: string; 
 
 const KLAVIS_LABELS: Record<string, string> = {
   github: 'GitHub', google_drive: 'Google Drive', google_sheets: 'Google Sheets',
-  hubspot: 'HubSpot', clickup: 'ClickUp',
+  google_docs: 'Google Docs', google_forms: 'Google Forms', google_calendar: 'Google Calendar',
+  google_cloud: 'Google Cloud', hubspot: 'HubSpot', clickup: 'ClickUp', supabase: 'Supabase',
+  airtable: 'Airtable', intercom: 'Intercom', snowflake: 'Snowflake', figma: 'Figma',
+  salesforce: 'Salesforce', confluence: 'Confluence', notion: 'Notion', linear: 'Linear',
+  jira: 'Jira', asana: 'Asana', gmail: 'Gmail', slack: 'Slack',
 }
 const KLAVIS_SLUGS: Record<string, string> = {
-  google_drive: 'googledrive', google_sheets: 'googlesheets', monday: 'mondaydotcom',
+  google_drive: 'googledrive', google_sheets: 'googlesheets', google_docs: 'googledocs',
+  google_forms: 'googleforms', google_calendar: 'googlecalendar', google_cloud: 'googlecloud',
+  monday: 'mondaydotcom',
 }
 
 /** Klavis agentType (e.g. "GITHUB") → key (lowercased) + display + icon slug. */

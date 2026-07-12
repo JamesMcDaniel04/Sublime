@@ -39,11 +39,29 @@ const SIMPLE_ICON_SLUGS: Record<string, string> = {
   googledrive: 'googledrive',
   launchdarkly: 'launchdarkly',
   'launch-darkly': 'launchdarkly',
+  googlecalendar: 'googlecalendar',
+  googledocs: 'googledocs',
+  googleforms: 'googleforms',
+  googlecloud: 'googlecloud',
+  supabase: 'supabase',
+  intercom: 'intercom',
+  figma: 'figma',
 }
 
 function simpleIconUrl(slug: string): string {
   // Brand-colored SVG, no API key. Falls back gracefully via onError.
   return `https://cdn.simpleicons.org/${slug}`
+}
+
+/**
+ * Strip separators from a provider key so underscore/hyphen/space variants
+ * (e.g. "google_calendar", "google-calendar", "Google Calendar") resolve to
+ * the same Simple Icons slug ("googlecalendar"). Simple Icons slugs are
+ * always lowercase and separator-free, so this normalization is always safe
+ * as a fallback when no explicit SIMPLE_ICON_SLUGS mapping exists.
+ */
+export function normalizeIconSlug(key: string): string {
+  return key.toLowerCase().replace(/[-_\s]/g, '')
 }
 
 // Bundled brand assets (public/logos), preferred over any passed src or the
@@ -85,7 +103,8 @@ export function IntegrationLogo({
   const key = (slug || '').toLowerCase()
   // A bundled asset for this provider wins over any passed src or the CDN.
   const effectiveSrc = localLogo(key) ?? src
-  const iconSlug = SIMPLE_ICON_SLUGS[key] ?? (key || null)
+  const normalized = normalizeIconSlug(key)
+  const iconSlug = SIMPLE_ICON_SLUGS[key] ?? SIMPLE_ICON_SLUGS[normalized] ?? (normalized || null)
   // 0 = explicit/local src, 1 = simple-icons, 2 = initial fallback.
   const initialStage = effectiveSrc ? 0 : slug ? 1 : 2
   const [stage, setStage] = useState(initialStage)
