@@ -386,7 +386,11 @@ export async function runFlowExecution(
       // Record this run's execution id as the next iteration's continuation
       // point (threading applies to SAVED agents only — an inline step returns
       // above via the `!node.agentId` early branch and never reaches here).
-      if (threadKey && result.executionId) threadExecutions.set(threadKey, result.executionId)
+      // Only a COMPLETED execution may seed the next iteration. A waiting_*
+      // execution's transcript ends on an unresolved tool_use, so continuing
+      // from it would emit an invalid assistant(tool_use)->user request.
+      const settledWaiting = typeof result?.status === 'string' && result.status.startsWith('waiting')
+      if (threadKey && result.executionId && !settledWaiting) threadExecutions.set(threadKey, result.executionId)
 
       if (typeof result?.status === 'string' && result.status.startsWith('waiting')) {
         // Persist the pause reason on the step so the runs API can surface it.

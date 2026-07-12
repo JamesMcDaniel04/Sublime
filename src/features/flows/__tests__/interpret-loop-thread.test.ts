@@ -40,3 +40,16 @@ test('BACK-COMPAT: unthreaded loop passes no thread', async () => {
   await interpretFlow(graph(false), ['a', 'b'], { runAgent })
   assert.deepEqual(seen, [undefined, undefined])
 })
+
+test('threaded loop halts the chain on a pause — later iterations never run', async () => {
+  let calls = 0
+  const runAgent: RunAgentFn = async () => {
+    calls += 1
+    // Mirrors what runAgentExecution's waiting_for_input result maps to: the
+    // agent arm turns `res.waiting` into a `pause` control.
+    return { waiting: { status: 'waiting_for_input', question: 'need more info' } }
+  }
+  const result = await interpretFlow(graph(true), ['a', 'b', 'c'], { runAgent })
+  assert.equal(calls, 1)
+  assert.equal(result.status, 'waiting')
+})

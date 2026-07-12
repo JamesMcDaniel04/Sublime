@@ -626,7 +626,7 @@ export async function interpretFlow(graph: FlowGraph, input: unknown, opts: Opts
       // Threading ONE conversation across iterations requires sequential
       // execution — you cannot append turns to one conversation concurrently.
       const concurrency = threaded ? 1 : (node.data.concurrency ?? 1)
-      const perItem = await mapLimit(items, concurrency, async (item, index) => {
+      const runItem = (item: unknown, index: number) => {
         // `variables` is shared by reference: writes inside the body persist
         // past the loop (one flow-global symbol table, MS parity).
         const itemCtx: FlowContext = {
@@ -635,7 +635,24 @@ export async function interpretFlow(graph: FlowGraph, input: unknown, opts: Opts
           ...(threaded ? { thread: { key: node.id, iteration: index } } : {}),
         }
         return execBody(node.data.body, itemCtx)
-      })
+      }
+      let perItem: Awaited<ReturnType<typeof execBody>>[]
+      if (threaded) {
+        // A threaded loop chains one conversation across iterations; each
+        // iteration is seeded from the previous iteration's agent execution.
+        // A pause/fail/stop must halt the chain — running ahead would seed the
+        // next turn from an unfinished transcript (an invalid
+        // assistant(tool_use)->user request) and fire premature, later-
+        // duplicated side-effects. A 'drop' (filter) is not terminal: continue.
+        perItem = []
+        for (let index = 0; index < items.length; index++) {
+          const r = await runItem(items[index], index)
+          perItem.push(r)
+          if (r.control !== undefined && r.control.kind !== 'drop') break
+        }
+      } else {
+        perItem = await mapLimit(items, concurrency, runItem)
+      }
       // Propagate the first hard control (stop / fail / pause); a 'drop' (filter)
       // just removes that item from the collected output.
       const control = perItem.map((r) => r.control).find((c): c is NodeResult => c !== undefined && c.kind !== 'drop')
