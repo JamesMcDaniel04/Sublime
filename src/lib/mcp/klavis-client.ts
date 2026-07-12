@@ -8,6 +8,12 @@ export type KlavisServer = {
   authNeeded: boolean
 }
 
+export type KlavisCatalogServer = {
+  name: string
+  description?: string
+  toolCount?: number
+}
+
 type KlavisClientOptions = {
   apiKey: string
   baseUrl?: string
@@ -64,6 +70,33 @@ export class KlavisClient {
 
   async getServerStatus(instanceId: string): Promise<KlavisServer> {
     return this.toServer(await this.api(`/mcp-server/instance/${instanceId}`))
+  }
+
+  /** Live provider catalogue for the API-key account. */
+  async listServerCatalog(): Promise<KlavisCatalogServer[]> {
+    const data = await this.api('/mcp-server/servers')
+    return (Array.isArray(data?.servers) ? data.servers : [])
+      .filter((server: unknown): server is { name: string; description?: string; tools?: unknown[] } =>
+        Boolean(server && typeof server === 'object' && typeof (server as { name?: unknown }).name === 'string'),
+      )
+      .map((server: { name: string; description?: string; tools?: unknown[] }) => ({
+        name: server.name,
+        description: server.description,
+        toolCount: Array.isArray(server.tools) ? server.tools.length : undefined,
+      }))
+  }
+
+  /** Whether Klavis has stored credentials for this app user + provider. */
+  async isUserAuthorized(userId: string, serverName: string): Promise<boolean> {
+    try {
+      const data = await this.api(`/user/${encodeURIComponent(userId)}/auth/${encodeURIComponent(serverName)}`)
+      return Boolean(data?.success && data?.isAuthenticated)
+    } catch (error) {
+      // Klavis uses validation/not-found responses for an auth record that has
+      // not been created yet. That is a normal "not authorized" result.
+      if (error instanceof KlavisError && (error.status === 400 || error.status === 404 || error.status === 422)) return false
+      throw error
+    }
   }
 
   async deleteServerInstance(instanceId: string) {

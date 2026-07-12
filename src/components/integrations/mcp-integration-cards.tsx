@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { AlertCircle, CheckCircle2, ChevronDown, Loader2, Wrench } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -124,7 +124,19 @@ export function MCPIntegrationCards() {
   const [page, setPage] = useState(1)
   const [query, setQuery] = useState('')
   const [recommendations, setRecommendations] = useState<IntegrationMatch[] | null>(null)
+  const syncedAuthorized = useRef(false)
   const { isLearningEnabled, setLearningEnabled } = useScanExclusions()
+
+  useEffect(() => {
+    if (syncedAuthorized.current || strataLoading || strataData?.strata) return
+    syncedAuthorized.current = true
+    fetch('/api/mcp/connections/sync', { method: 'POST' })
+      .then((response) => {
+        if (!response.ok) throw new Error('Could not sync Klavis authorizations')
+        return refresh()
+      })
+      .catch((caught) => setActionError(caught instanceof Error ? caught.message : 'Could not sync Klavis authorizations'))
+  }, [refresh, strataData?.strata, strataLoading])
 
   const toggleLearning = async (connection: Connection, enabled: boolean) => {
     if (!connection.id) return
@@ -152,6 +164,28 @@ export function MCPIntegrationCards() {
       if (res?.oauthUrl) {
         const popup = window.open(res.oauthUrl, '_blank', 'width=600,height=700')
         if (!popup) setActionError('Your browser blocked the sign-in popup — allow popups for this site and click Connect again.')
+        else {
+          let attempts = 0
+          const timer = window.setInterval(async () => {
+            attempts += 1
+            try {
+              const statusResponse = await fetch('/api/mcp/connections?fresh=1', { cache: 'no-store' })
+              const statusData = await statusResponse.json()
+              const current = statusData.connections?.find((connection: Connection) => connection.provider === provider)
+              if (current?.status === 'active') {
+                window.clearInterval(timer)
+                popup.close()
+                await refresh()
+                setActionError('')
+              } else if (attempts >= 60 || (popup.closed && attempts >= 3)) {
+                window.clearInterval(timer)
+                await refresh()
+              }
+            } catch {
+              if (attempts >= 60) window.clearInterval(timer)
+            }
+          }, 2_000)
+        }
       } else if (res?.status !== 'active') {
         const name = provider.charAt(0).toUpperCase() + provider.slice(1)
         setActionError(`${name} authenticates in your Klavis dashboard, not via a popup. Once it shows Authorized there, it appears connected here.`)
@@ -159,6 +193,21 @@ export function MCPIntegrationCards() {
       await refresh() // server cache is busted on connect; pull the fresh status
     } catch (caught) {
       setActionError(caught instanceof Error ? caught.message : 'Connection failed')
+    } finally {
+      setConnecting(null)
+    }
+  }
+
+  const disconnect = async (provider: string) => {
+    setConnecting(provider)
+    setActionError('')
+    try {
+      const response = await fetch(`/api/mcp/connections?provider=${encodeURIComponent(provider)}`, { method: 'DELETE' })
+      const result = await response.json().catch(() => ({}))
+      if (!response.ok) throw new Error(result.error || 'Disconnect failed')
+      await refresh()
+    } catch (caught) {
+      setActionError(caught instanceof Error ? caught.message : 'Disconnect failed')
     } finally {
       setConnecting(null)
     }
@@ -241,9 +290,13 @@ export function MCPIntegrationCards() {
                   </div>
                 )}
 
-                {!isActive && (
+                {isActive ? (
+                  <Button className="w-full" variant="outline" disabled={connecting === connection.provider} onClick={() => disconnect(connection.provider)}>
+                    {connecting === connection.provider ? 'Disconnecting...' : 'Disconnect'}
+                  </Button>
+                ) : (
                   <Button className="w-full" disabled={connecting === connection.provider} onClick={() => connect(connection.provider)}>
-                    {connecting === connection.provider ? 'Connecting...' : 'Connect'}
+                    {connecting === connection.provider ? 'Opening Klavis...' : connection.status === 'pending_auth' ? 'Authorize with Klavis' : 'Connect with Klavis'}
                   </Button>
                 )}
 
@@ -264,7 +317,11 @@ export function MCPIntegrationCards() {
         })}
       </div>
       <Pagination page={currentPage} pageCount={pageCount} onPageChange={setPage} />
-      {!connections.length && <p className="text-sm text-gray-500">No Klavis providers are configured.</p>}
+      {!connections.length && !loading && (
+        <p className="rounded-xl border border-dashed p-6 text-center text-sm text-gray-500">
+          No integrations are authorized in Klavis for this user. Authorize an integration in Klavis, then refresh this page to import it.
+        </p>
+      )}
     </div>
   )
 }
