@@ -28,6 +28,9 @@ import { resolveHttpConnectionToken } from './http-auth'
 import { shouldPersistInterpreterStep } from './run-step-persistence'
 import { prepareToolArgs } from './tool-args'
 import { flowToolOutput } from './tool-output'
+import { slackOriginOf } from '@/lib/slack/reply'
+import { deliverSlackRunReply } from '@/lib/slack/deliver'
+import { apiLogger } from '@/lib/logger'
 
 export type FlowExecutionJob = {
   flowId: string
@@ -728,6 +731,27 @@ export async function runFlowExecution(
         },
       })
       .catch(() => undefined)
+  }
+
+  // Slack reply-to-origin: a run started from Slack reports its outcome back
+  // to the originating channel/thread — succeeded output, a failure notice,
+  // or the pending question when the run pauses (the multi-turn bridge).
+  // run.trigger carries the origin (persisted at dispatch), so resumes reply
+  // too. Fire-and-safe: a Slack outage must never affect the run's outcome.
+  const slackOrigin = slackOriginOf(run.trigger)
+  if (slackOrigin) {
+    await deliverSlackRunReply({
+      organizationId: job.organizationId,
+      flowId: flow.id,
+      flowRunId: run.id,
+      status,
+      output: result.output,
+      error: runError,
+      question: status === 'waiting' ? result.waiting?.question : undefined,
+      origin: slackOrigin,
+    }).catch((error) => {
+      apiLogger.error('slack run reply failed', { flowRunId: run.id, error: error instanceof Error ? error.message : String(error) })
+    })
   }
 
   // Fire the flow.completed signal for other flows listening in this org.
