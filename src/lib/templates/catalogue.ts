@@ -1,0 +1,445 @@
+import type { FlowGraph } from '@/lib/flows/graph'
+import type { Department } from './departments'
+
+export type TemplateAgentSpec = { ref: string; title: string; instructions: string; model?: string; integrations: string[] }
+export type SeedTemplate = {
+  seedKey: string; name: string; description: string
+  departments: Department[]; requiredIntegrations: string[]; recommendedIntegrations: string[]
+  kind: 'agent' | 'flow'
+  instructions?: string; model?: string; integrations?: string[]
+  agents?: TemplateAgentSpec[]; flowGraph?: FlowGraph
+  trigger?: { type: 'manual' | 'schedule'; [k: string]: unknown }
+  icon?: string; exampleOutput?: string
+}
+
+// ── graph node builders (kept local; output is validated by flowGraphSchema in tests) ──
+const trigger = (t: SeedTemplate['trigger'] = { type: 'manual' }) => ({ id: 'trigger', type: 'trigger' as const, data: { trigger: t } })
+const agent = (id: string, ref: string, input: string, label: string) => ({ id, type: 'agent' as const, data: { agentId: ref, input, label } })
+const httpStep = (id: string, label: string, url: string, method: 'GET'|'POST'|'PUT'|'PATCH'|'DELETE', body?: string) =>
+  ({ id, type: 'http' as const, data: { label, method, url, ...(body ? { body, bodyMode: 'json' as const } : {}) } })
+const slackStep = (id: string, channel: string, text: string, label = 'Post to Slack') =>
+  ({ id, type: 'tool' as const, data: { label, connectionId: 'native:slack', toolName: 'post_message', args: JSON.stringify({ channel, text }) } })
+const sfCreate = (id: string, sobject: string, fields: Record<string, string>, label = 'Create Salesforce record') =>
+  ({ id, type: 'tool' as const, data: { label, connectionId: 'nango:salesforce', toolName: 'salesforce_create_record', args: JSON.stringify({ sobject, fields }) } })
+const gmailStep = (id: string, to: string, subject: string, bodyTok: string, label = 'Send email') =>
+  ({ id, type: 'tool' as const, data: { label, connectionId: 'nango:gmail', toolName: 'gmail_send_email', args: JSON.stringify({ to, subject, body: bodyTok }) } })
+const edge = (source: string, target: string) => ({ id: `${source}-${target}`, source, target })
+const schedule = (cron: string) => ({ type: 'schedule' as const, cron, timezone: 'UTC' })
+
+export const SEED_CATALOGUE: SeedTemplate[] = [
+  // ───────────────────────── SALES ─────────────────────────
+  {
+    seedKey: 'sales-new-lead-to-sf-opportunity',
+    name: 'New Lead → Enrich → Salesforce Opportunity',
+    description: 'Webhook a new lead in, enrich it from a public company API, draft a qualified opportunity, create it in Salesforce, and announce it in Slack.',
+    departments: ['sales'], requiredIntegrations: ['salesforce', 'http'], recommendedIntegrations: ['slack'],
+    kind: 'flow', icon: '🎯',
+    trigger: { type: 'manual' },
+    agents: [{
+      ref: 'lead-qualifier', title: 'Lead Qualifier',
+      instructions: 'You qualify inbound leads. Given a raw lead payload and enrichment JSON, decide fit (segment, ICP match, estimated ACV) and produce a concise Opportunity name, amount, and one-paragraph rationale. Reply as JSON with fields: opportunityName, amount, stage, rationale.',
+      integrations: ['http'],
+    }],
+    flowGraph: {
+      nodes: [
+        trigger(),
+        httpStep('enrich', 'Enrich company', 'https://api.company-enrich.example/v1/lookup', 'POST', '{"domain":"{{trigger.input}}"}'),
+        agent('qualify', 'lead-qualifier', 'Raw lead: {{trigger.input}}\nEnrichment: {{step.enrich.output}}', 'Qualify lead'),
+        sfCreate('opp', 'Opportunity', { Name: '{{step.qualify.output.opportunityName}}', Amount: '{{step.qualify.output.amount}}', StageName: '{{step.qualify.output.stage}}' }),
+        slackStep('notify', '#sales', 'New opportunity created: *{{step.qualify.output.opportunityName}}* ({{step.qualify.output.amount}}). {{step.qualify.output.rationale}}'),
+      ],
+      edges: [edge('trigger', 'enrich'), edge('enrich', 'qualify'), edge('qualify', 'opp'), edge('opp', 'notify')],
+    },
+  },
+  {
+    seedKey: 'sales-discovery-followup-writer',
+    name: 'Discovery Call Follow-up Writer',
+    description: 'Pulls the latest Granola discovery notes, drafts a crisp follow-up email with next steps, logs a Salesforce task, and DMs you the draft to send.',
+    departments: ['sales'], requiredIntegrations: ['granola', 'salesforce'], recommendedIntegrations: ['gmail', 'slack'],
+    kind: 'agent', icon: '✍️', model: 'gpt-4o',
+    integrations: ['granola', 'salesforce', 'gmail', 'slack'],
+    instructions: 'You are a sales follow-up writer. 1) Read the most recent Granola meeting note for the named account. 2) Draft a follow-up email: thank-you, 3 bullet recap, explicit next steps with dates, and a clear CTA. 3) Create a Salesforce Task capturing the next step and due date. 4) Send the draft to the rep over Slack for a final review before it goes out. Keep the email under 180 words and match the prospect\'s seniority.',
+    exampleOutput: 'Subject: Great talking through your rollout timeline\n\nHi Dana — thanks for the time today...\n• Recap: ... • You raised: ... • Next: pilot scoping by Fri.\n(Logged SF Task "Send pilot scope — due 2026-07-15"; draft DM\'d to you.)',
+  },
+  {
+    seedKey: 'sales-pipeline-hygiene-nudger',
+    name: 'Pipeline Hygiene Nudger',
+    description: 'Every weekday morning, finds stale or past-close-date opportunities in Salesforce and nudges each owner in Slack with exactly what to fix.',
+    departments: ['sales'], requiredIntegrations: ['salesforce'], recommendedIntegrations: ['slack'],
+    kind: 'flow', icon: '🔔',
+    trigger: schedule('0 13 * * 1-5'),
+    agents: [{
+      ref: 'hygiene-auditor', title: 'Pipeline Hygiene Auditor',
+      instructions: 'Audit open Salesforce opportunities for hygiene problems: missing next step, past close date, no activity in 14+ days, or empty amount. Return a JSON array of { owner, oppName, issue, fixHint } for the worst offenders (max 25).',
+      integrations: ['salesforce'],
+    }],
+    flowGraph: {
+      nodes: [
+        trigger(schedule('0 13 * * 1-5')),
+        agent('audit', 'hygiene-auditor', 'Audit this org\'s open pipeline for hygiene issues.', 'Audit pipeline'),
+        slackStep('nudge', '#sales-ops', ':broom: Pipeline hygiene — {{step.audit.output}} opportunities need attention. Owners, please fix next steps and close dates today.'),
+      ],
+      edges: [edge('trigger', 'audit'), edge('audit', 'nudge')],
+    },
+  },
+  {
+    seedKey: 'sales-weekly-pipeline-digest',
+    name: 'Weekly Pipeline Digest → Sheet + Slack',
+    description: 'Monday 8am: summarizes HubSpot pipeline movement for the week, appends the snapshot to a Google Sheet, and posts the highlights to Slack.',
+    departments: ['sales'], requiredIntegrations: ['hubspot', 'google_sheets'], recommendedIntegrations: ['slack'],
+    kind: 'flow', icon: '📈',
+    trigger: schedule('0 12 * * 1'),
+    agents: [{
+      ref: 'pipeline-analyst', title: 'Pipeline Analyst',
+      instructions: 'Summarize this week\'s HubSpot pipeline: new deals, stage advances, slips, and total weighted value vs last week. Append a one-row snapshot to the tracking Google Sheet, and produce a 5-bullet Slack-ready highlight summary. Reply with the highlight text.',
+      integrations: ['hubspot', 'google_sheets'],
+    }],
+    flowGraph: {
+      nodes: [
+        trigger(schedule('0 12 * * 1')),
+        agent('analyze', 'pipeline-analyst', 'Produce this week\'s pipeline digest and append the snapshot to the tracking sheet.', 'Analyze pipeline'),
+        slackStep('post', '#sales', ':bar_chart: *Weekly pipeline digest*\n{{step.analyze.output}}'),
+      ],
+      edges: [edge('trigger', 'analyze'), edge('analyze', 'post')],
+    },
+  },
+
+  // ───────────────────────── ENGINEERING ─────────────────────────
+  {
+    seedKey: 'eng-pr-review-checklist-bot',
+    name: 'PR Review Checklist Bot',
+    description: 'On a PR-ready webhook, reviews the diff against a quality checklist (tests, types, migrations, docs) and posts a structured review summary to Slack.',
+    departments: ['engineering'], requiredIntegrations: ['github'], recommendedIntegrations: ['slack'],
+    kind: 'flow', icon: '✅',
+    trigger: { type: 'manual' },
+    agents: [{
+      ref: 'pr-reviewer', title: 'PR Review Checklist Bot',
+      instructions: 'Given a GitHub pull request reference, fetch the diff and files changed. Evaluate against: tests added/updated, type safety, DB migration safety, breaking changes, docs. Return a JSON object { verdict, blockers[], nits[], summary } where verdict ∈ approve|comment|request_changes.',
+      integrations: ['github'],
+    }],
+    flowGraph: {
+      nodes: [
+        trigger(),
+        agent('review', 'pr-reviewer', 'Review PR: {{trigger.input}}', 'Review PR'),
+        slackStep('post', '#eng-reviews', ':white_check_mark: PR review ({{step.review.output.verdict}})\n{{step.review.output.summary}}'),
+      ],
+      edges: [edge('trigger', 'review'), edge('review', 'post')],
+    },
+  },
+  {
+    seedKey: 'eng-issue-triage-routing',
+    name: 'Issue Triage & Routing Agent',
+    description: 'Reads a new GitHub issue, classifies severity and area, files or links a Linear ticket to the right team, and pings the on-call channel when it is urgent.',
+    departments: ['engineering'], requiredIntegrations: ['github', 'linear'], recommendedIntegrations: ['slack'],
+    kind: 'agent', icon: '🧭', model: 'gpt-4o',
+    integrations: ['github', 'linear', 'slack'],
+    instructions: 'You triage incoming engineering issues. 1) Read the GitHub issue. 2) Classify: severity (P0–P3), area/team, and a one-line reproduction summary. 3) Create a Linear issue on the owning team with labels and the summary, or link an existing duplicate. 4) If P0/P1, post to #eng-oncall with the Linear link. Be conservative about severity and always cite the signal that set it.',
+    exampleOutput: 'Triaged #4821 → P1, Billing. Linear BIL-233 created (labels: bug, p1). Posted to #eng-oncall: "P1 billing: refunds double-charging on retry."',
+  },
+  {
+    seedKey: 'eng-release-notes-drafter',
+    name: 'Release Notes Drafter',
+    description: 'Collates merged GitHub PRs and closed Linear issues since the last release, drafts human-readable release notes, publishes them to Confluence, and shares the link in Slack.',
+    departments: ['engineering'], requiredIntegrations: ['github', 'linear', 'confluence'], recommendedIntegrations: ['slack'],
+    kind: 'flow', icon: '📝',
+    trigger: { type: 'manual' },
+    agents: [{
+      ref: 'notes-collator', title: 'Release Notes Collator',
+      instructions: 'Given a release range (tag or date), gather merged GitHub PRs and closed Linear issues. Group into Features / Fixes / Internal. Write concise, user-facing release notes in Markdown. Reply with the Markdown body.',
+      integrations: ['github', 'linear'],
+    }, {
+      ref: 'notes-publisher', title: 'Confluence Publisher',
+      instructions: 'Publish the provided release-notes Markdown as a new Confluence page under the Releases space, titled with today\'s date. Reply with the published page URL.',
+      integrations: ['confluence'],
+    }],
+    flowGraph: {
+      nodes: [
+        trigger(),
+        agent('collate', 'notes-collator', 'Draft release notes for range: {{trigger.input}}', 'Collate notes'),
+        agent('publish', 'notes-publisher', 'Publish these release notes to Confluence:\n{{step.collate.output}}', 'Publish to Confluence'),
+        slackStep('share', '#engineering', ':memo: Release notes published: {{step.publish.output}}'),
+      ],
+      edges: [edge('trigger', 'collate'), edge('collate', 'publish'), edge('publish', 'share')],
+    },
+  },
+  {
+    seedKey: 'eng-sprint-standup-digest',
+    name: 'Sprint Standup Digest',
+    description: 'Each weekday, summarizes Linear board movement (done, in-progress, blocked) into a tight standup digest and posts it to the team Slack channel.',
+    departments: ['engineering'], requiredIntegrations: ['linear'], recommendedIntegrations: ['slack'],
+    kind: 'flow', icon: '☀️',
+    trigger: schedule('30 13 * * 1-5'),
+    agents: [{
+      ref: 'standup-writer', title: 'Standup Digest Writer',
+      instructions: 'Summarize the active Linear sprint since yesterday: what shipped, what is in progress, and what is blocked (with blocker + owner). Keep it to 8 bullets max, Slack mrkdwn. Reply with the digest text.',
+      integrations: ['linear'],
+    }],
+    flowGraph: {
+      nodes: [
+        trigger(schedule('30 13 * * 1-5')),
+        agent('digest', 'standup-writer', 'Write today\'s standup digest from the active sprint.', 'Write standup'),
+        slackStep('post', '#eng-standup', ':sunny: *Standup digest*\n{{step.digest.output}}'),
+      ],
+      edges: [edge('trigger', 'digest'), edge('digest', 'post')],
+    },
+  },
+
+  // ───────────────────────── MARKETING ─────────────────────────
+  {
+    seedKey: 'mkt-inbound-mql-router',
+    name: 'Inbound MQL Router',
+    description: 'On a form-fill webhook, scores the lead against ICP, upserts it to HubSpot with the score, and routes hot MQLs to the right AE in Slack.',
+    departments: ['marketing'], requiredIntegrations: ['hubspot', 'http'], recommendedIntegrations: ['slack'],
+    kind: 'flow', icon: '🧲',
+    trigger: { type: 'manual' },
+    agents: [{
+      ref: 'mql-scorer', title: 'MQL Scorer',
+      instructions: 'Score an inbound marketing lead against ICP using the form payload and any enrichment. Return JSON { score (0-100), tier (hot|warm|cold), assignedTeam, reason }. Upsert the contact + score into HubSpot.',
+      integrations: ['hubspot', 'http'],
+    }],
+    flowGraph: {
+      nodes: [
+        trigger(),
+        httpStep('enrich', 'Enrich lead', 'https://api.company-enrich.example/v1/lookup', 'POST', '{"email":"{{trigger.input}}"}'),
+        agent('score', 'mql-scorer', 'Lead: {{trigger.input}}\nEnrichment: {{step.enrich.output}}', 'Score MQL'),
+        slackStep('route', '#mkt-to-sales', ':magnet: New {{step.score.output.tier}} MQL (score {{step.score.output.score}}) → {{step.score.output.assignedTeam}}. {{step.score.output.reason}}'),
+      ],
+      edges: [edge('trigger', 'enrich'), edge('enrich', 'score'), edge('score', 'route')],
+    },
+  },
+  {
+    seedKey: 'mkt-campaign-brief-to-calendar',
+    name: 'Campaign Brief → Content Calendar',
+    description: 'Turns a one-line campaign goal into a structured brief and a two-week content calendar in Notion, with assets outlined in a linked Google Drive doc.',
+    departments: ['marketing'], requiredIntegrations: ['notion', 'google_drive'], recommendedIntegrations: [],
+    kind: 'agent', icon: '🗓️', model: 'gpt-4o',
+    integrations: ['notion', 'google_drive'],
+    instructions: 'You are a campaign planner. From a short campaign goal: 1) Write a crisp brief (audience, message, channels, KPIs). 2) Build a 2-week content calendar in Notion (date, channel, format, hook, owner). 3) Create a linked Google Drive doc outlining each asset. Keep hooks specific and channel-appropriate; do not invent metrics — mark KPIs as targets to confirm.',
+    exampleOutput: 'Brief: "Launch self-serve tier to PLG signups"... Calendar (Notion): Mon LinkedIn teaser, Tue blog "3 ways...", Thu launch email... Assets doc: /Drive/Campaigns/self-serve.',
+  },
+  {
+    seedKey: 'mkt-weekly-performance-digest',
+    name: 'Weekly Marketing Performance Digest',
+    description: 'Monday morning: rolls up HubSpot campaign and funnel metrics for the week, appends them to a Google Sheet, and posts a highlights digest to Slack.',
+    departments: ['marketing'], requiredIntegrations: ['hubspot', 'google_sheets'], recommendedIntegrations: ['slack'],
+    kind: 'flow', icon: '📊',
+    trigger: schedule('0 13 * * 1'),
+    agents: [{
+      ref: 'mkt-analyst', title: 'Marketing Performance Analyst',
+      instructions: 'Summarize this week\'s HubSpot marketing performance: MQLs, conversion rate by source, top campaigns, and week-over-week deltas. Append a snapshot row to the metrics Google Sheet. Reply with a 6-bullet Slack highlight.',
+      integrations: ['hubspot', 'google_sheets'],
+    }],
+    flowGraph: {
+      nodes: [
+        trigger(schedule('0 13 * * 1')),
+        agent('analyze', 'mkt-analyst', 'Produce this week\'s marketing performance digest and append the snapshot.', 'Analyze performance'),
+        slackStep('post', '#marketing', ':chart_with_upwards_trend: *Weekly marketing digest*\n{{step.analyze.output}}'),
+      ],
+      edges: [edge('trigger', 'analyze'), edge('analyze', 'post')],
+    },
+  },
+  {
+    seedKey: 'mkt-content-repurposer',
+    name: 'Content Repurposer',
+    description: 'Takes a published piece from Notion or Drive and spins it into a LinkedIn post, an X thread, and a newsletter blurb, then emails you the pack.',
+    departments: ['marketing'], requiredIntegrations: ['notion', 'google_drive'], recommendedIntegrations: ['gmail'],
+    kind: 'agent', icon: '♻️', model: 'gpt-4o',
+    integrations: ['notion', 'google_drive', 'gmail'],
+    instructions: 'You repurpose long-form content. Read the source doc (Notion page or Drive doc). Produce: 1) a LinkedIn post (hook + 3 insights + CTA), 2) a 5-tweet X thread, 3) a 60-word newsletter blurb. Preserve the original\'s claims and voice; no new stats. Email the finished pack to the requester.',
+    exampleOutput: 'LinkedIn: "We cut onboarding time 40%. Here\'s how →"... X thread (1/5)... Newsletter: "This week we shipped..." (emailed to you).',
+  },
+
+  // ───────────────────────── FINANCE ─────────────────────────
+  {
+    seedKey: 'fin-revenue-snapshot-variance-alert',
+    name: 'Revenue Snapshot & Variance Alert',
+    description: 'Daily: compares closed-won revenue in Salesforce against plan in a Google Sheet and alerts Slack when variance breaches threshold.',
+    departments: ['finance'], requiredIntegrations: ['salesforce', 'google_sheets'], recommendedIntegrations: ['slack'],
+    kind: 'flow', icon: '💰',
+    trigger: schedule('0 14 * * 1-5'),
+    agents: [{
+      ref: 'variance-analyst', title: 'Revenue Variance Analyst',
+      instructions: 'Read closed-won revenue MTD/QTD from Salesforce and the plan targets from the finance Google Sheet. Compute variance (absolute + %). Return JSON { periodRevenue, planTarget, variancePct, breach (boolean), commentary }. Breach when |variancePct| >= 10.',
+      integrations: ['salesforce', 'google_sheets'],
+    }],
+    flowGraph: {
+      nodes: [
+        trigger(schedule('0 14 * * 1-5')),
+        agent('analyze', 'variance-analyst', 'Compute today\'s revenue-vs-plan variance.', 'Analyze variance'),
+        {
+          id: 'gate', type: 'filter' as const,
+          data: { label: 'Only alert on breach', match: 'all' as const, clauses: [{ left: '{{step.analyze.output.breach}}', op: 'eq' as const, right: 'true' }] },
+        },
+        slackStep('alert', '#finance', ':rotating_light: Revenue variance {{step.analyze.output.variancePct}}% vs plan. {{step.analyze.output.commentary}}'),
+      ],
+      edges: [edge('trigger', 'analyze'), edge('analyze', 'gate'), edge('gate', 'alert')],
+    },
+  },
+  {
+    seedKey: 'fin-new-deal-billing-handoff',
+    name: 'New Deal → Billing Handoff',
+    description: 'On a closed-won signal, assembles the billing packet from Salesforce, records it to a Google Sheet, opens the billing system record via API, and notifies finance in Slack.',
+    departments: ['finance'], requiredIntegrations: ['salesforce', 'http', 'google_sheets'], recommendedIntegrations: ['slack'],
+    kind: 'flow', icon: '🧾',
+    trigger: { type: 'manual' },
+    agents: [{
+      ref: 'billing-packet', title: 'Billing Packet Assembler',
+      instructions: 'For a closed-won Salesforce opportunity, assemble the billing packet: account, contract value, term, billing contact, start date, and PO if present. Append the packet to the billing Google Sheet. Return JSON { account, amount, term, billingEmail, startDate }.',
+      integrations: ['salesforce', 'google_sheets'],
+    }],
+    flowGraph: {
+      nodes: [
+        trigger(),
+        agent('assemble', 'billing-packet', 'Assemble the billing packet for opportunity: {{trigger.input}}', 'Assemble packet'),
+        httpStep('billing', 'Create billing record', 'https://api.billing.example/v1/invoices', 'POST', '{"account":"{{step.assemble.output.account}}","amount":"{{step.assemble.output.amount}}","startDate":"{{step.assemble.output.startDate}}"}'),
+        slackStep('notify', '#finance', ':receipt: Billing handoff ready for *{{step.assemble.output.account}}* ({{step.assemble.output.amount}}). Record: {{step.billing.output}}'),
+      ],
+      edges: [edge('trigger', 'assemble'), edge('assemble', 'billing'), edge('billing', 'notify')],
+    },
+  },
+  {
+    seedKey: 'fin-spend-anomaly-reporter',
+    name: 'Spend & Expense Anomaly Reporter',
+    description: 'Weekly: scans an expense/spend Google Sheet for outliers and policy breaches, then emails finance a ranked anomaly report.',
+    departments: ['finance'], requiredIntegrations: ['google_sheets'], recommendedIntegrations: ['gmail'],
+    kind: 'agent', icon: '🚩', model: 'gpt-4o',
+    integrations: ['google_sheets', 'gmail'],
+    instructions: 'You are an expense auditor. Read the spend/expense Google Sheet. Flag anomalies: amounts >3x category median, duplicate charges, missing receipts, out-of-policy categories. Rank by risk. Email finance a report with a ranked table and a one-line recommendation per item. Never approve or reject — only surface.',
+    exampleOutput: 'Top anomalies: 1) $4,200 "Software" (7x median, no receipt) 2) Duplicate $980 travel charge 3) ... (emailed to finance@).',
+  },
+  {
+    seedKey: 'fin-weekly-cash-ar-digest',
+    name: 'Weekly Cash & AR Digest',
+    description: 'Monday: queries Snowflake for cash position and AR aging, snapshots it to a Google Sheet, and posts a leadership-ready digest to Slack.',
+    departments: ['finance'], requiredIntegrations: ['snowflake', 'google_sheets'], recommendedIntegrations: ['slack'],
+    kind: 'flow', icon: '🏦',
+    trigger: schedule('0 13 * * 1'),
+    agents: [{
+      ref: 'cash-analyst', title: 'Cash & AR Analyst',
+      instructions: 'Query Snowflake for current cash position, AR aging buckets (0-30/31-60/61-90/90+), and DSO. Append a snapshot row to the finance Google Sheet. Return a 5-bullet Slack digest highlighting overdue accounts and DSO trend.',
+      integrations: ['snowflake', 'google_sheets'],
+    }],
+    flowGraph: {
+      nodes: [
+        trigger(schedule('0 13 * * 1')),
+        agent('analyze', 'cash-analyst', 'Produce this week\'s cash & AR digest and append the snapshot.', 'Analyze cash & AR'),
+        slackStep('post', '#finance-leadership', ':bank: *Weekly cash & AR digest*\n{{step.analyze.output}}'),
+      ],
+      edges: [edge('trigger', 'analyze'), edge('analyze', 'post')],
+    },
+  },
+
+  // ───────────────────────── CSM ─────────────────────────
+  {
+    seedKey: 'csm-ticket-triage-escalation',
+    name: 'Support Ticket Triage & Escalation',
+    description: 'On a new Zendesk ticket, classifies urgency and sentiment, drafts a first response, and escalates angry or high-severity tickets to Slack.',
+    departments: ['csm'], requiredIntegrations: ['zendesk'], recommendedIntegrations: ['slack'],
+    kind: 'flow', icon: '🎫',
+    trigger: { type: 'manual' },
+    agents: [{
+      ref: 'ticket-triager', title: 'Support Ticket Triager',
+      instructions: 'Read a Zendesk ticket. Return JSON { priority (urgent|high|normal|low), sentiment (angry|frustrated|neutral|happy), category, draftReply, escalate (boolean) }. Set escalate=true for urgent priority OR angry sentiment. Keep draftReply empathetic and specific.',
+      integrations: ['zendesk'],
+    }],
+    flowGraph: {
+      nodes: [
+        trigger(),
+        agent('triage', 'ticket-triager', 'Triage Zendesk ticket: {{trigger.input}}', 'Triage ticket'),
+        {
+          id: 'gate', type: 'filter' as const,
+          data: { label: 'Escalate only when flagged', match: 'all' as const, clauses: [{ left: '{{step.triage.output.escalate}}', op: 'eq' as const, right: 'true' }] },
+        },
+        slackStep('escalate', '#support-escalations', ':ticket: {{step.triage.output.priority}}/{{step.triage.output.sentiment}} ticket needs eyes: {{trigger.input}}'),
+      ],
+      edges: [edge('trigger', 'triage'), edge('triage', 'gate'), edge('gate', 'escalate')],
+    },
+  },
+  {
+    seedKey: 'csm-churn-risk-early-warning',
+    name: 'Churn-Risk Early Warning',
+    description: 'Daily: cross-references Zendesk ticket trends and Salesforce account health signals to flag at-risk accounts and alerts the CSM team in Slack.',
+    departments: ['csm'], requiredIntegrations: ['zendesk', 'salesforce'], recommendedIntegrations: ['slack'],
+    kind: 'flow', icon: '⚠️',
+    trigger: schedule('0 14 * * 1-5'),
+    agents: [{
+      ref: 'churn-scorer', title: 'Churn Risk Scorer',
+      instructions: 'Combine Zendesk signals (ticket volume spike, negative sentiment, unresolved escalations) with Salesforce account health (usage drop, renewal date proximity, exec sponsor change). Return a JSON array of { account, riskScore (0-100), topSignals[], recommendedPlay } for accounts scoring >= 60, max 15.',
+      integrations: ['zendesk', 'salesforce'],
+    }],
+    flowGraph: {
+      nodes: [
+        trigger(schedule('0 14 * * 1-5')),
+        agent('score', 'churn-scorer', 'Score accounts for churn risk today.', 'Score churn risk'),
+        slackStep('alert', '#csm', ':warning: *Churn early-warning* — at-risk accounts:\n{{step.score.output}}'),
+      ],
+      edges: [edge('trigger', 'score'), edge('score', 'alert')],
+    },
+  },
+  {
+    seedKey: 'csm-qbr-prep-brief',
+    name: 'QBR Prep Brief',
+    description: 'Assembles a QBR brief for an account: support history from Zendesk, commercial context from Salesforce, recent Granola call notes, all written up in Notion.',
+    departments: ['csm'], requiredIntegrations: ['zendesk', 'salesforce', 'granola'], recommendedIntegrations: ['notion'],
+    kind: 'agent', icon: '📋', model: 'gpt-4o',
+    integrations: ['zendesk', 'salesforce', 'granola', 'notion'],
+    instructions: 'You prepare Quarterly Business Review briefs. For a named account: 1) Pull Salesforce commercials (ARR, renewal date, expansion pipeline). 2) Summarize Zendesk support trends (volume, CSAT, recurring issues). 3) Read recent Granola call notes for stated goals and objections. 4) Write a QBR brief in Notion: wins, risks, adoption, expansion opportunities, and 3 recommended talking points. Cite specifics; flag anything that needs the CSM to verify.',
+    exampleOutput: 'QBR — Acme Corp: ARR $180k, renewal 2026-09. Wins: 3 new teams onboarded. Risks: 2 open P1s, CSAT dip. Expansion: analytics add-on. Talking points: ... (written to Notion).',
+  },
+  {
+    seedKey: 'csm-onboarding-task-orchestrator',
+    name: 'Onboarding Task Orchestrator',
+    description: 'On a new closed-won signal, spins up the onboarding plan in Asana from the Salesforce deal, emails the customer a kickoff, and posts the plan to Slack.',
+    departments: ['csm'], requiredIntegrations: ['salesforce', 'asana'], recommendedIntegrations: ['gmail', 'slack'],
+    kind: 'flow', icon: '🚀',
+    trigger: { type: 'manual' },
+    agents: [{
+      ref: 'onboarding-planner', title: 'Onboarding Planner',
+      instructions: 'For a newly closed Salesforce deal, read the account and product mix, then create an Asana onboarding project with milestone tasks (kickoff, provisioning, training, go-live) assigned by role with due dates. Return JSON { account, kickoffEmailBody, planSummary, customerEmail }.',
+      integrations: ['salesforce', 'asana'],
+    }],
+    flowGraph: {
+      nodes: [
+        trigger(),
+        agent('plan', 'onboarding-planner', 'Build the onboarding plan for deal: {{trigger.input}}', 'Build onboarding plan'),
+        gmailStep('kickoff', '{{step.plan.output.customerEmail}}', 'Welcome aboard — your onboarding plan', '{{step.plan.output.kickoffEmailBody}}'),
+        slackStep('post', '#customer-success', ':rocket: Onboarding kicked off for *{{step.plan.output.account}}*.\n{{step.plan.output.planSummary}}'),
+      ],
+      edges: [edge('trigger', 'plan'), edge('plan', 'kickoff'), edge('kickoff', 'post')],
+    },
+  },
+]
+
+export function getSeedByKey(seedKey: string): SeedTemplate | undefined {
+  return SEED_CATALOGUE.find((s) => s.seedKey === seedKey)
+}
+
+export type SerializedTemplate = ReturnType<typeof serializeSeed>
+export function serializeSeed(seed: SeedTemplate) {
+  const integrations = Array.from(new Set([...seed.requiredIntegrations, ...seed.recommendedIntegrations]))
+  return {
+    id: `seed:${seed.seedKey}`,
+    name: seed.name,
+    description: seed.description,
+    category: seed.departments[0] ?? 'general',
+    instructions: seed.instructions ?? seed.description,
+    integrations,
+    skills: [] as string[],
+    tags: seed.departments as string[],
+    model: seed.model ?? 'gpt-4o',
+    exampleOutput: seed.exampleOutput ?? '',
+    icon: seed.icon ?? '',
+    allowSubagents: false,
+    custom: false,
+    authorName: 'Sublime',
+    mine: false,
+    autoGenerated: false,
+    // additive catalogue fields (also echoed by serializeTemplate for DB rows):
+    departments: seed.departments as string[],
+    requiredIntegrations: seed.requiredIntegrations,
+    recommendedIntegrations: seed.recommendedIntegrations,
+    kind: seed.kind,
+    seed: true as const,
+    seedKey: seed.seedKey,
+  }
+}
