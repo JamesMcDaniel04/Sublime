@@ -7,6 +7,7 @@ import { flowGraphSchema } from '@/lib/flows/graph'
 import { decryptSecretJson } from '@/lib/slack/connections'
 import { postSlackMessage, postSlackResponseUrl } from '@/lib/slack/post'
 import { resolveSlackReplyText, shouldSuppressSuccessReply, type SlackRunOrigin } from '@/lib/slack/reply'
+import { recordSessionAgentExecution } from '@/lib/slack/session'
 
 export async function deliverSlackRunReply(args: {
   organizationId: string
@@ -20,6 +21,22 @@ export async function deliverSlackRunReply(args: {
   fetchImpl?: typeof fetch
 }): Promise<void> {
   const { origin } = args
+
+  // Session upkeep: remember the run's LAST agent execution as the thread's
+  // conversation seed (no-op when the run has no open session or agent
+  // steps). Runs regardless of the suppression/reply logic below, so a
+  // suppressed reply still keeps the conversation seed current.
+  const lastAgentStep = await systemPrisma.flowRunStep.findFirst({
+    where: { flowRunId: args.flowRunId, agentExecutionId: { not: null } },
+    orderBy: { order: 'desc' },
+    select: { agentExecutionId: true },
+  })
+  await recordSessionAgentExecution({
+    organizationId: args.organizationId,
+    flowRunId: args.flowRunId,
+    agentExecutionId: lastAgentStep?.agentExecutionId ?? null,
+  }).catch(() => undefined)
+
   // systemPrisma: post-run continuation of a session-less slack run; the
   // binding is still constrained to the run's own organizationId.
   const binding = await systemPrisma.slackWorkspaceConnection.findFirst({

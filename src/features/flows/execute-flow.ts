@@ -51,6 +51,10 @@ export type FlowExecutionJob = {
   trigger?: { type: 'manual' | 'schedule' | 'webhook' | 'signal' | 'slack'; [key: string]: unknown }
   // Synchronous subflow nesting depth — bounds runaway flow->flow recursion.
   subflowDepth?: number
+  // Slack multi-turn: a prior AgentExecution id whose transcript seeds the
+  // FIRST saved-agent step of this run (execution order), so a thread carries
+  // one conversation across runs. Consumed at most once per run.
+  slackContinueExecutionId?: string
 }
 
 // Bound HTTP responses so downstream prompts/logs stay manageable.
@@ -62,6 +66,38 @@ const MAX_SUBFLOW_DEPTH = 5
 
 function jsonValue(value: unknown) {
   return JSON.parse(JSON.stringify(value ?? null))
+}
+
+/**
+ * Slack multi-turn seed resolution: given the loop-thread's own continuation
+ * candidate for this node (if any) and this run's remaining Slack-seed state,
+ * decide the `continueExecutionId` for THIS agent invocation, and whether it
+ * consumes the run-scoped Slack seed latch.
+ *
+ * Pulled out of the `runAgent` adapter as a pure function so the "seeds
+ * EXACTLY the first agent step, ONCE" and "a loop-thread agent is NEVER
+ * hijacked" invariants are unit-testable without a live LLM call — the
+ * adapter below calls this exact function, it is not a parallel
+ * reimplementation.
+ */
+export function resolveAgentContinueExecutionId(args: {
+  // The loop-thread continuation id for this exact node, if any (already
+  // resolved from `threadExecutions` — iteration 0 has none).
+  threadContinueExecutionId?: string
+  // True when this agent node sits inside a threaded loop iteration (whether
+  // or not iteration 0 produced a threadContinueExecutionId yet).
+  hasThread: boolean
+  // True when this invocation is re-entering a paused agent execution.
+  isResume: boolean
+  // Run-scoped latch: true until some earlier ELIGIBLE step has consumed it.
+  slackSeedRemaining: boolean
+  slackContinueExecutionId?: string
+}): { continueExecutionId?: string; consumed: boolean } {
+  if (args.threadContinueExecutionId) return { continueExecutionId: args.threadContinueExecutionId, consumed: false }
+  if (!args.hasThread && !args.isResume && args.slackSeedRemaining && args.slackContinueExecutionId) {
+    return { continueExecutionId: args.slackContinueExecutionId, consumed: true }
+  }
+  return { continueExecutionId: undefined, consumed: false }
 }
 
 // Write planes are the consequential audit entries — the same set the agent
@@ -333,6 +369,12 @@ export async function runFlowExecution(
   // each iteration seeds its conversation from the previous one.
   const threadExecutions = new Map<string, string>()
 
+  // Slack multi-turn seed — consumed by the first saved-agent invocation that
+  // is neither loop-threaded nor a resume. Inline-prompt agents early-return
+  // before the seed point and never consume it (documented limitation: with
+  // parallel branches "first" is race-ordered).
+  let slackSeedRemaining = Boolean(job.slackContinueExecutionId)
+
   // Adapter: each agent node runs the real agent and records a FlowRunStep row.
   const runAgent: RunAgentFn = async (node) => {
     const step = await prisma.flowRunStep.create({
@@ -384,7 +426,19 @@ export async function runFlowExecution(
       // seeds this run's transcript so the conversation carries forward.
       // Iteration 0 has no predecessor to continue, so it always starts fresh.
       const threadKey = node.thread ? `${node.thread.key}:${node.id}` : undefined
-      const continueExecutionId = threadKey && node.thread!.iteration > 0 ? threadExecutions.get(threadKey) : undefined
+      const threadContinueExecutionId = threadKey && node.thread!.iteration > 0 ? threadExecutions.get(threadKey) : undefined
+      // Slack multi-turn: seed ONLY the first agent step reached in this run,
+      // and never when loop-threading already provides a seed or this
+      // invocation resumes a paused execution.
+      const slackSeed = resolveAgentContinueExecutionId({
+        threadContinueExecutionId,
+        hasThread: Boolean(node.thread),
+        isResume: Boolean(resumeThis),
+        slackSeedRemaining,
+        slackContinueExecutionId: job.slackContinueExecutionId,
+      })
+      const continueExecutionId = slackSeed.continueExecutionId
+      if (slackSeed.consumed) slackSeedRemaining = false
       const result = (await runAgentExecution(
         resumeThis
           ? { agentId: node.agentId, organizationId: job.organizationId, userId: job.userId, executionId: resumeExecutionId, resume: true, reply: job.reply, onExecutionCreated }

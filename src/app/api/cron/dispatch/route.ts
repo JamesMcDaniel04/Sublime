@@ -100,6 +100,16 @@ export async function GET(request: Request) {
       captureError(error, { source: 'cron.dispatch.flowReaper' })
     }
 
+    // Slack thread sessions idle 7+ days are dead conversations — close them
+    // so a months-later thread message starts fresh instead of resuming.
+    // Isolated so a sweep failure never aborts the tick.
+    try {
+      const { closeStaleSlackSessions } = await import('@/lib/slack/session')
+      await closeStaleSlackSessions()
+    } catch (error) {
+      apiLogger.error('cron/dispatch: slack session sweep failed', { error: capError(error) })
+    }
+
     // Best-effort: drop claimed Slack dedup rows old enough that Slack would
     // no longer retry the same event_id/trigger_id — keeps the table bounded.
     await pruneSlackProcessedEvents().catch((error) => {

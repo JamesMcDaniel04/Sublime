@@ -3,6 +3,7 @@ import { apiLogger } from '@/lib/logger'
 import { dispatchFlowExecution } from '@/features/flows/execute-flow'
 import { matchSlackFlows, type SlackTriggerConfig } from '@/lib/slack/route-event'
 import { claimSlackEvent } from '@/lib/slack/dedup'
+import { findOpenSession, resolveSessionRouting, upsertThreadSession, closeSession } from '@/lib/slack/session'
 import type { NormalizedSlackEvent, SlackTriggerInput } from '@/lib/slack/payload'
 
 export type SlackRouteArgs = {
@@ -37,6 +38,88 @@ async function resolveRunOwner(flow: { userId: string | null; organizationId: st
 }
 
 /**
+ * Ingress precedence: a non-bot message in a thread with an open
+ * SlackThreadSession is a CONTINUATION of that conversation, not a fresh
+ * trigger match — resolved and dispatched here, before normal trigger
+ * matching ever runs. Returns true when the event was fully handled
+ * (caller must not also run normal matching), false to fall through.
+ */
+async function tryThreadContinuation(args: {
+  bindingId: string
+  organizationId: string
+  input: SlackTriggerInput
+}): Promise<boolean> {
+  const { bindingId, organizationId, input } = args
+  if (!input.thread_ts) return false
+  const session = await findOpenSession({ organizationId, bindingId, channel: input.channel, threadTs: input.thread_ts })
+  if (!session) return false
+
+  const [sessionFlow, sessionRun] = await Promise.all([
+    systemPrisma.flow.findFirst({
+      where: { id: session.flowId, organizationId, status: 'ACTIVE' },
+      select: { id: true, userId: true, organizationId: true, publishedGraph: true },
+    }),
+    systemPrisma.flowRun.findFirst({ where: { id: session.flowRunId, organizationId }, select: { status: true } }),
+  ])
+  const flowActive = Boolean(sessionFlow && sessionFlow.publishedGraph != null)
+  const routing = resolveSessionRouting({ session, runStatus: sessionRun?.status ?? null, flowActive })
+  if (!flowActive) {
+    // Unpublished/deleted flow: the conversation is over — close and fall
+    // through to normal matching.
+    await closeSession({ organizationId, id: session.id })
+    return false
+  }
+  if (routing.mode === 'fallthrough' || !sessionFlow) return false
+
+  const owner = await resolveRunOwner(sessionFlow)
+  if (!owner) return false
+
+  if (routing.mode === 'resume') {
+    // The thread message answers the run's pending question — resume it
+    // (the resumeKey machinery targets the paused iteration; the reply hook
+    // re-fires on the resumed run's next settle). No new run.
+    await dispatchFlowExecution({
+      flowId: sessionFlow.id,
+      organizationId,
+      userId: owner.id,
+      flowRunId: routing.flowRunId,
+      reply: input.text,
+      usePublished: true,
+    }).catch((error) =>
+      apiLogger.error('slack thread resume failed', { flowRunId: routing.flowRunId, error: error instanceof Error ? error.message : String(error) }),
+    )
+    return true
+  }
+
+  // routing.mode === 'continue': the prior run has settled — start a NEW run
+  // continuing the conversation, seeded from the session's last agent
+  // execution (if any).
+  const result = await dispatchFlowExecution({
+    flowId: sessionFlow.id,
+    organizationId,
+    userId: owner.id,
+    input,
+    usePublished: true,
+    trigger: slackRunTrigger(bindingId, input),
+    ...(routing.continueExecutionId ? { slackContinueExecutionId: routing.continueExecutionId } : {}),
+  }).catch((error) => {
+    apiLogger.error('slack thread continuation failed', { flowId: sessionFlow.id, error: error instanceof Error ? error.message : String(error) })
+    return null
+  })
+  if (result) {
+    await upsertThreadSession({
+      organizationId,
+      bindingId,
+      channel: input.channel,
+      threadTs: input.thread_ts,
+      flowId: sessionFlow.id,
+      flowRunId: result.flowRunId,
+    })
+  }
+  return true
+}
+
+/**
  * Route a verified, deduped, non-bot Slack event to matching flows and
  * dispatch each as its own PUBLISHED run. Runs inside after() — best-effort;
  * per-flow failures are logged, never thrown.
@@ -44,6 +127,11 @@ async function resolveRunOwner(flow: { userId: string | null; organizationId: st
 export async function routeSlackEvent(args: SlackRouteArgs): Promise<void> {
   const { bindingId, organizationId, normalized } = args
   const input = normalized.input
+
+  // Ingress precedence: an open thread session takes priority over normal
+  // trigger matching (see tryThreadContinuation). No thread_ts, or a thread
+  // with no open session, falls through unchanged.
+  if (await tryThreadContinuation({ bindingId, organizationId, input })) return
 
   // systemPrisma: session-less ingress continuation — org id came from the
   // binding row, and every query below is scoped to it.
@@ -99,13 +187,31 @@ export async function routeSlackEvent(args: SlackRouteArgs): Promise<void> {
   }
 }
 
-/** Post-dispatch bookkeeping. Task 7 fills this in with thread-session upkeep;
- * until then it is a no-op so Task 5 ships without the session model in play. */
-async function afterSlackDispatch(_args: {
+/** Post-dispatch bookkeeping: a `threadMemory:true` flow opens (or refreshes)
+ * a SlackThreadSession keyed to this thread, so a later reply in the SAME
+ * thread routes as a continuation (see tryThreadContinuation) instead of
+ * matching as a fresh trigger. A flow without threadMemory never creates a
+ * session — its runs stay single-shot, unchanged from Task 5/6. Best-effort:
+ * a session-write failure must never affect the run that already dispatched. */
+async function afterSlackDispatch(args: {
   organizationId: string
   bindingId: string
   input: SlackTriggerInput
   config: SlackTriggerConfig
   flowId: string
   flowRunId: string
-}): Promise<void> {}
+}): Promise<void> {
+  if (!args.config.threadMemory) return
+  const threadTs = args.input.thread_ts ?? (args.input.ts || undefined)
+  if (!threadTs) return // slash commands have no thread to remember
+  await upsertThreadSession({
+    organizationId: args.organizationId,
+    bindingId: args.bindingId,
+    channel: args.input.channel,
+    threadTs,
+    flowId: args.flowId,
+    flowRunId: args.flowRunId,
+  }).catch((error) =>
+    apiLogger.error('slack thread session upsert failed', { flowId: args.flowId, error: error instanceof Error ? error.message : String(error) }),
+  )
+}
