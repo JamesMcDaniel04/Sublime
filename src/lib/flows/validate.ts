@@ -69,6 +69,12 @@ function nodeLabel(node: FlowNode | undefined) {
       break
     case 'humanReview':
       return 'Request information'
+    case 'input':
+      return 'Input'
+    case 'output':
+      return 'Output'
+    case 'subflow':
+      return 'Subflow'
     case 'variable':
       switch (node.data.op) {
         case 'initialize':
@@ -455,6 +461,33 @@ export function validateFlowGraph(graph: FlowGraph, context: FlowValidationConte
       }
     }
 
+    if (node.type === 'input') {
+      const names = node.data.params.map((p) => p.name.trim())
+      names.forEach((name, index) => {
+        if (!name) add(issues, 'error', 'MISSING_INPUT_PARAM_NAME', `${nodeLabel(node)} param ${index + 1} needs a name.`, node.id)
+      })
+      for (const name of unique(names.filter(Boolean))) {
+        if (names.filter((entry) => entry === name).length > 1) {
+          add(issues, 'error', 'DUPLICATE_INPUT_PARAM', `${nodeLabel(node)} has duplicate param "${name}".`, node.id)
+        }
+      }
+    }
+    if (node.type === 'output') {
+      const names = node.data.fields.map((f) => f.name.trim())
+      node.data.fields.forEach((field, index) => {
+        if (!field.name.trim()) add(issues, 'error', 'MISSING_OUTPUT_FIELD_NAME', `${nodeLabel(node)} field ${index + 1} needs a name.`, node.id)
+      })
+      for (const name of unique(names.filter(Boolean))) {
+        if (names.filter((entry) => entry === name).length > 1) {
+          add(issues, 'error', 'DUPLICATE_OUTPUT_FIELD', `${nodeLabel(node)} has duplicate field "${name}".`, node.id)
+        }
+      }
+    }
+    if (node.type === 'subflow') {
+      if (!node.data.flowId.trim()) add(issues, 'error', 'MISSING_SUBFLOW_FLOW', `${nodeLabel(node)} needs a flow to run.`, node.id)
+      validateJsonObjectField(issues, node.data.input, `${nodeLabel(node)} input must map to a JSON object.`, node.id)
+    }
+
     if (node.type === 'data') {
       if (!node.data.input?.trim()) {
         add(issues, 'error', 'MISSING_DATA_INPUT', `${nodeLabel(node)} needs data to work with.`, node.id)
@@ -478,6 +511,15 @@ export function validateFlowGraph(graph: FlowGraph, context: FlowValidationConte
   }
 
   validateVariableNodes(graph, issues)
+
+  const inputNodes = graph.nodes.filter((node) => node.type === 'input')
+  for (const dup of inputNodes.slice(1)) {
+    add(issues, 'error', 'MULTIPLE_INPUT_NODES', 'A flow can have only one Input step.', dup.id)
+  }
+  const outputNodes = graph.nodes.filter((node) => node.type === 'output')
+  for (const dup of outputNodes.slice(1)) {
+    add(issues, 'error', 'MULTIPLE_OUTPUT_NODES', 'A flow can have only one Output step.', dup.id)
+  }
 
   // Approval-gated writes (the Nango delivery plane) pause the whole run on
   // ONE approval at a time. Inside a loop/parallel every item needs its own
@@ -512,6 +554,9 @@ export function validateFlowGraph(graph: FlowGraph, context: FlowValidationConte
         `${nodeLabel(member)} needs an approval to send — approvals aren't supported inside loops or parallel branches yet. Move it after the loop.`,
         member.id,
       )
+    }
+    if (member.type === 'input' || member.type === 'output' || member.type === 'subflow') {
+      add(issues, 'error', 'IO_NODE_IN_CONTAINER', `${nodeLabel(member)} can't run inside a For each / Parallel body. Use a subflow-per-item instead.`, member.id)
     }
     // Warning (not an error): the run still works, but resuming a paused
     // container replays its body, so the same question is asked again.

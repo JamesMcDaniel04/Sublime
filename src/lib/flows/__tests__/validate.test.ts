@@ -500,3 +500,40 @@ test('blocks a switch inside a parallel branch; a main-chain condition stays val
   assert.ok(result.errors.some((issue) => issue.code === 'CONDITION_IN_CONTAINER' && issue.nodeId === 's1'))
   assert.ok(!result.errors.some((issue) => issue.nodeId === 'c-main'))
 })
+
+test('input node: rejects blank/duplicate param names and >1 input node', () => {
+  const r = validateFlowGraph({
+    nodes: [
+      { id: 'trigger', type: 'trigger', data: {} },
+      { id: 'in1', type: 'input', data: { params: [{ name: 'a', type: 'string' }, { name: 'a', type: 'string' }] } },
+      { id: 'in2', type: 'input', data: { params: [{ name: 'b', type: 'string' }] } },
+    ],
+    edges: [{ id: 'e', source: 'trigger', target: 'in1' }],
+  })
+  const codes = r.errors.map((e) => e.code)
+  assert.ok(codes.includes('DUPLICATE_INPUT_PARAM'))
+  assert.ok(codes.includes('MULTIPLE_INPUT_NODES'))
+})
+
+test('subflow node needs a flowId', () => {
+  const r = validateFlowGraph({
+    nodes: [
+      { id: 'trigger', type: 'trigger', data: {} },
+      { id: 's', type: 'subflow', data: { flowId: '' } },
+    ],
+    edges: [{ id: 'e', source: 'trigger', target: 's' }],
+  })
+  assert.ok(r.errors.some((e) => e.code === 'MISSING_SUBFLOW_FLOW'))
+})
+
+test('input node inside a loop body is rejected', () => {
+  const r = validateFlowGraph({
+    nodes: [
+      { id: 'trigger', type: 'trigger', data: {} },
+      { id: 'loop', type: 'loop', data: { over: '{{trigger.input}}', body: ['in'] } },
+      { id: 'in', type: 'input', data: { params: [{ name: 'a', type: 'string' }] } },
+    ],
+    edges: [{ id: 'e', source: 'trigger', target: 'loop' }],
+  })
+  assert.ok(r.errors.some((e) => e.code === 'IO_NODE_IN_CONTAINER'))
+})
