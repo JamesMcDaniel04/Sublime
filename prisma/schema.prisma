@@ -797,6 +797,23 @@ model SlackThreadSession {
   @@map("slack_thread_sessions")
 }
 
+/// Atomic dedup ledger for Slack ingress: one row per (binding, event_id or
+/// trigger_id) claimed. The unique constraint IS the dedup mechanism — a
+/// racing duplicate claim hits it and loses (Prisma P2002), so first-seen is
+/// decided by the database, not a check-then-set read. Global across
+/// instances (no Redis needed). Rows are pruned by the cron sweep once old
+/// enough that Slack would no longer retry them.
+model SlackProcessedEvent {
+  id        String   @id @default(cuid())
+  bindingId String
+  dedupId   String // event_id (events) or trigger_id (slash commands)
+  createdAt DateTime @default(now())
+
+  @@unique([bindingId, dedupId])
+  @@index([createdAt])
+  @@map("slack_processed_events")
+}
+
 /// A file uploaded as knowledge for an agent. We store the EXTRACTED TEXT (no
 /// blob storage); the original binary is not retained. Chunks are embedded (when
 /// embeddings are configured) and retrieved into the agent's context at run time.
