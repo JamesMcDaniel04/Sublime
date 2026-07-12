@@ -8,7 +8,6 @@ import { McpServersPanel } from '@/components/connections/mcp-servers-panel'
 import { PageHeader } from '@/components/ui/page-header'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { OAuthIntegrationsGrid } from './oauth-integrations-grid'
-import { ScanProgressStrip } from './scan-progress-strip'
 
 function IntegrationsTabs() {
   const router = useRouter()
@@ -47,7 +46,6 @@ export default function IntegrationsPage() {
           title="Integrations"
           description="Connect the tools your agents use, link your accounts, and manage MCP servers."
         />
-        <ScanProgressStrip />
         <Suspense fallback={null}>
           <IntegrationsTabs />
         </Suspense>

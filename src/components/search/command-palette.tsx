@@ -112,17 +112,16 @@ export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenCh
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="top-[20%] max-w-lg translate-y-0 gap-0 p-0">
         <DialogTitle className="sr-only">Search agents and runs</DialogTitle>
-        <div className="flex items-center gap-2 border-b px-4 py-3">
-          {searching ? <Loader2 className="h-4 w-4 animate-spin text-gray-400" /> : <Search className="h-4 w-4 text-gray-400" />}
+        <div className="flex min-h-12 items-center gap-3 border-b px-4 py-3 pr-12">
+          {searching ? <Loader2 className="h-4 w-4 shrink-0 animate-spin text-gray-400" /> : <Search className="h-4 w-4 shrink-0 text-gray-400" />}
           <input
             autoFocus
-            className="flex-1 bg-transparent text-sm outline-none placeholder:text-gray-400"
+            className="min-w-0 flex-1 bg-transparent text-sm text-gray-900 outline-none placeholder:text-gray-400"
             placeholder="Search agents and runs..."
             value={query}
             onChange={(event) => setQuery(event.target.value)}
             onKeyDown={onKeyDown}
           />
-          <kbd className="rounded border bg-gray-50 px-1.5 py-0.5 text-[10px] text-gray-400">ESC</kbd>
         </div>
         <div className="max-h-80 overflow-y-auto p-2">
           {navMatches.length > 0 && (
