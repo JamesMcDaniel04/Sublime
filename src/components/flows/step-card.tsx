@@ -19,6 +19,8 @@ import {
   Globe,
   Hash,
   Link2,
+  LogIn,
+  LogOut,
   Mail,
   MoreHorizontal,
   PanelRight,
@@ -37,6 +39,7 @@ import {
   UserCheck,
   Variable,
   Webhook,
+  Workflow,
   Wrench,
   Zap,
 } from 'lucide-react'
@@ -118,6 +121,11 @@ const NODE_ICON: Record<FlowNode['type'], typeof Bot> = {
   variable: Variable,
   data: Braces,
   humanReview: UserCheck,
+  // input/output/subflow: no dedicated builder palette entry yet (follow-up UI
+  // task); icons/tones are placeholders so the discriminated union stays total.
+  input: LogIn,
+  output: LogOut,
+  subflow: Workflow,
 }
 
 const NODE_TONE: Record<FlowNode['type'], string> = {
@@ -135,6 +143,9 @@ const NODE_TONE: Record<FlowNode['type'], string> = {
   variable: 'bg-purple-600 text-white',
   data: 'bg-violet-600 text-white',
   humanReview: 'bg-blue-600 text-white',
+  input: 'bg-teal-600 text-white',
+  output: 'bg-rose-500 text-white',
+  subflow: 'bg-indigo-600 text-white',
 }
 
 const STATUS_DOT: Record<StepStatus, string> = {

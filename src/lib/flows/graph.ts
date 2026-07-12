@@ -27,6 +27,25 @@ export type OutputField = z.infer<typeof outputFieldSchema>
 export const triggerInputFieldSchema = outputFieldSchema.extend({ required: z.boolean().optional() })
 export type TriggerInputField = z.infer<typeof triggerInputFieldSchema>
 
+/** A first-class input node's typed parameter. `default` is a templated/literal string coerced to `type` at runtime. */
+export const inputParamSchema = z.object({
+  name: z.string(),
+  type: z.enum(FIELD_TYPES).default('string'),
+  required: z.boolean().optional(),
+  default: z.string().optional(),
+  description: z.string().optional(),
+})
+export type InputParam = z.infer<typeof inputParamSchema>
+
+/** A first-class output node's typed return field, bound from flow context via a templated `value`. */
+export const outputFieldBindingSchema = z.object({
+  name: z.string(),
+  type: z.enum(FIELD_TYPES).default('any'),
+  value: z.string(),
+  description: z.string().optional(),
+})
+export type OutputFieldBinding = z.infer<typeof outputFieldBindingSchema>
+
 const triggerNode = z.object({
   id: z.string(),
   type: z.literal('trigger'),
@@ -256,8 +275,50 @@ const humanReviewNode = z.object({
   }),
 })
 
+// First-class INPUT: the flow's typed, named parameter list — its callable
+// signature. Values resolve with precedence user > webhook > default and are
+// coerced at the boundary, then exposed as {{input.<name>}}. A flow WITHOUT an
+// input node keeps today's opaque {{trigger.input}} semantics (back-compat).
+const inputNode = z.object({
+  id: z.string(),
+  type: z.literal('input'),
+  data: z.object({
+    label: z.string().optional(),
+    note: z.string().optional(),
+    params: z.array(inputParamSchema).default([]),
+  }),
+})
+// First-class OUTPUT: the flow's typed return object. Each field is bound from
+// context by a templated `value` and coerced to `type`. A flow WITHOUT an output
+// node returns today's implicit lastOutput (back-compat).
+const outputNode = z.object({
+  id: z.string(),
+  type: z.literal('output'),
+  data: z.object({
+    label: z.string().optional(),
+    note: z.string().optional(),
+    fields: z.array(outputFieldBindingSchema).default([]),
+  }),
+})
+// Synchronous SUBFLOW: run a child flow to completion and block on its output.
+// `input` is a JSON object string mapping the child's input params to templated
+// values (same shape as a tool node's args). The step output is the child's
+// output-node object.
+const subflowNode = z.object({
+  id: z.string(),
+  type: z.literal('subflow'),
+  data: z.object({
+    label: z.string().optional(),
+    note: z.string().optional(),
+    flowId: z.string(),
+    input: z.string().optional(),
+    onError: z.enum(['stop', 'continue']).optional(),
+    outputFields: z.array(outputFieldSchema).optional(),
+  }),
+})
+
 export const flowNodeSchema = z.discriminatedUnion('type', [
-  triggerNode, agentNode, conditionNode, loopNode, parallelNode, stopNode, toolNode, httpNode, transformNode, filterNode, switchNode, variableNode, dataNode, humanReviewNode,
+  triggerNode, agentNode, conditionNode, loopNode, parallelNode, stopNode, toolNode, httpNode, transformNode, filterNode, switchNode, variableNode, dataNode, humanReviewNode, inputNode, outputNode, subflowNode,
 ])
 export const flowEdgeSchema = z.object({
   id: z.string(),

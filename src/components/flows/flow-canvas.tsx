@@ -233,6 +233,10 @@ export function FlowCanvas({
         return node.data.label || DATA_OP_LABELS[node.data.op]
       case 'humanReview':
         return node.data.label || 'Request information'
+      // input/output/subflow: no dedicated builder palette copy yet (follow-up
+      // UI task) — fall back to the node's own label like subtitleFor does.
+      default:
+        return node.data.label || 'Step'
     }
   }
 

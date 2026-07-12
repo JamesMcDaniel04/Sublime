@@ -44,6 +44,12 @@ function defaultData(type: FlowNode['type'], extra?: { bodyId?: string; agentId?
       return { op: 'compose', input: '' }
     case 'humanReview':
       return { message: '' }
+    case 'input':
+      return { params: [] }
+    case 'output':
+      return { fields: [] }
+    case 'subflow':
+      return { flowId: '' }
     case 'trigger':
       return { trigger: { type: 'manual' } }
   }
