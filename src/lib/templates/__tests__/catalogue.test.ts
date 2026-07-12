@@ -2,7 +2,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { SEED_CATALOGUE, getSeedByKey, serializeSeed } from '../catalogue'
 import { flowGraphSchema } from '@/lib/flows/graph'
-import { canonicalIntegrationSlug, DEPARTMENTS } from '../departments'
+import { canonicalIntegrationSlug, departmentsForTools, DEPARTMENTS } from '../departments'
 
 const KNOWN = new Set(DEPARTMENTS)
 const STABLE_TOOL_PLANES = new Set(['nango', 'native']) // per-org mcp/klavis ids are forbidden in seed graphs
@@ -66,4 +66,30 @@ test('serializeSeed produces the list wire shape (no server-only fields)', () =>
 test('getSeedByKey round-trips', () => {
   assert.equal(getSeedByKey(SEED_CATALOGUE[5].seedKey)!.name, SEED_CATALOGUE[5].name)
   assert.equal(getSeedByKey('nope'), undefined)
+})
+
+test('every seed carries a real department anchor for each department it declares', () => {
+  // "Tools must match roles": collect every tool slug a seed actually wires up
+  // (required + recommended integrations, the top-level agent-kind integrations,
+  // every embedded agent spec's integrations, and every tool/http node's connection
+  // slug), then require departmentsForTools(...) to cover each declared department —
+  // glue-only templates (no department anchor) must fail this.
+  for (const s of SEED_CATALOGUE) {
+    const slugs = new Set<string>([...s.requiredIntegrations, ...s.recommendedIntegrations, ...(s.integrations ?? [])])
+    for (const a of s.agents ?? []) for (const i of a.integrations) slugs.add(i)
+    if (s.flowGraph) {
+      for (const node of s.flowGraph.nodes) {
+        if (node.type === 'tool') slugs.add(node.data.connectionId.split(':').pop() ?? node.data.connectionId)
+        if (node.type === 'http') slugs.add('http')
+      }
+    }
+    const depts = departmentsForTools(Array.from(slugs))
+    for (const dept of s.departments) {
+      if (dept === 'general') continue
+      assert.ok(
+        depts.includes(dept),
+        `${s.seedKey}: no anchor tool for department "${dept}" (slugs: [${Array.from(slugs).join(', ')}] → departments: [${depts.join(', ')}])`,
+      )
+    }
+  }
 })
