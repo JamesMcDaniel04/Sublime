@@ -63,6 +63,35 @@ function jsonValue(value: unknown) {
 const WRITE_PLANES = /^(nango|slack|email)/i
 
 /**
+ * Terminalize a child FlowRun that a SYNCHRONOUS parent (a subflow node or a
+ * flow-as-tool call) abandoned while the child was paused. Subflows/flow-tools
+ * are synchronous-only in v1: the parent already recorded a clean failure, so
+ * the child must not linger. The reaper only sweeps `running`, so a `waiting`
+ * child would otherwise persist forever, keep its ApprovalRequest actionable,
+ * and re-run its side effects (real writes, flow.completed) if a human resumed
+ * it. Mark it failed and supersede its pending approval, mirroring the
+ * resume-path supersede. Best-effort — never throws into the parent.
+ */
+export async function terminalizeAbandonedChildRun(organizationId: string, childFlowRunId: string): Promise<void> {
+  try {
+    await prisma.flowRun.updateMany({
+      where: { id: childFlowRunId, status: 'waiting' },
+      data: {
+        status: 'failed',
+        error: 'Abandoned — the parent subflow / flow-tool call does not support pausing for human input.',
+        finishedAt: new Date(),
+      },
+    })
+    await prisma.approvalRequest.updateMany({
+      where: { organizationId, executionId: childFlowRunId, status: 'pending' },
+      data: { status: 'superseded' },
+    })
+  } catch {
+    // best-effort: terminalization failure must never mask the primary error.
+  }
+}
+
+/**
  * Run a flow to completion. Each agent node delegates to the real agent runtime
  * (runAgentExecution) and is recorded as a FlowRunStep so the builder canvas can
  * poll live per-step status. Returns the terminal run status + output.
@@ -393,6 +422,9 @@ export async function runFlowExecution(
         // subflow, so this always finishes the step `failed`, never `waiting`.
         const message =
           "A subflow's child flow paused for human input, which subflows don't support — inline the interaction, or call the flow as an agent tool instead."
+        // Terminalize the abandoned paused child so it can't linger 'waiting',
+        // keep its approval actionable, or re-run its side effects if resumed.
+        await terminalizeAbandonedChildRun(job.organizationId, res.flowRunId)
         await finishStep({ status: 'failed', childFlowRunId: res.flowRunId, error: message, finishedAt: new Date() })
         return { error: message }
       }
@@ -683,7 +715,7 @@ export async function runFlowExecution(
  */
 export async function dispatchFlowExecution(
   job: FlowExecutionJob,
-): Promise<{ flowRunId: string; status: string; output: unknown } | { queued: true; flowRunId: string }> {
+): Promise<{ flowRunId: string; status: string; output: unknown; error?: string } | { queued: true; flowRunId: string }> {
   if (inlineExecution) return runFlowExecution(job)
   if (!workersEnabled) throw new Error('Flow worker is disabled')
 

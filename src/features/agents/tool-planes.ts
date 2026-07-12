@@ -402,7 +402,7 @@ export async function loadFlowPlaneGroups(
     const description = flow.description?.trim() || `Run the "${flow.name}" flow and return its output.`
     const client: McpToolClient = {
       executeTool: async (_serverUrl, _name, args) => {
-        const { dispatchFlowExecution } = await import('@/features/flows/execute-flow')
+        const { dispatchFlowExecution, terminalizeAbandonedChildRun } = await import('@/features/flows/execute-flow')
         const res = await dispatchFlowExecution({
           flowId: flow.id,
           organizationId,
@@ -411,11 +411,18 @@ export async function loadFlowPlaneGroups(
           usePublished: flow.publishedGraph != null,
           trigger: { type: 'signal', via: 'flow-tool' },
         })
+        // Agent-callable flows are synchronous-only: THROW on every non-success
+        // outcome so execute-agent records a failed tool call (a returned value —
+        // even null — is mis-recorded as success and the real error is lost).
         if ('queued' in res) {
-          // Throw (not return) so execute-agent records this as a failed tool
-          // call — every other McpToolClient signals failure by throwing; a
-          // returned {error} object would be mis-recorded as a succeeded step.
           throw new Error('This flow runs in the background; agent-callable flows require inline execution mode.')
+        }
+        if (res.status === 'failed') {
+          throw new Error(res.error ?? 'The flow failed.')
+        }
+        if (res.status === 'waiting') {
+          await terminalizeAbandonedChildRun(organizationId, res.flowRunId)
+          throw new Error("The flow paused for human input, which agent-callable flows don't support — inline the interaction or split the flow.")
         }
         return res.output ?? null
       },
@@ -509,12 +516,18 @@ export async function resolveFlowToolExecutor(params: {
       provider: 'flow',
       isWrite: false,
       execute: async (_name, args) => {
-        const { dispatchFlowExecution } = await import('@/features/flows/execute-flow')
+        const { dispatchFlowExecution, terminalizeAbandonedChildRun } = await import('@/features/flows/execute-flow')
         const res = await dispatchFlowExecution({
           flowId: flow.id, organizationId, userId,
           input: args, usePublished: flow.publishedGraph != null, trigger: { type: 'signal', via: 'flow-tool' },
         })
+        // Synchronous-only: throw on every non-success outcome (see loadFlowPlaneGroups).
         if ('queued' in res) throw new Error('This flow runs in the background; call it from a subflow step instead.')
+        if (res.status === 'failed') throw new Error(res.error ?? 'The flow failed.')
+        if (res.status === 'waiting') {
+          await terminalizeAbandonedChildRun(organizationId, res.flowRunId)
+          throw new Error("The flow paused for human input, which agent-callable flows don't support — inline the interaction or split the flow.")
+        }
         return res.output ?? null
       },
     }
