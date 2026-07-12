@@ -33,6 +33,18 @@ export async function findOpenSession(args: { organizationId: string; bindingId:
   })
 }
 
+/**
+ * First-flow-wins: one conversation per thread. `SlackThreadSession` is
+ * `@@unique([bindingId, channel, threadTs])` — one row per thread — so if two
+ * `threadMemory:true` flows both match the same event, a plain upsert would
+ * let the SECOND flow's dispatch overwrite the FIRST flow's row, stranding
+ * any `waiting` run it had and mis-routing later thread replies to the wrong
+ * flow. Instead: create the row if none exists for this thread; if one
+ * already exists for a DIFFERENT flowId, leave it alone (the incumbent flow
+ * keeps the thread — the other flow still ran its one-shot, it just never
+ * owns the thread's memory). Only refresh the run/agentExecution pointers
+ * when the existing row's flowId already matches.
+ */
 export async function upsertThreadSession(args: {
   organizationId: string
   bindingId: string
@@ -41,6 +53,11 @@ export async function upsertThreadSession(args: {
   flowId: string
   flowRunId: string
 }): Promise<void> {
+  const existing = await systemPrisma.slackThreadSession.findUnique({
+    where: { bindingId_channel_threadTs: { bindingId: args.bindingId, channel: args.channel, threadTs: args.threadTs } },
+    select: { flowId: true },
+  })
+  if (existing && existing.flowId !== args.flowId) return
   await systemPrisma.slackThreadSession.upsert({
     where: { bindingId_channel_threadTs: { bindingId: args.bindingId, channel: args.channel, threadTs: args.threadTs } },
     create: { ...args, status: 'open' },

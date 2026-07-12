@@ -75,6 +75,40 @@ if (TEST_DB) {
     assert.equal(posts[0].body.response_type, 'in_channel')
   })
 
+  test('a FAILED last agent step is NOT recorded as the session seed — only a succeeded step qualifies', async () => {
+    const { deliverSlackRunReply } = await import('@/lib/slack/deliver')
+    const flow = await prisma.flow.create({ data: { name: 'Seed-guard flow', organizationId: seeded.organizationId, userId: seeded.userId } })
+    const run = await prisma.flowRun.create({
+      data: { flowId: flow.id, status: 'failed', organizationId: seeded.organizationId, userId: seeded.userId },
+    })
+    // A succeeded agent step earlier in the run, then a LATER failed agent
+    // step (e.g. a retry-loop's last attempt) — the failed step ends on a
+    // dangling tool_use with no result, so it must never seed the next reply.
+    await prisma.flowRunStep.create({
+      data: { flowRunId: run.id, nodeId: 'agent-1', order: 0, status: 'succeeded', agentExecutionId: 'exec-good' },
+    })
+    await prisma.flowRunStep.create({
+      data: { flowRunId: run.id, nodeId: 'agent-2', order: 1, status: 'failed', agentExecutionId: 'exec-bad' },
+    })
+    const session = await prisma.slackThreadSession.create({
+      data: {
+        organizationId: seeded.organizationId, bindingId, channel: 'C0SEEDGUARD1', threadTs: '1752301000.000100',
+        flowId: flow.id, flowRunId: run.id, status: 'open',
+      },
+    })
+
+    const posts: any[] = []
+    await deliverSlackRunReply({
+      organizationId: seeded.organizationId, flowId: flow.id, flowRunId: run.id,
+      status: 'failed', output: null, error: 'boom',
+      origin: { bindingId, channel: 'C0SEEDGUARD1', thread_ts: '1752301000.000100', kind: 'app_mention' },
+      fetchImpl: stubFetch(posts),
+    })
+
+    const after = await prisma.slackThreadSession.findFirst({ where: { id: session.id } })
+    assert.equal(after.agentExecutionId, 'exec-good', 'the seed stays the last SUCCEEDED step, never the later failed one')
+  })
+
   test('unknown binding or wrong org posts nothing', async () => {
     const { deliverSlackRunReply } = await import('@/lib/slack/deliver')
     const posts: any[] = []

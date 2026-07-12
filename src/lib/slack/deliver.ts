@@ -26,8 +26,12 @@ export async function deliverSlackRunReply(args: {
   // conversation seed (no-op when the run has no open session or agent
   // steps). Runs regardless of the suppression/reply logic below, so a
   // suppressed reply still keeps the conversation seed current.
+  // status: 'succeeded' — a FAILED last agent step may end on a dangling
+  // tool_use with no matching tool result; seeding the next thread reply from
+  // it would hand the model a malformed transcript. Only a cleanly-settled
+  // step may become the session's conversation seed.
   const lastAgentStep = await systemPrisma.flowRunStep.findFirst({
-    where: { flowRunId: args.flowRunId, agentExecutionId: { not: null } },
+    where: { flowRunId: args.flowRunId, agentExecutionId: { not: null }, status: 'succeeded' },
     orderBy: { order: 'desc' },
     select: { agentExecutionId: true },
   })

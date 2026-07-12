@@ -1,7 +1,7 @@
 import { prisma, systemPrisma } from '@/lib/prisma'
 import { apiLogger } from '@/lib/logger'
 import { dispatchFlowExecution } from '@/features/flows/execute-flow'
-import { matchSlackFlows, type SlackTriggerConfig } from '@/lib/slack/route-event'
+import { matchSlackFlows, slackTriggerConfigOf, type SlackTriggerConfig } from '@/lib/slack/route-event'
 import { claimSlackEvent } from '@/lib/slack/dedup'
 import { findOpenSession, resolveSessionRouting, upsertThreadSession, closeSession } from '@/lib/slack/session'
 import type { NormalizedSlackEvent, SlackTriggerInput } from '@/lib/slack/payload'
@@ -57,7 +57,7 @@ async function tryThreadContinuation(args: {
   const [sessionFlow, sessionRun] = await Promise.all([
     systemPrisma.flow.findFirst({
       where: { id: session.flowId, organizationId, status: 'ACTIVE' },
-      select: { id: true, userId: true, organizationId: true, publishedGraph: true },
+      select: { id: true, userId: true, organizationId: true, publishedGraph: true, trigger: true },
     }),
     systemPrisma.flowRun.findFirst({ where: { id: session.flowRunId, organizationId }, select: { status: true } }),
   ])
@@ -70,6 +70,16 @@ async function tryThreadContinuation(args: {
     return false
   }
   if (routing.mode === 'fallthrough' || !sessionFlow) return false
+
+  // Read-side re-gate: the session was opened while the flow's trigger had
+  // threadMemory:true, but an operator may have since republished the flow
+  // with threadMemory off (or removed). Re-check the CURRENT trigger — an
+  // open session must not keep continuing a conversation the flow no longer
+  // opts into. Close it and fall through to normal matching.
+  if (slackTriggerConfigOf(sessionFlow.trigger)?.threadMemory !== true) {
+    await closeSession({ organizationId, id: session.id })
+    return false
+  }
 
   const owner = await resolveRunOwner(sessionFlow)
   if (!owner) return false
@@ -94,6 +104,18 @@ async function tryThreadContinuation(args: {
   // routing.mode === 'continue': the prior run has settled — start a NEW run
   // continuing the conversation, seeded from the session's last agent
   // execution (if any).
+  //
+  // Double-delivery guard (mirrors the normal-match loop's per-flow claim
+  // below): a reply that ALSO @mentions the bot fires two event_callbacks for
+  // one physical message, and both reach tryThreadContinuation in
+  // continue-mode. Claim a session-scoped, message-scoped key first — atomic
+  // and DB-backed via the same SlackProcessedEvent unique constraint — so
+  // only one delivery starts the new run; the sibling is dropped as handled.
+  if (input.ts) {
+    const claimed = await claimSlackEvent(bindingId, `msg:${input.channel}:${input.ts}:cont:${session.flowId}`)
+    if (!claimed) return true
+  }
+
   const result = await dispatchFlowExecution({
     flowId: sessionFlow.id,
     organizationId,
@@ -107,6 +129,9 @@ async function tryThreadContinuation(args: {
     return null
   })
   if (result) {
+    // Best-effort — the run already dispatched; a bookkeeping-write failure
+    // here must never escape and trigger an ingress release/retry (which
+    // would double-dispatch since the claim above is already committed).
     await upsertThreadSession({
       organizationId,
       bindingId,
@@ -114,7 +139,9 @@ async function tryThreadContinuation(args: {
       threadTs: input.thread_ts,
       flowId: sessionFlow.id,
       flowRunId: result.flowRunId,
-    })
+    }).catch((error) =>
+      apiLogger.error('slack thread session upsert failed', { flowId: sessionFlow.id, error: error instanceof Error ? error.message : String(error) }),
+    )
   }
   return true
 }

@@ -17,7 +17,7 @@ export type StepOutcome = {
   iterationPath?: number[]
 }
 export type RunAgentResult = { output?: unknown; error?: string; waiting?: { status: string; question?: string } }
-export type RunAgentFn = (node: { id: string; agentId: string; input: string; prompt?: string; model?: string; resume?: boolean; thread?: { key: string; iteration: number }; iterationPath?: number[] }) => Promise<RunAgentResult>
+export type RunAgentFn = (node: { id: string; agentId: string; input: string; prompt?: string; model?: string; resume?: boolean; thread?: { key: string; iteration: number }; iterationPath?: number[]; withinThreadedLoop?: boolean }) => Promise<RunAgentResult>
 // Deterministic (non-agent) steps: tool calls and HTTP requests. `config`
 // arrives with every template already resolved against the flow context.
 // `resume` marks the node a paused run is re-entering (e.g. after an approval
@@ -336,7 +336,7 @@ export async function interpretFlow(graph: FlowGraph, input: unknown, opts: Opts
   const runAgentWithReliability = async (
     node: Extract<FlowNode, { type: 'agent' }>,
     resolvedInput: string,
-    extra: { prompt?: string; thread?: FlowContext['thread']; iterationPath?: number[] },
+    extra: { prompt?: string; thread?: FlowContext['thread']; iterationPath?: number[]; withinThreadedLoop?: boolean },
   ): Promise<RunAgentResult> => {
     const retries = node.data.retries ?? 0
     const timeoutMs = node.data.timeoutMs
@@ -345,7 +345,7 @@ export async function interpretFlow(graph: FlowGraph, input: unknown, opts: Opts
     const resume = resumeKey !== undefined && resumeKey === completedKey(node.id, extra.iterationPath)
     let attempt = 0
     for (;;) {
-      const call = opts.runAgent({ id: node.id, agentId: node.data.agentId, input: resolvedInput, prompt: extra.prompt, model: node.data.model, resume, thread: extra.thread, iterationPath: extra.iterationPath })
+      const call = opts.runAgent({ id: node.id, agentId: node.data.agentId, input: resolvedInput, prompt: extra.prompt, model: node.data.model, resume, thread: extra.thread, iterationPath: extra.iterationPath, withinThreadedLoop: extra.withinThreadedLoop })
       const raced = timeoutMs ? await raceTimeout(call, timeoutMs) : await call
       // A timeout only ABANDONS the live agent execution — Promise.race cannot
       // cancel it, so it may still be running (and spending tokens / performing
@@ -587,7 +587,7 @@ export async function interpretFlow(graph: FlowGraph, input: unknown, opts: Opts
       if (structured) resolved = `${resolved}\n\n${structuredResponseInstruction(outputFields)}`
       const inline = !node.data.agentId?.trim()
       const prompt = inline ? resolveTemplate(node.data.prompt ?? '', ctx) : undefined
-      const res = await runAgentWithReliability(node, resolved, { prompt, thread: ctx.thread, iterationPath: ctx.iterationPath })
+      const res = await runAgentWithReliability(node, resolved, { prompt, thread: ctx.thread, iterationPath: ctx.iterationPath, withinThreadedLoop: ctx.withinThreadedLoop === true })
       if (res.waiting) {
         if (node.data.humanAssistance === false) {
           const error = 'The agent asked for help, but human assistance is turned off for this step.'
@@ -669,6 +669,7 @@ export async function interpretFlow(graph: FlowGraph, input: unknown, opts: Opts
           trigger: ctx.trigger, step: { ...ctx.step }, item, loop: { index, count: items.length },
           variables: ctx.variables, input: ctx.input,
           iterationPath: [...(ctx.iterationPath ?? []), index],
+          withinThreadedLoop: threaded || ctx.withinThreadedLoop === true,
           ...(threaded ? { thread: { key: node.id, iteration: index } } : {}),
         }
         return execBody(node.data.body, itemCtx)
@@ -706,7 +707,7 @@ export async function interpretFlow(graph: FlowGraph, input: unknown, opts: Opts
     if (node.type === 'parallel') {
       const results = await Promise.all(
         node.data.branches.map(async (branch) => {
-          const branchCtx: FlowContext = { trigger: ctx.trigger, step: { ...ctx.step }, item: ctx.item, loop: ctx.loop, variables: ctx.variables, input: ctx.input, iterationPath: ctx.iterationPath }
+          const branchCtx: FlowContext = { trigger: ctx.trigger, step: { ...ctx.step }, item: ctx.item, loop: ctx.loop, variables: ctx.variables, input: ctx.input, iterationPath: ctx.iterationPath, withinThreadedLoop: ctx.withinThreadedLoop === true }
           const res = await execBody(branch, branchCtx)
           return { key: branch[0] ?? node.id, res }
         }),
@@ -726,12 +727,12 @@ export async function interpretFlow(graph: FlowGraph, input: unknown, opts: Opts
     }
 
     if (node.type === 'errorShield') {
-      const bodyCtx: FlowContext = { trigger: ctx.trigger, step: { ...ctx.step }, item: ctx.item, loop: ctx.loop, variables: ctx.variables, input: ctx.input, thread: ctx.thread, iterationPath: ctx.iterationPath }
+      const bodyCtx: FlowContext = { trigger: ctx.trigger, step: { ...ctx.step }, item: ctx.item, loop: ctx.loop, variables: ctx.variables, input: ctx.input, thread: ctx.thread, iterationPath: ctx.iterationPath, withinThreadedLoop: ctx.withinThreadedLoop === true }
       const bodyRes = await execBody(node.data.body, bodyCtx)
       const control = bodyRes.control
       // Only a hard failure is shielded → fallback. pause/stop/drop propagate.
       if (control && control.kind === 'fail') {
-        const fbCtx: FlowContext = { trigger: ctx.trigger, step: { ...ctx.step }, item: ctx.item, loop: ctx.loop, variables: ctx.variables, input: ctx.input, thread: ctx.thread, error: control.error, iterationPath: ctx.iterationPath }
+        const fbCtx: FlowContext = { trigger: ctx.trigger, step: { ...ctx.step }, item: ctx.item, loop: ctx.loop, variables: ctx.variables, input: ctx.input, thread: ctx.thread, error: control.error, iterationPath: ctx.iterationPath, withinThreadedLoop: ctx.withinThreadedLoop === true }
         const fbRes = await execBody(node.data.fallback, fbCtx)
         if (fbRes.control && fbRes.control.kind !== 'drop') {
           // The fallback itself failed/paused/stopped — surface that, unshielded.

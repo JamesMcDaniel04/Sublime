@@ -211,6 +211,15 @@ function validateTriggerConfig(issues: FlowValidationIssue[], trigger: unknown) 
     if (events.includes('slash_command') && !String(trigger.command ?? '').trim()) {
       add(issues, 'error', 'MISSING_SLACK_COMMAND', 'A slash-command Slack trigger needs the command (e.g. /deploy).', 'trigger')
     }
+    if (trigger.threadMemory === true && !(Array.isArray(trigger.channels) && trigger.channels.length > 0)) {
+      add(
+        issues,
+        'warning',
+        'THREAD_MEMORY_UNSCOPED',
+        'Conversation memory is on but this trigger is not restricted to specific channels — if another unrestricted threadMemory flow also matches an event, only the first flow to reply keeps the thread.',
+        'trigger',
+      )
+    }
     return
   }
   if (type !== 'schedule') return

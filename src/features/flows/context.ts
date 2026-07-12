@@ -30,6 +30,15 @@ export type FlowContext = {
   // across iterations on resume (see completed-key.ts) — absent outside any
   // loop body.
   iterationPath?: number[]
+  // True anywhere inside a `threadAgent` loop's body — including through
+  // nested containers (parallel branches, nested loops, errorShield
+  // body/fallback) — even where `thread` itself isn't set (e.g. a parallel
+  // branch, which never carries `thread` since concurrent branches can't
+  // share one sequential conversation). Gates the Slack-continuation seed
+  // (see resolveAgentContinueExecutionId) so an agent reached through a
+  // container inside a threaded loop is never hijacked by an unrelated
+  // Slack-continuation run. Absent (falsy) outside any threaded loop.
+  withinThreadedLoop?: boolean
 }
 
 /** Read a dot-path off the context (e.g. 'trigger.input', 'step.n1.output.score', 'item'). */

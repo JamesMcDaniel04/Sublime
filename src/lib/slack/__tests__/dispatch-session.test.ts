@@ -360,6 +360,129 @@ if (TEST_DB) {
     const stillFreshAfter = await prisma.slackThreadSession.findFirst({ where: { id: stillFresh.id } })
     assert.equal(stillFreshAfter.status, 'open', 'recently active session survives the sweep')
   })
+
+  test('upsertThreadSession is non-clobbering: two flows matching one thread → the session stays bound to the FIRST flow', async () => {
+    const { upsertThreadSession } = await import('../session')
+    const flowA = await prisma.flow.create({
+      data: {
+        name: 'clobber-a', organizationId: ids.org, userId: ids.user, status: 'ACTIVE', graph: stopGraph, publishedGraph: stopGraph,
+        trigger: { type: 'slack', events: ['message.channels'], channels: ['C0CLOBBER1'], threadMemory: true },
+      },
+    })
+    const flowB = await prisma.flow.create({
+      data: {
+        name: 'clobber-b', organizationId: ids.org, userId: ids.user, status: 'ACTIVE', graph: stopGraph, publishedGraph: stopGraph,
+        trigger: { type: 'slack', events: ['message.channels'], channels: ['C0CLOBBER1'], threadMemory: true },
+      },
+    })
+    const runA = await prisma.flowRun.create({
+      data: { flowId: flowA.id, organizationId: ids.org, userId: ids.user, status: 'succeeded', input: { prompt: 'a' } },
+    })
+    const runB = await prisma.flowRun.create({
+      data: { flowId: flowB.id, organizationId: ids.org, userId: ids.user, status: 'succeeded', input: { prompt: 'b' } },
+    })
+    const channel = 'C0CLOBBER1'
+    const threadTs = '1752301100.000100'
+
+    // Flow A's dispatch opens the session first (first-flow-wins).
+    await upsertThreadSession({ organizationId: ids.org, bindingId, channel, threadTs, flowId: flowA.id, flowRunId: runA.id })
+    // Flow B ALSO matched the same event and dispatched its own one-shot run —
+    // its afterSlackDispatch must NOT steal the thread from flow A.
+    await upsertThreadSession({ organizationId: ids.org, bindingId, channel, threadTs, flowId: flowB.id, flowRunId: runB.id })
+
+    const session = await prisma.slackThreadSession.findFirst({ where: { organizationId: ids.org, bindingId, channel, threadTs } })
+    assert.equal(session.flowId, flowA.id, 'the session stays owned by the FIRST flow, never overwritten by the second')
+    assert.equal(session.flowRunId, runA.id)
+
+    // A later reply in this thread must continue flow A, not flow B.
+    await routeSlackEvent({
+      bindingId, organizationId: ids.org, botUserId: 'U0BOT9999',
+      normalized: {
+        input: { kind: 'message.channels', text: 'follow up', user: 'U0USER111', channel, ts: '1752301100.000200', thread_ts: threadTs, team: 'T0AAA111' },
+        dedupId: 'Ev0CLOBBER1',
+      },
+    })
+    const runsA = await prisma.flowRun.findMany({ where: { flowId: flowA.id, organizationId: ids.org } })
+    const runsB = await prisma.flowRun.findMany({ where: { flowId: flowB.id, organizationId: ids.org } })
+    assert.equal(runsA.length, 2, 'flow A (the thread owner) got the continuation run')
+    assert.equal(runsB.length, 1, 'flow B never received the continuation — it does not own the thread')
+
+    // A SAME-flowId update still refreshes the row's pointers normally.
+    const runA2 = await prisma.flowRun.create({
+      data: { flowId: flowA.id, organizationId: ids.org, userId: ids.user, status: 'succeeded', input: { prompt: 'a2' } },
+    })
+    await upsertThreadSession({ organizationId: ids.org, bindingId, channel, threadTs, flowId: flowA.id, flowRunId: runA2.id })
+    const refreshed = await prisma.slackThreadSession.findFirst({ where: { organizationId: ids.org, bindingId, channel, threadTs } })
+    assert.equal(refreshed.flowRunId, runA2.id, 'same-flow updates still refresh the run pointer')
+  })
+
+  test('continue-mode double-delivery dedup: two sibling deliveries in continue-mode produce exactly ONE new run', async () => {
+    const flow = await prisma.flow.create({
+      data: {
+        name: 'continue-dedup-target', organizationId: ids.org, userId: ids.user, status: 'ACTIVE',
+        graph: stopGraph, publishedGraph: stopGraph,
+        trigger: { type: 'slack', events: ['app_mention', 'message.channels'], channels: ['C0CONTDEDUP1'], threadMemory: true },
+      },
+    })
+    const channel = 'C0CONTDEDUP1'
+    const threadTs = '1752301200.000100'
+    const priorRun = await prisma.flowRun.create({
+      data: { flowId: flow.id, organizationId: ids.org, userId: ids.user, status: 'succeeded', input: { prompt: 'start' } },
+    })
+    await prisma.slackThreadSession.create({
+      data: { organizationId: ids.org, bindingId, channel, threadTs, flowId: flow.id, flowRunId: priorRun.id, agentExecutionId: 'exec-prior', status: 'open' },
+    })
+
+    const replyTs = '1752301200.000200'
+    const base = { user: 'U0USER111', channel, ts: replyTs, thread_ts: threadTs, team: 'T0AAA111' }
+    // Sibling event 1: app_mention. Sibling event 2: message.channels — same
+    // physical Slack message (same channel + ts), distinct event_ids, both
+    // reaching tryThreadContinuation's continue-mode branch.
+    await routeSlackEvent({
+      bindingId, organizationId: ids.org, botUserId: 'U0BOT9999',
+      normalized: { input: { kind: 'app_mention', text: '<@U0BOT9999> follow up', ...base }, dedupId: 'Ev0CONTDEDUPA' },
+    })
+    await routeSlackEvent({
+      bindingId, organizationId: ids.org, botUserId: 'U0BOT9999',
+      normalized: { input: { kind: 'message.channels', text: '<@U0BOT9999> follow up', ...base }, dedupId: 'Ev0CONTDEDUPB' },
+    })
+
+    const runs = await prisma.flowRun.findMany({ where: { flowId: flow.id, organizationId: ids.org } })
+    assert.equal(runs.length, 2, 'exactly ONE new run beyond the prior settled run — the sibling delivery was deduped')
+  })
+
+  test('read-side re-gate: an open session whose flow\'s CURRENT trigger has threadMemory off falls through to normal matching', async () => {
+    const flow = await prisma.flow.create({
+      data: {
+        name: 'regate-target', organizationId: ids.org, userId: ids.user, status: 'ACTIVE',
+        graph: stopGraph, publishedGraph: stopGraph,
+        // threadMemory NOT set on the CURRENT (published) trigger — simulates
+        // an operator turning it off after the session was opened.
+        trigger: { type: 'slack', events: ['message.channels'], channels: ['C0REGATE1'] },
+      },
+    })
+    const channel = 'C0REGATE1'
+    const threadTs = '1752301300.000100'
+    const priorRun = await prisma.flowRun.create({
+      data: { flowId: flow.id, organizationId: ids.org, userId: ids.user, status: 'succeeded', input: { prompt: 'start' } },
+    })
+    const session = await prisma.slackThreadSession.create({
+      data: { organizationId: ids.org, bindingId, channel, threadTs, flowId: flow.id, flowRunId: priorRun.id, status: 'open' },
+    })
+
+    await routeSlackEvent({
+      bindingId, organizationId: ids.org, botUserId: 'U0BOT9999',
+      normalized: {
+        input: { kind: 'message.channels', text: 'reply after toggle-off', user: 'U0USER111', channel, ts: '1752301300.000200', thread_ts: threadTs, team: 'T0AAA111' },
+        dedupId: 'Ev0REGATE1',
+      },
+    })
+
+    const runs = await prisma.flowRun.findMany({ where: { flowId: flow.id, organizationId: ids.org } })
+    assert.equal(runs.length, 2, 'fell through to normal matching, which still matched and dispatched — NOT a continuation')
+    const after = await prisma.slackThreadSession.findFirst({ where: { id: session.id } })
+    assert.equal(after.status, 'closed', 'the stale session (threadMemory now off) was closed rather than continued')
+  })
 } else {
   test('slack session precedence (skipped — TEST_DATABASE_URL not set)', () => {})
 }

@@ -14,6 +14,7 @@ test('first agent step of the run consumes the Slack seed', () => {
   const result = resolveAgentContinueExecutionId({
     threadContinueExecutionId: undefined,
     hasThread: false,
+    withinThreadedLoop: false,
     isResume: false,
     slackSeedRemaining: true,
     slackContinueExecutionId: 'exec-seed',
@@ -29,6 +30,7 @@ test('two-agent-node flow: seeds ONLY the first node, second node starts fresh',
   const node1 = resolveAgentContinueExecutionId({
     threadContinueExecutionId: undefined,
     hasThread: false,
+    withinThreadedLoop: false,
     isResume: false,
     slackSeedRemaining,
     slackContinueExecutionId,
@@ -41,6 +43,7 @@ test('two-agent-node flow: seeds ONLY the first node, second node starts fresh',
   const node2 = resolveAgentContinueExecutionId({
     threadContinueExecutionId: undefined,
     hasThread: false,
+    withinThreadedLoop: false,
     isResume: false,
     slackSeedRemaining,
     slackContinueExecutionId,
@@ -57,6 +60,7 @@ test('a loop-thread agent (node.thread set) is NEVER hijacked by the Slack seed,
   const threaded = resolveAgentContinueExecutionId({
     threadContinueExecutionId: undefined,
     hasThread: true,
+    withinThreadedLoop: true,
     isResume: false,
     slackSeedRemaining,
     slackContinueExecutionId,
@@ -68,6 +72,7 @@ test('a loop-thread agent (node.thread set) is NEVER hijacked by the Slack seed,
   const nextEligible = resolveAgentContinueExecutionId({
     threadContinueExecutionId: undefined,
     hasThread: false,
+    withinThreadedLoop: false,
     isResume: false,
     slackSeedRemaining,
     slackContinueExecutionId,
@@ -75,10 +80,27 @@ test('a loop-thread agent (node.thread set) is NEVER hijacked by the Slack seed,
   assert.deepEqual(nextEligible, { continueExecutionId: 'exec-seed', consumed: true })
 })
 
+test('an agent reached via a container (parallel branch / nested loop) INSIDE a threadAgent loop is never hijacked, even though it carries no `thread` of its own', () => {
+  // This is the hijack fix: interpret.ts does not set ctx.thread for an agent
+  // inside a parallel branch (or nested non-threaded loop) within a
+  // threadAgent loop body — only ctx.withinThreadedLoop is true there.
+  // hasThread is false, but withinThreadedLoop must still block the seed.
+  const result = resolveAgentContinueExecutionId({
+    threadContinueExecutionId: undefined,
+    hasThread: false,
+    withinThreadedLoop: true,
+    isResume: false,
+    slackSeedRemaining: true,
+    slackContinueExecutionId: 'exec-seed',
+  })
+  assert.deepEqual(result, { continueExecutionId: undefined, consumed: false })
+})
+
 test('loop-threading\'s own continuation always wins over the Slack seed (iteration > 0)', () => {
   const result = resolveAgentContinueExecutionId({
     threadContinueExecutionId: 'exec-prior-iteration',
     hasThread: true,
+    withinThreadedLoop: true,
     isResume: false,
     slackSeedRemaining: true,
     slackContinueExecutionId: 'exec-seed',
@@ -90,6 +112,7 @@ test('a resuming agent invocation never consumes the Slack seed', () => {
   const result = resolveAgentContinueExecutionId({
     threadContinueExecutionId: undefined,
     hasThread: false,
+    withinThreadedLoop: false,
     isResume: true,
     slackSeedRemaining: true,
     slackContinueExecutionId: 'exec-seed',
@@ -101,6 +124,7 @@ test('no Slack seed on the job: inert, never manufactures a continueExecutionId'
   const result = resolveAgentContinueExecutionId({
     threadContinueExecutionId: undefined,
     hasThread: false,
+    withinThreadedLoop: false,
     isResume: false,
     slackSeedRemaining: false,
     slackContinueExecutionId: undefined,

@@ -87,6 +87,15 @@ export function resolveAgentContinueExecutionId(args: {
   // True when this agent node sits inside a threaded loop iteration (whether
   // or not iteration 0 produced a threadContinueExecutionId yet).
   hasThread: boolean
+  // True anywhere inside a threadAgent loop's body, INCLUDING through a
+  // container (parallel branch / nested loop / errorShield) that does not
+  // itself carry `thread` (see FlowContext.withinThreadedLoop). An agent here
+  // must never be seeded from an unrelated Slack-continuation run — the
+  // loop-thread's own (sequential) continuation is the only conversation this
+  // agent may continue, and only `hasThread`/`threadContinueExecutionId`
+  // decide that. This flag exists purely to CLOSE that hijack; it changes no
+  // other behavior.
+  withinThreadedLoop: boolean
   // True when this invocation is re-entering a paused agent execution.
   isResume: boolean
   // Run-scoped latch: true until some earlier ELIGIBLE step has consumed it.
@@ -94,7 +103,13 @@ export function resolveAgentContinueExecutionId(args: {
   slackContinueExecutionId?: string
 }): { continueExecutionId?: string; consumed: boolean } {
   if (args.threadContinueExecutionId) return { continueExecutionId: args.threadContinueExecutionId, consumed: false }
-  if (!args.hasThread && !args.isResume && args.slackSeedRemaining && args.slackContinueExecutionId) {
+  if (
+    !args.hasThread &&
+    !args.withinThreadedLoop &&
+    !args.isResume &&
+    args.slackSeedRemaining &&
+    args.slackContinueExecutionId
+  ) {
     return { continueExecutionId: args.slackContinueExecutionId, consumed: true }
   }
   return { continueExecutionId: undefined, consumed: false }
@@ -433,6 +448,7 @@ export async function runFlowExecution(
       const slackSeed = resolveAgentContinueExecutionId({
         threadContinueExecutionId,
         hasThread: Boolean(node.thread),
+        withinThreadedLoop: node.withinThreadedLoop === true,
         isResume: Boolean(resumeThis),
         slackSeedRemaining,
         slackContinueExecutionId: job.slackContinueExecutionId,
