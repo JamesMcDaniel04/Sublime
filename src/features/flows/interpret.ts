@@ -4,26 +4,34 @@ import { shouldRetryAfterTimeout } from './action-reliability'
 import { structuredResponseInstruction, parseStructuredAgentOutput } from './agent-response'
 import { runDataOp } from '@/lib/flows/data-ops'
 import { resolveInputParams, bindOutputFields } from '@/lib/flows/io-nodes'
+import type { RouterBranchSpec } from '@/lib/flows/router'
+import { joinBranchOutputs } from '@/lib/flows/join'
+import { completedKey, nodeIdOfCompletedKey } from './completed-key'
 
 export type StepOutcome = {
   nodeId: string
   status: 'succeeded' | 'failed' | 'skipped' | 'waiting' | 'stopped'
   output?: unknown
   error?: string
+  // Present when this step ran inside a loop body — see FlowContext.iterationPath.
+  iterationPath?: number[]
 }
 export type RunAgentResult = { output?: unknown; error?: string; waiting?: { status: string; question?: string } }
-export type RunAgentFn = (node: { id: string; agentId: string; input: string; resume?: boolean }) => Promise<RunAgentResult>
+export type RunAgentFn = (node: { id: string; agentId: string; input: string; prompt?: string; model?: string; resume?: boolean; thread?: { key: string; iteration: number }; iterationPath?: number[] }) => Promise<RunAgentResult>
 // Deterministic (non-agent) steps: tool calls and HTTP requests. `config`
 // arrives with every template already resolved against the flow context.
 // `resume` marks the node a paused run is re-entering (e.g. after an approval
 // decision) so the adapter can consume the decision instead of re-executing.
-export type RunActionFn = (node: { id: string; kind: 'tool' | 'http'; config: Record<string, unknown>; resume?: boolean }) => Promise<RunAgentResult>
+export type RunActionFn = (node: { id: string; kind: 'tool' | 'http'; config: Record<string, unknown>; resume?: boolean; iterationPath?: number[] }) => Promise<RunAgentResult>
 // Synchronous subflow: run a child flow to completion and block on its output.
 // v1 is synchronous-only — a child that would itself pause is surfaced as a
 // plain `error` (the execute-flow.ts adapter performs that translation), never
 // a `waiting` result, so this contract has no waiting case to represent.
 export type RunFlowResult = { output?: unknown; error?: string }
-export type RunFlowFn = (node: { id: string; flowId: string; input: unknown; resume?: boolean }) => Promise<RunFlowResult>
+export type RunFlowFn = (node: { id: string; flowId: string; input: unknown; resume?: boolean; iterationPath?: number[] }) => Promise<RunFlowResult>
+// AI Router branch pick. Injected (like runAgent) so the interpreter stays
+// pure: the execute-flow adapter wires this to a cheap generateStructured call.
+export type RouteAiFn = (node: { id: string; branches: RouterBranchSpec[]; instructions?: string; input: string }) => Promise<{ branch: string } | { error: string }>
 export type InterpretResult = {
   status: 'succeeded' | 'failed' | 'waiting'
   steps: StepOutcome[]
@@ -38,6 +46,7 @@ type Opts = {
   runAgent: RunAgentFn
   runAction?: RunActionFn
   runFlow?: RunFlowFn
+  routeAi?: RouteAiFn
   maxSteps?: number
   maxLoopIterations?: number
   onStep?: (outcome: StepOutcome) => void
@@ -46,6 +55,17 @@ type Opts = {
   // was paused and should re-run with the user's reply injected.
   completed?: Record<string, unknown>
   resumeNodeId?: string
+  // The resume target as a KEY (see completed-key.ts / resume-scan.ts):
+  // `completedKey(resumeNodeId, resumeIterationPath)`. Every resume guard
+  // compares THIS against `completedKey(node.id, ctx.iterationPath)` — never
+  // the bare `resumeNodeId` — so a resume matches exactly the one iteration
+  // that paused, not every not-yet-completed iteration of that node id. For a
+  // non-loop pause this is byte-identical to `resumeNodeId` (bare id), so
+  // normal (non-loop) pause/resume is unaffected. When omitted, guards fall
+  // back to `resumeNodeId` as the key — identical for every non-loop node,
+  // and a SAFE non-match (re-pause, never cross-wire) for loop-body nodes,
+  // whose keys always carry an iteration path.
+  resumeKey?: string
   // The user's reply for the resuming node. Agent steps receive the reply
   // inside their adapter (execute-flow re-enters the paused execution with
   // it); a humanReview step has no adapter, so the interpreter itself turns
@@ -284,6 +304,10 @@ function resolveConfigValue(value: string | undefined, ctx: FlowContext): unknow
 export async function interpretFlow(graph: FlowGraph, input: unknown, opts: Opts): Promise<InterpretResult> {
   const maxSteps = opts.maxSteps ?? 100
   const maxLoop = opts.maxLoopIterations ?? 500
+  // Resume target key (see the Opts doc): callers that predate resumeKey pass
+  // only resumeNodeId — for them the bare id IS the key of any non-loop node,
+  // while a loop-body node's path-carrying key safely never matches it.
+  const resumeKey = opts.resumeKey ?? opts.resumeNodeId
   const byId = new Map(graph.nodes.map((node) => [node.id, node]))
   // Declared variable types: each name's initialize node (anywhere in the
   // graph, container bodies included) governs how later set/increment values
@@ -312,13 +336,16 @@ export async function interpretFlow(graph: FlowGraph, input: unknown, opts: Opts
   const runAgentWithReliability = async (
     node: Extract<FlowNode, { type: 'agent' }>,
     resolvedInput: string,
+    extra: { prompt?: string; thread?: FlowContext['thread']; iterationPath?: number[] },
   ): Promise<RunAgentResult> => {
     const retries = node.data.retries ?? 0
     const timeoutMs = node.data.timeoutMs
-    const resume = opts.resumeNodeId === node.id
+    // Key-matched, not bare-id: only the exact iteration that paused resumes
+    // (see the `resumeKey` doc on Opts above).
+    const resume = resumeKey !== undefined && resumeKey === completedKey(node.id, extra.iterationPath)
     let attempt = 0
     for (;;) {
-      const call = opts.runAgent({ id: node.id, agentId: node.data.agentId, input: resolvedInput, resume })
+      const call = opts.runAgent({ id: node.id, agentId: node.data.agentId, input: resolvedInput, prompt: extra.prompt, model: node.data.model, resume, thread: extra.thread, iterationPath: extra.iterationPath })
       const raced = timeoutMs ? await raceTimeout(call, timeoutMs) : await call
       // A timeout only ABANDONS the live agent execution — Promise.race cannot
       // cancel it, so it may still be running (and spending tokens / performing
@@ -352,38 +379,42 @@ export async function interpretFlow(graph: FlowGraph, input: unknown, opts: Opts
     // covers container bodies the walk never enters), so a replayed variable
     // step must NOT re-apply here — that would rewind the symbol table to a
     // value from before a later completed write.
-    if (opts.completed && Object.prototype.hasOwnProperty.call(opts.completed, node.id)) {
-      const output = opts.completed[node.id]
+    const key = completedKey(node.id, ctx.iterationPath)
+    if (opts.completed && Object.prototype.hasOwnProperty.call(opts.completed, key)) {
+      const output = opts.completed[key]
       ctx.step[node.id] = { output }
-      emit({ nodeId: node.id, status: 'skipped', output })
+      emit({ nodeId: node.id, status: 'skipped', output, iterationPath: ctx.iterationPath })
       return { kind: 'ok', output }
     }
 
     if (node.type === 'stop') {
-      emit({ nodeId: node.id, status: 'stopped', output: node.data.reason ?? 'Flow stopped.' })
+      emit({ nodeId: node.id, status: 'stopped', output: node.data.reason ?? 'Flow stopped.', iterationPath: ctx.iterationPath })
       return { kind: 'stop' }
     }
 
-    if (node.type === 'condition' || node.type === 'switch') {
+    if (node.type === 'condition' || node.type === 'switch' || node.type === 'router') {
       // Bodies are flat ordered lists (no edges), so branching can't route
-      // here. The main-chain walker intercepts condition/switch before
+      // here. The main-chain walker intercepts condition/switch/router before
       // execNode is consulted, so reaching this arm means the node sits inside
       // a container body — publish validation also rejects that
-      // (CONDITION_IN_CONTAINER); this guards stored pre-validation graphs,
-      // which previously mis-ran silently.
-      const label = node.type === 'condition' ? 'If / else' : 'Switch'
-      const error = `${label} can't run inside a For each / Parallel body — branching isn't supported there. Use a Filter step to gate items instead.`
-      emit({ nodeId: node.id, status: 'failed', error })
+      // (CONDITION_IN_CONTAINER / ROUTER_IN_CONTAINER); this guards stored
+      // pre-validation graphs, which previously mis-ran silently.
+      const label = node.type === 'condition' ? 'If / else' : node.type === 'switch' ? 'Switch' : 'AI router'
+      const error = `${label} can't run inside a For each / Parallel body — branching isn't supported there.`
+      emit({ nodeId: node.id, status: 'failed', error, iterationPath: ctx.iterationPath })
       return { kind: 'fail', error }
     }
 
     if (node.type === 'humanReview') {
       // Request information: a first-class pause with no agent involved.
       // Resuming this exact node? The reviewer's reply IS the step output.
-      if (opts.resumeNodeId === node.id) {
+      // Key-matched (not bare-id): in a loop body, multiple simultaneous
+      // humanReview pauses share the same node id — only the iteration whose
+      // key matches consumes this reply; the others fall through and re-pause.
+      if (resumeKey !== undefined && resumeKey === completedKey(node.id, ctx.iterationPath)) {
         const output = opts.resumeReply ?? ''
         ctx.step[node.id] = { output }
-        emit({ nodeId: node.id, status: 'succeeded', output })
+        emit({ nodeId: node.id, status: 'succeeded', output, iterationPath: ctx.iterationPath })
         return { kind: 'ok', output }
       }
       // First visit: resolve the message and pause the run. The outcome carries
@@ -391,7 +422,7 @@ export async function interpretFlow(graph: FlowGraph, input: unknown, opts: Opts
       // adapter persists, so execute-flow's onStep path can store it verbatim
       // and the existing reply machinery renders/answers it unchanged.
       const question = resolveTemplate(node.data.message, ctx)
-      emit({ nodeId: node.id, status: 'waiting', output: { waiting: { kind: 'input', question } } })
+      emit({ nodeId: node.id, status: 'waiting', output: { waiting: { kind: 'input', question } }, iterationPath: ctx.iterationPath })
       return { kind: 'pause', nodeId: node.id, question }
     }
 
@@ -412,18 +443,18 @@ export async function interpretFlow(graph: FlowGraph, input: unknown, opts: Opts
         output[field.name] = value
       }
       ctx.step[node.id] = { output }
-      emit({ nodeId: node.id, status: 'succeeded', output })
+      emit({ nodeId: node.id, status: 'succeeded', output, iterationPath: ctx.iterationPath })
       return { kind: 'ok', output }
     }
 
     if (node.type === 'variable') {
       const res = applyVariableOp(node, ctx, declaredTypes)
       if ('error' in res) {
-        emit({ nodeId: node.id, status: 'failed', error: res.error })
+        emit({ nodeId: node.id, status: 'failed', error: res.error, iterationPath: ctx.iterationPath })
         return { kind: 'fail', error: res.error }
       }
       ctx.step[node.id] = { output: res.output }
-      emit({ nodeId: node.id, status: 'succeeded', output: res.output })
+      emit({ nodeId: node.id, status: 'succeeded', output: res.output, iterationPath: ctx.iterationPath })
       return { kind: 'ok', output: res.output }
     }
 
@@ -442,11 +473,11 @@ export async function interpretFlow(graph: FlowGraph, input: unknown, opts: Opts
         ctx,
       })
       if ('error' in res) {
-        emit({ nodeId: node.id, status: 'failed', error: res.error })
+        emit({ nodeId: node.id, status: 'failed', error: res.error, iterationPath: ctx.iterationPath })
         return { kind: 'fail', error: res.error }
       }
       ctx.step[node.id] = { output: res.output }
-      emit({ nodeId: node.id, status: 'succeeded', output: res.output })
+      emit({ nodeId: node.id, status: 'succeeded', output: res.output, iterationPath: ctx.iterationPath })
       return { kind: 'ok', output: res.output }
     }
 
@@ -454,10 +485,10 @@ export async function interpretFlow(graph: FlowGraph, input: unknown, opts: Opts
       // Gate: pass through when the condition holds; else drop (loop) / end (chain).
       const passed = evalCondition(node.data, ctx)
       if (passed) {
-        emit({ nodeId: node.id, status: 'succeeded', output: true })
+        emit({ nodeId: node.id, status: 'succeeded', output: true, iterationPath: ctx.iterationPath })
         return { kind: 'ok', output: undefined }
       }
-      emit({ nodeId: node.id, status: 'skipped', output: false })
+      emit({ nodeId: node.id, status: 'skipped', output: false, iterationPath: ctx.iterationPath })
       return { kind: 'drop' }
     }
 
@@ -494,7 +525,13 @@ export async function interpretFlow(graph: FlowGraph, input: unknown, opts: Opts
               timeoutMs: node.data.timeoutMs,
             }
       const res: RunAgentResult = opts.runAction
-        ? await opts.runAction({ id: node.id, kind: node.type, config, resume: opts.resumeNodeId === node.id })
+        ? await opts.runAction({
+            id: node.id,
+            kind: node.type,
+            config,
+            resume: resumeKey !== undefined && resumeKey === completedKey(node.id, ctx.iterationPath),
+            iterationPath: ctx.iterationPath,
+          })
         : { error: `${node.type} steps are not supported in this runtime.` }
       if (res.waiting) {
         // A write tool queued for approval pauses the run, same as an agent step.
@@ -548,7 +585,9 @@ export async function interpretFlow(graph: FlowGraph, input: unknown, opts: Opts
       const structured = node.data.responseFormat === 'structured' && outputFields.some((field) => field.name.trim())
       let resolved = resolveTemplate(node.data.input ?? '{{trigger.input}}', ctx)
       if (structured) resolved = `${resolved}\n\n${structuredResponseInstruction(outputFields)}`
-      const res = await runAgentWithReliability(node, resolved)
+      const inline = !node.data.agentId?.trim()
+      const prompt = inline ? resolveTemplate(node.data.prompt ?? '', ctx) : undefined
+      const res = await runAgentWithReliability(node, resolved, { prompt, thread: ctx.thread, iterationPath: ctx.iterationPath })
       if (res.waiting) {
         if (node.data.humanAssistance === false) {
           const error = 'The agent asked for help, but human assistance is turned off for this step.'
@@ -598,7 +637,13 @@ export async function interpretFlow(graph: FlowGraph, input: unknown, opts: Opts
       // this contract, so there is no `waiting` case to branch on. A subflow
       // can only ever end this node in `error` or success.
       const res: RunFlowResult = opts.runFlow
-        ? await opts.runFlow({ id: node.id, flowId: node.data.flowId, input: childInput, resume: opts.resumeNodeId === node.id })
+        ? await opts.runFlow({
+            id: node.id,
+            flowId: node.data.flowId,
+            input: childInput,
+            resume: resumeKey !== undefined && resumeKey === completedKey(node.id, ctx.iterationPath),
+            iterationPath: ctx.iterationPath,
+          })
         : { error: 'Subflow steps are not supported in this runtime.' }
       if (res.error) {
         emit({ nodeId: node.id, status: 'failed', error: res.error })
@@ -613,41 +658,98 @@ export async function interpretFlow(graph: FlowGraph, input: unknown, opts: Opts
 
     if (node.type === 'loop') {
       const items = loopItems(resolveTemplate(node.data.over, ctx)).slice(0, maxLoop)
-      const perItem = await mapLimit(items, node.data.concurrency ?? 1, async (item, index) => {
+      const threaded = node.data.threadAgent === true
+      // Threading ONE conversation across iterations requires sequential
+      // execution — you cannot append turns to one conversation concurrently.
+      const concurrency = threaded ? 1 : (node.data.concurrency ?? 1)
+      const runItem = (item: unknown, index: number) => {
         // `variables` is shared by reference: writes inside the body persist
         // past the loop (one flow-global symbol table, MS parity).
-        const itemCtx: FlowContext = { trigger: ctx.trigger, step: { ...ctx.step }, item, loop: { index, count: items.length }, variables: ctx.variables, input: ctx.input }
+        const itemCtx: FlowContext = {
+          trigger: ctx.trigger, step: { ...ctx.step }, item, loop: { index, count: items.length },
+          variables: ctx.variables, input: ctx.input,
+          iterationPath: [...(ctx.iterationPath ?? []), index],
+          ...(threaded ? { thread: { key: node.id, iteration: index } } : {}),
+        }
         return execBody(node.data.body, itemCtx)
-      })
+      }
+      let perItem: Awaited<ReturnType<typeof execBody>>[]
+      if (threaded) {
+        // A threaded loop chains one conversation across iterations; each
+        // iteration is seeded from the previous iteration's agent execution.
+        // A pause/fail/stop must halt the chain — running ahead would seed the
+        // next turn from an unfinished transcript (an invalid
+        // assistant(tool_use)->user request) and fire premature, later-
+        // duplicated side-effects. A 'drop' (filter) is not terminal: continue.
+        perItem = []
+        for (let index = 0; index < items.length; index++) {
+          const r = await runItem(items[index], index)
+          perItem.push(r)
+          if (r.control !== undefined && r.control.kind !== 'drop') break
+        }
+      } else {
+        perItem = await mapLimit(items, concurrency, runItem)
+      }
       // Propagate the first hard control (stop / fail / pause); a 'drop' (filter)
       // just removes that item from the collected output.
       const control = perItem.map((r) => r.control).find((c): c is NodeResult => c !== undefined && c.kind !== 'drop')
       if (control) {
-        emit({ nodeId: node.id, status: control.kind === 'fail' ? 'failed' : control.kind === 'pause' ? 'waiting' : 'stopped' })
+        emit({ nodeId: node.id, status: control.kind === 'fail' ? 'failed' : control.kind === 'pause' ? 'waiting' : 'stopped', iterationPath: ctx.iterationPath })
         return control
       }
       const output = perItem.filter((r) => r.control?.kind !== 'drop').map((r) => r.output)
       ctx.step[node.id] = { output }
-      emit({ nodeId: node.id, status: 'succeeded', output })
+      emit({ nodeId: node.id, status: 'succeeded', output, iterationPath: ctx.iterationPath })
       return { kind: 'ok', output }
     }
 
     if (node.type === 'parallel') {
       const results = await Promise.all(
         node.data.branches.map(async (branch) => {
-          const branchCtx: FlowContext = { trigger: ctx.trigger, step: { ...ctx.step }, item: ctx.item, loop: ctx.loop, variables: ctx.variables, input: ctx.input }
+          const branchCtx: FlowContext = { trigger: ctx.trigger, step: { ...ctx.step }, item: ctx.item, loop: ctx.loop, variables: ctx.variables, input: ctx.input, iterationPath: ctx.iterationPath }
           const res = await execBody(branch, branchCtx)
           return { key: branch[0] ?? node.id, res }
         }),
       )
       const control = results.map((r) => r.res.control).find((c): c is NodeResult => c !== undefined && c.kind !== 'drop')
       if (control) {
-        emit({ nodeId: node.id, status: control.kind === 'fail' ? 'failed' : control.kind === 'pause' ? 'waiting' : 'stopped' })
+        emit({ nodeId: node.id, status: control.kind === 'fail' ? 'failed' : control.kind === 'pause' ? 'waiting' : 'stopped', iterationPath: ctx.iterationPath })
         return control
       }
-      const output = Object.fromEntries(results.filter((r) => r.res.control?.kind !== 'drop').map((r) => [r.key, r.res.output]))
+      const entries = results
+        .map((r, index) => ({ key: r.key, output: r.res.output, label: node.data.labels?.[index], dropped: r.res.control?.kind === 'drop' }))
+        .filter((e) => !e.dropped)
+      const output = joinBranchOutputs(entries, node.data.join)
       ctx.step[node.id] = { output }
-      emit({ nodeId: node.id, status: 'succeeded', output })
+      emit({ nodeId: node.id, status: 'succeeded', output, iterationPath: ctx.iterationPath })
+      return { kind: 'ok', output }
+    }
+
+    if (node.type === 'errorShield') {
+      const bodyCtx: FlowContext = { trigger: ctx.trigger, step: { ...ctx.step }, item: ctx.item, loop: ctx.loop, variables: ctx.variables, input: ctx.input, thread: ctx.thread, iterationPath: ctx.iterationPath }
+      const bodyRes = await execBody(node.data.body, bodyCtx)
+      const control = bodyRes.control
+      // Only a hard failure is shielded → fallback. pause/stop/drop propagate.
+      if (control && control.kind === 'fail') {
+        const fbCtx: FlowContext = { trigger: ctx.trigger, step: { ...ctx.step }, item: ctx.item, loop: ctx.loop, variables: ctx.variables, input: ctx.input, thread: ctx.thread, error: control.error, iterationPath: ctx.iterationPath }
+        const fbRes = await execBody(node.data.fallback, fbCtx)
+        if (fbRes.control && fbRes.control.kind !== 'drop') {
+          // The fallback itself failed/paused/stopped — surface that, unshielded.
+          emit({ nodeId: node.id, status: fbRes.control.kind === 'fail' ? 'failed' : fbRes.control.kind === 'pause' ? 'waiting' : 'stopped', iterationPath: ctx.iterationPath })
+          return fbRes.control
+        }
+        const output = fbRes.output
+        ctx.step[node.id] = { output }
+        emit({ nodeId: node.id, status: 'succeeded', output, iterationPath: ctx.iterationPath })
+        return { kind: 'ok', output }
+      }
+      if (control && control.kind !== 'drop') {
+        emit({ nodeId: node.id, status: control.kind === 'pause' ? 'waiting' : 'stopped', iterationPath: ctx.iterationPath })
+        return control
+      }
+      const output = bodyRes.output
+      ctx.step[node.id] = { output }
+      emit({ nodeId: node.id, status: 'succeeded', output, iterationPath: ctx.iterationPath })
       return { kind: 'ok', output }
     }
 
@@ -678,7 +780,10 @@ export async function interpretFlow(graph: FlowGraph, input: unknown, opts: Opts
   // Node ids that live inside a container must not be reached by the main walk.
   const contained = new Set(
     graph.nodes.flatMap((node) =>
-      node.type === 'loop' ? node.data.body : node.type === 'parallel' ? node.data.branches.flat() : [],
+      node.type === 'loop' ? node.data.body
+      : node.type === 'parallel' ? node.data.branches.flat()
+      : node.type === 'errorShield' ? [...node.data.body, ...node.data.fallback]
+      : [],
     ),
   )
 
@@ -693,7 +798,8 @@ export async function interpretFlow(graph: FlowGraph, input: unknown, opts: Opts
   // the op — leaving the correct last write per name in place.
   if (opts.completed) {
     const variables = (ctx.variables ??= {})
-    for (const [nodeId, output] of Object.entries(opts.completed)) {
+    for (const [key, output] of Object.entries(opts.completed)) {
+      const nodeId = nodeIdOfCompletedKey(key)
       const node = byId.get(nodeId)
       if (node?.type === 'variable' && node.data.name.trim()) variables[node.data.name.trim()] = output
       if (node?.type === 'input' && output && typeof output === 'object' && !Array.isArray(output)) {
@@ -745,6 +851,35 @@ export async function interpretFlow(graph: FlowGraph, input: unknown, opts: Opts
       const hit = current.data.cases.find((c) => evalClause({ left: c.left, op: c.op, right: c.right }, ctx))
       emit({ nodeId: current.id, status: 'succeeded', output: hit?.id ?? 'default' })
       const edge = outgoing(current.id, hit ? hit.id : 'default')
+      current = edge ? byId.get(edge.target) : undefined
+      continue
+    }
+
+    if (current.type === 'router') {
+      if (overBudget()) return { status: 'failed', steps, output: lastOutput, error: 'Flow exceeded the maximum number of steps.' }
+      let chosen: string
+      // Resume stability: reuse the branch chosen on the first run (the stored
+      // output IS the branch id). Re-calling the model could route differently.
+      const prior = opts.completed && Object.prototype.hasOwnProperty.call(opts.completed, current.id) ? opts.completed[current.id] : undefined
+      if (typeof prior === 'string' && prior) {
+        chosen = prior
+        emit({ nodeId: current.id, status: 'skipped', output: chosen })
+      } else if (!opts.routeAi) {
+        const error = 'Router steps need an AI runtime and are not supported in this runtime.'
+        emit({ nodeId: current.id, status: 'failed', error })
+        return { status: 'failed', steps, output: lastOutput, error }
+      } else {
+        const input = resolveTemplate(current.data.input ?? '{{trigger.input}}', ctx)
+        const res = await opts.routeAi({ id: current.id, branches: current.data.branches, instructions: current.data.instructions, input })
+        if ('error' in res) {
+          emit({ nodeId: current.id, status: 'failed', error: res.error })
+          return { status: 'failed', steps, output: lastOutput, error: res.error }
+        }
+        chosen = res.branch
+        ctx.step[current.id] = { output: chosen }
+        emit({ nodeId: current.id, status: 'succeeded', output: chosen })
+      }
+      const edge = outgoing(current.id, chosen)
       current = edge ? byId.get(edge.target) : undefined
       continue
     }

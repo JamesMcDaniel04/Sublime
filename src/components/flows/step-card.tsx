@@ -31,7 +31,9 @@ import {
   Repeat,
   Rows3,
   Settings2,
+  ShieldAlert,
   SlidersHorizontal,
+  Sparkles,
   Split,
   ToggleLeft,
   Trash2,
@@ -126,6 +128,8 @@ const NODE_ICON: Record<FlowNode['type'], typeof Bot> = {
   input: LogIn,
   output: LogOut,
   subflow: Workflow,
+  router: Sparkles,
+  errorShield: ShieldAlert,
 }
 
 const NODE_TONE: Record<FlowNode['type'], string> = {
@@ -146,6 +150,8 @@ const NODE_TONE: Record<FlowNode['type'], string> = {
   input: 'bg-teal-600 text-white',
   output: 'bg-rose-500 text-white',
   subflow: 'bg-indigo-600 text-white',
+  router: 'bg-fuchsia-500 text-white',
+  errorShield: 'bg-rose-600 text-white',
 }
 
 const STATUS_DOT: Record<StepStatus, string> = {
@@ -254,6 +260,10 @@ function transformFields(node: Extract<FlowNode, { type: 'transform' }>): { name
 
 function switchFirstCase(node: Extract<FlowNode, { type: 'switch' }>) {
   return node.data.cases[0] ?? { id: 'case1', left: '', op: 'contains' as ConditionOp, right: '' }
+}
+
+function routerFirstBranch(node: Extract<FlowNode, { type: 'router' }>) {
+  return node.data.branches[0] ?? { id: 'branch1', label: '' }
 }
 
 function selectedTool(connectionId: string, toolName: string, toolCatalog: ToolCatalog) {
@@ -907,6 +917,19 @@ function renderNodeBody({
       return (
         <div className="space-y-3">
           <p className="text-sm text-slate-600">Runs {node.data.branches.length || 0} branches side by side.</p>
+          <div className="grid gap-1.5">
+            <label className={labelClass}>Join strategy</label>
+            <select
+              value={node.data.join ?? ''}
+              onChange={(event) => update({ ...node, data: { ...node.data, join: (event.target.value || undefined) as 'object' | 'array' | 'merge' | undefined } })}
+              className={controlClass}
+            >
+              <option value="">Keyed object (default)</option>
+              <option value="object">Object (keyed by labels)</option>
+              <option value="array">Array (branch order)</option>
+              <option value="merge">Merge (shallow-merge objects)</option>
+            </select>
+          </div>
           {onAddStep && <AddNestedStepMenu label="Add parallel branch" onPick={onAddStep} />}
         </div>
       )
@@ -920,6 +943,10 @@ function renderNodeBody({
       return <DataBody node={node} update={update} tokenWiring={tokenWiring} showErrors={showErrors} />
     case 'humanReview':
       return <HumanReviewBody node={node} update={update} tokenWiring={tokenWiring} showErrors={showErrors} />
+    case 'router':
+      return <RouterBody node={node} update={update} tokenWiring={tokenWiring} />
+    case 'errorShield':
+      return <ErrorShieldBody node={node} onAddStep={onAddStep} />
   }
 }
 
@@ -1288,6 +1315,11 @@ function AgentBody({
   const outputFields = node.data.outputFields ?? []
   const setOutputFields = (fields: OutputField[]) =>
     update({ ...node, data: { ...node.data, outputFields: fields.length ? fields : undefined } })
+  // Inline-prompt mode: an ephemeral one-shot model call with no saved
+  // AgentTask (model-runner.ts's generateText). Opens by default when the
+  // node already carries a prompt (JSON/copilot-authored), otherwise the
+  // saved-agent picker stays the default surface.
+  const [showInlinePrompt, setShowInlinePrompt] = useState(Boolean(node.data.prompt?.trim()))
   return (
     <div className="space-y-4">
       <div className="grid gap-2">
@@ -1326,7 +1358,47 @@ function AgentBody({
             <Plus className="h-4 w-4" /> New
           </a>
         </div>
+        <button
+          type="button"
+          onClick={() => setShowInlinePrompt((value) => !value)}
+          className="w-fit text-xs font-semibold text-blue-700 hover:text-blue-900"
+        >
+          {showInlinePrompt ? 'Hide inline prompt' : 'Use an inline prompt instead of a saved agent'}
+        </button>
       </div>
+      {showInlinePrompt && (
+        <div className="grid gap-3 rounded-lg border border-slate-200 bg-slate-50 p-3">
+          <div className="grid gap-2">
+            <label className={labelClass}>Prompt</label>
+            <TokenTextEditor
+              ref={registerEditor('agent.prompt')}
+              multiline
+              rows={4}
+              value={node.data.prompt ?? ''}
+              labelCtx={labelCtx}
+              onFocus={focusEditor('agent.prompt')}
+              onChange={(prompt) => update({ ...node, data: { ...node.data, prompt: prompt || undefined } })}
+              className={tokenControlClass}
+              placeholder="Run this prompt as a one-shot model call — no saved agent needed."
+              ariaLabel="Inline prompt"
+            />
+          </div>
+          <div className="grid gap-2">
+            <label className={labelClass}>Model</label>
+            <select
+              value={node.data.model ?? ''}
+              onChange={(event) => update({ ...node, data: { ...node.data, model: event.target.value || undefined } })}
+              className={cn(controlClass, 'w-full sm:w-64')}
+            >
+              <option value="">Default</option>
+              <option value="claude-opus-4-8">Claude Opus 4.8</option>
+              <option value="claude-sonnet-5">Claude Sonnet 5</option>
+              <option value="claude-haiku-4-5">Claude Haiku 4.5</option>
+              <option value="qwen-3.7">Qwen 3.7</option>
+            </select>
+          </div>
+        </div>
+      )}
       <div className="grid gap-2">
         <label className={labelClass}>Message to agent</label>
         <TokenTextEditor
@@ -1872,6 +1944,24 @@ function LoopBody({
   )
 }
 
+function ErrorShieldBody({
+  node,
+  onAddStep,
+}: {
+  node: Extract<FlowNode, { type: 'errorShield' }>
+  onAddStep?: (type: EditableType) => void
+}) {
+  return (
+    <div className="space-y-3">
+      <p className="text-sm text-slate-600">
+        Runs the body below. If a body step fails, the fallback runs instead — with the error available as{' '}
+        <code className="rounded bg-slate-100 px-1 py-0.5 text-xs">{'{{error}}'}</code> — and this step still succeeds.
+      </p>
+      {onAddStep && <AddNestedStepMenu label="Add step to body" onPick={onAddStep} />}
+    </div>
+  )
+}
+
 function SwitchBody({
   node,
   update,
@@ -1951,6 +2041,97 @@ function SwitchBody({
         className="flex items-center gap-1 text-xs font-medium text-indigo-600 hover:text-indigo-700"
       >
         <Plus className="h-3.5 w-3.5" /> Add case
+      </button>
+    </div>
+  )
+}
+
+function RouterBody({
+  node,
+  update,
+  tokenWiring,
+}: {
+  node: Extract<FlowNode, { type: 'router' }>
+  update: (node: FlowNode) => void
+  tokenWiring: TokenEditorWiring
+}) {
+  const { labelCtx, registerEditor, focusEditor } = tokenWiring
+  const branches = node.data.branches.length ? node.data.branches : [routerFirstBranch(node)]
+  const setBranches = (next: typeof branches) => update({ ...node, data: { ...node.data, branches: next } })
+  return (
+    <div className="space-y-3">
+      <p className="text-sm text-slate-600">
+        An AI model reads the routing input, weighs it against each branch&apos;s description below, and continues down the best match — otherwise the <strong>default</strong> path.
+      </p>
+      <div className="grid gap-2">
+        <label className={labelClass}>Routing input</label>
+        <TokenTextEditor
+          ref={registerEditor('router.input')}
+          value={node.data.input ?? ''}
+          labelCtx={labelCtx}
+          onFocus={focusEditor('router.input')}
+          onChange={(input) => update({ ...node, data: { ...node.data, input } })}
+          className={cn(tokenControlClass, 'min-w-0')}
+          placeholder="The value the AI routes on, e.g. {{trigger.input}}"
+          ariaLabel="Routing input"
+        />
+      </div>
+      <div className="grid gap-2">
+        <label className={labelClass}>Routing instructions (optional)</label>
+        <TokenTextEditor
+          ref={registerEditor('router.instructions')}
+          multiline
+          rows={3}
+          value={node.data.instructions ?? ''}
+          labelCtx={labelCtx}
+          onFocus={focusEditor('router.instructions')}
+          onChange={(instructions) => update({ ...node, data: { ...node.data, instructions: instructions || undefined } })}
+          className={tokenControlClass}
+          placeholder="Extra guidance for the model making the routing decision"
+          ariaLabel="Routing instructions"
+        />
+      </div>
+      <div className="space-y-2">
+        {branches.map((branch, index) => (
+          <div key={branch.id} className="space-y-2 rounded-lg border border-slate-200 p-2.5">
+            <div className="flex gap-2">
+              <input
+                value={branch.label ?? ''}
+                placeholder={`Branch ${index + 1} label`}
+                onChange={(event) => setBranches(branches.map((b, j) => (j === index ? { ...b, label: event.target.value } : b)))}
+                className={cn(controlClass, 'flex-1')}
+                aria-label={`Branch ${index + 1} label`}
+              />
+              {branches.length > 1 && (
+                <button
+                  type="button"
+                  onClick={() => setBranches(branches.filter((_, j) => j !== index))}
+                  className="px-1 text-red-500 hover:text-red-700"
+                  aria-label={`Remove branch ${index + 1}`}
+                >
+                  <Trash2 className="h-4 w-4" />
+                </button>
+              )}
+            </div>
+            <textarea
+              value={branch.description ?? ''}
+              onChange={(event) => setBranches(branches.map((b, j) => (j === index ? { ...b, description: event.target.value } : b)))}
+              rows={2}
+              className={cn(controlClass, 'h-auto w-full min-h-[64px] resize-y py-2')}
+              placeholder="What routes here — the AI picks the branch by this description"
+              aria-label={`Branch ${index + 1} description`}
+            />
+          </div>
+        ))}
+      </div>
+      <button
+        type="button"
+        onClick={() =>
+          setBranches([...branches, { id: `branch${branches.length + 1}-${Math.random().toString(36).slice(2, 6)}`, label: '', description: '' }])
+        }
+        className="flex items-center gap-1 text-xs font-medium text-indigo-600 hover:text-indigo-700"
+      >
+        <Plus className="h-3.5 w-3.5" /> Add branch
       </button>
     </div>
   )

@@ -75,6 +75,10 @@ function nodeLabel(node: FlowNode | undefined) {
       return 'Output'
     case 'subflow':
       return 'Subflow'
+    case 'router':
+      return 'AI router'
+    case 'errorShield':
+      return 'Error shield'
     case 'variable':
       switch (node.data.op) {
         case 'initialize':
@@ -249,6 +253,10 @@ function reachableFrom(graph: FlowGraph, startId: string): Set<string> {
     seen.add(id)
     if (node.type === 'loop') node.data.body.forEach(visit)
     if (node.type === 'parallel') node.data.branches.flat().forEach(visit)
+    if (node.type === 'errorShield') {
+      node.data.body.forEach(visit)
+      node.data.fallback.forEach(visit)
+    }
     graph.edges.filter((edge) => edge.source === id).forEach((edge) => visit(edge.target))
   }
   visit(startId)
@@ -346,12 +354,17 @@ export function validateFlowGraph(graph: FlowGraph, context: FlowValidationConte
 
   for (const node of graph.nodes) {
     if (node.type === 'agent') {
-      if (!node.data.agentId) {
-        add(issues, 'error', 'MISSING_AGENT', `${nodeLabel(node)} needs an agent.`, node.id)
-      } else if (context.agents && !agentIds.has(node.data.agentId)) {
+      const hasAgent = Boolean(node.data.agentId?.trim())
+      const hasPrompt = Boolean(node.data.prompt?.trim())
+      if (!hasAgent && !hasPrompt) {
+        add(issues, 'error', 'MISSING_AGENT_OR_PROMPT', `${nodeLabel(node)} needs a saved agent or an inline prompt.`, node.id)
+      } else if (hasAgent && context.agents && !agentIds.has(node.data.agentId)) {
         add(issues, 'error', 'UNKNOWN_AGENT', `${nodeLabel(node)} uses an agent that is not available.`, node.id)
+      } else if (hasAgent && hasPrompt) {
+        add(issues, 'warning', 'AGENT_AND_PROMPT', `${nodeLabel(node)} has both a saved agent and an inline prompt — the saved agent is used and the prompt is ignored.`, node.id)
       }
-      if (!node.data.input?.trim()) {
+      if (!hasAgent && hasPrompt) { /* inline: input optional */ }
+      else if (!node.data.input?.trim()) {
         add(issues, 'warning', 'EMPTY_AGENT_INPUT', `${nodeLabel(node)} has an empty message.`, node.id)
       }
     }
@@ -406,6 +419,15 @@ export function validateFlowGraph(graph: FlowGraph, context: FlowValidationConte
       for (const bodyId of node.data.body) {
         if (!byId.has(bodyId)) add(issues, 'error', 'MISSING_CONTAINER_STEP', `${nodeLabel(node)} references missing nested step "${bodyId}".`, node.id)
       }
+      if (node.data.threadAgent) {
+        if ((node.data.concurrency ?? 1) > 1) {
+          add(issues, 'warning', 'THREAD_FORCES_SEQUENTIAL', `${nodeLabel(node)} threads one conversation across iterations, so it runs sequentially (concurrency 1).`, node.id)
+        }
+        const bodyHasAgent = node.data.body.some((id) => byId.get(id)?.type === 'agent')
+        if (!bodyHasAgent) {
+          add(issues, 'warning', 'THREAD_NO_AGENT', `${nodeLabel(node)} has conversation threading on but no agent step in its body.`, node.id)
+        }
+      }
     }
 
     if (node.type === 'parallel') {
@@ -416,6 +438,9 @@ export function validateFlowGraph(graph: FlowGraph, context: FlowValidationConte
           if (!byId.has(branchNodeId)) add(issues, 'error', 'MISSING_CONTAINER_STEP', `${nodeLabel(node)} references missing branch step "${branchNodeId}".`, node.id)
         }
       })
+      if (node.data.join === 'object' && node.data.labels && node.data.labels.length !== node.data.branches.length) {
+        add(issues, 'warning', 'JOIN_LABELS_MISMATCH', `${nodeLabel(node)} has ${node.data.labels.length} join label(s) for ${node.data.branches.length} branch(es).`, node.id)
+      }
     }
 
     if (node.type === 'condition' || node.type === 'filter') {
@@ -440,6 +465,28 @@ export function validateFlowGraph(graph: FlowGraph, context: FlowValidationConte
       })
       if (!graph.edges.some((edge) => edge.source === node.id && edge.branch === 'default')) {
         add(issues, 'warning', 'MISSING_SWITCH_DEFAULT', `${nodeLabel(node)} has no default branch.`, node.id)
+      }
+    }
+
+    if (node.type === 'router') {
+      if (node.data.branches.length === 0) add(issues, 'error', 'EMPTY_ROUTER', `${nodeLabel(node)} needs at least one branch.`, node.id)
+      const ids = node.data.branches.map((b) => b.id.trim()).filter(Boolean)
+      node.data.branches.forEach((b, index) => {
+        if (!b.id.trim()) add(issues, 'error', 'MISSING_ROUTER_BRANCH_ID', `${nodeLabel(node)} branch ${index + 1} needs an id.`, node.id)
+        if (!b.description?.trim() && !b.label?.trim()) add(issues, 'warning', 'ROUTER_BRANCH_NO_HINT', `${nodeLabel(node)} branch ${index + 1} has no label or description for the AI to route on.`, node.id)
+      })
+      for (const id of unique(ids)) {
+        if (ids.filter((entry) => entry === id).length > 1) add(issues, 'error', 'DUPLICATE_ROUTER_BRANCH', `${nodeLabel(node)} has duplicate branch id "${id}".`, node.id)
+      }
+      if (!graph.edges.some((edge) => edge.source === node.id && edge.branch === 'default')) {
+        add(issues, 'warning', 'MISSING_ROUTER_DEFAULT', `${nodeLabel(node)} has no default branch.`, node.id)
+      }
+    }
+    if (node.type === 'errorShield') {
+      if (node.data.body.length === 0) add(issues, 'error', 'EMPTY_SHIELD_BODY', `${nodeLabel(node)} needs at least one step in its body.`, node.id)
+      if (node.data.fallback.length === 0) add(issues, 'warning', 'EMPTY_SHIELD_FALLBACK', `${nodeLabel(node)} has no fallback steps — a body error is swallowed and produces no output.`, node.id)
+      for (const memberId of [...node.data.body, ...node.data.fallback]) {
+        if (!byId.has(memberId)) add(issues, 'error', 'MISSING_CONTAINER_STEP', `${nodeLabel(node)} references missing step "${memberId}".`, node.id)
       }
     }
 
@@ -528,21 +575,24 @@ export function validateFlowGraph(graph: FlowGraph, context: FlowValidationConte
   // graph that nests one in a container is blocked outright.
   const containerMemberIds = new Set(
     graph.nodes.flatMap((node) =>
-      node.type === 'loop' ? node.data.body : node.type === 'parallel' ? node.data.branches.flat() : [],
+      node.type === 'loop' ? node.data.body
+      : node.type === 'parallel' ? node.data.branches.flat()
+      : node.type === 'errorShield' ? [...node.data.body, ...node.data.fallback]
+      : [],
     ),
   )
   for (const memberId of containerMemberIds) {
     const member = byId.get(memberId)
     if (!member) continue
     // Branching nodes can't execute inside container bodies: bodies are flat
-    // ordered lists with no edges, so condition/switch have nothing to route
-    // on. The interpreter refuses them at runtime; this catches it at publish.
-    if (member.type === 'condition' || member.type === 'switch') {
+    // ordered lists with no edges, so condition/switch/router have nothing to
+    // route on. The interpreter refuses them at runtime; this catches it at publish.
+    if (member.type === 'condition' || member.type === 'switch' || member.type === 'router') {
       add(
         issues,
         'error',
-        'CONDITION_IN_CONTAINER',
-        `${nodeLabel(member)} can't run inside a For each / Parallel body — branching isn't supported there. Use a Filter step to gate items instead.`,
+        member.type === 'router' ? 'ROUTER_IN_CONTAINER' : 'CONDITION_IN_CONTAINER',
+        `${nodeLabel(member)} can't run inside a For each / Parallel / Error shield body — branching isn't supported there. Use a Filter step to gate items instead.`,
         member.id,
       )
     }

@@ -12,6 +12,7 @@ import {
   moveContainerStep,
   sanitizeCopiedNode,
   pasteNodeAfter,
+  changeNodeType,
 } from '../mutate'
 import { emptyGraph, type FlowGraph, type FlowNode } from '../graph'
 
@@ -222,4 +223,32 @@ test('duplicateNode inside a loop body inserts the copy into the body list', () 
   const after = duped.nodes.find((n) => n.id === loop.id) as Extract<FlowNode, { type: 'loop' }>
   assert.deepEqual(after.data.body, [bodyId, nodeId])
   assert.equal(duped.edges.some((e) => e.source === bodyId), false)
+})
+
+test('errorShield is created with a body agent step and an empty fallback', () => {
+  const g0 = emptyGraph()
+  const { graph, nodeId } = insertNodeAfter(g0, 'trigger', 'errorShield')
+  const shield = graph.nodes.find((n) => n.id === nodeId)
+  assert.ok(shield && shield.type === 'errorShield')
+  assert.equal(shield.data.body.length, 1)
+  assert.equal(shield.data.fallback.length, 0)
+  assert.ok(graph.nodes.find((n) => n.id === shield.data.body[0]))
+})
+
+test('deleteNode purges an id from errorShield body AND fallback', () => {
+  const g0 = emptyGraph()
+  const { graph: g1, nodeId: shieldId } = insertNodeAfter(g0, 'trigger', 'errorShield')
+  const shield = g1.nodes.find((n) => n.id === shieldId)!
+  const bodyId = shield.type === 'errorShield' ? shield.data.body[0] : ''
+  const g2 = deleteNode(g1, bodyId)
+  const after = g2.nodes.find((n) => n.id === shieldId)
+  assert.ok(after && after.type === 'errorShield')
+  assert.equal(after.data.body.includes(bodyId), false)
+})
+
+test('router can be created and retyped', () => {
+  const { graph, nodeId } = insertNodeAfter(emptyGraph(), 'trigger', 'router')
+  assert.ok(graph.nodes.find((n) => n.id === nodeId && n.type === 'router'))
+  const retyped = changeNodeType(graph, nodeId, 'switch')
+  assert.equal(retyped.nodes.find((n) => n.id === nodeId)!.type, 'switch')
 })

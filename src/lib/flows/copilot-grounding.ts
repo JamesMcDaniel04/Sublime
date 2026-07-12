@@ -20,10 +20,10 @@ function toolOutputHint(schema: unknown): string {
   return fields.map((field) => `${field.name}:${field.type}`).join(', ')
 }
 
-const graphRules =
+export const graphRules =
   'You design runnable workflow graphs for Sublime. Return a single JSON object with one property, graphJson: a JSON string containing the flow graph, shaped as {"nodes": [...], "edges": [...]}. ' +
   'Always include one trigger node with id "trigger". Prefer deterministic tool nodes for concrete integration actions and agent nodes for reasoning/writing decisions. ' +
-  'Allowed node types: agent, tool, http, transform, filter, condition, switch, loop, parallel, stop, variable, data, humanReview, input, output, subflow. ' +
+  'Allowed node types: agent, tool, http, transform, filter, condition, switch, router, loop, parallel, errorShield, stop, variable, data, humanReview, input, output, subflow. ' +
   'If the flow expects named input fields, put them on the trigger as data.trigger.inputFields: [{name,type,description}]. ' +
   'Agent data: {agentId, label, input}; agentId MUST be from the agent roster. ' +
   'Tool data: {connectionId, toolName, label, args, retries, timeoutMs}; connectionId/toolName MUST be from available tools and args MUST be a JSON object string. Use retries for flaky external actions and timeoutMs for slow tools. ' +
@@ -39,6 +39,11 @@ const graphRules =
   'Input node data: {params:[{name,type,required,default,description}]} declares the flow\'s typed callable parameters; type is one of string/number/boolean/object/array/any; read a param anywhere with {{input.<name>}}. A flow without an Input node keeps opaque {{trigger.input}}. ' +
   'Output node data: {fields:[{name,type,value,description}]} declares the flow\'s typed return object; each value is a templated binding coerced to type; a flow without an Output node returns its last step output. ' +
   'Subflow node data: {flowId,input,onError,outputFields}; flowId is a callable flow from the list below; input is a JSON object string mapping the child flow\'s input params to templated values; the step output is the child flow\'s output object (read {{step.<subflowNodeId>.output.<field>}}). Use a subflow inside a For each body to iterate a flow per item. ' +
+  'Router node data: {input, instructions, branches:[{id,label,description}]}; an AI picks ONE branch from the input + each branch description. Route edges by branch = the branch id, plus a "default" edge fallback. Give every branch a clear description so the AI can route. Use a router (not switch) when the choice needs judgment rather than a literal comparison. ' +
+  'Agent inline-prompt mode: leave agentId empty and set {prompt, model} to run a one-shot prompt with no saved agent (model optional; e.g. claude-haiku-4-5 for cheap classification). Use a saved agentId when the step needs tools/memory; use an inline prompt for a quick reasoning/extraction step. ' +
+  'Loop threading: set loop.data.threadAgent true to keep ONE agent conversation across iterations (the agent remembers earlier items); this forces sequential execution. Omit it for independent per-item runs. ' +
+  'Parallel join: parallel.data.join is object (default: keyed by branch), array (outputs in branch order), or merge (shallow-merge branch objects); parallel.data.labels names the branches for join=object. ' +
+  'Error shield node data: {body:[...ids], fallback:[...ids]}; runs body, and on a body FAILURE runs fallback instead (the caught error is {{error}}). Use it to wrap risky steps with a recovery path. Branching nodes (condition/switch/router) and Input/Output cannot go inside body/fallback. ' +
   'When a later step references {{step.<agentNodeId>.output.<field>}}, that agent node MUST set responseFormat: "structured" and declare outputFields: [{name,type}] matching the referenced fields.'
 
 export async function buildCopilotGrounding(

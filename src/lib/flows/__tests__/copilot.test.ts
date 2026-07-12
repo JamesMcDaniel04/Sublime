@@ -4,6 +4,7 @@ import type { FlowGraph } from '../graph'
 import { flowGraphSchema } from '../graph'
 import { normalizeGeneratedFlowGraphInput, repairGeneratedFlowGraph, validationIssuesForModel } from '../copilot'
 import { validateFlowGraph } from '../validate'
+import { graphRules } from '../copilot-grounding'
 
 test('normalizeGeneratedFlowGraphInput coerces common model-shaped config values before schema parse', () => {
   const normalized = normalizeGeneratedFlowGraphInput({
@@ -120,4 +121,12 @@ test('validationIssuesForModel formats concise repair feedback', () => {
   const result = validateFlowGraph({ nodes: [{ id: 'trigger', type: 'trigger', data: {} }], edges: [] })
   assert.match(validationIssuesForModel(result), /NO_STEPS/)
   assert.match(validationIssuesForModel(result), /Add at least one step/)
+})
+
+test('graphRules documents the new control-flow node kinds', () => {
+  assert.match(graphRules, /router/)
+  assert.match(graphRules, /errorShield/)
+  assert.match(graphRules, /inline prompt/i)
+  assert.match(graphRules, /threadAgent/)
+  assert.match(graphRules, /join/)
 })

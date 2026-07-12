@@ -18,7 +18,10 @@ import { ApiError } from '@/lib/server/api-handler'
 import { triggerFromGraph, triggerInputFieldsFromTrigger } from '@/lib/flows/trigger'
 import { missingRequiredInputFields } from '@/lib/flows/input-validation'
 import { shouldReuseInput, storedRunInput } from '@/lib/flows/reuse-input'
-import { interpretFlow, type RunAgentFn, type RunActionFn, type RunFlowFn } from './interpret'
+import { interpretFlow, type RunAgentFn, type RunActionFn, type RunFlowFn, type RouteAiFn } from './interpret'
+import { resolveResumeState } from './resume-scan'
+import { buildRouterPrompt, routerBranchSchema, parseRouterChoice } from '@/lib/flows/router'
+import { generateStructured, generateText } from '@/lib/llm/model-runner'
 import { flowActionRetries, flowActionTimeoutMs, runWithRetries, shouldRetryAfterTimeout } from './action-reliability'
 import { prepareHttpRequest, responseOutput, redactHttpStepInput, withBearerAuthorization } from './http'
 import { resolveHttpConnectionToken } from './http-auth'
@@ -258,28 +261,26 @@ export async function runFlowExecution(
     input = storedRunInput(run.input) ?? ''
   }
 
+  // Built before the resume scan below (as well as used by onStep further
+  // down) so the scan can tell a container node's own 'waiting' row apart
+  // from an inner leaf's — see resolveResumeState.
+  const nodeTypeById = new Map(graph.nodes.map((node) => [node.id, node.type]))
+
   // Resume state: nodes that already succeeded are skipped (reusing their
   // stored output); the paused step is re-run with the reply injected.
-  const completed: Record<string, unknown> = {}
+  let completed: Record<string, unknown> = {}
   let resumeNodeId: string | undefined
   let resumeExecutionId: string | undefined
+  let resumeKey: string | undefined
   // Approval ids persisted on the run's waiting step rows. A resuming tool
   // step may only consume a decision reply whose approvalId is in this set —
   // and each id is consumed at most once — so in loops/parallel one item's
   // decision is never reported as another item's result.
-  const pausedApprovalIds = new Set<string>()
+  let pausedApprovalIds = new Set<string>()
   let order = 0
   if (resuming) {
     const priorSteps = await prisma.flowRunStep.findMany({ where: { flowRunId: run.id }, orderBy: { order: 'asc' } })
-    for (const step of priorSteps) {
-      if (step.status === 'succeeded' || step.status === 'skipped') completed[step.nodeId] = step.output
-      if (step.status === 'waiting') {
-        resumeNodeId = step.nodeId
-        resumeExecutionId = step.agentExecutionId ?? undefined
-        const approvalId = (step.output as { waiting?: { approvalId?: string } } | null)?.waiting?.approvalId
-        if (typeof approvalId === 'string' && approvalId) pausedApprovalIds.add(approvalId)
-      }
-    }
+    ;({ completed, resumeNodeId, resumeExecutionId, resumeKey, pausedApprovalIds } = resolveResumeState(priorSteps, nodeTypeById))
     // Resuming creates NEW step rows for the re-run node — resolve every stale
     // waiting row now so it can never shadow a later pause in deriveRunWaiting,
     // and continue the order counter after all prior rows so new steps always
@@ -300,12 +301,11 @@ export async function runFlowExecution(
     if (priorSteps.length) order = Math.max(...priorSteps.map((step) => step.order)) + 1
   }
 
-  const nodeTypeById = new Map(graph.nodes.map((node) => [node.id, node.type]))
   // Container (condition/loop/parallel/stop) outcomes are reported via onStep;
   // persist them so runs are fully inspectable. Agent/tool/http steps are
   // persisted by their adapters because they need started/running rows.
   const pending: Promise<unknown>[] = []
-  const onStep = (outcome: { nodeId: string; status: string; output?: unknown; error?: string }) => {
+  const onStep = (outcome: { nodeId: string; status: string; output?: unknown; error?: string; iterationPath?: number[] }) => {
     if (!shouldPersistInterpreterStep(nodeTypeById.get(outcome.nodeId))) return
     pending.push(
       prisma.flowRunStep
@@ -317,6 +317,7 @@ export async function runFlowExecution(
             status: outcome.status,
             output: jsonValue(outcome.output ?? null),
             error: outcome.error ? outcome.error.slice(0, 300) : null,
+            iterationPath: outcome.iterationPath?.length ? outcome.iterationPath.join('.') : null,
             startedAt: new Date(),
             finishedAt: new Date(),
           },
@@ -324,6 +325,10 @@ export async function runFlowExecution(
         .catch(() => undefined),
     )
   }
+
+  // Loop-thread: the most-recent execution id per (loop, agent-node) thread, so
+  // each iteration seeds its conversation from the previous one.
+  const threadExecutions = new Map<string, string>()
 
   // Adapter: each agent node runs the real agent and records a FlowRunStep row.
   const runAgent: RunAgentFn = async (node) => {
@@ -334,6 +339,7 @@ export async function runFlowExecution(
         order: order++,
         status: 'running',
         input: { prompt: node.input },
+        iterationPath: node.iterationPath?.length ? node.iterationPath.join('.') : null,
         startedAt: new Date(),
       },
     })
@@ -356,13 +362,40 @@ export async function runFlowExecution(
         .catch(() => undefined)
     }
     try {
+      // Inline-prompt agent: a direct one-shot model call, no saved AgentTask.
+      // (runAgentExecution requires an ACTIVE AgentTask and cannot run a
+      // prompt-only ephemeral agent — see the design note.)
+      if (!node.agentId?.trim()) {
+        const text = await generateText({ system: node.prompt ?? '', user: node.input, model: node.model })
+        await finishStep({ status: 'succeeded', output: jsonValue(text), finishedAt: new Date() })
+        return { output: text }
+      }
       // Resuming this node? Re-enter the paused agent execution with the reply.
-      const resumeThis = node.resume && resumeNodeId === node.id && resumeExecutionId
+      // `node.resume` is already key-matched to the exact iteration that
+      // paused (interpretFlow computes it from `resumeKey`, not a bare
+      // nodeId) — trust it here rather than re-deriving a bare-id match,
+      // which would (as it once did) re-match EVERY not-yet-completed
+      // iteration of this node id, not just the one that paused.
+      const resumeThis = node.resume && resumeExecutionId
+      // Loop-thread (threadAgent): the prior iteration's execution id (if any)
+      // seeds this run's transcript so the conversation carries forward.
+      // Iteration 0 has no predecessor to continue, so it always starts fresh.
+      const threadKey = node.thread ? `${node.thread.key}:${node.id}` : undefined
+      const continueExecutionId = threadKey && node.thread!.iteration > 0 ? threadExecutions.get(threadKey) : undefined
       const result = (await runAgentExecution(
         resumeThis
           ? { agentId: node.agentId, organizationId: job.organizationId, userId: job.userId, executionId: resumeExecutionId, resume: true, reply: job.reply, onExecutionCreated }
-          : { agentId: node.agentId, organizationId: job.organizationId, userId: job.userId, input: node.input, onExecutionCreated },
+          : { agentId: node.agentId, organizationId: job.organizationId, userId: job.userId, input: node.input, onExecutionCreated, ...(continueExecutionId ? { continueExecutionId } : {}) },
       )) as { summary?: string; status?: string; question?: string; executionId?: string }
+
+      // Record this run's execution id as the next iteration's continuation
+      // point (threading applies to SAVED agents only — an inline step returns
+      // above via the `!node.agentId` early branch and never reaches here).
+      // Only a COMPLETED execution may seed the next iteration. A waiting_*
+      // execution's transcript ends on an unresolved tool_use, so continuing
+      // from it would emit an invalid assistant(tool_use)->user request.
+      const settledWaiting = typeof result?.status === 'string' && result.status.startsWith('waiting')
+      if (threadKey && result.executionId && !settledWaiting) threadExecutions.set(threadKey, result.executionId)
 
       if (typeof result?.status === 'string' && result.status.startsWith('waiting')) {
         // Persist the pause reason on the step so the runs API can surface it.
@@ -397,6 +430,7 @@ export async function runFlowExecution(
         order: order++,
         status: 'running',
         input: jsonValue({ flowId: node.flowId, input: node.input }),
+        iterationPath: node.iterationPath?.length ? node.iterationPath.join('.') : null,
         startedAt: new Date(),
       },
     })
@@ -454,6 +488,7 @@ export async function runFlowExecution(
         // Persisted request details must never contain credentials: an http
         // step's Authorization header value is replaced with 'redacted'.
         input: jsonValue(node.kind === 'http' ? redactHttpStepInput(node.config) : node.config),
+        iterationPath: node.iterationPath?.length ? node.iterationPath.join('.') : null,
         startedAt: new Date(),
       },
     })
@@ -621,12 +656,29 @@ export async function runFlowExecution(
     }
   }
 
+  // AI Router: a cheap, enum-constrained one-shot model call — NOT a full agent
+  // run (no AgentExecution row, no tools/RAG). generateStructured already does
+  // cross-provider fallback and JSON-schema-constrained output.
+  const routeAi: RouteAiFn = async (node) => {
+    try {
+      const { system, user } = buildRouterPrompt(node.branches, node.instructions, node.input)
+      const raw = await generateStructured({ system, user, schema: routerBranchSchema(node.branches), schemaName: 'router_choice', maxTokens: 64 })
+      return parseRouterChoice(raw, node.branches)
+    } catch (error) {
+      return { error: error instanceof Error ? error.message : String(error) }
+    }
+  }
+
   const result = await interpretFlow(graph, input, {
     runAgent,
     runAction,
     runFlow,
+    routeAi,
     onStep,
-    ...(resuming ? { completed, resumeNodeId, resumeReply: job.reply } : {}),
+    // resumeKey names the EXACT paused iteration (see resume-scan.ts) — the
+    // interpreter's guards match on it, so dropping it here would silently
+    // downgrade every loop resume to the bare-id fallback (reply lost).
+    ...(resuming ? { completed, resumeNodeId, resumeKey, resumeReply: job.reply } : {}),
   })
   await Promise.all(pending) // ensure all container-step rows are written
   const status = result.status === 'succeeded' ? 'succeeded' : result.status === 'waiting' ? 'waiting' : 'failed'

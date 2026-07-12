@@ -165,6 +165,44 @@ if (TEST_DB) {
     assert.ok(!after3.some((step) => step.status === 'waiting'))
   })
 
+  test('a humanReview INSIDE A LOOP resumes the exact paused iteration (resumeKey wired end-to-end)', async () => {
+    // The interpreter's resume guards match on resumeKey (nodeId + iteration
+    // path). This test goes through the FULL runFlowExecution path — persist,
+    // pause, resume-scan, re-interpret — so it fails if execute-flow ever
+    // stops forwarding resumeKey to interpretFlow: the bare-id fallback can
+    // never match a loop-body iteration, so iteration 0 would re-ask its own
+    // question forever instead of consuming the reply and advancing.
+    const graph = {
+      nodes: [
+        ...emptyGraph.nodes,
+        { id: 'loop', type: 'loop', position: { x: 0, y: 0 }, data: { over: '{{trigger.input}}', body: ['hr'] } },
+        { id: 'hr', type: 'humanReview', position: { x: 0, y: 0 }, data: { message: 'Approve {{item}}?' } },
+      ],
+      edges: [{ id: 'e-loop', source: 'trigger', target: 'loop' }],
+    }
+    const flow = await prisma.flow.create({
+      data: { name: 'loop-review', organizationId: ids.org, status: 'ACTIVE', graph, publishedGraph: graph },
+    })
+    const paused = await runFlowExecution({ flowId: flow.id, organizationId: ids.org, userId: ids.user, input: ['x', 'y'] })
+    assert.equal(paused.status, 'waiting')
+    const firstSteps: any[] = await prisma.flowRunStep.findMany({ where: { flowRunId: paused.flowRunId }, orderBy: { order: 'asc' } })
+    const firstAsk = firstSteps.find((s) => s.nodeId === 'hr' && s.status === 'waiting')
+    assert.equal(firstAsk.output.waiting.question, 'Approve x?')
+    assert.equal(firstAsk.iterationPath, '0')
+
+    // The reply must land on iteration 0 (the paused one) and the loop must
+    // ADVANCE to iteration 1's question — not re-ask iteration 0's.
+    const resumed = await runFlowExecution({ flowId: flow.id, organizationId: ids.org, userId: ids.user, flowRunId: paused.flowRunId, reply: 'yes to x' })
+    assert.equal(resumed.status, 'waiting')
+    const steps: any[] = await prisma.flowRunStep.findMany({ where: { flowRunId: paused.flowRunId }, orderBy: { order: 'asc' } })
+    const iter0 = steps.filter((s) => s.nodeId === 'hr' && s.iterationPath === '0').at(-1)
+    assert.equal(iter0.status, 'succeeded')
+    assert.equal(iter0.output, 'yes to x')
+    const iter1Ask = steps.find((s) => s.nodeId === 'hr' && s.iterationPath === '1' && s.status === 'waiting')
+    assert.ok(iter1Ask, 'iteration 1 must now be the one asking')
+    assert.equal(iter1Ask.output.waiting.question, 'Approve y?')
+  })
+
   test('a fresh job with queuedRunId adopts the pre-created row instead of creating a second run', async () => {
     // Queue mode pre-creates the FlowRun in dispatchFlowExecution so callers
     // can poll; the worker's runFlowExecution must adopt that row (fill in

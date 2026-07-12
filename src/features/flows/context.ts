@@ -17,6 +17,19 @@ export type FlowContext = {
   // First-class input node bindings, read via `{{input.<name>}}`. Absent when
   // the flow declares no input node (back-compat: {{trigger.input}} still works).
   input?: Record<string, unknown>
+  // Set inside an Error Shield's fallback body: the caught error message,
+  // readable via `{{error}}`. Absent outside a shielded fallback.
+  error?: string
+  // Set inside a threaded loop body (loop.threadAgent): the stable thread key
+  // (per loop) + 0-based iteration, so the agent adapter can continue ONE
+  // conversation across iterations. Absent in normal (unthreaded) bodies.
+  thread?: { key: string; iteration: number }
+  // Cumulative loop-nesting path (outermost -> innermost 0-based index),
+  // distinct from `loop` (which is scalar/innermost-only, for {{loop.index}}
+  // templates). Used ONLY to disambiguate a loop-body node's persisted output
+  // across iterations on resume (see completed-key.ts) — absent outside any
+  // loop body.
+  iterationPath?: number[]
 }
 
 /** Read a dot-path off the context (e.g. 'trigger.input', 'step.n1.output.score', 'item'). */
