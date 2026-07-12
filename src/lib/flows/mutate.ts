@@ -62,7 +62,7 @@ function defaultData(type: FlowNode['type'], extra?: { bodyId?: string; agentId?
 function makeNode(graph: FlowGraph, type: StepType, agentId?: string): { node: FlowNode; extraNodes: FlowNode[] } {
   const id = newNodeId(graph)
   // Containers are born with one agent body step so they are runnable.
-  if (type === 'loop' || type === 'parallel') {
+  if (type === 'loop' || type === 'parallel' || type === 'errorShield') {
     const bodyId = `${id}b1`
     const body = {
       id: bodyId,
@@ -132,7 +132,7 @@ export function updateNode(graph: FlowGraph, updated: FlowNode): FlowGraph {
 
 /** Change a node's type, resetting its data. Containers get a body agent step. */
 export function changeNodeType(graph: FlowGraph, id: string, type: StepType): FlowGraph {
-  if (type === 'loop' || type === 'parallel') {
+  if (type === 'loop' || type === 'parallel' || type === 'errorShield') {
     const bodyId = newNodeId(graph, 'b')
     const bodyNode = {
       id: bodyId,
@@ -161,6 +161,7 @@ export function addContainerStep(graph: FlowGraph, containerId: string, type: St
     if (node.id !== containerId) return node
     if (node.type === 'loop') return { ...node, data: { ...node.data, body: [...node.data.body, bodyNode.id] } }
     if (node.type === 'parallel') return { ...node, data: { ...node.data, branches: [...node.data.branches, [bodyNode.id]] } }
+    if (node.type === 'errorShield') return { ...node, data: { ...node.data, body: [...node.data.body, bodyNode.id] } }
     return node
   })
   return { graph: { ...graph, nodes: [...nodes, bodyNode, ...extraNodes] }, nodeId: bodyNode.id }
@@ -179,6 +180,12 @@ function containerPositionOf(graph: FlowGraph, id: string): { containerId: strin
         const index = node.data.branches[branchIndex].indexOf(id)
         if (index >= 0) return { containerId: node.id, branchIndex, index }
       }
+    }
+    if (node.type === 'errorShield') {
+      const b = node.data.body.indexOf(id)
+      if (b >= 0) return { containerId: node.id, index: b }
+      const f = node.data.fallback.indexOf(id)
+      if (f >= 0) return { containerId: node.id, branchIndex: -1, index: f } // -1 marks the fallback list
     }
   }
   return null
@@ -202,6 +209,13 @@ function insertIntoContainer(graph: FlowGraph, position: { containerId: string; 
       })
       return { ...entry, data: { ...entry.data, branches } }
     }
+    if (entry.type === 'errorShield') {
+      const list = position.branchIndex === -1 ? [...entry.data.fallback] : [...entry.data.body]
+      list.splice(position.index + 1, 0, insertedId)
+      return position.branchIndex === -1
+        ? { ...entry, data: { ...entry.data, fallback: list } }
+        : { ...entry, data: { ...entry.data, body: list } }
+    }
     return entry
   })
 }
@@ -216,6 +230,7 @@ export function duplicateNode(graph: FlowGraph, id: string): { graph: FlowGraph;
   // and must not be shared between two containers.
   if (copy.type === 'loop') copy.data = { ...copy.data, body: [] }
   if (copy.type === 'parallel') copy.data = { ...copy.data, branches: [] }
+  if (copy.type === 'errorShield') copy.data = { ...copy.data, body: [], fallback: [] }
   const position = containerPositionOf(graph, id)
   if (position) {
     const nodes = insertIntoContainer(graph, position, copyId)
@@ -250,6 +265,7 @@ export function deleteNode(graph: FlowGraph, id: string): FlowGraph {
     .map((node) => {
       if (node.type === 'loop') return { ...node, data: { ...node.data, body: node.data.body.filter((b) => b !== id) } }
       if (node.type === 'parallel') return { ...node, data: { ...node.data, branches: node.data.branches.map((br) => br.filter((b) => b !== id)) } }
+      if (node.type === 'errorShield') return { ...node, data: { ...node.data, body: node.data.body.filter((b) => b !== id), fallback: node.data.fallback.filter((b) => b !== id) } }
       return node
     })
   return { nodes, edges }
@@ -259,6 +275,7 @@ export function deleteNode(graph: FlowGraph, id: string): FlowGraph {
 function containedIdsOf(node: FlowNode): string[] {
   if (node.type === 'loop') return node.data.body
   if (node.type === 'parallel') return node.data.branches.flat()
+  if (node.type === 'errorShield') return [...node.data.body, ...node.data.fallback]
   return []
 }
 
@@ -371,6 +388,7 @@ export function sanitizeCopiedNode(raw: unknown): FlowNode | null {
   const node = parsed.data
   if (node.type === 'loop') return { ...node, data: { ...node.data, body: [] } }
   if (node.type === 'parallel') return { ...node, data: { ...node.data, branches: [] } }
+  if (node.type === 'errorShield') return { ...node, data: { ...node.data, body: [], fallback: [] } }
   return node
 }
 

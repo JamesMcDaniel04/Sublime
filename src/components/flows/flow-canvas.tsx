@@ -11,7 +11,7 @@ import { humanizeTokens, type TokenLabelContext } from '@/lib/flows/token-text'
 import { StepCard, type StepStatus } from './step-card'
 import { FlowPicker } from './flow-picker'
 import type { ToolCatalog } from './tool-catalog-type'
-import type { EditableType } from './node-types'
+import { NODE_TYPES, type EditableType } from './node-types'
 
 type Agent = { id: string; title: string }
 
@@ -114,6 +114,45 @@ function InsertMenu({
   )
 }
 
+/** Compact "+ Add step" menu scoped to EditableType — used inside an
+ *  errorShield's Body column, where onAddContainerStep (not the full
+ *  FlowPicker-backed InsertMenu, which yields the wider StepType) is the
+ *  right shape of callback. */
+function AddNestedStepMenu({ onPick }: { onPick: (type: EditableType) => void }) {
+  const [open, setOpen] = useState(false)
+  return (
+    <div className="relative" onClick={(event) => event.stopPropagation()}>
+      <button
+        type="button"
+        onClick={() => setOpen((value) => !value)}
+        className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-dashed border-slate-300 px-3 py-2 text-sm font-medium text-slate-600 hover:border-blue-400 hover:text-blue-700"
+      >
+        <Plus className="h-4 w-4" /> Add a step
+      </button>
+      {open && (
+        <>
+          <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
+          <div className="absolute left-0 right-0 top-full z-20 mt-1 max-h-72 overflow-auto rounded-lg border border-slate-200 bg-white p-1 shadow-lg">
+            {NODE_TYPES.map((type) => (
+              <button
+                key={type.value}
+                type="button"
+                onClick={() => {
+                  setOpen(false)
+                  onPick(type.value)
+                }}
+                className="flex w-full items-center rounded-md px-2 py-1.5 text-left text-xs hover:bg-slate-100"
+              >
+                {type.label}
+              </button>
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  )
+}
+
 export function FlowCanvas({
   graph,
   flowId,
@@ -187,7 +226,10 @@ export function FlowCanvas({
   }
   const contained = new Set(
     graph.nodes.flatMap((node) =>
-      node.type === 'loop' ? node.data.body : node.type === 'parallel' ? node.data.branches.flat() : [],
+      node.type === 'loop' ? node.data.body
+      : node.type === 'parallel' ? node.data.branches.flat()
+      : node.type === 'errorShield' ? [...node.data.body, ...node.data.fallback]
+      : [],
     ),
   )
 
@@ -233,6 +275,10 @@ export function FlowCanvas({
         return node.data.label || DATA_OP_LABELS[node.data.op]
       case 'humanReview':
         return node.data.label || 'Request information'
+      case 'router':
+        return node.data.label || 'AI router'
+      case 'errorShield':
+        return node.data.label || 'Error shield'
       // input/output/subflow: no dedicated builder palette copy yet (follow-up
       // UI task) — fall back to the node's own label like subtitleFor does.
       default:
@@ -292,6 +338,10 @@ export function FlowCanvas({
         return node.data.note || node.data.input?.trim() || 'Choose the data to work with'
       case 'humanReview':
         return node.data.note || node.data.message.trim() || 'Write the question to ask'
+      case 'router':
+        return `${node.data.branches.length} branch${node.data.branches.length === 1 ? '' : 'es'}`
+      case 'errorShield':
+        return `${node.data.body.length} step${node.data.body.length === 1 ? '' : 's'}, ${node.data.fallback.length} fallback`
       default:
         return (node.data as { note?: string }).note || undefined
     }
@@ -319,55 +369,87 @@ export function FlowCanvas({
         onRefreshAgents={onRefreshAgents}
         onDuplicate={node.type === 'trigger' ? undefined : onDuplicateNode ? () => onDuplicateNode(node.id) : undefined}
         onDelete={node.type === 'trigger' ? undefined : onDeleteNode ? () => onDeleteNode(node.id) : undefined}
-        draggable={node.type !== 'trigger' && node.type !== 'condition' && node.type !== 'switch'}
+        draggable={node.type !== 'trigger' && node.type !== 'condition' && node.type !== 'switch' && node.type !== 'router'}
         onDragStartNode={setDragId}
         onDragEndNode={() => setDragId(null)}
         onChangeType={node.type !== 'trigger' && onChangeNodeType ? (type) => onChangeNodeType(node.id, type) : undefined}
-        onAddStep={(node.type === 'loop' || node.type === 'parallel') && onAddContainerStep ? (type) => onAddContainerStep(node.id, type) : undefined}
+        onAddStep={(node.type === 'loop' || node.type === 'parallel' || node.type === 'errorShield') && onAddContainerStep ? (type) => onAddContainerStep(node.id, type) : undefined}
         jamEditors={jamPeers?.filter((peer) => peer.selectedNodeId === node.id)}
       />
     </div>
   )
 
   const nestedCards = (node: FlowNode) => {
-    const ids = node.type === 'loop' ? node.data.body : node.type === 'parallel' ? node.data.branches.flat() : []
+    const ids =
+      node.type === 'loop' ? node.data.body
+      : node.type === 'parallel' ? node.data.branches.flat()
+      : node.type === 'errorShield' ? [...node.data.body, ...node.data.fallback]
+      : []
     const nodes = ids.map((id) => byId.get(id)).filter((n): n is FlowNode => Boolean(n))
     if (!nodes.length) return null
     // Sibling list a given contained id can be reordered within — the loop
-    // body, or (for parallel) whichever single branch array holds it.
+    // body, whichever single parallel branch array holds it, or (for
+    // errorShield) the body list (branchIndex undefined) vs. the fallback
+    // list (branchIndex -1, matching insertIntoContainer's fallback marker).
     const siblingsOf = (id: string): { list: string[]; branchIndex?: number } => {
       if (node.type === 'loop') return { list: node.data.body }
       if (node.type === 'parallel') {
         const branchIndex = node.data.branches.findIndex((branch) => branch.includes(id))
         return { list: branchIndex >= 0 ? node.data.branches[branchIndex] : [], branchIndex: branchIndex >= 0 ? branchIndex : undefined }
       }
+      if (node.type === 'errorShield') {
+        return node.data.body.includes(id) ? { list: node.data.body } : { list: node.data.fallback, branchIndex: -1 }
+      }
       return { list: [] }
+    }
+    const item = (body: FlowNode, index: number) => {
+      const { list, branchIndex } = siblingsOf(body.id)
+      return (
+        <div
+          key={body.id}
+          onDragOver={(event) => {
+            if (dragId && dragId !== body.id && list.includes(dragId)) {
+              event.preventDefault()
+              event.dataTransfer.dropEffect = 'move'
+            }
+          }}
+          onDrop={(event) => {
+            const draggedId = event.dataTransfer.getData('text/flow-node-id')
+            if (draggedId && draggedId !== body.id && list.includes(draggedId)) {
+              event.preventDefault()
+              onReorderContainer?.(node.id, list.indexOf(draggedId), list.indexOf(body.id), branchIndex)
+            }
+          }}
+        >
+          {card(body, index)}
+        </div>
+      )
+    }
+    if (node.type === 'errorShield') {
+      const bodyNodes = node.data.body.map((id) => byId.get(id)).filter((n): n is FlowNode => Boolean(n))
+      const fallbackNodes = node.data.fallback.map((id) => byId.get(id)).filter((n): n is FlowNode => Boolean(n))
+      return (
+        <div className="my-3 grid gap-4 md:grid-cols-2">
+          <div className="rounded-2xl border border-dashed border-slate-300 bg-white/75 p-3">
+            <p className="mb-3 text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Body</p>
+            <div className="space-y-3">
+              {bodyNodes.map((body, index) => item(body, index + 1))}
+              {/* Fallback-list add is a follow-up affordance — v1 only wires
+                  Body (see mutate.ts's addContainerStep, which always appends
+                  to body). */}
+              {onAddContainerStep && <AddNestedStepMenu onPick={(type) => onAddContainerStep(node.id, type)} />}
+            </div>
+          </div>
+          <div className="rounded-2xl border border-dashed border-slate-300 bg-white/75 p-3">
+            <p className="mb-3 text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">On error → fallback</p>
+            <div className="space-y-3">{fallbackNodes.map((body, index) => item(body, index + 1))}</div>
+          </div>
+        </div>
+      )
     }
     return (
       <div className="my-3 ml-10 space-y-3 border-l-2 border-dashed border-slate-300 pl-4">
-        {nodes.map((body, bodyIndex) => {
-          const { list, branchIndex } = siblingsOf(body.id)
-          return (
-            <div
-              key={body.id}
-              onDragOver={(event) => {
-                if (dragId && dragId !== body.id && list.includes(dragId)) {
-                  event.preventDefault()
-                  event.dataTransfer.dropEffect = 'move'
-                }
-              }}
-              onDrop={(event) => {
-                const draggedId = event.dataTransfer.getData('text/flow-node-id')
-                if (draggedId && draggedId !== body.id && list.includes(draggedId)) {
-                  event.preventDefault()
-                  onReorderContainer?.(node.id, list.indexOf(draggedId), list.indexOf(body.id), branchIndex)
-                }
-              }}
-            >
-              {card(body, bodyIndex + 1)}
-            </div>
-          )
-        })}
+        {nodes.map((body, bodyIndex) => item(body, bodyIndex + 1))}
       </div>
     )
   }
@@ -409,6 +491,26 @@ export function FlowCanvas({
         ]
         parts.push(
           <div key={`${node.id}-cases`} className="my-3 grid gap-4 md:grid-cols-2">
+            {branches.map((branch) => (
+              <div key={branch.key} className="rounded-2xl border border-dashed border-slate-300 bg-white/75 p-3">
+                <p className="mb-3 truncate text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">{branch.label}</p>
+                <div className="space-y-3">
+                  {renderChain(branchHead(node.id, branch.key), seen)}
+                  <InsertMenu compact agents={agents} toolCatalog={toolCatalog} onPick={(type, seed) => onAppendBranch(node.id, branch.key, type, seed)} />
+                </div>
+              </div>
+            ))}
+          </div>,
+        )
+        return parts
+      }
+      if (node.type === 'router') {
+        const branches = [
+          ...node.data.branches.map((b) => ({ key: b.id, label: b.label || b.description || b.id })),
+          { key: 'default', label: 'default' },
+        ]
+        parts.push(
+          <div key={`${node.id}-router`} className="my-3 grid gap-4 md:grid-cols-2">
             {branches.map((branch) => (
               <div key={branch.key} className="rounded-2xl border border-dashed border-slate-300 bg-white/75 p-3">
                 <p className="mb-3 truncate text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">{branch.label}</p>
