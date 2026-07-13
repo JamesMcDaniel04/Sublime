@@ -17,6 +17,7 @@ const postSchema = z.object({
   baseRevision: z.number().int().min(0),
   patch: flowCollaborationPatchSchema,
 })
+const MAX_REQUEST_BYTES = 512 * 1024
 
 function channelTopic(flowId: string, organizationId: string): string {
   const secret = process.env.ENCRYPTION_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY
@@ -67,7 +68,11 @@ export const GET = withAuthenticatedApi(async (request, auth) => {
 export const POST = withAuthenticatedApi(async (request, auth) => {
   const id = request.nextUrl.pathname.split('/').at(-2)
   if (!id) throw new ApiError('Flow id is required')
-  const input = postSchema.parse(await request.json())
+  const rawBody = await request.text()
+  if (Buffer.byteLength(rawBody, 'utf8') > MAX_REQUEST_BYTES) {
+    throw new ApiError('Collaboration patch is too large', 413, 'PATCH_TOO_LARGE')
+  }
+  const input = postSchema.parse(JSON.parse(rawBody))
 
   for (let attempt = 0; attempt < 5; attempt += 1) {
     const flow = await collaborationFlow(id, auth.organizationId, auth.dbUser.id)
@@ -98,7 +103,7 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
       }
     }
 
-    const result = await prisma.flow.updateMany({
+    const [updated] = await prisma.flow.updateManyAndReturn({
       where: {
         id,
         organizationId: auth.organizationId,
@@ -109,10 +114,13 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
         graph: JSON.parse(JSON.stringify(applied.graph)),
         collaborationRevision: { increment: 1 },
       },
+      select: {
+        graph: true,
+        collaborationRevision: true,
+        updatedAt: true,
+      },
     })
-    if (!result.count) continue
-
-    const updated = await collaborationFlow(id, auth.organizationId, auth.dbUser.id)
+    if (!updated) continue
     return {
       success: true,
       graph: flowGraphSchema.parse(updated.graph),

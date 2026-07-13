@@ -288,7 +288,7 @@ function FlowBuilder() {
   // Flow Jam: the server is the durable sequencer; Realtime accelerates graph,
   // cursor, and selected-widget presence without becoming the source of truth.
   const remoteGraphSnapshotRef = useRef<string | null>(null)
-  const { peers, connectionState, broadcastGraph, updateCursor } = useFlowJam({
+  const { peers, connectionState, broadcastGraph, updateCursor, broadcastAccessChange } = useFlowJam({
     flowId: id,
     enabled: !loading,
     selectedNodeId: selectedId,
@@ -1088,7 +1088,7 @@ function FlowBuilder() {
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
-        <JamButton flowId={id} peers={peers} connectionState={connectionState} canManage={canManageJam} />
+        <JamButton flowId={id} peers={peers} connectionState={connectionState} canManage={canManageJam} onAccessChanged={broadcastAccessChange} />
         <Button variant="outline" size="sm" onClick={() => setShowTest((v) => !v)}>
           <FlaskConical className="mr-1.5 h-4 w-4" /> Test
         </Button>

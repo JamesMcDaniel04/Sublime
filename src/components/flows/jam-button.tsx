@@ -30,7 +30,7 @@ const CONNECTION_LABEL: Record<JamConnectionState, string> = {
   offline: 'Reconnecting',
 }
 
-export function JamButton({ flowId, peers, connectionState, canManage = false }: { flowId: string; peers: JamPeer[]; connectionState: JamConnectionState; canManage?: boolean }) {
+export function JamButton({ flowId, peers, connectionState, canManage = false, onAccessChanged }: { flowId: string; peers: JamPeer[]; connectionState: JamConnectionState; canManage?: boolean; onAccessChanged?: () => void }) {
   const [open, setOpen] = useState(false)
   const [members, setMembers] = useState<Member[]>([])
   const [selected, setSelected] = useState<Set<string>>(new Set())
@@ -68,6 +68,7 @@ export function JamButton({ flowId, peers, connectionState, canManage = false }:
       toast.success(data.invited
         ? `Invited ${data.invited} teammate${data.invited === 1 ? '' : 's'} to the jam.`
         : 'Flow Jam access updated.')
+      onAccessChanged?.()
       setOpen(false)
       setSelected(new Set())
     } finally {

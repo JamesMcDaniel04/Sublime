@@ -14,7 +14,9 @@ import type { FlowGraph } from '@/lib/flows/graph'
 import {
   applyFlowCollaborationPatch,
   diffFlowGraphs,
+  flowCollaborationPatchSchema,
   patchIsEmpty,
+  patchChangesTopology,
 } from '@/lib/flows/collaboration'
 
 export type JamCursor = { x: number; y: number }
@@ -40,8 +42,10 @@ type CollaborationSnapshot = {
 }
 
 const PATCH_DEBOUNCE_MS = 160
-const CURSOR_THROTTLE_MS = 50
-const POLL_MS = 2500
+const PREVIEW_THROTTLE_MS = 32
+const CURSOR_THROTTLE_MS = 33
+const CONNECTED_POLL_MS = 5000
+const DEGRADED_POLL_MS = 1000
 
 export function normalizeJamCursor(x: number, y: number): JamCursor {
   return { x: Math.max(0, Math.min(1, x)), y: Math.max(0, Math.min(1, y)) }
@@ -78,13 +82,26 @@ export function useFlowJam(options: {
   const revisionRef = useRef(0)
   const updatedAtRef = useRef<string | null>(null)
   const sendingRef = useRef(false)
+  const sessionActiveRef = useRef(false)
+  const patchAbortRef = useRef<AbortController | null>(null)
   const patchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const previewTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const cursorTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const cursorRef = useRef<JamCursor | null>(null)
+  const lastCursorSentAtRef = useRef(0)
+  const lastPreviewSentAtRef = useRef(0)
   const mutationCounterRef = useRef(0)
+  const previewCounterRef = useRef(0)
+  const seenPreviewMutationsRef = useRef(new Set<string>())
   const accessDeniedRef = useRef(false)
+  const refreshAccessRef = useRef<() => void>(() => {})
+  const connectionStateRef = useRef<JamConnectionState>('connecting')
   const callbacksRef = useRef(options)
   callbacksRef.current = options
+
+  useEffect(() => {
+    connectionStateRef.current = connectionState
+  }, [connectionState])
 
   const disconnectRealtime = () => {
     const channel = channelRef.current
@@ -93,6 +110,41 @@ export function useFlowJam(options: {
     supabaseRef.current = null
     if (channel && supabase) void supabase.removeChannel(channel)
     setPeers([])
+  }
+
+  const markRealtimeDelivery = (status: string) => {
+    if (status !== 'ok') {
+      setConnectionState((current) => current === 'connected' ? 'degraded' : current)
+    }
+  }
+
+  const sendPreview = () => {
+    previewTimerRef.current = null
+    const channel = channelRef.current
+    const baseline = baselineRef.current
+    const desired = latestLocalRef.current
+    if (!channel || connectionStateRef.current !== 'connected' || !baseline || !desired) return
+    const mutationId = `${clientId}:preview:${++previewCounterRef.current}`
+    const patch = diffFlowGraphs(baseline, desired, mutationId)
+    if (patchIsEmpty(patch)) return
+    lastPreviewSentAtRef.current = Date.now()
+    void channel.send({
+      type: 'broadcast',
+      event: 'preview-patch',
+      payload: { clientId, baseRevision: revisionRef.current, patch },
+    }).then(markRealtimeDelivery)
+  }
+
+  const schedulePreview = () => {
+    if (!channelRef.current || connectionStateRef.current !== 'connected') return
+    const remaining = PREVIEW_THROTTLE_MS - (Date.now() - lastPreviewSentAtRef.current)
+    if (remaining <= 0) {
+      sendPreview()
+      return
+    }
+    if (!previewTimerRef.current) {
+      previewTimerRef.current = setTimeout(sendPreview, remaining)
+    }
   }
 
   const acceptServerGraph = (snapshot: CollaborationSnapshot, allowWhileSending = false) => {
@@ -126,7 +178,7 @@ export function useFlowJam(options: {
   }
 
   const flushPatch = async () => {
-    if (!enabled || sendingRef.current || accessDeniedRef.current) return
+    if (!enabled || !sessionActiveRef.current || sendingRef.current || accessDeniedRef.current) return
     const baseline = baselineRef.current
     const desired = latestLocalRef.current
     if (!baseline || !desired) return
@@ -136,6 +188,8 @@ export function useFlowJam(options: {
     if (patchIsEmpty(patch)) return
 
     sendingRef.current = true
+    const abortController = new AbortController()
+    patchAbortRef.current = abortController
     const sentGraph = desired
     let retryDelay = 0
     try {
@@ -143,6 +197,7 @@ export function useFlowJam(options: {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ baseRevision: revisionRef.current, patch }),
+        signal: abortController.signal,
       })
       const data = (await response.json().catch(() => ({}))) as CollaborationSnapshot
 
@@ -183,7 +238,8 @@ export function useFlowJam(options: {
         callbacksRef.current.onConflict('A teammate edited the same step. Your latest change was kept.')
       }
 
-      void channelRef.current?.send({
+      const channel = channelRef.current
+      if (channel) void channel.send({
         type: 'broadcast',
         event: 'graph',
         payload: {
@@ -192,23 +248,28 @@ export function useFlowJam(options: {
           revision: data.revision,
           updatedAt: data.updatedAt,
         },
-      })
-    } catch {
+      }).then(markRealtimeDelivery)
+    } catch (error) {
+      if (error instanceof DOMException && error.name === 'AbortError') return
       retryDelay = 1500
       setConnectionState((current) => current === 'connected' ? 'degraded' : 'offline')
       callbacksRef.current.onConflict('Live sync was interrupted. Your edit is queued and will retry.')
     } finally {
+      if (patchAbortRef.current === abortController) patchAbortRef.current = null
       sendingRef.current = false
-      if (!sameGraph(baselineRef.current, latestLocalRef.current)) scheduleFlush(retryDelay || PATCH_DEBOUNCE_MS)
+      if (sessionActiveRef.current && !sameGraph(baselineRef.current, latestLocalRef.current)) {
+        scheduleFlush(retryDelay || PATCH_DEBOUNCE_MS)
+      }
     }
   }
 
   useEffect(() => {
     if (!enabled || !flowId) return
+    sessionActiveRef.current = true
     accessDeniedRef.current = false
     let disposed = false
     let retryTimer: ReturnType<typeof setTimeout> | null = null
-    let pollTimer: ReturnType<typeof setInterval> | null = null
+    let pollTimer: ReturnType<typeof setTimeout> | null = null
 
     const loadSnapshot = async (): Promise<CollaborationSnapshot | null> => {
       try {
@@ -219,12 +280,38 @@ export function useFlowJam(options: {
           disconnectRealtime()
         }
         if (!response.ok || !data.success) throw new Error(data.error || 'Collaboration unavailable')
-        if (!disposed) acceptServerGraph(data)
+        if (!disposed) {
+          acceptServerGraph(data)
+          if (connectionStateRef.current !== 'connected') setConnectionState('degraded')
+        }
         return data
       } catch {
         if (!disposed) setConnectionState('offline')
         return null
       }
+    }
+
+    refreshAccessRef.current = () => {
+      void loadSnapshot()
+    }
+
+    const schedulePoll = () => {
+      if (disposed) return
+      if (pollTimer) clearTimeout(pollTimer)
+      const delay = connectionStateRef.current === 'connected' ? CONNECTED_POLL_MS : DEGRADED_POLL_MS
+      pollTimer = setTimeout(async () => {
+        await loadSnapshot()
+        schedulePoll()
+      }, delay)
+    }
+
+    const scheduleReconnect = () => {
+      if (disposed || retryTimer || accessDeniedRef.current) return
+      retryTimer = setTimeout(() => {
+        retryTimer = null
+        disconnectRealtime()
+        void connect()
+      }, 1000)
     }
 
     const connect = async () => {
@@ -239,7 +326,11 @@ export function useFlowJam(options: {
       const supabase = createClient()
       supabaseRef.current = supabase
       const channel = supabase.channel(snapshot.topic, {
-        config: { broadcast: { self: false }, presence: { key: `${snapshot.actor.userId}:${clientId}` } },
+        config: {
+          private: true,
+          broadcast: { self: false, ack: true },
+          presence: { key: `${snapshot.actor.userId}:${clientId}` },
+        },
       })
       channelRef.current = channel
 
@@ -270,6 +361,21 @@ export function useFlowJam(options: {
               : peer,
           ))
         })
+        .on('broadcast', { event: 'preview-patch' }, ({ payload }) => {
+          if (!payload || payload.clientId === clientId || typeof payload.baseRevision !== 'number') return
+          const parsed = flowCollaborationPatchSchema.safeParse(payload.patch)
+          if (!parsed.success) return
+          const seen = seenPreviewMutationsRef.current
+          if (seen.has(parsed.data.mutationId)) return
+          if (seen.size >= 512) seen.clear()
+          seen.add(parsed.data.mutationId)
+          if (patchChangesTopology(parsed.data) && payload.baseRevision !== revisionRef.current) return
+          const current = latestLocalRef.current ?? baselineRef.current
+          if (!current) return
+          const preview = applyFlowCollaborationPatch(current, parsed.data).graph
+          latestLocalRef.current = preview
+          if (!sameGraph(preview, current)) callbacksRef.current.onRemoteGraph(preview)
+        })
         .on('broadcast', { event: 'graph' }, ({ payload }) => {
           if (!payload || payload.clientId === clientId) return
           if (typeof payload.revision !== 'number' || !payload.graph || typeof payload.updatedAt !== 'string') return
@@ -281,6 +387,10 @@ export function useFlowJam(options: {
             revision: payload.revision,
             updatedAt: payload.updatedAt,
           })
+        })
+        .on('broadcast', { event: 'access-changed' }, ({ payload }) => {
+          if (payload?.clientId === clientId) return
+          refreshAccessRef.current()
         })
         .subscribe(async (status) => {
           if (disposed) return
@@ -297,19 +407,31 @@ export function useFlowJam(options: {
             setConnectionState('degraded')
           } else if (status === 'CLOSED') {
             setConnectionState('offline')
+            scheduleReconnect()
           }
         })
 
-      pollTimer = setInterval(() => void loadSnapshot(), POLL_MS)
+      schedulePoll()
     }
 
     void connect()
+    const handleOnline = () => {
+      if (!channelRef.current) scheduleReconnect()
+      else refreshAccessRef.current()
+    }
+    window.addEventListener('online', handleOnline)
     return () => {
       disposed = true
+      sessionActiveRef.current = false
+      patchAbortRef.current?.abort()
+      patchAbortRef.current = null
       if (retryTimer) clearTimeout(retryTimer)
-      if (pollTimer) clearInterval(pollTimer)
+      if (pollTimer) clearTimeout(pollTimer)
       if (patchTimerRef.current) clearTimeout(patchTimerRef.current)
+      if (previewTimerRef.current) clearTimeout(previewTimerRef.current)
       if (cursorTimerRef.current) clearTimeout(cursorTimerRef.current)
+      refreshAccessRef.current = () => {}
+      window.removeEventListener('online', handleOnline)
       disconnectRealtime()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -326,6 +448,11 @@ export function useFlowJam(options: {
       selectedNodeId,
       cursor: cursorRef.current,
     })
+    void channel.send({
+      type: 'broadcast',
+      event: 'cursor',
+      payload: { clientId, cursor: cursorRef.current, selectedNodeId },
+    }).then(markRealtimeDelivery)
   }, [clientId, connectionState, selectedNodeId])
 
   const broadcastGraph = (graph: FlowGraph) => {
@@ -334,21 +461,42 @@ export function useFlowJam(options: {
       baselineRef.current = graph
       return
     }
+    schedulePreview()
     scheduleFlush()
+  }
+
+  const sendCursor = () => {
+    cursorTimerRef.current = null
+    const channel = channelRef.current
+    if (!channel) return
+    lastCursorSentAtRef.current = Date.now()
+    void channel.send({
+      type: 'broadcast',
+      event: 'cursor',
+      payload: { clientId, cursor: cursorRef.current, selectedNodeId },
+    }).then(markRealtimeDelivery)
   }
 
   const updateCursor = (cursor: JamCursor | null) => {
     cursorRef.current = cursor ? normalizeJamCursor(cursor.x, cursor.y) : null
-    if (cursorTimerRef.current) return
-    cursorTimerRef.current = setTimeout(() => {
-      cursorTimerRef.current = null
-      void channelRef.current?.send({
-        type: 'broadcast',
-        event: 'cursor',
-        payload: { clientId, cursor: cursorRef.current, selectedNodeId },
-      })
-    }, CURSOR_THROTTLE_MS)
+    const remaining = CURSOR_THROTTLE_MS - (Date.now() - lastCursorSentAtRef.current)
+    if (remaining <= 0) {
+      sendCursor()
+      return
+    }
+    if (!cursorTimerRef.current) cursorTimerRef.current = setTimeout(sendCursor, remaining)
   }
 
-  return { peers, connectionState, broadcastGraph, updateCursor }
+  const broadcastAccessChange = () => {
+    const channel = channelRef.current
+    if (!channel) return
+    void channel.send({
+      type: 'broadcast',
+      event: 'access-changed',
+      payload: { clientId },
+    }).then(markRealtimeDelivery)
+    refreshAccessRef.current()
+  }
+
+  return { peers, connectionState, broadcastGraph, updateCursor, broadcastAccessChange }
 }
