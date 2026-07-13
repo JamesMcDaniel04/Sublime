@@ -124,22 +124,19 @@ function ProductShot() {
   )
 }
 
+// Keep this showcase intentionally limited to providers that are present in
+// the live integration catalogue and have a verified vector or bundled mark.
 const integrationTools = [
   ['Salesforce', 'salesforce.com', '/logos/salesforce.svg'], ['Slack', 'slack.com', '/logos/slack.png'],
   ['Google Drive', 'drive.google.com', '/logos/googledrive.svg'], ['Google Sheets', 'sheets.google.com', '/logos/googlesheets.webp'],
-  ['Granola', 'granola.ai', '/logos/granola.jpg'], ['Monday', 'monday.com', '/logos/monday.jpg'],
+  ['Monday', 'monday.com', '/logos/monday.jpg'], ['Figma', 'figma.com', '/logos/figma.svg'],
   ['GitHub', 'github.com'], ['Linear', 'linear.app'], ['Jira', 'atlassian.com'], ['Asana', 'asana.com'],
   ['Notion', 'notion.so'], ['Zendesk', 'zendesk.com'], ['HubSpot', 'hubspot.com'], ['Gmail', 'gmail.com'],
-  ['Snowflake', 'snowflake.com'], ['Airtable', 'airtable.com'], ['Confluence', 'atlassian.com'], ['Trello', 'trello.com'],
-  ['ClickUp', 'clickup.com'], ['LaunchDarkly', 'launchdarkly.com'], ['Google Calendar', 'calendar.google.com'],
-  ['Google Docs', 'docs.google.com'], ['Google Forms', 'forms.google.com'], ['Google Cloud', 'cloud.google.com'],
-  ['Supabase', 'supabase.com'], ['Intercom', 'intercom.com'], ['Figma', 'figma.com'], ['Dropbox', 'dropbox.com'],
-  ['Microsoft Teams', 'teams.microsoft.com'], ['Outlook', 'outlook.com'], ['OneDrive', 'onedrive.live.com'],
-  ['SharePoint', 'sharepoint.com'], ['Stripe', 'stripe.com'], ['QuickBooks', 'quickbooks.intuit.com'], ['Shopify', 'shopify.com'],
-  ['Mailchimp', 'mailchimp.com'], ['Canva', 'canva.com'], ['Twilio', 'twilio.com'], ['AWS', 'aws.amazon.com'],
-  ['Datadog', 'datadoghq.com'], ['Sentry', 'sentry.io'], ['PagerDuty', 'pagerduty.com'], ['Postgres', 'postgresql.org'],
-  ['MongoDB', 'mongodb.com'], ['MySQL', 'mysql.com'], ['Calendly', 'calendly.com'], ['Typeform', 'typeform.com'],
-  ['Webflow', 'webflow.com'], ['Zoom', 'zoom.us'], ['ServiceNow', 'servicenow.com'],
+  ['Snowflake', 'snowflake.com'], ['Airtable', 'airtable.com'], ['Confluence', 'atlassian.com'], ['ClickUp', 'clickup.com'],
+  ['Google Calendar', 'calendar.google.com'], ['Google Docs', 'docs.google.com'], ['Google Forms', 'forms.google.com'],
+  ['Google Cloud', 'cloud.google.com'], ['Supabase', 'supabase.com'], ['Intercom', 'intercom.com'],
+  ['PostHog', 'posthog.com'], ['Postman', 'postman.com'], ['YouTube', 'youtube.com'], ['GitLab', 'gitlab.com'],
+  ['Microsoft Teams', 'teams.microsoft.com'], ['Hugging Face', 'huggingface.co'], ['Amplitude', 'amplitude.com'],
 ] as const
 
 type LandingTool = readonly [name: string, domain: string, localSrc?: string]
@@ -150,16 +147,13 @@ const toolIconSlugs: Record<string, string> = {
   Snowflake: 'snowflake', Airtable: 'airtable', Confluence: 'confluence', Trello: 'trello', ClickUp: 'clickup',
   LaunchDarkly: 'launchdarkly', 'Google Calendar': 'googlecalendar', 'Google Docs': 'googledocs',
   'Google Forms': 'googleforms', 'Google Cloud': 'googlecloud', Supabase: 'supabase', Intercom: 'intercom',
-  Figma: 'figma', Dropbox: 'dropbox', 'Microsoft Teams': 'microsoftteams', Outlook: 'microsoftoutlook',
-  OneDrive: 'microsoftonedrive', SharePoint: 'sharepoint', Stripe: 'stripe', QuickBooks: 'quickbooks', Shopify: 'shopify',
-  Mailchimp: 'mailchimp', Canva: 'canva', Twilio: 'twilio', AWS: 'amazonwebservices', Datadog: 'datadog',
-  Sentry: 'sentry', PagerDuty: 'pagerduty', Postgres: 'postgresql', MongoDB: 'mongodb', MySQL: 'mysql',
-  Calendly: 'calendly', Typeform: 'typeform', Webflow: 'webflow', Zoom: 'zoom', ServiceNow: 'servicenow',
+  Figma: 'figma', PostHog: 'posthog', Postman: 'postman', YouTube: 'youtube', GitLab: 'gitlab',
+  'Microsoft Teams': 'microsoftteams', 'Hugging Face': 'huggingface', Amplitude: 'amplitude',
 }
 
 function landingToolLogo([name, domain, localSrc]: LandingTool): string {
   // Keep bundled SVGs / trademark-only marks, otherwise use brand vector art.
-  if (localSrc && (name === 'Salesforce' || name === 'Google Drive' || name === 'Granola')) return localSrc
+  if (localSrc) return localSrc
   const vectorSlug = toolIconSlugs[name]
   return vectorSlug ? `https://cdn.simpleicons.org/${vectorSlug}` : `https://www.google.com/s2/favicons?domain=${domain}&sz=256`
 }
@@ -245,13 +239,13 @@ export default async function Home() {
       </section>
 
       <section className="sl-l-logo-cloud" aria-labelledby="tools-heading">
+        <div className="sl-l-tool-carousel" aria-label={`${integrationTools.length} available integration tools`}>
+          <ToolCarouselRow tools={integrationTools.slice(0, 16)} />
+          <ToolCarouselRow tools={integrationTools.slice(16)} reverse />
+        </div>
         <div className="sl-l-wrap sl-l-logo-cloud-heading">
           <h2 id="tools-heading">All your tools in <em>one place.</em></h2>
           <p>One connected knowledge layer across the systems your team already trusts.</p>
-        </div>
-        <div className="sl-l-tool-carousel" aria-label="50 available integration tools">
-          <ToolCarouselRow tools={integrationTools.slice(0, 25)} />
-          <ToolCarouselRow tools={integrationTools.slice(25)} reverse />
         </div>
       </section>
 
