@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { IntegrationChip } from '@/components/integrations/integration-chip'
 import { missingIntegrations, connectedSlugSet } from '@/lib/templates/relevance'
+import { findTemplateForRoute } from '@/lib/templates/route-id'
 
 type Template = {
   id: string
@@ -45,7 +46,7 @@ export default function TemplateDetails() {
       .then(async (response) => {
         const data = await response.json().catch(() => ({}))
         if (!response.ok) throw new Error(data.error || 'Could not load templates.')
-        const match = (data.templates || []).find((item: Template) => item.id === id)
+        const match = findTemplateForRoute<Template>(data.templates || [], id)
         if (!match) throw new Error('This template could not be found.')
         setTemplate(match)
       })
