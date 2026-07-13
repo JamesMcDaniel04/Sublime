@@ -25,7 +25,7 @@ export const GET = withAuthenticatedApi(async (_request, auth) => {
   let response
   try {
     response = await getNangoClient().listConnections({
-      tags: { [NANGO_ORG_TAG]: auth.organizationId, user_id: auth.dbUser.id },
+      tags: { [NANGO_ORG_TAG]: auth.organizationId },
     })
   } catch (error) {
     throw nangoApiError(error)
@@ -33,11 +33,6 @@ export const GET = withAuthenticatedApi(async (_request, auth) => {
 
   const connections: Record<string, ConnectionStatus> = {}
   const seen: string[] = []
-  // Fail closed if Nango returns a wider tag match than requested. A workspace
-  // member must never see, mirror, or disconnect another member's account.
-  const userConnections = (response.connections ?? []).filter(
-    (connection) => connection.end_user?.id === auth.dbUser.id,
-  )
 
   // This route re-mirrors every Nango connection on every integrations page
   // load — only fire a scan on a genuine new-or-error→connected transition,
@@ -48,14 +43,14 @@ export const GET = withAuthenticatedApi(async (_request, auth) => {
   const previousByConnectionId = new Map(
     (
       await prisma.nangoConnection.findMany({
-        where: { organizationId: auth.organizationId, userId: auth.dbUser.id },
+        where: { organizationId: auth.organizationId },
         select: { connectionId: true, status: true },
       })
     ).map((row) => [row.connectionId, { status: row.status }]),
   )
-  const newlyConnected: { connectionId: string; providerConfigKey: string; userId: string }[] = []
+  const newlyConnected: { connectionId: string; providerConfigKey: string; userId: string | null }[] = []
 
-  for (const connection of userConnections) {
+  for (const connection of response.connections ?? []) {
     seen.push(connection.connection_id)
     const errors = connection.errors ?? []
     const connected = errors.length === 0
@@ -90,10 +85,6 @@ export const GET = withAuthenticatedApi(async (_request, auth) => {
         },
       },
       update: {
-        // Bind the mirror to the authenticated connector, not a caller field
-        // or an inherited org owner. The Nango end-user filter above is an
-        // additional upstream consistency check.
-        userId: auth.dbUser.id,
         providerConfigKey: key,
         provider: connection.provider,
         status: connected ? 'connected' : 'error',
@@ -102,7 +93,7 @@ export const GET = withAuthenticatedApi(async (_request, auth) => {
       },
       create: {
         organizationId: auth.organizationId,
-        userId: auth.dbUser.id,
+        userId: endUser?.id ?? null,
         connectionId: connection.connection_id,
         providerConfigKey: key,
         provider: connection.provider,
@@ -113,7 +104,7 @@ export const GET = withAuthenticatedApi(async (_request, auth) => {
     })
 
     if (shouldScanNangoConnection(previousByConnectionId.get(connection.connection_id), connected)) {
-      newlyConnected.push({ connectionId: connection.connection_id, providerConfigKey: key, userId: auth.dbUser.id })
+      newlyConnected.push({ connectionId: connection.connection_id, providerConfigKey: key, userId: endUser?.id ?? null })
     }
   }
 
@@ -123,7 +114,7 @@ export const GET = withAuthenticatedApi(async (_request, auth) => {
   // scan-derived learnings. Capture the about-to-be-dropped rows'
   // capabilities BEFORE the sweep removes them.
   const stale = await prisma.nangoConnection.findMany({
-    where: { organizationId: auth.organizationId, userId: auth.dbUser.id, connectionId: { notIn: seen } },
+    where: { organizationId: auth.organizationId, connectionId: { notIn: seen } },
     select: { providerConfigKey: true },
   })
   const staleCapabilities = [
@@ -132,7 +123,7 @@ export const GET = withAuthenticatedApi(async (_request, auth) => {
 
   // Drop mirror rows for connections that no longer exist in Nango.
   await prisma.nangoConnection.deleteMany({
-    where: { organizationId: auth.organizationId, userId: auth.dbUser.id, connectionId: { notIn: seen } },
+    where: { organizationId: auth.organizationId, connectionId: { notIn: seen } },
   })
 
   const organizationId = auth.organizationId
@@ -142,7 +133,7 @@ export const GET = withAuthenticatedApi(async (_request, auth) => {
   // rows just upserted above already reflect this request's latest state.
   if (staleCapabilities.length > 0) {
     const stillConnectedRows = await prisma.nangoConnection.findMany({
-      where: { organizationId, userId: auth.dbUser.id, status: 'connected' },
+      where: { organizationId, status: 'connected' },
       select: { providerConfigKey: true },
     })
     const stillConnectedCapabilities = [

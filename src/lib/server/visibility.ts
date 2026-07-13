@@ -1,39 +1,29 @@
 /**
- * Tenant + owner visibility scopes, shared by every authenticated route.
- *
- * An organization is a billing/catalog boundary, not a content-sharing
- * boundary. Agents, flows, runs, messages, search hits, and trigger secrets
- * are always personal to their creator. Integrations expose an org-curated
- * catalogue separately, while each user's credentials remain user-scoped.
+ * Tenant + owner visibility scopes, shared by every route so a "private" agent
+ * is enforced consistently: only its owner may see the agent, its runs, its
+ * messages, its search hits, or its trigger secret. Shared agents remain
+ * visible to the whole organization.
  *
  * Combine with other conditions via Prisma `AND` when the target `where`
  * already carries an `OR` (two `OR` keys collide in one object).
  */
 
-/** Agent/flow rows: only rows owned by the acting user are visible. */
+/** Agent rows: private agents are visible only to their owner. */
 export function agentVisibilityScope(userId: string) {
-  return { userId }
+  return { OR: [{ visibility: { not: 'private' } }, { userId }] }
 }
 
 /**
- * Flow rows remain private by default, but an explicit Flow Jam invitation
- * grants edit access to that one flow. This is deliberately narrower than the
- * legacy `visibility: shared` organization-wide scope.
- */
-export function flowVisibilityScope(userId: string) {
-  return {
-    OR: [
-      { userId },
-      { collaborators: { some: { userId } } },
-    ],
-  }
-}
-
-/**
- * Execution rows are personal even when they were started from a template or
- * have no linked agent. Every normal run creation path records the acting (or
- * scheduled owner) user on AgentExecution.userId.
+ * Execution rows: runs belonging to a private agent are visible only to that
+ * agent's owner. Runs with no linked agent (e.g. template runs) are never
+ * private, so they stay org-visible.
  */
 export function executionVisibilityScope(userId: string) {
-  return { userId }
+  return {
+    OR: [
+      { agentTaskId: null },
+      { agentTask: { is: { visibility: { not: 'private' } } } },
+      { agentTask: { is: { userId } } },
+    ],
+  }
 }

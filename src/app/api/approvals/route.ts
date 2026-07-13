@@ -5,11 +5,7 @@ import { withAuthenticatedApi } from '@/lib/server/api-handler'
 export const GET = withAuthenticatedApi(async (request, auth) => {
   const status = request.nextUrl.searchParams.get('status') || 'pending'
   const approvals = await prisma.approvalRequest.findMany({
-    where: {
-      organizationId: auth.organizationId,
-      status,
-      payload: { path: ['userId'], equals: auth.dbUser.id },
-    },
+    where: { organizationId: auth.organizationId, status },
     orderBy: { createdAt: 'desc' },
     take: 100,
     select: { id: true, tool: true, summary: true, status: true, createdAt: true, executionId: true },

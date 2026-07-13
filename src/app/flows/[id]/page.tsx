@@ -12,6 +12,7 @@ import { emptyGraph, type FlowGraph, type FlowNode, type OutputField } from '@/l
 import { insertNodeAfter, appendToBranch, duplicateNode, updateNode, deleteNode, changeNodeType, addContainerStep, moveNodeAfter, moveContainerStep, pasteNodeAfter } from '@/lib/flows/mutate'
 import { writeFlowClipboard, readFlowClipboard } from '@/lib/flows/clipboard'
 import { applyCopilotOps, type CopilotOp } from '@/lib/flows/copilot-ops'
+import { remediationForFailedRun, type FlowFailureRemediation } from '@/lib/flows/failure-remediation'
 import { buildDataTree } from '@/lib/flows/datatree'
 import { parseFlowInput } from '@/lib/flows/input'
 import { httpOutputFields, outputFieldsFromJsonSchema } from '@/lib/flows/schema-fields'
@@ -24,16 +25,18 @@ import { FlowCanvas, type FlowInsertSeed } from '@/components/flows/flow-canvas'
 import { startCanvasPan } from '@/components/flows/canvas-pan'
 import { CanvasRail } from '@/components/flows/canvas-rail'
 import type { ToolCatalog } from '@/components/flows/tool-catalog-type'
-import { CopilotPanel } from '@/components/flows/copilot-panel'
+import { CopilotPanel, type CopilotRequest } from '@/components/flows/copilot-panel'
 import { RunPanel, type FlowRunDetail } from '@/components/flows/run-panel'
 import { CheckerPanel } from '@/components/flows/checker-panel'
 import { ResizablePanel } from '@/components/flows/resizable-panel'
 import { TestPanel } from '@/components/flows/test-panel'
 import { VersionsPanel } from '@/components/flows/versions-panel'
-import { useFlowJam, type JamPeer } from '@/components/flows/use-flow-jam'
+import { jamCursorColor, useFlowJam } from '@/components/flows/use-flow-jam'
 import { JamButton } from '@/components/flows/jam-button'
+import { useAuth } from '@/hooks/use-auth'
 import type { StepStatus } from '@/components/flows/step-card'
 import { SuggestedImprovementBanner } from '@/components/intelligence/suggested-improvement-banner'
+import { getCachedJson, invalidateCachedJson } from '@/lib/client/use-cached-json'
 
 type Agent = { id: string; title: string }
 
@@ -163,27 +166,6 @@ function filenameSlug(value: string): string {
     .slice(0, 80) || 'flow'
 }
 
-function JamCursorOverlay({ peers }: { peers: JamPeer[] }) {
-  return (
-    <div className="pointer-events-none fixed inset-0 z-[70]" aria-hidden="true">
-      {peers.filter((peer) => peer.cursor).map((peer) => (
-        <div
-          key={peer.clientId}
-          className="absolute transition-[left,top] duration-75 ease-linear"
-          style={{ left: `${peer.cursor!.x * 100}vw`, top: `${peer.cursor!.y * 100}vh` }}
-        >
-          <svg width="18" height="24" viewBox="0 0 18 24" className="drop-shadow" aria-hidden="true">
-            <path d="M2 1L16 13H9.5L6 21L2 1Z" fill="#4f46e5" stroke="white" strokeWidth="1.5" />
-          </svg>
-          <span className="ml-3 -mt-1 block whitespace-nowrap rounded bg-indigo-600 px-1.5 py-0.5 text-[10px] font-semibold text-white shadow">
-            {peer.name}
-          </span>
-        </div>
-      ))}
-    </div>
-  )
-}
-
 function FlowBuilder() {
   const { id } = useParams<{ id: string }>()
   const router = useRouter()
@@ -237,7 +219,6 @@ function FlowBuilder() {
   })
   const canvasPanRef = useRef(canvasPan)
   canvasPanRef.current = canvasPan
-  const jamCursorUpdateRef = useRef<(cursor: { x: number; y: number } | null) => void>(() => {})
   const panRef = useRef<ReturnType<typeof startCanvasPan>>(null)
   const suppressCanvasClickRef = useRef(false)
   const onCanvasPointerDown = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
@@ -256,10 +237,6 @@ function FlowBuilder() {
   }, [snapToGrid])
   const onCanvasPointerMove = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
     panRef.current?.move(event.clientX, event.clientY)
-    jamCursorUpdateRef.current({
-      x: Math.min(1, Math.max(0, event.clientX / window.innerWidth)),
-      y: Math.min(1, Math.max(0, event.clientY / window.innerHeight)),
-    })
   }, [])
   const onCanvasPointerEnd = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
     const pan = panRef.current
@@ -273,43 +250,41 @@ function FlowBuilder() {
   const [testInput, setTestInput] = useState('')
   const [runs, setRuns] = useState<{ id: string; status: string; startedAt?: string }[]>([])
   const [selectedRun, setSelectedRun] = useState<FlowRunDetail | null>(null)
+  const [copilotRequest, setCopilotRequest] = useState<CopilotRequest | null>(null)
+  const surfacedFailureRunRef = useRef<string | null>(null)
   const [toolCatalog, setToolCatalog] = useState<ToolCatalog>([])
   // Serialized snapshot of the last-saved state, for the unsaved-changes dot.
   const [savedSnapshot, setSavedSnapshot] = useState('')
-  const [canManageJam, setCanManageJam] = useState(false)
   const [improvementSuggestions, setImprovementSuggestions] = useState<{ id: string; title: string; content: string }[]>([])
   const [dismissingSuggestionId, setDismissingSuggestionId] = useState<string | null>(null)
   // Optimistic-concurrency base: the flow's updatedAt as of load/last save.
   const baseUpdatedAtRef = useRef<string | undefined>(undefined)
   // Flow Jam: live presence + graph sync. Remote graphs apply outside the
-  // undo stack and must not echo back out. The exact snapshot gate preserves a
-  // local keystroke that happens between receipt and React's graph effect.
-  const remoteGraphSnapshotRef = useRef<string | null>(null)
-  const { peers, connectionState, broadcastGraph, updateCursor } = useFlowJam({
+  // undo stack and must not echo back out (applyingRemoteRef gates the
+  // broadcast effect below).
+  const { user: jamUser } = useAuth()
+  const applyingRemoteRef = useRef(false)
+  const { peers, broadcastGraph, broadcastSaved, broadcastCursor } = useFlowJam({
     flowId: id,
-    enabled: !loading,
+    userId: jamUser?.id,
+    userName: jamUser?.firstName || 'Teammate',
     selectedNodeId: selectedId,
     onRemoteGraph: (remote) => {
-      remoteGraphSnapshotRef.current = JSON.stringify(remote)
+      applyingRemoteRef.current = true
       setGraph(remote)
     },
     onRemoteSaved: (updatedAt) => {
       baseUpdatedAtRef.current = updatedAt
     },
-    onConflict: (message) => toast.warning(message, { duration: 8000 }),
   })
-  jamCursorUpdateRef.current = updateCursor
   useEffect(() => {
-    if (loading) return
-    const snapshot = JSON.stringify(graph)
-    if (remoteGraphSnapshotRef.current === snapshot) {
-      remoteGraphSnapshotRef.current = null
+    if (applyingRemoteRef.current) {
+      applyingRemoteRef.current = false
       return
     }
-    remoteGraphSnapshotRef.current = null
     broadcastGraph(graph)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [graph, loading])
+  }, [graph])
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
   // Run the user explicitly picked (dropdown or ?run= deep-link). While set,
   // the poll tick refreshes that run's details instead of stealing selection.
@@ -319,8 +294,8 @@ function FlowBuilder() {
   useEffect(() => {
     let cancelled = false
     Promise.all([
-      fetch('/api/flows', { cache: 'no-store' }).then((r) => r.json()),
-      fetch('/api/agents', { cache: 'no-store' }).then((r) => r.json()),
+      getCachedJson<any>('/api/flows'),
+      getCachedJson<any>('/api/agents', 30_000),
     ])
       .then(([flowsData, agentsData]) => {
         if (cancelled) return
@@ -333,7 +308,6 @@ function FlowBuilder() {
           setStatus(flow.status)
           setVersion(flow.version ?? 1)
           setPublished(Boolean(flow.published))
-          setCanManageJam(Boolean(flow.canManageJam))
           setSavedSnapshot(JSON.stringify({ name: flow.name, description: flow.description || '', graph: g, status: flow.status }))
           baseUpdatedAtRef.current = flow.updatedAt
         }
@@ -627,6 +601,35 @@ function FlowBuilder() {
     return map
   }, [validation])
 
+  const runtimeRemediation = useMemo(
+    () => remediationForFailedRun(selectedRun),
+    [selectedRun],
+  )
+
+  useEffect(() => {
+    if (!selectedRun || !runtimeRemediation || surfacedFailureRunRef.current === selectedRun.id) return
+    surfacedFailureRunRef.current = selectedRun.id
+    // A failed run should immediately expose a useful diagnosis instead of a
+    // red status with no next step. The user still chooses whether Copilot may
+    // apply a safe fix.
+    setShowChecker(true)
+  }, [selectedRun, runtimeRemediation])
+
+  const remediateFailure = useCallback((remediation: FlowFailureRemediation) => {
+    if (viewingVersion && remediation.kind !== 'user_action') {
+      toast.error('Close the version view before applying a runtime fix.')
+      return
+    }
+    setCopilotRequest({
+      id: `${selectedRun?.id ?? 'failed-run'}-${Date.now()}`,
+      content: remediation.copilotPrompt,
+      applyOps: remediation.kind !== 'user_action',
+    })
+    setShowCopilot(true)
+    setShowRuns(false)
+    setShowChecker(false)
+  }, [selectedRun, viewingVersion])
+
   const save = useCallback(async (): Promise<boolean> => {
     setSaving(true)
     try {
@@ -642,7 +645,9 @@ function FlowBuilder() {
       }
       if (data.flow?.updatedAt) {
         baseUpdatedAtRef.current = data.flow.updatedAt
+        broadcastSaved(data.flow.updatedAt)
       }
+      invalidateCachedJson('/api/flows')
       setSavedSnapshot(JSON.stringify({ name, description, graph, status }))
       return true
     } finally {
@@ -804,7 +809,10 @@ function FlowBuilder() {
       const data = await response.json().catch(() => ({}))
       if (!response.ok) toast.error(data.error || 'Run failed.')
       else if (data.run?.status === 'waiting') toast('The flow is waiting for your reply.', { action: { label: 'View', onClick: () => setShowRuns(true) } })
-      else if (data.run?.status === 'failed') toast.error('The flow failed — check the step statuses.')
+      else if (data.run?.status === 'failed') {
+        toast.error('The flow failed — Checker is reviewing the failure.')
+        setShowChecker(true)
+      }
       else toast.success('Flow ran.')
       pollRuns()
     } finally {
@@ -878,6 +886,7 @@ function FlowBuilder() {
     })
     const data = await response.json().catch(() => ({}))
     if (response.ok && data.flow?.id) {
+      invalidateCachedJson('/api/flows')
       toast.success('Flow duplicated.')
       router.push(`/flows/${data.flow.id}`)
     } else {
@@ -916,6 +925,7 @@ function FlowBuilder() {
     })
     const data = await response.json().catch(() => ({}))
     if (response.ok) {
+      invalidateCachedJson('/api/flows')
       toast.success('Flow deleted.')
       router.push('/flows')
     } else {
@@ -1050,7 +1060,7 @@ function FlowBuilder() {
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
-        <JamButton flowId={id} peers={peers} connectionState={connectionState} canManage={canManageJam} />
+        <JamButton flowId={id} peers={peers} />
         <Button variant="outline" size="sm" onClick={() => setShowTest((v) => !v)}>
           <FlaskConical className="mr-1.5 h-4 w-4" /> Test
         </Button>
@@ -1130,10 +1140,19 @@ function FlowBuilder() {
             setSelectedId(null)
           }}
           onPointerDown={onCanvasPointerDown}
-          onPointerMove={onCanvasPointerMove}
+          onPointerMove={(event) => {
+            onCanvasPointerMove(event)
+            const bounds = event.currentTarget.getBoundingClientRect()
+            if (bounds.width > 0 && bounds.height > 0) {
+              broadcastCursor({
+                x: (event.clientX - bounds.left) / bounds.width,
+                y: (event.clientY - bounds.top) / bounds.height,
+              })
+            }
+          }}
+          onPointerLeave={() => broadcastCursor(null)}
           onPointerUp={onCanvasPointerEnd}
           onPointerCancel={onCanvasPointerEnd}
-          onPointerLeave={() => jamCursorUpdateRef.current(null)}
           style={{
             backgroundImage: 'radial-gradient(circle, rgba(15, 23, 42, 0.22) 1px, transparent 1px)',
             backgroundSize: '28px 28px',
@@ -1234,6 +1253,27 @@ function FlowBuilder() {
               }
             />
           </div>
+          {peers.filter((peer) => peer.cursor).map((peer) => {
+            const cursor = peer.cursor!
+            const bounds = canvasScrollRef.current?.getBoundingClientRect()
+            if (!bounds) return null
+            const color = jamCursorColor(peer.userId)
+            return (
+              <div
+                key={`cursor-${peer.userId}`}
+                className="pointer-events-none fixed z-50 flex items-start drop-shadow-md transition-transform duration-75"
+                style={{ left: bounds.left + cursor.x * bounds.width, top: bounds.top + cursor.y * bounds.height }}
+                aria-label={`${peer.name}'s cursor`}
+              >
+                <svg width="22" height="27" viewBox="0 0 22 27" fill="none" aria-hidden>
+                  <path d="M2 1.5v19.7l5.1-4.9 3.6 8.5 3.6-1.6-3.6-8.2h7.1L2 1.5Z" fill={color} stroke="white" strokeWidth="1.6" strokeLinejoin="round" />
+                </svg>
+                <span className="mt-4 -ml-1 whitespace-nowrap rounded-md px-2 py-1 text-[11px] font-semibold text-white shadow-sm" style={{ backgroundColor: color }}>
+                  {peer.name}
+                </span>
+              </div>
+            )
+          })}
         </div>
 
         <CanvasRail
@@ -1287,6 +1327,7 @@ function FlowBuilder() {
               onNeedsAttention={(issues) => {
                 if (issues.length) setShowChecker(true)
               }}
+              request={copilotRequest}
             />
           </ResizablePanel>
         )}
@@ -1316,6 +1357,8 @@ function FlowBuilder() {
               onClose={() => setShowRuns(false)}
               labelForNode={labelForNode}
               onReply={replyToRun}
+              remediation={runtimeRemediation}
+              onRemediate={remediateFailure}
             />
           </ResizablePanel>
         )}
@@ -1326,6 +1369,8 @@ function FlowBuilder() {
               validation={validation}
               fixing={fixing}
               onFixWithCopilot={fixWithCopilot}
+              runtimeFailure={runtimeRemediation}
+              onRemediateFailure={remediateFailure}
               onClose={() => setShowChecker(false)}
               onJump={jumpToNode}
             />
@@ -1344,7 +1389,6 @@ function FlowBuilder() {
           </ResizablePanel>
         )}
       </div>
-      <JamCursorOverlay peers={peers} />
     </div>
   )
 }

@@ -27,6 +27,7 @@ import { ensureFreshConnectionToken, persistRefreshedAuthcodeTokens } from '@/li
 import { isStrataUrl } from '@/lib/mcp/strata'
 import { GranolaToolClient, getGranolaApiKey, granolaTools } from '@/lib/integrations/granola'
 import { SlackToolClient, slackTools } from '@/lib/integrations/slack'
+import { decryptSecretJson } from '@/lib/slack/connections'
 import { HttpToolClient, httpTools } from '@/lib/integrations/http'
 import { EmailToolClient, emailTools } from '@/lib/integrations/email'
 import { BUILTIN_CONNECTORS, fromKlavisAgentType, isSelected, nangoConnector, type ConnectorDescriptor } from '@/lib/connectors/registry'
@@ -84,9 +85,11 @@ export function toolName(provider: string, name: string) {
   return `${provider}_${name}`.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 64)
 }
 
-/** Personal connection visibility: credentials never fall back to another user. */
-export function mcpConnectionScope(organizationId: string, userId?: string | null) {
-  return { organizationId, isActive: true, userId: userId ?? '__no_user__' }
+/** Shared connection visibility: org-shared rows plus the acting user's own. */
+export function mcpConnectionScope(organizationId: string, userId?: string) {
+  return userId
+    ? { organizationId, isActive: true, OR: [{ userId: null }, { userId }] }
+    : { organizationId, isActive: true }
 }
 
 // MCP tool lists are near-static, but discovery re-ran (initialize + tools/list
@@ -118,17 +121,14 @@ const EMPTY_SCHEMA = { type: 'object', properties: {} }
  */
 export async function loadKlavisPlaneGroups(
   organizationId: string,
-  userId: string | null | undefined,
   options: { agentTypes?: string[] } = {},
 ): Promise<ToolPlaneGroup[]> {
-  if (!userId) return []
   if (!process.env.KLAVIS_API_KEY) return []
   if (options.agentTypes && options.agentTypes.length === 0) return []
   const client = new KlavisClient({ apiKey: process.env.KLAVIS_API_KEY, platformName: 'sublime' })
   const agents = await prisma.mCPAgent.findMany({
     where: {
       organizationId,
-      userId,
       isActive: true,
       ...(options.agentTypes ? { agentType: { in: options.agentTypes } } : {}),
     },
@@ -251,14 +251,8 @@ export async function loadMcpConnectionPlaneGroups(
  */
 export async function loadNativePlaneGroups(
   organizationId: string,
-  options: { providers?: string[]; userId?: string | null } = {},
+  options: { providers?: string[] } = {},
 ): Promise<ToolPlaneGroup[]> {
-  const canUseOrgCredentials = options.userId
-    ? Boolean(await prisma.user.findFirst({
-        where: { id: options.userId, organizationId, role: 'ADMIN', isActive: true },
-        select: { id: true },
-      }))
-    : false
   const selected = (descriptor: ConnectorDescriptor) =>
     options.providers ? isSelected(descriptor, options.providers) : true
   const groups: ToolPlaneGroup[] = []
@@ -280,7 +274,7 @@ export async function loadNativePlaneGroups(
 
   // Granola REST API — gated on a per-org key (saved key, then env fallback).
   const granolaConn = BUILTIN_CONNECTORS.find((c) => c.providerId === 'granola')!
-  if (canUseOrgCredentials && selected(granolaConn)) {
+  if (selected(granolaConn)) {
     try {
       const granolaKey = await getGranolaApiKey(organizationId)
       if (granolaKey) {
@@ -295,11 +289,27 @@ export async function loadNativePlaneGroups(
     }
   }
 
-  // Slack REST API — gated on SLACK_BOT_TOKEN.
+  // Slack REST API — prefer the org's verified Slack bot connection. The env
+  // token remains a backwards-compatible fallback for older deployments.
   const slackConn = BUILTIN_CONNECTORS.find((c) => c.kind === 'builtin' && c.providerId === 'slack')!
-  if (canUseOrgCredentials && slackConn.available() && selected(slackConn)) {
+  if (selected(slackConn)) {
     try {
-      groups.push(group(slackConn, 'https://slack.com/api', new SlackToolClient(), slackTools()))
+      const binding = await prisma.slackWorkspaceConnection.findFirst({
+        where: { organizationId, status: 'active' },
+        orderBy: { createdAt: 'asc' },
+      })
+      if (binding) {
+        const slackGroup = group(
+          slackConn,
+          'https://slack.com/api',
+          new SlackToolClient(decryptSecretJson(binding.botToken)),
+          slackTools(),
+        )
+        slackGroup.name = `Slack — ${binding.teamName ?? binding.teamId}`
+        groups.push(slackGroup)
+      } else if (slackConn.available()) {
+        groups.push(group(slackConn, 'https://slack.com/api', new SlackToolClient(), slackTools()))
+      }
     } catch (error) {
       apiLogger.warn('loadTools: Slack tool setup failed, skipping provider', {
         provider: 'slack',
@@ -317,7 +327,7 @@ export async function loadNativePlaneGroups(
 
   // Email via Resend REST API — gated on RESEND_API_KEY.
   const emailConn = BUILTIN_CONNECTORS.find((c) => c.providerId === 'email')!
-  if (canUseOrgCredentials && emailConn.available() && selected(emailConn)) {
+  if (emailConn.available() && selected(emailConn)) {
     try {
       groups.push(group(emailConn, 'https://api.resend.com', new EmailToolClient(), emailTools()))
     } catch (error) {
@@ -395,7 +405,6 @@ export async function loadFlowPlaneGroups(
   const flows = await prisma.flow.findMany({
     where: {
       organizationId,
-      userId,
       status: 'ACTIVE',
       ...(options.flowIds?.length ? { id: { in: options.flowIds } } : {}),
     },
@@ -482,7 +491,7 @@ export async function resolveFlowToolExecutor(params: {
 
   if (plane === 'mcp') {
     const conn = await prisma.mcpConnection.findFirst({
-      where: { id: ref, organizationId, userId, isActive: true },
+      where: { id: ref, organizationId, isActive: true },
     })
     if (!conn) throw new Error('The selected connection no longer exists — pick another in the step config.')
     const fresh = await ensureFreshConnectionToken(conn)
@@ -496,7 +505,7 @@ export async function resolveFlowToolExecutor(params: {
 
   if (plane === 'klavis') {
     if (!process.env.KLAVIS_API_KEY) throw new Error('Klavis is not configured for this workspace.')
-    const agent = await prisma.mCPAgent.findFirst({ where: { id: ref, organizationId, userId, isActive: true } })
+    const agent = await prisma.mCPAgent.findFirst({ where: { id: ref, organizationId, isActive: true } })
     if (!agent) throw new Error('The selected Klavis connection no longer exists — pick another in the step config.')
     const client = new KlavisClient({ apiKey: process.env.KLAVIS_API_KEY, platformName: 'sublime' })
     return {
@@ -507,23 +516,30 @@ export async function resolveFlowToolExecutor(params: {
   }
 
   if (plane === 'native') {
-    const canUseOrgCredentials = Boolean(await prisma.user.findFirst({
-      where: { id: userId, organizationId, role: 'ADMIN', isActive: true },
-      select: { id: true },
-    }))
     if (ref === 'granola') {
-      if (!canUseOrgCredentials) throw new Error('This workspace-managed connection is not available to your account.')
       const granolaKey = await getGranolaApiKey(organizationId)
       if (!granolaKey) throw new Error('Granola is not configured for this workspace.')
       const client = new GranolaToolClient(granolaKey.apiKey)
       return { provider: 'granola', isWrite: false, execute: (name, args) => client.executeTool('', name, args) }
     }
-    if (ref === 'slack' || ref === 'email' || ref === 'http') {
-      if (ref !== 'http' && !canUseOrgCredentials) throw new Error('This workspace-managed connection is not available to your account.')
+    if (ref === 'slack') {
+      const binding = await prisma.slackWorkspaceConnection.findFirst({
+        where: { organizationId, status: 'active' },
+        orderBy: { createdAt: 'asc' },
+      })
+      if (binding) {
+        const client = new SlackToolClient(decryptSecretJson(binding.botToken))
+        return { provider: 'slack', isWrite: true, execute: (name, args) => client.executeTool('', name, args) }
+      }
+      const descriptor = BUILTIN_CONNECTORS.find((c) => c.kind === 'builtin' && c.providerId === ref)!
+      if (!descriptor.available()) throw new Error('Slack is not configured for this workspace.')
+      const client = new SlackToolClient()
+      return { provider: 'slack', isWrite: descriptor.isWrite, execute: (name, args) => client.executeTool('', name, args) }
+    }
+    if (ref === 'email' || ref === 'http') {
       const descriptor = BUILTIN_CONNECTORS.find((c) => c.kind === 'builtin' && c.providerId === ref)!
       if (!descriptor.available()) throw new Error(`${descriptor.label} is not configured for this workspace.`)
-      const client: McpToolClient =
-        ref === 'slack' ? new SlackToolClient() : ref === 'email' ? new EmailToolClient() : new HttpToolClient()
+      const client: McpToolClient = ref === 'email' ? new EmailToolClient() : new HttpToolClient()
       return { provider: ref, isWrite: descriptor.isWrite, execute: (name, args) => client.executeTool('', name, args) }
     }
     throw new Error(`Unknown built-in integration "${ref}" — pick another in the step config.`)
@@ -532,7 +548,7 @@ export async function resolveFlowToolExecutor(params: {
   if (plane === 'flow') {
     // status: 'ACTIVE' mirrors loadFlowPlaneGroups + every sibling plane —
     // a DRAFT/DISABLED flow must not be executable as a tool.
-    const flow = await prisma.flow.findFirst({ where: { id: ref, organizationId, userId, status: 'ACTIVE' } })
+    const flow = await prisma.flow.findFirst({ where: { id: ref, organizationId, status: 'ACTIVE' } })
     if (!flow) throw new Error('The selected flow no longer exists — pick another in the step config.')
     return {
       provider: 'flow',

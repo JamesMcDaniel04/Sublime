@@ -1,5 +1,4 @@
 import type { User } from '@supabase/supabase-js'
-import { Prisma } from '@prisma/client'
 import { prisma } from '@/lib/prisma'
 import { createClient } from '@/lib/supabase/server'
 
@@ -18,12 +17,6 @@ type DbUserRow = Awaited<ReturnType<typeof findDbUser>>
 const DB_USER_TTL_MS = 60_000
 const dbUserCache = new Map<string, { row: NonNullable<DbUserRow>; ts: number }>()
 
-/** Settings/member writes call this so role, suspension, and deletion changes
- * take effect immediately instead of waiting for the one-minute auth TTL. */
-export function invalidateDbUserCache(supabaseId: string): void {
-  dbUserCache.delete(supabaseId)
-}
-
 async function findDbUserCached(supabaseId: string): Promise<DbUserRow> {
   const hit = dbUserCache.get(supabaseId)
   if (hit && Date.now() - hit.ts < DB_USER_TTL_MS) return hit.row
@@ -36,7 +29,7 @@ async function findDbUserCached(supabaseId: string): Promise<DbUserRow> {
 // Self-healing bootstrap: the handle_new_user Postgres trigger is optional
 // infra that may never be installed, so provision the app user + organization
 // on first authenticated request when they don't exist yet.
-export async function provisionUser(user: User) {
+async function provisionUser(user: User) {
   const normalizedEmail = user.email?.trim().toLowerCase()
   if (normalizedEmail) {
     const invitation = await prisma.organizationInvitation.findFirst({
@@ -54,10 +47,11 @@ export async function provisionUser(user: User) {
       })
     }
   }
-  // Every authenticated identity must have a workspace. Password signup can
-  // still be disabled at the auth boundary, but once Supabase has accepted an
-  // identity we must never leave it in an authenticated-without-an-org limbo.
-  // Pending invitations win above; all other users own a new workspace.
+  // Unknown identities must not be able to mint an administrator workspace in
+  // production. Self-service/JIT tenancy is an explicit deployment choice.
+  if (process.env.NODE_ENV === 'production' && process.env.AUTH_ALLOW_JIT_PROVISIONING !== 'true') {
+    return null
+  }
   const meta = (user.user_metadata || {}) as Record<string, unknown>
   const emailPrefix = (user.email || 'user').split('@')[0]
   const metaString = (key: string) => (typeof meta[key] === 'string' ? (meta[key] as string) : '')
@@ -74,36 +68,17 @@ export async function provisionUser(user: User) {
           supabaseId: user.id,
           email: user.email ?? null,
           name,
-          role: 'ADMIN',
+          role: 'ADMIN', // creator owns the workspace only in explicit JIT mode
           organizationId: organization.id,
         },
         include: { organization: true },
       })
     })
-  } catch (error) {
+  } catch {
     // Lost a race (unique supabaseId/slug) or the trigger created it
-    // concurrently. Do not turn unrelated database failures into a misleading
-    // 403 "Organization access required" response.
-    if (!(error instanceof Prisma.PrismaClientKnownRequestError) || error.code !== 'P2002') {
-      throw error
-    }
-    const winner = await findDbUser(user.id)
-    if (!winner) throw error
-    return winner
+    // concurrently — re-read whatever now exists.
+    return findDbUser(user.id)
   }
-}
-
-/** Resolve an existing active app user or atomically create their workspace.
- * Shared by the auth callback and every authenticated API request so signup,
- * password login, magic links, and invitation acceptance all converge on the
- * same provisioning invariant. */
-export async function ensureAppUser(user: User): Promise<DbUserRow> {
-  const existing = await findDbUserCached(user.id)
-  if (existing) return existing
-
-  const provisioned = await provisionUser(user)
-  if (provisioned) dbUserCache.set(user.id, { row: provisioned, ts: Date.now() })
-  return provisioned
 }
 
 export async function getAuthWithUser() {
@@ -138,20 +113,7 @@ export async function getAuthWithUser() {
     user = data.user
   }
 
-  let dbUser = await ensureAppUser(user)
-
-  // Supabase applies email changes only after its confirmation flow. Once the
-  // confirmed address appears in the authenticated claims, mirror it into the
-  // application row so profile/member reads do not revert to a stale address.
-  const confirmedEmail = user.email?.trim().toLowerCase()
-  if (dbUser?.organizationId && confirmedEmail && dbUser.email?.toLowerCase() !== confirmedEmail) {
-    dbUser = await prisma.user.update({
-      where: { id: dbUser.id, organizationId: dbUser.organizationId },
-      data: { email: confirmedEmail },
-      include: { organization: true },
-    })
-    dbUserCache.set(user.id, { row: dbUser, ts: Date.now() })
-  }
+  const dbUser = (await findDbUserCached(user.id)) ?? (await provisionUser(user))
 
   return {
     user,

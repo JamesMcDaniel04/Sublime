@@ -27,6 +27,7 @@ import { reapStuckFlowRuns } from '@/lib/flows/reap'
 import { blocksSchedule } from '@/lib/flows/schedule-blocking'
 import { captureError } from '@/lib/observability/sentry'
 import { pruneSlackProcessedEvents } from '@/lib/slack/dedup'
+import { inferActivityPatterns } from '@/lib/intelligence/infer-patterns'
 
 export const runtime = 'nodejs'
 export const maxDuration = 1200
@@ -109,7 +110,6 @@ export async function GET(request: Request) {
     } catch (error) {
       apiLogger.error('cron/dispatch: slack session sweep failed', { error: capError(error) })
     }
-
     // Best-effort: drop claimed Slack dedup rows old enough that Slack would
     // no longer retry the same event_id/trigger_id — keeps the table bounded.
     await pruneSlackProcessedEvents().catch((error) => {
@@ -322,7 +322,25 @@ export async function GET(request: Request) {
       suggestionOrgsChecked = orgs.length
     }
 
-    return Response.json({ success: true, due: dueCount, ran: ranIds, ranFlows: ranFlowIds, suggestionOrgsChecked })
+    // Revisit orgs that observed activity in the last day. Inference is
+    // best-effort background work and must not extend or fail the cron tick.
+    const dayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000)
+    const recentActivityOrgs = await systemPrisma.activityEvent.groupBy({
+      by: ['organizationId'],
+      where: { ingestedAt: { gte: dayAgo } },
+    })
+    for (const { organizationId } of recentActivityOrgs) {
+      void inferActivityPatterns(organizationId).catch(() => undefined)
+    }
+
+    return Response.json({
+      success: true,
+      due: dueCount,
+      ran: ranIds,
+      ranFlows: ranFlowIds,
+      suggestionOrgsChecked,
+      activityOrgsChecked: recentActivityOrgs.length,
+    })
   } catch (error) {
     apiLogger.error('cron/dispatch: unhandled error', {
       error: error instanceof Error ? error.message : String(error),

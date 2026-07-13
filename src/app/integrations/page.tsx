@@ -4,20 +4,16 @@ import { Suspense } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { Bot, Cable, Server } from 'lucide-react'
 import { MCPIntegrationCards } from '@/components/integrations/mcp-integration-cards'
-import { SlackBotCard } from '@/components/integrations/slack-bot-card'
 import { McpServersPanel } from '@/components/connections/mcp-servers-panel'
 import { PageHeader } from '@/components/ui/page-header'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { OAuthIntegrationsGrid } from './oauth-integrations-grid'
-import { useCachedJson } from '@/lib/client/use-cached-json'
 
 function IntegrationsTabs() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const tabParam = searchParams.get('tab')
   const activeTab = tabParam === 'accounts' ? 'accounts' : tabParam === 'mcp' ? 'mcp' : 'tools'
-  const { data: profileData } = useCachedJson<{ profile?: { role: string } }>('/api/settings/profile')
-  const isAdmin = profileData?.profile?.role === 'ADMIN'
 
   const handleTabChange = (value: string) => {
     router.replace(value === 'tools' ? '/integrations' : `/integrations?tab=${value}`, { scroll: false })
@@ -32,7 +28,6 @@ function IntegrationsTabs() {
       </TabsList>
       <TabsContent value="tools" className="mt-6"><MCPIntegrationCards /></TabsContent>
       <TabsContent value="accounts" className="mt-6 space-y-6">
-        {isAdmin && <SlackBotCard />}
         <Suspense fallback={<p className="text-sm text-gray-500">Loading integrations...</p>}>
           <OAuthIntegrationsGrid />
         </Suspense>
@@ -49,7 +44,7 @@ export default function IntegrationsPage() {
         <PageHeader
           eyebrow="Connections"
           title="Integrations"
-          description="Choose from the shared integration catalog, then authorize each tool with your own account. Credentials are never shared with other workspace members."
+          description="Connect the tools your agents use, link your accounts, and manage MCP servers."
         />
         <Suspense fallback={null}>
           <IntegrationsTabs />

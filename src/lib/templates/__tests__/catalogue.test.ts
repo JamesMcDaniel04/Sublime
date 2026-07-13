@@ -1,19 +1,56 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { SEED_CATALOGUE, getSeedByKey, serializeSeed } from '../catalogue'
+import { MULTI_TOOL_SEEDS } from '../catalogue-expansion'
+import { GMAIL_SEEDS } from '../gmail-catalogue'
 import { flowGraphSchema } from '@/lib/flows/graph'
 import { canonicalIntegrationSlug, departmentsForTools, DEPARTMENTS } from '../departments'
 
 const KNOWN = new Set(DEPARTMENTS)
-const STABLE_TOOL_PLANES = new Set(['nango', 'native']) // per-org mcp/klavis ids are forbidden in seed graphs
+const STABLE_TOOL_PLANES = new Set(['nango', 'native', 'template']) // template placeholders bind to per-org Klavis ids at provision time
 
-test('exactly 20 seeds, 4 per department bucket, unique seedKeys', () => {
-  assert.equal(SEED_CATALOGUE.length, 20)
+test('80 seeds, 16 per department bucket, unique seedKeys', () => {
+  assert.equal(SEED_CATALOGUE.length, 80)
   const keys = SEED_CATALOGUE.map((s) => s.seedKey)
-  assert.equal(new Set(keys).size, 20, 'seedKeys must be unique')
+  assert.equal(new Set(keys).size, 80, 'seedKeys must be unique')
   for (const dept of DEPARTMENTS.filter((d) => d !== 'general')) {
     const n = SEED_CATALOGUE.filter((s) => s.departments.includes(dept)).length
-    assert.ok(n >= 4, `${dept} needs >= 4 seeds, got ${n}`)
+    assert.equal(n, 16, `${dept} needs exactly 16 seeds, got ${n}`)
+  }
+})
+
+test('adds 10 Gmail-first templates with executable delivery configuration', () => {
+  assert.equal(GMAIL_SEEDS.length, 10)
+  for (const seed of GMAIL_SEEDS) {
+    assert.ok(seed.requiredIntegrations.includes('gmail'), `${seed.seedKey} must require Gmail`)
+    assert.ok(!seed.requiredIntegrations.includes('slack'), `${seed.seedKey} should deliver through Gmail, not Slack`)
+    assert.equal(seed.trigger?.type, 'schedule')
+    assert.match(seed.instructions ?? '', /semantic HTML email/)
+  }
+})
+
+test('expansion adds exactly 10 multi-tool templates per product department', () => {
+  assert.equal(MULTI_TOOL_SEEDS.length, 50)
+  for (const dept of DEPARTMENTS.filter((d) => d !== 'general')) {
+    assert.equal(MULTI_TOOL_SEEDS.filter((seed) => seed.departments.includes(dept)).length, 10)
+  }
+  for (const seed of MULTI_TOOL_SEEDS) {
+    const tools = new Set([...seed.requiredIntegrations, ...seed.recommendedIntegrations])
+    assert.ok(tools.size >= 3, `${seed.seedKey} must combine at least three tools`)
+    assert.equal(seed.trigger?.type, 'schedule', `${seed.seedKey} should be a recurring agent enhancer recipe`)
+    assert.equal(seed.trigger?.schedule?.type, 'cron')
+    assert.equal(seed.trigger?.schedule?.isActive, true)
+  }
+})
+
+test('scheduled seeds use the runtime trigger.schedule contract', () => {
+  const scheduled = SEED_CATALOGUE.filter((seed) => seed.trigger?.type === 'schedule')
+  assert.ok(scheduled.length >= MULTI_TOOL_SEEDS.length)
+  for (const seed of scheduled) {
+    assert.ok(seed.trigger?.schedule?.cron, `${seed.seedKey} needs trigger.schedule.cron`)
+    assert.ok(seed.trigger?.schedule?.timezone, `${seed.seedKey} needs trigger.schedule.timezone`)
+    assert.equal(seed.trigger?.schedule?.isActive, true)
+    assert.deepEqual(serializeSeed(seed).trigger, seed.trigger)
   }
 })
 
@@ -23,6 +60,25 @@ test('every seed: valid departments, non-empty required∪recommended slugs cano
     for (const slug of [...s.requiredIntegrations, ...s.recommendedIntegrations]) {
       assert.equal(slug, canonicalIntegrationSlug(slug), `${s.seedKey}: ${slug} must already be canonical`)
     }
+  }
+})
+
+test('every template requires Slack or Gmail delivery and exposes an executable runbook', () => {
+  for (const seed of SEED_CATALOGUE) {
+    assert.ok(
+      seed.requiredIntegrations.includes('slack') || seed.requiredIntegrations.includes('gmail'),
+      `${seed.seedKey} needs Slack or Gmail delivery`,
+    )
+    const instructions = serializeSeed(seed).instructions
+    assert.match(instructions, /Trigger and cadence/, seed.seedKey)
+    assert.match(instructions, /Delivery requirement/, seed.seedKey)
+    assert.match(instructions, /Guardrails/, seed.seedKey)
+    assert.match(instructions, /Output quality standard/, seed.seedKey)
+    assert.match(instructions, /Final artifact contract \(match the Output Example\)/, seed.seedKey)
+    assert.match(instructions, /<main class="artifact theme-/, seed.seedKey)
+    assert.match(instructions, /Priority findings/, seed.seedKey)
+    assert.match(instructions, /Action plan/, seed.seedKey)
+    assert.match(instructions, /Evidence trail/, seed.seedKey)
   }
 })
 
@@ -38,9 +94,19 @@ test('agent seeds have instructions; flow seeds have a schema-valid graph', () =
   }
 })
 
+test('seed graphs never ship placeholder HTTP endpoints', () => {
+  for (const seed of SEED_CATALOGUE) {
+    for (const node of seed.flowGraph?.nodes ?? []) {
+      assert.notEqual(node.type, 'http', `${seed.seedKey}: use a connected integration tool instead of HTTP`)
+    }
+    assert.ok(!seed.requiredIntegrations.includes('http'), `${seed.seedKey}: HTTP cannot be a required integration`)
+  }
+})
+
 test('flow graphs: every agent node ref resolves to an embedded spec; no per-org connection ids', () => {
   for (const s of SEED_CATALOGUE.filter((x) => x.kind === 'flow')) {
     const refs = new Set((s.agents ?? []).map((a) => a.ref))
+    let hasDeliveryNode = false
     for (const node of s.flowGraph!.nodes) {
       if (node.type === 'agent') {
         assert.ok(refs.has(node.data.agentId), `${s.seedKey}: agent node "${node.data.agentId}" has no spec`)
@@ -48,8 +114,10 @@ test('flow graphs: every agent node ref resolves to an embedded spec; no per-org
       if (node.type === 'tool') {
         const [plane] = node.data.connectionId.split(':')
         assert.ok(STABLE_TOOL_PLANES.has(plane), `${s.seedKey}: tool connectionId "${node.data.connectionId}" is not a stable plane`)
+        if (/slack|gmail/i.test(node.data.connectionId)) hasDeliveryNode = true
       }
     }
+    assert.ok(hasDeliveryNode, `${s.seedKey}: flow graph needs a Slack or Gmail delivery node`)
   }
 })
 

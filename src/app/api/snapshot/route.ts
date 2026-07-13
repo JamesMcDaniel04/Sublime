@@ -25,7 +25,7 @@ export const GET = withAuthenticatedApi(async (_request, auth) => {
   monthStart.setUTCDate(1)
   monthStart.setUTCHours(0, 0, 0, 0)
 
-  const notificationScope = { organizationId: auth.organizationId, userId: auth.dbUser.id }
+  const notificationScope = { organizationId: auth.organizationId, OR: [{ userId: auth.dbUser.id }, { userId: null }] }
 
   const [agents, activities, usageAggregate, organization, notifications, unread] = await Promise.all([
     prisma.agentTask.findMany({
@@ -46,7 +46,7 @@ export const GET = withAuthenticatedApi(async (_request, auth) => {
       take: 50,
     }),
     prisma.agentExecution.aggregate({
-      where: { organizationId: auth.organizationId, userId: auth.dbUser.id, startedAt: { gte: monthStart } },
+      where: { organizationId: auth.organizationId, startedAt: { gte: monthStart } },
       _sum: { inputTokens: true, outputTokens: true },
       _count: true,
     }),
@@ -71,7 +71,6 @@ export const GET = withAuthenticatedApi(async (_request, auth) => {
       exempt: isUsageExemptEmail(auth.dbUser.email),
     },
     activeOrganizationId: auth.organizationId,
-    canManageOrganization: auth.dbUser.role === 'ADMIN',
     organizations: organization ? [organization] : [],
     notifications,
     unread,

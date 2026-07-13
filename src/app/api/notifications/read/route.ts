@@ -10,7 +10,7 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
   await prisma.notification.updateMany({
     where: {
       organizationId: auth.organizationId,
-      userId: auth.dbUser.id,
+      OR: [{ userId: auth.dbUser.id }, { userId: null }],
       readAt: null,
       ...(ids && ids.length ? { id: { in: ids } } : {}),
     },

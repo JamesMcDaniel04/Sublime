@@ -29,6 +29,9 @@ export const nodeIds = {
   signal: (id: string) => `signal:${id}`,
   run: (id: string) => `run:${id}`,
   agent: (id: string) => `agent:${id}`,
+  activity: (id: string) => `activity:${id}`,
+  actor: (source: string, ref: string) => `actor:${source}:${ref}`,
+  entity: (source: string, type: string, ref: string) => `entity:${source}:${type}:${ref}`,
 }
 const nid = nodeIds
 
@@ -360,7 +363,6 @@ export async function indexAgentMemory(params: {
  */
 export async function indexConnectionScan(params: {
   organizationId: string
-  ownerUserId: string
   plane: string
   connectionRef: string
   connectionName: string
@@ -378,8 +380,7 @@ export async function indexConnectionScan(params: {
     const nodes: PendingNode[] = [{
       id: nodeId, type: 'insight', text,
       props: { plane: params.plane, connectionRef: params.connectionRef },
-      ownerUserId: params.ownerUserId,
-      visibility: 'private',
+      visibility: 'shared',
     }]
     await commitGraph(params.organizationId, nodes, [])
   } catch (error) {

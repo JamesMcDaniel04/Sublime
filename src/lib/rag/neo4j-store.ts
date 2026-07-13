@@ -109,11 +109,13 @@ export class Neo4jGraphStore implements GraphRagStore {
   async search(organizationId: string, viewerUserId: string | null, queryEmbedding: number[], k: number): Promise<SearchHit[]> {
     if (queryEmbedding.length === 0) return []
     const driver = await this.driver()
-    // Over-fetch from the vector index, then enforce exact owner scope.
+    // Over-fetch from the vector index, then filter to the org + viewer scope
+    // and take k. `coalesce(...,'shared')` makes legacy nodes (no visibility
+    // property) read as shared, so no migration is needed.
     const { records } = await driver.executeQuery(
       `CALL db.index.vector.queryNodes($index, $fetch, $q) YIELD node, score
        WHERE node.organizationId = $org
-         AND coalesce(node.ownerUserId, '') = coalesce($viewer, '')
+         AND (coalesce(node.visibility, 'shared') <> 'private' OR node.ownerUserId = $viewer)
        RETURN node, score LIMIT $k`,
       { index: VECTOR_INDEX, fetch: Math.max(k * 4, 20), q: queryEmbedding, org: organizationId, viewer: viewerUserId, k },
     ).catch(async () => {
@@ -139,12 +141,13 @@ export class Neo4jGraphStore implements GraphRagStore {
   async expand(organizationId: string, viewerUserId: string | null, nodeIds: string[], hops: number): Promise<GraphNode[]> {
     if (nodeIds.length === 0) return []
     const driver = await this.driver()
-    // Only return neighbors owned by this viewer.
+    // Only return neighbors the viewer may see — a private node owned by another
+    // rep is never surfaced, even if reachable by an edge.
     const { records } = await driver.executeQuery(
       `MATCH (seed:Entity) WHERE seed.id IN $ids
        MATCH (seed)-[*1..${Math.max(1, Math.min(hops, 3))}]-(n:Entity { organizationId: $org })
        WHERE NOT n.id IN $ids
-         AND coalesce(n.ownerUserId, '') = coalesce($viewer, '')
+         AND (coalesce(n.visibility, 'shared') <> 'private' OR n.ownerUserId = $viewer)
        RETURN DISTINCT n AS node`,
       { ids: nodeIds, org: organizationId, viewer: viewerUserId },
     )

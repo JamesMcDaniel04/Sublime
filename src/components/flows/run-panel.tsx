@@ -1,13 +1,15 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { ChevronRight, X } from 'lucide-react'
+import { AlertTriangle, ChevronRight, Sparkles, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Markdown } from '@/components/ui/markdown'
+import { HtmlPreview, looksLikeHtml } from '@/components/ui/html-preview'
 import { TypewriterStatus } from '@/components/ui/typewriter-status'
 import { buildProcessTimeline, processFeedRows, type ProcessFeedRow } from '@/lib/agents/process-feed'
 import type { StepStatus } from './step-card'
+import type { FlowFailureRemediation } from '@/lib/flows/failure-remediation'
 
 export type RunStep = {
   nodeId: string
@@ -66,21 +68,37 @@ function preview(value: unknown): string {
   }
 }
 
+function displayValue(value: unknown): unknown {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return value
+  const record = value as Record<string, unknown>
+  return typeof record.html === 'string'
+    ? record.html
+    : typeof record.response === 'string'
+      ? record.response
+      : typeof record.summary === 'string'
+        ? record.summary
+        : value
+}
+
 /** Prose step outputs render as Markdown; structured data stays monospaced. */
 function OutputView({ value }: { value: unknown }) {
+  const displayed = displayValue(value)
+  if (typeof displayed === 'string' && looksLikeHtml(displayed)) {
+    return <HtmlPreview html={displayed} />
+  }
   const isProse =
-    typeof value === 'string' &&
-    value.trim() !== '' &&
-    value.trim()[0] !== '{' &&
-    value.trim()[0] !== '['
+    typeof displayed === 'string' &&
+    displayed.trim() !== '' &&
+    displayed.trim()[0] !== '{' &&
+    displayed.trim()[0] !== '['
   if (isProse) {
     return (
       <div className="max-h-56 overflow-auto rounded border border-border/60 bg-background px-2.5 py-2">
-        <Markdown className="text-xs [&_p]:leading-5">{value as string}</Markdown>
+        <Markdown className="text-xs [&_p]:leading-5">{displayed as string}</Markdown>
       </div>
     )
   }
-  return <pre className="max-h-40 overflow-auto rounded bg-muted px-2 py-1.5 text-xs">{preview(value)}</pre>
+  return <pre className="max-h-40 overflow-auto rounded bg-muted px-2 py-1.5 text-xs">{preview(displayed)}</pre>
 }
 
 /**
@@ -237,6 +255,8 @@ export function RunPanel({
   onClose,
   labelForNode,
   onReply,
+  remediation,
+  onRemediate,
 }: {
   runs: { id: string; status: string; startedAt?: string }[]
   selected: FlowRunDetail | null
@@ -244,6 +264,8 @@ export function RunPanel({
   onClose: () => void
   labelForNode: (nodeId: string) => string
   onReply?: (flowRunId: string, reply: string) => Promise<void>
+  remediation?: FlowFailureRemediation | null
+  onRemediate?: (remediation: FlowFailureRemediation) => void
 }) {
   return (
     <div className="flex h-full w-full flex-col border-l border-border bg-card">
@@ -279,8 +301,32 @@ export function RunPanel({
               )}
               {selected.error && <p className="mt-1 text-xs text-red-600">{selected.error}</p>}
             </div>
+            {remediation && (
+              <div className="border-b border-border p-3">
+                <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 dark:border-amber-900/40 dark:bg-amber-950/30">
+                  <div className="flex items-start gap-2">
+                    <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-700" />
+                    <div>
+                      <p className="text-sm font-semibold text-amber-950 dark:text-amber-200">{remediation.title}</p>
+                      <p className="mt-1 text-xs leading-relaxed text-amber-900 dark:text-amber-300">{remediation.summary}</p>
+                    </div>
+                  </div>
+                  {onRemediate && (
+                    <Button variant="outline" size="sm" className="mt-3 w-full bg-background" onClick={() => onRemediate(remediation)}>
+                      <Sparkles className="mr-1.5 h-4 w-4" />{remediation.actionLabel}
+                    </Button>
+                  )}
+                </div>
+              </div>
+            )}
             {selected.status === 'waiting' && selected.waiting && (
               <WaitingBanner key={selected.id} waiting={selected.waiting} runId={selected.id} onReply={onReply} />
+            )}
+            {selected.output != null && selected.status !== 'waiting' && (
+              <div className="border-b border-border p-3">
+                <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Final output</p>
+                <OutputView value={selected.output} />
+              </div>
             )}
             {selected.steps.length === 0 ? (
               <p className="p-4 text-sm text-muted-foreground">No steps recorded.</p>

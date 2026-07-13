@@ -1,5 +1,5 @@
 import { cacheGet, cacheSet } from '@/lib/cache'
-import { getUserStrataConnection, getStrataServerNames } from '@/lib/mcp/strata'
+import { getOrgStrataConnection, getStrataServerNames } from '@/lib/mcp/strata'
 import { withAuthenticatedApi } from '@/lib/server/api-handler'
 
 /**
@@ -54,7 +54,7 @@ async function klavisCatalog(): Promise<Map<string, CatalogEntry>> {
 
 export const GET = withAuthenticatedApi(async (_request, auth) => {
   // The org's Strata connection, if one exists (created on the MCP Servers page).
-  const connection = await getUserStrataConnection(auth.organizationId, auth.dbUser.id)
+  const connection = await getOrgStrataConnection(auth.organizationId)
   if (!connection) return { success: true, strata: false as const, servers: [] }
 
   const serverNames = await getStrataServerNames(connection)

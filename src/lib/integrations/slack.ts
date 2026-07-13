@@ -1,8 +1,7 @@
 /**
  * Slack REST API integration
  *
- * Exposes one agent tool — post_message — that lets agents post messages to a
- * Slack channel during a run.
+ * Exposes Slack message actions backed by the selected workspace connection.
  *
  * Requires: SLACK_BOT_TOKEN in the environment.
  * All env vars are read at call time (never at module load) so that the
@@ -30,14 +29,20 @@ export function slackTools(): ToolDefinition[] {
     {
       name: 'post_message',
       description:
-        'Post a message to a Slack channel. `channel` is a channel id or name (e.g. "#revenue" or "C012AB3CD"); `text` supports Slack mrkdwn.',
+        'Post a message to a Slack channel. Supports mrkdwn fallback text, Block Kit blocks, attachments, and threaded replies.',
       inputSchema: {
         type: 'object',
         properties: {
           channel: { type: 'string' },
           text: { type: 'string' },
+          blocks: { type: 'array', items: { type: 'object' } },
+          attachments: { type: 'array', items: { type: 'object' } },
+          thread_ts: { type: 'string' },
+          reply_broadcast: { type: 'boolean' },
+          unfurl_links: { type: 'boolean' },
+          unfurl_media: { type: 'boolean' },
         },
-        required: ['channel', 'text'],
+        required: ['channel'],
       },
     },
   ]
@@ -48,6 +53,11 @@ export function slackTools(): ToolDefinition[] {
 // ---------------------------------------------------------------------------
 
 export class SlackToolClient {
+  constructor(
+    private readonly botToken?: string,
+    private readonly fetchImpl: typeof fetch = fetch,
+  ) {}
+
   // Satisfies the McpToolClient interface in execute-agent.ts:
   //   executeTool(serverUrl, name, args): Promise<any>
   // Returns the parsed JSON object directly — the same shape as
@@ -58,20 +68,24 @@ export class SlackToolClient {
     name: string,
     args: Record<string, unknown>,
   ): Promise<unknown> {
-    const token = process.env.SLACK_BOT_TOKEN
+    const token = this.botToken || process.env.SLACK_BOT_TOKEN
     if (!token) throw new Error('Slack bot token is not configured')
 
     if (name === 'post_message') {
-      const response = await fetch(SLACK_API_URL, {
+      if (typeof args.channel !== 'string' || !args.channel.trim()) throw new Error('Slack post_message requires a channel')
+      if (typeof args.text !== 'string' && !Array.isArray(args.blocks)) throw new Error('Slack post_message requires text or blocks')
+      const payload = Object.fromEntries(
+        ['channel', 'text', 'blocks', 'attachments', 'thread_ts', 'reply_broadcast', 'unfurl_links', 'unfurl_media']
+          .filter((key) => args[key] !== undefined)
+          .map((key) => [key, args[key]]),
+      )
+      const response = await this.fetchImpl(SLACK_API_URL, {
         method: 'POST',
         headers: {
           Authorization: `Bearer ${token}`,
           'Content-Type': 'application/json; charset=utf-8',
         },
-        body: JSON.stringify({
-          channel: args.channel,
-          text: args.text,
-        }),
+        body: JSON.stringify(payload),
         signal: AbortSignal.timeout(30_000),
       })
 

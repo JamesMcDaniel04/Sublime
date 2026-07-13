@@ -39,6 +39,7 @@ export const DATA_OP_LABELS: Record<DataOp, string> = {
   join: 'Join',
   csvTable: 'Create CSV table',
   htmlTable: 'Create HTML table',
+  slackMessage: 'Format Slack message',
   filterArray: 'Filter array',
   select: 'Select',
 }
@@ -137,6 +138,26 @@ export function runDataOp(op: DataOp, config: DataOpConfig): DataOpResult {
       .map((row) => `<tr>${headers.map((header) => `<td>${htmlEscape(cellText(row, header))}</td>`).join('')}</tr>`)
       .join('')
     return { output: `<table><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table>` }
+  }
+
+  if (op === 'slackMessage') {
+    const structured = asStructured(config.input)
+    const items = Array.isArray(structured) ? structured.slice(0, 20) : [structured]
+    const lines = items.map((item) => {
+      if (item && typeof item === 'object' && !Array.isArray(item)) {
+        return Object.entries(item as Record<string, unknown>)
+          .map(([key, value]) => `*${key.replace(/[*_~`]/g, '')}:* ${itemText(value)}`)
+          .join('\n')
+      }
+      return itemText(item)
+    }).filter(Boolean)
+    const text = lines.join('\n\n').slice(0, 3_000) || 'No results.'
+    return {
+      output: {
+        text,
+        blocks: lines.map((line) => ({ type: 'section', text: { type: 'mrkdwn', text: line.slice(0, 3_000) } })),
+      },
+    }
   }
 
   if (op === 'filterArray') {

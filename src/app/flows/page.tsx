@@ -13,6 +13,7 @@ import { PageHeader } from '@/components/ui/page-header'
 import { Pagination, paginate } from '@/components/ui/pagination'
 import { Skeleton } from '@/components/ui/skeleton'
 import { cn } from '@/lib/utils'
+import { getCachedJson, invalidateCachedJson } from '@/lib/client/use-cached-json'
 
 /** Cards per page on the Flows grid. */
 const PAGE_SIZE = 9
@@ -46,8 +47,7 @@ export default function FlowsPage() {
 
   useEffect(() => {
     let cancelled = false
-    fetch('/api/flows', { cache: 'no-store' })
-      .then((response) => response.json())
+    getCachedJson<any>('/api/flows')
       .then((data) => {
         if (cancelled) return
         setFlows(data.success ? data.flows : [])
@@ -74,6 +74,8 @@ export default function FlowsPage() {
       if (!response.ok) {
         setFlows(previous)
         toast.error('Could not dismiss that suggestion.')
+      } else {
+        invalidateCachedJson('/api/flows')
       }
     } finally {
       setDismissingId(null)
@@ -89,7 +91,10 @@ export default function FlowsPage() {
         body: JSON.stringify({ name: 'Untitled flow' }),
       })
       const data = await response.json()
-      if (response.ok && data.flow) router.push(`/flows/${data.flow.id}`)
+      if (response.ok && data.flow) {
+        invalidateCachedJson('/api/flows')
+        router.push(`/flows/${data.flow.id}`)
+      }
       else toast.error(data.error || 'Could not create the flow.')
     } finally {
       setCreating(false)

@@ -23,13 +23,13 @@ async function assertOwnedConnection(
   connectionRef: string,
 ): Promise<void> {
   if (plane === 'klavis') {
-    const agent = await prisma.mCPAgent.findFirst({ where: { id: connectionRef, organizationId, userId }, select: { id: true } })
+    const agent = await prisma.mCPAgent.findFirst({ where: { id: connectionRef, organizationId }, select: { id: true } })
     if (!agent) throw new ApiError('Connection not found', 404, 'NOT_FOUND')
     return
   }
   if (plane === 'mcp') {
     const connection = await prisma.mcpConnection.findFirst({
-      where: { id: connectionRef, organizationId, userId },
+      where: { id: connectionRef, organizationId, OR: [{ userId: null }, { userId }] },
       select: { id: true },
     })
     if (!connection) throw new ApiError('Connection not found', 404, 'NOT_FOUND')
@@ -40,7 +40,7 @@ async function assertOwnedConnection(
   const keys = DELIVERY_PROVIDERS[connectionRef as DeliveryCapability] as readonly string[] | undefined
   if (!keys) throw new ApiError('Unknown connection', 404, 'NOT_FOUND')
   const connection = await prisma.nangoConnection.findFirst({
-    where: { organizationId, userId, providerConfigKey: { in: [...keys] } },
+    where: { organizationId, providerConfigKey: { in: [...keys] } },
     select: { id: true },
   })
   if (!connection) throw new ApiError('Connection not found', 404, 'NOT_FOUND')

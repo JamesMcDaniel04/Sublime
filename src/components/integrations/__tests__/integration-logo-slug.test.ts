@@ -1,6 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { normalizeIconSlug } from '../integration-logo'
+import { integrationSlug } from '../integration-chip'
 import { fromKlavisAgentType } from '@/lib/connectors/registry'
 import { PROVIDERS } from '@/lib/mcp/provider-capabilities'
 
@@ -13,6 +14,11 @@ test('normalizeIconSlug strips separators and lowercases', () => {
 test('normalized slug builds the expected Simple Icons CDN URL', () => {
   const slug = normalizeIconSlug('google_calendar')
   assert.equal(`https://cdn.simpleicons.org/${slug}`, 'https://cdn.simpleicons.org/googlecalendar')
+})
+
+test('template integration names resolve Granola and Figma brand marks', () => {
+  assert.equal(integrationSlug('Granola'), 'granola')
+  assert.equal(integrationSlug('Figma design files'), 'figma')
 })
 
 test('fromKlavisAgentType resolves label + slug for newly authorized apps', () => {

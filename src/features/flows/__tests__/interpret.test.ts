@@ -39,6 +39,42 @@ test('structured trigger input fields are addressable', async () => {
   assert.equal(result.output, 'Account Acme has A')
 })
 
+test('a default Agent node receives the Slack user query as plain text', async () => {
+  const graph: FlowGraph = {
+    nodes: [
+      { id: 'trigger', type: 'trigger', data: { trigger: { type: 'slack', events: ['app_mention'] } } },
+      { id: 'answer', type: 'agent', data: { agentId: 'bot', input: 'Use this flow input:\n{{trigger.input}}' } },
+    ],
+    edges: [{ id: 'e0', source: 'trigger', target: 'answer' }],
+  }
+  let received = ''
+  await interpretFlow(graph, {
+    kind: 'app_mention',
+    text: '<@U0BOT123> What is the status of the Acme renewal?',
+    user: 'U1', channel: 'C1', ts: '1752300000.000100', team: 'T1',
+  }, {
+    runAgent: async (node) => { received = node.input; return { output: 'The renewal is on track.' } },
+  })
+  assert.equal(received, 'What is the status of the Acme renewal?')
+})
+
+test('explicit Agent input still wins for Slack-triggered flows', async () => {
+  const graph: FlowGraph = {
+    nodes: [
+      { id: 'trigger', type: 'trigger', data: { trigger: { type: 'slack', events: ['message.im'] } } },
+      { id: 'answer', type: 'agent', data: { agentId: 'bot', input: 'Answer for channel {{trigger.input.channel}}: {{trigger.input.text}}' } },
+    ],
+    edges: [{ id: 'e0', source: 'trigger', target: 'answer' }],
+  }
+  let received = ''
+  await interpretFlow(graph, {
+    kind: 'message.im', text: 'Help me prepare for the call', user: 'U1', channel: 'D1', ts: '1752300000.000100', team: 'T1',
+  }, {
+    runAgent: async (node) => { received = node.input; return { output: 'Ready.' } },
+  })
+  assert.equal(received, 'Answer for channel D1: Help me prepare for the call')
+})
+
 test('condition routes to the true branch', async () => {
   const graph: FlowGraph = {
     nodes: [

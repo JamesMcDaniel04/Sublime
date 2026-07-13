@@ -71,6 +71,7 @@ export const GET = withAuthenticatedApi(async (request, auth) => {
 })
 
 export const POST = withAuthenticatedApi(async (request, auth) => {
+  if (auth.dbUser.role !== 'ADMIN') throw new ApiError('Admin access required', 403, 'FORBIDDEN')
   if (!process.env.KLAVIS_API_KEY) throw new ApiError('KLAVIS_API_KEY is not configured', 503, 'KLAVIS_UNAVAILABLE')
   const { providers } = z.object({ providers: z.array(providerSchema).min(1) }).parse(await request.json())
   try {
@@ -119,6 +120,7 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
 })
 
 export const DELETE = withAuthenticatedApi(async (request, auth) => {
+  if (auth.dbUser.role !== 'ADMIN') throw new ApiError('Admin access required', 403, 'FORBIDDEN')
   const provider = providerSchema.parse(request.nextUrl.searchParams.get('provider'))
   await removeServerConnection(auth.organizationId, provider, auth.dbUser.id)
   return { success: true }

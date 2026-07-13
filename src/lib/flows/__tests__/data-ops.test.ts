@@ -199,3 +199,10 @@ test('select without fields fails plainly', () => {
 test('select fails plainly on a non-list input', () => {
   assert.match(err(runDataOp('select', { input: 'nope', fields: [{ name: 'x', value: '{{item}}' }] })), /Select needs a list/)
 })
+
+test('slackMessage formats aggregated records as fallback text and Block Kit sections', () => {
+  const output = ok(runDataOp('slackMessage', { input: [{ account: 'Acme', risk: 'High' }, { account: 'Beta', risk: 'Low' }] })) as any
+  assert.match(output.text, /\*account:\* Acme/)
+  assert.equal(output.blocks.length, 2)
+  assert.equal(output.blocks[0].type, 'section')
+})

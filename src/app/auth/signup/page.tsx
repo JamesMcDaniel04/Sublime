@@ -9,7 +9,6 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { toast } from 'sonner'
-import { ensureWorkspaceReady } from '@/lib/auth/workspace'
 
 export default function SignUpPage() {
   const [email, setEmail] = useState('')
@@ -53,9 +52,6 @@ export default function SignUpPage() {
       if (error) {
         setError(error.message)
         toast.error(error.message)
-      } else if (data?.session) {
-        await ensureWorkspaceReady()
-        window.location.href = '/dashboard'
       } else if (data?.user) {
         const successMessage = 'Check your email for the confirmation link!'
         setSuccess(successMessage)

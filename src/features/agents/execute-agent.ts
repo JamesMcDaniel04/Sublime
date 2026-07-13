@@ -258,7 +258,7 @@ async function loadTools(organizationId: string, providers: string[], ownerUserI
   const klavisProviders = providers
 
   if (process.env.KLAVIS_API_KEY && klavisProviders.length > 0) {
-    const klavisGroups = await loadKlavisPlaneGroups(organizationId, ownerUserId, {
+    const klavisGroups = await loadKlavisPlaneGroups(organizationId, {
       agentTypes: klavisProviders.map((provider) => provider.toUpperCase()),
     })
     for (const group of klavisGroups) {
@@ -286,7 +286,7 @@ async function loadTools(organizationId: string, providers: string[], ownerUserI
 
   // ---- Native built-ins (Granola / Slack / HTTP / Email) --------------------
   // Each gated on its availability AND a matching providers entry.
-  for (const group of await loadNativePlaneGroups(organizationId, { providers, userId: ownerUserId })) pushGroup(group)
+  for (const group of await loadNativePlaneGroups(organizationId, { providers })) pushGroup(group)
 
   // ---- Nango delivery (outbound writes as the acting user) -----------------
   // Slack/Gmail/Salesforce writes through the org's Nango connections,
@@ -453,7 +453,9 @@ export async function runAgentExecution(
     }
     await recordEvent(queuedExecution.id, pending.stepId || null, 'user.replied', { answer: reply })
     // Input memory (WS1.9): remember the Q/A so future runs stop re-asking.
-    void saveAgentMemory({
+    // Await persistence so a new run started immediately after this resume can
+    // reliably reuse the answer instead of racing the background write.
+    await saveAgentMemory({
       organizationId,
       agentId,
       kind: 'user_answer',
@@ -1025,7 +1027,10 @@ export async function runAgentExecution(
           /* best-effort */
         }
 
-        if (suggestedAnswer && agentMetadata.autoAnswerFromMemory === true) {
+        // Remembered blocking answers are reused by default. An agent may opt
+        // out explicitly when its workflow must collect a fresh answer every
+        // run (for example, a rotating approval decision).
+        if (suggestedAnswer && agentMetadata.autoAnswerFromMemory !== false) {
           await recordEvent(execution.id, null, 'agent.question.autoanswered', {
             question: pendingAsk.question,
             answer: suggestedAnswer.content,
@@ -1261,7 +1266,6 @@ export async function runAgentExecution(
       .then((signals) =>
         signals.emitFlowSignal({
           organizationId,
-          userId,
           signal: 'agent.completed',
           payload: { agentId: agent.id, executionId: execution.id, summary: summary.slice(0, 2000) },
           depth: 1,

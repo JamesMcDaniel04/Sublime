@@ -3,15 +3,14 @@ import { prisma } from '@/lib/prisma'
 import { ApiError, withAuthenticatedApi } from '@/lib/server/api-handler'
 import { isValidScanExclusionEntry } from '@/lib/intelligence/scan-exclusions'
 
-const ORG_PUBLIC_SELECT = { id: true, name: true, slug: true, plan: true, logoUrl: true } as const
-const ORG_ADMIN_SELECT = { ...ORG_PUBLIC_SELECT, settings: true } as const
+const ORG_SELECT = { id: true, name: true, slug: true, plan: true, logoUrl: true, settings: true } as const
 
 // Organizations the user belongs to. Membership is single-org today; the
 // shape is a list so the org switcher works unchanged when multi-org lands.
 export const GET = withAuthenticatedApi(async (_request, auth) => {
   const organization = await prisma.organization.findUnique({
     where: { id: auth.organizationId },
-    select: auth.dbUser.role === 'ADMIN' ? ORG_ADMIN_SELECT : ORG_PUBLIC_SELECT,
+    select: ORG_SELECT,
   })
   return {
     success: true,
@@ -37,7 +36,6 @@ const settingsPatchSchema = z.object({
 })
 
 const patchSchema = z.object({
-  name: z.string().trim().min(1).max(100).optional(),
   logoUrl: z
     .string()
     .max(LOGO_MAX_LENGTH, 'Image is too large — please use a smaller file.')
@@ -49,7 +47,7 @@ const patchSchema = z.object({
 
 export const PATCH = withAuthenticatedApi(async (request, auth) => {
   if (auth.dbUser.role !== 'ADMIN') throw new ApiError('Admin access required', 403, 'FORBIDDEN')
-  const { name, logoUrl, settings } = patchSchema.parse(await request.json())
+  const { logoUrl, settings } = patchSchema.parse(await request.json())
 
   let mergedSettings: Record<string, unknown> | undefined
   if (settings) {
@@ -67,11 +65,10 @@ export const PATCH = withAuthenticatedApi(async (request, auth) => {
   const organization = await prisma.organization.update({
     where: { id: auth.organizationId },
     data: {
-      ...(name !== undefined && { name }),
       ...(logoUrl !== undefined && { logoUrl }),
       ...(mergedSettings !== undefined && { settings: mergedSettings }),
     },
-    select: ORG_ADMIN_SELECT,
+    select: ORG_SELECT,
   })
   return { success: true, organization }
 })

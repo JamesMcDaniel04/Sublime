@@ -243,7 +243,7 @@ async function loadScanGroup(
 ): Promise<ToolPlaneGroup | undefined> {
   const groups =
     plane === 'klavis'
-      ? await loadKlavisPlaneGroups(organizationId, userId)
+      ? await loadKlavisPlaneGroups(organizationId)
       : plane === 'nango'
         ? await loadNangoPlaneGroups(organizationId, userId)
         : await loadMcpConnectionPlaneGroups(organizationId, userId, { connectionIds: [connectionRef] })
@@ -265,15 +265,6 @@ export async function scanConnection(params: {
 }): Promise<{ scanned: boolean; processes: number } | { skipped: string }> {
   const { organizationId, userId, plane, connectionRef, connectionName } = params
   try {
-    // The current intelligence holder is one row per organization. Until that
-    // storage becomes per-user, only the workspace admin's own connections may
-    // feed it; otherwise one member's usage would become another's settings.
-    if (!userId) return { skipped: 'no-user' }
-    const admin = await prisma.user.findFirst({
-      where: { id: userId, organizationId, role: 'ADMIN', isActive: true },
-      select: { id: true },
-    })
-    if (!admin) return { skipped: 'personal-boundary' }
     const org = await prisma.organization.findUnique({ where: { id: organizationId }, select: { settings: true } })
     if (!scanEnabled(org?.settings)) return { skipped: 'disabled' }
     const sourceRef = connectionSourceRef(plane, connectionRef)
@@ -307,7 +298,7 @@ export async function scanConnection(params: {
     const profile = parseUsageProfile(raw)
     if (!profile) return { skipped: 'no-profile' }
 
-    await indexConnectionScan({ organizationId, ownerUserId: userId, plane, connectionRef, connectionName, profile })
+    await indexConnectionScan({ organizationId, plane, connectionRef, connectionName, profile })
 
     const agentId = await orgIntelligenceAgentId(organizationId)
     for (const process of profile.processes.slice(0, 5)) {

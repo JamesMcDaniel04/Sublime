@@ -19,7 +19,7 @@ export function buildSlackManifest(args: { appName: string; ingressUrl: string; 
         : {}),
     },
     oauth_config: {
-      scopes: { bot: ['app_mentions:read', 'channels:history', 'chat:write', 'commands', 'im:history', 'im:read'] },
+      scopes: { bot: ['app_mentions:read', 'channels:history', 'channels:read', 'chat:write', 'commands', 'groups:read', 'im:history', 'im:read', 'users:read'] },
     },
     settings: {
       event_subscriptions: {

@@ -1,5 +1,9 @@
 import type { FlowGraph } from '@/lib/flows/graph'
 import type { Department } from './departments'
+import { MULTI_TOOL_SEEDS } from './catalogue-expansion'
+import { GMAIL_SEEDS } from './gmail-catalogue'
+import { withTemplateOutputStandard } from './output-standard'
+import { artifactOutputContract } from './example-artifact'
 
 export type TemplateAgentSpec = { ref: string; title: string; instructions: string; model?: string; integrations: string[] }
 export type SeedTemplate = {
@@ -8,47 +12,56 @@ export type SeedTemplate = {
   kind: 'agent' | 'flow'
   instructions?: string; model?: string; integrations?: string[]
   agents?: TemplateAgentSpec[]; flowGraph?: FlowGraph
-  trigger?: { type: 'manual' | 'schedule'; [k: string]: unknown }
+  trigger?: {
+    type: 'manual' | 'schedule'
+    schedule?: {
+      type: 'cron'
+      cron: string
+      time: string
+      timezone: string
+      isActive: boolean
+    }
+  }
   icon?: string; exampleOutput?: string
 }
 
 // ── graph node builders (kept local; output is validated by flowGraphSchema in tests) ──
 const trigger = (t: SeedTemplate['trigger'] = { type: 'manual' }) => ({ id: 'trigger', type: 'trigger' as const, data: { trigger: t } })
 const agent = (id: string, ref: string, input: string, label: string) => ({ id, type: 'agent' as const, data: { agentId: ref, input, label } })
-const httpStep = (id: string, label: string, url: string, method: 'GET'|'POST'|'PUT'|'PATCH'|'DELETE', body?: string) =>
-  ({ id, type: 'http' as const, data: { label, method, url, ...(body ? { body, bodyMode: 'json' as const } : {}) } })
 const slackStep = (id: string, channel: string, text: string, label = 'Post to Slack') =>
   ({ id, type: 'tool' as const, data: { label, connectionId: 'native:slack', toolName: 'post_message', args: JSON.stringify({ channel, text }) } })
 const sfCreate = (id: string, sobject: string, fields: Record<string, string>, label = 'Create Salesforce record') =>
-  ({ id, type: 'tool' as const, data: { label, connectionId: 'nango:salesforce', toolName: 'salesforce_create_record', args: JSON.stringify({ sobject, fields }) } })
+  ({ id, type: 'tool' as const, data: { label, connectionId: 'template:salesforce', toolName: 'salesforce_create_record', args: JSON.stringify({ sobject, fields }) } })
 const gmailStep = (id: string, to: string, subject: string, bodyTok: string, label = 'Send email') =>
   ({ id, type: 'tool' as const, data: { label, connectionId: 'nango:gmail', toolName: 'gmail_send_email', args: JSON.stringify({ to, subject, body: bodyTok }) } })
 const edge = (source: string, target: string) => ({ id: `${source}-${target}`, source, target })
-const schedule = (cron: string) => ({ type: 'schedule' as const, cron, timezone: 'UTC' })
+const schedule = (cron: string) => ({
+  type: 'schedule' as const,
+  schedule: { type: 'cron' as const, cron, time: '', timezone: 'UTC', isActive: true },
+})
 
-export const SEED_CATALOGUE: SeedTemplate[] = [
+const BASE_SEED_CATALOGUE: SeedTemplate[] = [
   // ───────────────────────── SALES ─────────────────────────
   {
     seedKey: 'sales-new-lead-to-sf-opportunity',
     name: 'New Lead → Enrich → Salesforce Opportunity',
-    description: 'Webhook a new lead in, enrich it from a public company API, draft a qualified opportunity, create it in Salesforce, and announce it in Slack.',
-    departments: ['sales'], requiredIntegrations: ['salesforce', 'http'], recommendedIntegrations: ['slack'],
+    description: 'Webhook a new lead in, qualify it against Salesforce context, create the opportunity in Salesforce, and announce it in Slack.',
+    departments: ['sales'], requiredIntegrations: ['salesforce'], recommendedIntegrations: ['slack'],
     kind: 'flow', icon: '🎯',
     trigger: { type: 'manual' },
     agents: [{
       ref: 'lead-qualifier', title: 'Lead Qualifier',
-      instructions: 'You qualify inbound leads. Given a raw lead payload and enrichment JSON, decide fit (segment, ICP match, estimated ACV) and produce a concise Opportunity name, amount, and one-paragraph rationale. Reply as JSON with fields: opportunityName, amount, stage, rationale.',
-      integrations: ['http'],
+      instructions: 'You qualify inbound leads. Given a raw lead payload, use Salesforce account and contact context when available, decide fit (segment, ICP match, estimated ACV), and produce a concise Opportunity name, amount, and one-paragraph rationale. Reply as JSON with fields: opportunityName, amount, stage, rationale.',
+      integrations: ['salesforce'],
     }],
     flowGraph: {
       nodes: [
         trigger(),
-        httpStep('enrich', 'Enrich company', 'https://api.company-enrich.example/v1/lookup', 'POST', '{"domain":"{{trigger.input}}"}'),
-        agent('qualify', 'lead-qualifier', 'Raw lead: {{trigger.input}}\nEnrichment: {{step.enrich.output}}', 'Qualify lead'),
+        agent('qualify', 'lead-qualifier', 'Qualify this raw lead: {{trigger.input}}', 'Qualify lead'),
         sfCreate('opp', 'Opportunity', { Name: '{{step.qualify.output.opportunityName}}', Amount: '{{step.qualify.output.amount}}', StageName: '{{step.qualify.output.stage}}' }),
         slackStep('notify', '#sales', 'New opportunity created: *{{step.qualify.output.opportunityName}}* ({{step.qualify.output.amount}}). {{step.qualify.output.rationale}}'),
       ],
-      edges: [edge('trigger', 'enrich'), edge('enrich', 'qualify'), edge('qualify', 'opp'), edge('opp', 'notify')],
+      edges: [edge('trigger', 'qualify'), edge('qualify', 'opp'), edge('opp', 'notify')],
     },
   },
   {
@@ -189,22 +202,21 @@ export const SEED_CATALOGUE: SeedTemplate[] = [
     seedKey: 'mkt-inbound-mql-router',
     name: 'Inbound MQL Router',
     description: 'On a form-fill webhook, scores the lead against ICP, upserts it to HubSpot with the score, and routes hot MQLs to the right AE in Slack.',
-    departments: ['marketing'], requiredIntegrations: ['hubspot', 'http'], recommendedIntegrations: ['slack'],
+    departments: ['marketing'], requiredIntegrations: ['hubspot'], recommendedIntegrations: ['slack'],
     kind: 'flow', icon: '🧲',
     trigger: { type: 'manual' },
     agents: [{
       ref: 'mql-scorer', title: 'MQL Scorer',
       instructions: 'Score an inbound marketing lead against ICP using the form payload and any enrichment. Return JSON { score (0-100), tier (hot|warm|cold), assignedTeam, reason }. Upsert the contact + score into HubSpot.',
-      integrations: ['hubspot', 'http'],
+      integrations: ['hubspot'],
     }],
     flowGraph: {
       nodes: [
         trigger(),
-        httpStep('enrich', 'Enrich lead', 'https://api.company-enrich.example/v1/lookup', 'POST', '{"email":"{{trigger.input}}"}'),
-        agent('score', 'mql-scorer', 'Lead: {{trigger.input}}\nEnrichment: {{step.enrich.output}}', 'Score MQL'),
+        agent('score', 'mql-scorer', 'Score and route this lead using HubSpot context: {{trigger.input}}', 'Score MQL'),
         slackStep('route', '#mkt-to-sales', ':magnet: New {{step.score.output.tier}} MQL (score {{step.score.output.score}}) → {{step.score.output.assignedTeam}}. {{step.score.output.reason}}'),
       ],
-      edges: [edge('trigger', 'enrich'), edge('enrich', 'score'), edge('score', 'route')],
+      edges: [edge('trigger', 'score'), edge('score', 'route')],
     },
   },
   {
@@ -278,8 +290,8 @@ export const SEED_CATALOGUE: SeedTemplate[] = [
   {
     seedKey: 'fin-new-deal-billing-handoff',
     name: 'New Deal → Billing Handoff',
-    description: 'On a closed-won signal, assembles the billing packet from Salesforce, records it to a Google Sheet, opens the billing system record via API, and notifies finance in Slack.',
-    departments: ['finance'], requiredIntegrations: ['salesforce', 'http', 'google_sheets'], recommendedIntegrations: ['slack'],
+    description: 'On a closed-won signal, assembles the billing packet from Salesforce, records it to a Google Sheet, and notifies finance in Slack.',
+    departments: ['finance'], requiredIntegrations: ['salesforce', 'google_sheets'], recommendedIntegrations: ['slack'],
     kind: 'flow', icon: '🧾',
     trigger: { type: 'manual' },
     agents: [{
@@ -291,10 +303,9 @@ export const SEED_CATALOGUE: SeedTemplate[] = [
       nodes: [
         trigger(),
         agent('assemble', 'billing-packet', 'Assemble the billing packet for opportunity: {{trigger.input}}', 'Assemble packet'),
-        httpStep('billing', 'Create billing record', 'https://api.billing.example/v1/invoices', 'POST', '{"account":"{{step.assemble.output.account}}","amount":"{{step.assemble.output.amount}}","startDate":"{{step.assemble.output.startDate}}"}'),
-        slackStep('notify', '#finance', ':receipt: Billing handoff ready for *{{step.assemble.output.account}}* ({{step.assemble.output.amount}}). Record: {{step.billing.output}}'),
+        slackStep('notify', '#finance', ':receipt: Billing handoff ready for *{{step.assemble.output.account}}* ({{step.assemble.output.amount}}), starting {{step.assemble.output.startDate}}. The packet was added to the billing sheet.'),
       ],
-      edges: [edge('trigger', 'assemble'), edge('assemble', 'billing'), edge('billing', 'notify')],
+      edges: [edge('trigger', 'assemble'), edge('assemble', 'notify')],
     },
   },
   {
@@ -410,8 +421,85 @@ export const SEED_CATALOGUE: SeedTemplate[] = [
   },
 ]
 
+const DEPARTMENT_CHANNEL: Record<string, string> = {
+  sales: '#sales', engineering: '#engineering', marketing: '#marketing', finance: '#finance', csm: '#customer-success',
+}
+
+export type TemplateDelivery = { kind: 'slack' | 'gmail'; integration: 'slack' | 'gmail'; destination: string }
+
+export function deliveryForSeed(seed: SeedTemplate): TemplateDelivery {
+  const tools = [...seed.requiredIntegrations, ...seed.recommendedIntegrations, ...(seed.integrations ?? [])]
+  const graphTools = (seed.flowGraph?.nodes ?? [])
+    .filter((node) => node.type === 'tool')
+    .map((node) => node.type === 'tool' ? node.data.connectionId.toLowerCase() : '')
+  const gmailOnly = [...tools, ...graphTools].some((tool) => tool.includes('gmail'))
+    && ![...tools, ...graphTools].some((tool) => tool.includes('slack'))
+  return gmailOnly
+    ? { kind: 'gmail', integration: 'gmail', destination: 'the requesting user by email' }
+    : { kind: 'slack', integration: 'slack', destination: DEPARTMENT_CHANNEL[seed.departments[0] ?? ''] ?? '#team-updates' }
+}
+
+function normalizeDelivery(seed: SeedTemplate): SeedTemplate {
+  const delivery = deliveryForSeed(seed)
+  return {
+    ...seed,
+    requiredIntegrations: Array.from(new Set([...seed.requiredIntegrations, delivery.integration])),
+    recommendedIntegrations: seed.recommendedIntegrations.filter((item) => item !== delivery.integration),
+    integrations: seed.integrations
+      ? Array.from(new Set([...seed.integrations, delivery.integration]))
+      : seed.integrations,
+  }
+}
+
+export const SEED_CATALOGUE: SeedTemplate[] = [...BASE_SEED_CATALOGUE, ...MULTI_TOOL_SEEDS, ...GMAIL_SEEDS].map(normalizeDelivery)
+
 export function getSeedByKey(seedKey: string): SeedTemplate | undefined {
   return SEED_CATALOGUE.find((s) => s.seedKey === seedKey)
+}
+
+export function instructionsForSeed(seed: SeedTemplate): string {
+  const delivery = deliveryForSeed(seed)
+  const schedule = seed.trigger?.type === 'schedule' ? seed.trigger.schedule : undefined
+  const friendlyCron: Record<string, string> = {
+    '0 14 * * 1': 'Every Monday at 14:00',
+    '0 13 * * 1': 'Every Monday at 13:00',
+    '0 12 * * 1': 'Every Monday at 12:00',
+    '0 14 * * 1-5': 'Every weekday at 14:00',
+    '0 13 * * 1-5': 'Every weekday at 13:00',
+    '30 13 * * 1-5': 'Every weekday at 13:30',
+  }
+  const cadence = schedule
+    ? `Automatic schedule: ${friendlyCron[schedule.cron] ?? `cron ${schedule.cron}`} ${schedule.timezone}. The schedule is active immediately after the required tools are connected; the user may adjust it in Agent settings.`
+    : 'Cadence: event-driven or on demand. Run once for each supplied business event; do not poll or repeat the same event. A recurring schedule can be added in Agent settings when the use case calls for batching.'
+  const workflow = seed.agents?.length
+    ? seed.agents.map((agent, index) => `${index + 1}. ${agent.title}: ${agent.instructions}`).join('\n')
+    : `1. Gather the records needed to accomplish the stated objective from the connected systems.\n2. Reconcile the sources, identify missing or contradictory data, and complete the requested analysis or action.\n3. Produce and deliver the finished artifact.`
+  const base = seed.instructions?.trim() || seed.description
+  return withTemplateOutputStandard(`You are responsible for running the ${seed.name} workflow from start to finish.
+
+Objective
+${base}
+
+Trigger and cadence
+${cadence}
+
+Execution workflow
+${workflow}
+
+Delivery requirement
+Always deliver the final user-facing artifact through ${delivery.kind === 'slack' ? 'Slack' : 'Gmail'} to ${delivery.destination}. Do not stop after gathering data or merely say that the task is complete. Include the finished artifact in the delivery. If delivery fails, report the destination, error, and retryable next step; never claim it was sent.
+${delivery.kind === 'gmail' ? 'Resolve the recipient from the trigger or requesting user profile. If no verified email address is available, ask for it; never guess an address.' : `Use ${delivery.destination} unless the user explicitly selects a different connected channel.`}
+
+Guardrails
+- Use only records returned by connected tools and preserve material source references.
+- Separate observed facts from interpretations and recommendations.
+- Never invent people, amounts, dates, statuses, links, or completed actions.
+- Flag stale, missing, or contradictory evidence and state what must be verified.
+- Do not overwrite, delete, publish, email, or post anything beyond the workflow's stated actions.
+- Avoid duplicate delivery: one completed artifact per trigger unless the user explicitly requests another copy.
+- Protect secrets and personal data; include only the minimum sensitive detail needed for the business outcome.
+
+${artifactOutputContract(seed)}`)
 }
 
 export type SerializedTemplate = ReturnType<typeof serializeSeed>
@@ -422,7 +510,7 @@ export function serializeSeed(seed: SeedTemplate) {
     name: seed.name,
     description: seed.description,
     category: seed.departments[0] ?? 'general',
-    instructions: seed.instructions ?? seed.description,
+    instructions: instructionsForSeed(seed),
     integrations,
     skills: [] as string[],
     tags: seed.departments as string[],
@@ -439,6 +527,7 @@ export function serializeSeed(seed: SeedTemplate) {
     requiredIntegrations: seed.requiredIntegrations,
     recommendedIntegrations: seed.recommendedIntegrations,
     kind: seed.kind,
+    trigger: seed.trigger ?? { type: 'manual' as const },
     seed: true as const,
     seedKey: seed.seedKey,
   }

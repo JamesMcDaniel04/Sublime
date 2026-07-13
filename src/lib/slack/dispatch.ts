@@ -5,6 +5,8 @@ import { matchSlackFlows, slackTriggerConfigOf, type SlackTriggerConfig } from '
 import { claimSlackEvent } from '@/lib/slack/dedup'
 import { findOpenSession, resolveSessionRouting, upsertThreadSession, closeSession } from '@/lib/slack/session'
 import type { NormalizedSlackEvent, SlackTriggerInput } from '@/lib/slack/payload'
+import { ingestActivity } from '@/lib/activity/ingest'
+import { slackActivityFromInput } from '@/lib/activity/sources/slack'
 
 export type SlackRouteArgs = {
   bindingId: string
@@ -155,6 +157,10 @@ export async function routeSlackEvent(args: SlackRouteArgs): Promise<void> {
   const { bindingId, organizationId, normalized } = args
   const input = normalized.input
 
+  // Observe every verified, deduped, non-bot event without delaying dispatch.
+  const observed = slackActivityFromInput(input)
+  if (observed) void ingestActivity(organizationId, 'webhook', [observed]).catch(() => undefined)
+
   // Ingress precedence: an open thread session takes priority over normal
   // trigger matching (see tryThreadContinuation). No thread_ts, or a thread
   // with no open session, falls through unchanged.
@@ -168,7 +174,7 @@ export async function routeSlackEvent(args: SlackRouteArgs): Promise<void> {
     take: 200,
   })
   const candidates = flows.filter((flow) => flow.publishedGraph != null)
-  const matches = matchSlackFlows(input, candidates)
+  const matches = matchSlackFlows(input, candidates, bindingId)
   if (!matches.length) return
 
   for (const match of matches) {

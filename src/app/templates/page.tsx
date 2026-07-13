@@ -21,8 +21,9 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { IntegrationChip } from '@/components/integrations/integration-chip'
 import { cn } from '@/lib/utils'
-import { DEPARTMENTS, type Department } from '@/lib/templates/departments'
+import { PRODUCT_DEPARTMENTS, type Department } from '@/lib/templates/departments'
 import { connectedSlugSet, missingIntegrations, sortByReadiness } from '@/lib/templates/relevance'
+import { getCachedJson, invalidateCachedJson } from '@/lib/client/use-cached-json'
 
 /** Cards per page on the Templates and Skills grids. */
 const PAGE_SIZE = 9
@@ -139,15 +140,17 @@ function ExplorePage() {
   const [agents, setAgents] = useState<AgentItem[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  // One search box filters whichever tab is active (name/description/category/tags).
+  // Goal prompt for the AI catalogue assistant. It intentionally does not
+  // filter the grids while someone is still describing what they need.
   const [search, setSearch] = useState('')
-  // AI template finder: same search box, but Enter/"Ask AI" asks the model to
-  // match the typed goal against the loaded catalog instead of substring-filtering.
+  // Enter/"Ask AI" asks the model to match the goal against the loaded catalog.
   const [aiResults, setAiResults] = useState<{ id: string; kind: string; reason: string }[] | null>(null)
   const [aiLoading, setAiLoading] = useState(false)
   const [aiError, setAiError] = useState<string | null>(null)
   // Card grids cap at 9 per page; each tab pages independently.
   const [templatesPage, setTemplatesPage] = useState(1)
+  const [cataloguePage, setCataloguePage] = useState(1)
+  const [myTemplatesPage, setMyTemplatesPage] = useState(1)
   const [skillsPage, setSkillsPage] = useState(1)
   // Track which skill's dropdown is open
   const [openSkillMenu, setOpenSkillMenu] = useState<string | null>(null)
@@ -198,6 +201,7 @@ function ExplorePage() {
       const data = await res.json().catch(() => ({}))
       if (!res.ok) throw new Error(data.error || 'Save failed')
       // Refetch so the new/edited card shows immediately.
+      invalidateCachedJson(url)
       if (dialog.kind === 'template') {
         const list = await fetch('/api/agent-templates', { cache: 'no-store' }).then((r) => r.json())
         setTemplates(list.templates || [])
@@ -219,6 +223,7 @@ function ExplorePage() {
     const url = kind === 'template' ? '/api/agent-templates' : '/api/skills'
     const res = await fetch(url, { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id }) })
     if (res.ok) {
+      invalidateCachedJson(url)
       if (kind === 'template') setTemplates((prev) => prev.filter((t) => t.id !== id))
       else setSkills((prev) => prev.filter((s) => s.id !== id))
       toast.success('Removed')
@@ -233,18 +238,11 @@ function ExplorePage() {
     let cancelled = false
     const load = async () => {
       try {
-        const [templatesRes, skillsRes, agentsRes, integrationsRes] = await Promise.all([
-          fetch('/api/agent-templates', { cache: 'no-store' }),
-          fetch('/api/skills', { cache: 'no-store' }),
-          fetch('/api/agents', { cache: 'no-store' }),
-          fetch('/api/integrations/available', { cache: 'no-store' }),
-        ])
-        if (!templatesRes.ok) throw new Error(`Templates fetch failed: status ${templatesRes.status}`)
         const [templatesData, skillsData, agentsData, integrationsData] = await Promise.all([
-          templatesRes.json(),
-          skillsRes.ok ? skillsRes.json() : { success: false, skills: [] },
-          agentsRes.ok ? agentsRes.json() : { success: false, agents: [] },
-          integrationsRes.ok ? integrationsRes.json() : { success: false, tools: [] },
+          getCachedJson<any>('/api/agent-templates'),
+          getCachedJson<any>('/api/skills'),
+          getCachedJson<any>('/api/agents', 30_000),
+          getCachedJson<any>('/api/integrations/available', 30_000),
         ])
         if (cancelled) return
         setTemplates(templatesData.templates || [])
@@ -273,19 +271,14 @@ function ExplorePage() {
     return () => document.removeEventListener('mousedown', handleClick)
   }, [openSkillMenu])
 
-  // Search filter across name, description, category, and tags.
-  const q = search.trim().toLowerCase()
-  const matches = (item: { name: string; description: string; category: string; tags?: string[] }) =>
-    !q || `${item.name} ${item.description} ${item.category} ${(item.tags || []).join(' ')}`.toLowerCase().includes(q)
-  const filteredTemplates = templates.filter(matches)
-  const filteredSkills = skills.filter(matches)
   // Org-scoped catalogue priority: the caller's own templates (auto-distilled
   // from their runs, or hand-authored by their org) always render above the
   // shared community library, in their own "Your library" section. Seed
   // (Starter catalogue) rows are pulled into their own section below.
-  const seeds = filteredTemplates.filter((t) => t.seed)
-  const myTemplates = filteredTemplates.filter((t) => t.mine && !t.seed)
-  const communityTemplates = filteredTemplates.filter((t) => !t.mine && !t.seed)
+  const seeds = templates.filter((t) => t.seed)
+  const myTemplates = templates.filter((t) => t.mine && !t.seed)
+  const communityTemplates = templates.filter((t) => !t.mine && !t.seed)
+  const filteredSkills = skills
 
   // Department filter — applies only to the Starter catalogue; never hides a
   // template outright, just narrows which seeds are shown for the chosen dept.
@@ -294,6 +287,8 @@ function ExplorePage() {
     seeds.filter(inDept).map((t) => ({ ...t, requiredIntegrations: t.requiredIntegrations ?? [] })),
     connected,
   )
+  const cataloguePagination = paginate(catalogueSeeds, cataloguePage, PAGE_SIZE)
+  const myTemplatesPagination = paginate(myTemplates, myTemplatesPage, PAGE_SIZE)
 
   const renderTemplateCard = (t: TemplateItem) => {
     const accent = accentFor(t.category)
@@ -398,21 +393,9 @@ function ExplorePage() {
           <div className={cn('absolute inset-x-0 top-0 h-1 bg-gradient-to-r opacity-80 transition-opacity group-hover:opacity-100', accent.bar)} />
           <CardHeader className="space-y-2.5 pt-5">
             <div className="flex flex-wrap items-center gap-1.5">
-              <Badge variant="outline" className={cn('text-[11px] font-medium', accent.badge)}>{t.category}</Badge>
-              {department && (
-                <Badge variant="outline" className="text-[11px] font-medium text-muted-foreground">{deptLabel(department)}</Badge>
-              )}
-              {missing.length > 0 ? (
-                <Link
-                  href="/integrations"
-                  onClick={(e) => e.stopPropagation()}
-                  className="inline-flex items-center gap-1 rounded-full border border-amber-300 bg-amber-50 px-2 py-0.5 text-[11px] font-semibold text-amber-700 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-300"
-                >
-                  Connect to use
-                </Link>
-              ) : (
-                <Badge variant="outline" className="border-emerald-200 bg-emerald-50 text-emerald-700 text-[11px] dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-300">Ready to run</Badge>
-              )}
+              <Badge variant="outline" className={cn('text-[11px] font-medium', accent.badge)}>
+                {department ? deptLabel(department) : t.category}
+              </Badge>
             </div>
             <div className="flex items-start gap-2.5">
               <span className={cn('flex h-9 w-9 shrink-0 items-center justify-center rounded-lg transition-transform group-hover:scale-105', accent.tile)}>
@@ -455,8 +438,6 @@ function ExplorePage() {
 
   const onSearch = (value: string) => {
     setSearch(value)
-    setTemplatesPage(1)
-    setSkillsPage(1)
   }
 
   // Asks the model to match the typed goal against the already-loaded catalog.
@@ -499,19 +480,22 @@ function ExplorePage() {
     setAiLoading(false)
   }
 
-  const jumpToMatch = (match: { id: string; kind: string }, name: string) => {
-    handleTabChange(match.kind === 'skill' ? 'skills' : 'templates')
-    onSearch(name)
+  const jumpToMatch = (match: { id: string; kind: string }, _name: string) => {
+    if (match.kind === 'template') {
+      router.push(`/templates/${match.id}`)
+      return
+    }
+    handleTabChange('skills')
   }
 
   const addSkillToAgent = async (skill: SkillItem, agent: AgentItem) => {
     setOpenSkillMenu(null)
     const updatedSkills = Array.from(new Set([...(agent.skills || []), skill.id]))
     try {
-      const res = await fetch('/api/agents', {
-        method: 'PUT',
+      const res = await fetch(`/api/agents/${encodeURIComponent(agent.id)}/skills`, {
+        method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id: agent.id, skills: updatedSkills }),
+        body: JSON.stringify({ skillId: skill.id }),
       })
       if (!res.ok) throw new Error(`status ${res.status}`)
       // Update local agent list so subsequent "add" operations see the latest skills
@@ -530,10 +514,10 @@ function ExplorePage() {
     const results = await Promise.all(
       agents.map(async (agent) => {
         const updatedSkills = Array.from(new Set([...(agent.skills || []), skill.id]))
-        const res = await fetch('/api/agents', {
-          method: 'PUT',
+        const res = await fetch(`/api/agents/${encodeURIComponent(agent.id)}/skills`, {
+          method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ id: agent.id, skills: updatedSkills }),
+          body: JSON.stringify({ skillId: skill.id }),
         }).catch(() => null)
         return { agent, ok: Boolean(res?.ok), updatedSkills }
       }),
@@ -683,8 +667,13 @@ function ExplorePage() {
               <section className="space-y-3">
                 <h3 className="text-sm font-semibold text-muted-foreground">Your library</h3>
                 <div className="stagger-children grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                  {myTemplates.map((t) => renderTemplateCard(t))}
+                  {myTemplatesPagination.pageItems.map((t) => renderTemplateCard(t))}
                 </div>
+                <Pagination
+                  page={myTemplatesPagination.page}
+                  pageCount={myTemplatesPagination.pageCount}
+                  onPageChange={setMyTemplatesPage}
+                />
               </section>
             )}
 
@@ -698,7 +687,7 @@ function ExplorePage() {
                   <div className="flex flex-wrap gap-1.5">
                     <button
                       type="button"
-                      onClick={() => setDept('all')}
+                      onClick={() => { setDept('all'); setCataloguePage(1) }}
                       className={cn(
                         'rounded-full border px-2.5 py-1 text-xs font-medium transition-colors',
                         dept === 'all'
@@ -708,11 +697,11 @@ function ExplorePage() {
                     >
                       All
                     </button>
-                    {DEPARTMENTS.map((d) => (
+                    {PRODUCT_DEPARTMENTS.map((d) => (
                       <button
                         key={d}
                         type="button"
-                        onClick={() => setDept(dept === d ? 'all' : d)}
+                        onClick={() => { setDept(dept === d ? 'all' : d); setCataloguePage(1) }}
                         className={cn(
                           'rounded-full border px-2.5 py-1 text-xs font-medium transition-colors',
                           dept === d
@@ -733,9 +722,14 @@ function ExplorePage() {
                   />
                 ) : (
                   <div className="stagger-children grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                    {catalogueSeeds.map((t) => renderCatalogueCard(t))}
+                    {cataloguePagination.pageItems.map((t) => renderCatalogueCard(t))}
                   </div>
                 )}
+                <Pagination
+                  page={cataloguePagination.page}
+                  pageCount={cataloguePagination.pageCount}
+                  onPageChange={setCataloguePage}
+                />
               </section>
             )}
 
@@ -795,27 +789,31 @@ function ExplorePage() {
                         <button type="button" aria-label="Delete skill" onClick={() => deleteAsset('skill', skill.id, skill.name)} className="rounded-md border bg-card p-1.5 text-muted-foreground shadow-1 hover:text-red-600"><Trash2 className="h-3.5 w-3.5" /></button>
                       </div>
                     )}
-                    <CardHeader className="space-y-2.5 pt-5">
-                      <div className="flex items-center gap-1.5">
-                        <Badge variant="outline" className={cn('text-[11px] font-medium', accent.badge)}>{skill.category}</Badge>
-                        {skill.custom && <Badge variant="outline" className="text-[11px] font-medium border-indigo-200 bg-indigo-50 text-indigo-700 dark:border-indigo-500/30 dark:bg-indigo-500/10 dark:text-indigo-300">Community</Badge>}
-                      </div>
-                      <div className="flex items-start gap-2.5">
-                        <span className={cn('flex h-9 w-9 shrink-0 items-center justify-center rounded-lg transition-transform group-hover:scale-105', accent.tile)}>
-                          <Icon className="h-[18px] w-[18px]" />
-                        </span>
-                        <CardTitle className="min-w-0 text-base leading-snug">{skill.name}</CardTitle>
-                      </div>
-                      {skill.tags && skill.tags.length > 0 && (
-                        <div className="flex flex-wrap gap-1">
-                          {skill.tags.slice(0, 3).map((tag) => (
-                            <Badge key={tag} variant="outline" className="text-xs text-muted-foreground">{tag}</Badge>
-                          ))}
+                    <Link href={`/skills/${encodeURIComponent(skill.id)}`} className="flex flex-1 flex-col">
+                      <CardHeader className="space-y-2.5 pt-5">
+                        <div className="flex items-center gap-1.5">
+                          <Badge variant="outline" className={cn('text-[11px] font-medium', accent.badge)}>{skill.category}</Badge>
+                          {skill.custom && <Badge variant="outline" className="text-[11px] font-medium border-indigo-200 bg-indigo-50 text-indigo-700 dark:border-indigo-500/30 dark:bg-indigo-500/10 dark:text-indigo-300">Community</Badge>}
                         </div>
-                      )}
-                    </CardHeader>
-                    <CardContent className="flex flex-col flex-1 space-y-3">
-                      <p className="text-sm text-muted-foreground line-clamp-3 flex-1">{skill.description}</p>
+                        <div className="flex items-start gap-2.5">
+                          <span className={cn('flex h-9 w-9 shrink-0 items-center justify-center rounded-lg transition-transform group-hover:scale-105', accent.tile)}>
+                            <Icon className="h-[18px] w-[18px]" />
+                          </span>
+                          <CardTitle className="min-w-0 text-base leading-snug">{skill.name}</CardTitle>
+                        </div>
+                        {skill.tags && skill.tags.length > 0 && (
+                          <div className="flex flex-wrap gap-1">
+                            {skill.tags.slice(0, 3).map((tag) => (
+                              <Badge key={tag} variant="outline" className="text-xs text-muted-foreground">{tag}</Badge>
+                            ))}
+                          </div>
+                        )}
+                      </CardHeader>
+                      <div className="flex-1 px-6 pb-3">
+                        <p className="line-clamp-3 text-sm text-muted-foreground">{skill.description}</p>
+                      </div>
+                    </Link>
+                    <CardContent className="flex flex-col space-y-3">
 
                       {skill.integrations && skill.integrations.length > 0 && (
                         <div className="flex flex-wrap gap-1.5">

@@ -29,11 +29,14 @@ export function serializeAgent(agent: {
     goal: agent.goal || null,
     model: metadata.model || DEFAULT_AGENT_MODEL,
     integrations: metadata.integrations || [],
+    requiredIntegrations: metadata.requiredIntegrations || [],
     skills: metadata.skills || [],
     icon: metadata.icon || '',
     allowSubagents: (metadata as { allowSubagents?: boolean }).allowSubagents === true,
     subagentIds: ((metadata as { subagentIds?: string[] }).subagentIds ?? []).filter((id) => typeof id === 'string'),
-    autoAnswerFromMemory: metadata.autoAnswerFromMemory === true,
+    // Undefined is the legacy value; remembered blocking answers are now the
+    // safe default unless an agent explicitly opts out.
+    autoAnswerFromMemory: metadata.autoAnswerFromMemory !== false,
     alwaysStrategize: metadata.alwaysStrategize === true,
     suggestedGoal: metadata.suggestedGoal || null,
     folder: agent.folder || null,

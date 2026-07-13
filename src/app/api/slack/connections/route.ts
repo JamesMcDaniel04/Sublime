@@ -9,13 +9,8 @@ const createSchema = z.object({
   signingSecret: z.string().min(1),
 })
 
-function requireAdmin(role: 'ADMIN' | 'USER') {
-  if (role !== 'ADMIN') throw new ApiError('Admin access required', 403, 'FORBIDDEN')
-}
-
 // ── GET — list org bindings (redacted) ────────────────────────────────────
 export const GET = withAuthenticatedApi(async (_request, auth) => {
-  requireAdmin(auth.dbUser.role)
   const connections = await prisma.slackWorkspaceConnection.findMany({
     where: { organizationId: auth.organizationId },
     orderBy: { createdAt: 'desc' },
@@ -25,7 +20,6 @@ export const GET = withAuthenticatedApi(async (_request, auth) => {
 
 // ── POST — create/refresh a binding ───────────────────────────────────────
 export const POST = withAuthenticatedApi(async (request, auth) => {
-  requireAdmin(auth.dbUser.role)
   const data = createSchema.parse(await request.json())
   // Verify the token against Slack and capture the workspace identity —
   // a bad token never reaches the database.
@@ -52,7 +46,6 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
 
 // ── DELETE — remove a binding (and its thread sessions) ──────────────────
 export const DELETE = withAuthenticatedApi(async (request, auth) => {
-  requireAdmin(auth.dbUser.role)
   const url = new URL(request.url)
   const id = url.searchParams.get('id') || z.object({ id: z.string().min(1) }).parse(await request.json()).id
   const existing = await prisma.slackWorkspaceConnection.findFirst({ where: { id, organizationId: auth.organizationId } })

@@ -62,8 +62,8 @@ test('AI capabilities are action-mode agent steps', () => {
   assert.ok(AI_CAPABILITY_LEAVES.every((l) => l.mode === 'action' && l.stepType === 'agent'))
 })
 
-test('trigger leaves cover all four trigger types', () => {
-  assert.deepEqual(TRIGGER_LEAVES.map((l) => l.triggerType), ['manual', 'schedule', 'webhook', 'signal'])
+test('trigger leaves cover all five trigger types', () => {
+  assert.deepEqual(TRIGGER_LEAVES.map((l) => l.triggerType), ['manual', 'schedule', 'webhook', 'signal', 'slack'])
 })
 
 test('searchCorpus is lowercase label+description', () => {

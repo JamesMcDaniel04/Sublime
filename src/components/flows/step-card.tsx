@@ -91,6 +91,7 @@ type TriggerData = {
   channels?: string[]
   keyword?: string
   threadMemory?: boolean
+  bindingId?: string
   /** "Only run when…": the run is skipped unless these clauses match the trigger payload. */
   filter?: { match?: 'all' | 'any'; clauses?: ConditionClause[] }
 }
@@ -980,7 +981,8 @@ function TriggerBody({
   const [choosingInput, setChoosingInput] = useState(false)
   const [webhook, setWebhook] = useState<{ url: string; secret: string | null } | null>(null)
   const [minting, setMinting] = useState(false)
-  const [slackBinding, setSlackBinding] = useState<{ id: string; teamName: string | null; status: string; ingressUrl: string } | null>(null)
+  const [slackBindings, setSlackBindings] = useState<{ id: string; teamName: string | null; status: string; ingressUrl: string }[]>([])
+  const [slackChannels, setSlackChannels] = useState<{ id: string; name: string; isPrivate: boolean; isMember: boolean }[]>([])
   const trigger = triggerData(node)
   const type = trigger.type ?? 'manual'
   const schedule = trigger.schedule ?? { type: 'daily', time: '09:00', timezone: 'UTC', isActive: true }
@@ -1017,13 +1019,28 @@ function TriggerBody({
     fetch('/api/slack/connections')
       .then((res) => res.json())
       .then((data) => {
-        if (!cancelled) setSlackBinding(data.connections?.[0] ?? null)
+        if (!cancelled) setSlackBindings(data.connections ?? [])
       })
       .catch(() => undefined)
     return () => {
       cancelled = true
     }
   }, [type])
+
+  const slackBinding = slackBindings.find((binding) => binding.id === trigger.bindingId) ?? slackBindings[0] ?? null
+
+  useEffect(() => {
+    if (type !== 'slack' || !slackBinding?.id) {
+      setSlackChannels([])
+      return
+    }
+    let cancelled = false
+    fetch(`/api/slack/connections/${encodeURIComponent(slackBinding.id)}/channels`, { cache: 'no-store' })
+      .then((res) => res.json())
+      .then((data) => { if (!cancelled) setSlackChannels(data.channels ?? []) })
+      .catch(() => { if (!cancelled) setSlackChannels([]) })
+    return () => { cancelled = true }
+  }, [type, slackBinding?.id])
 
   const setSchedule = (patch: Partial<NonNullable<TriggerData['schedule']>>) =>
     setTrigger({ ...trigger, type: 'schedule', schedule: { ...schedule, ...patch, isActive: true } })
@@ -1222,6 +1239,18 @@ function TriggerBody({
 
       {type === 'slack' && (
         <div className="space-y-3">
+          {slackBindings.length > 0 && (
+            <div className="grid gap-2">
+              <label className={labelClass}>Slack workspace</label>
+              <select
+                className={controlClass}
+                value={slackBinding?.id ?? ''}
+                onChange={(event) => setTrigger({ ...trigger, bindingId: event.target.value || undefined })}
+              >
+                {slackBindings.map((binding) => <option key={binding.id} value={binding.id}>{binding.teamName || binding.id}</option>)}
+              </select>
+            </div>
+          )}
           <div className="grid gap-2">
             <label className={labelClass}>Respond to</label>
             {SLACK_EVENT_KINDS.map((kind) => (
@@ -1247,16 +1276,33 @@ function TriggerBody({
             </div>
           )}
           <div className="grid gap-2">
-            <label className={labelClass}>Only these channels (optional, comma-separated channel IDs)</label>
-            <input
-              className={cn(controlClass, 'font-mono')}
-              value={(trigger.channels ?? []).join(', ')}
-              placeholder="C0123ABC, C0456DEF"
-              onChange={(event) => {
-                const channels = event.target.value.split(',').map((entry) => entry.trim()).filter(Boolean)
-                setTrigger({ ...trigger, channels: channels.length ? channels : undefined })
-              }}
-            />
+            <label className={labelClass}>Channels to watch (optional)</label>
+            {slackChannels.length > 0 ? (
+              <select
+                multiple
+                className={cn(controlClass, 'h-32 py-2')}
+                value={trigger.channels ?? []}
+                onChange={(event) => {
+                  const channels = Array.from(event.currentTarget.selectedOptions, (option) => option.value)
+                  setTrigger({ ...trigger, channels: channels.length ? channels : undefined })
+                }}
+              >
+                {slackChannels.map((channel) => (
+                  <option key={channel.id} value={channel.id}>#{channel.name}{channel.isPrivate ? ' (private)' : ''}{channel.isMember ? '' : ' — bot not joined'}</option>
+                ))}
+              </select>
+            ) : (
+              <input
+                className={cn(controlClass, 'font-mono')}
+                value={(trigger.channels ?? []).join(', ')}
+                placeholder="C0123ABC, C0456DEF"
+                onChange={(event) => {
+                  const channels = event.target.value.split(',').map((entry) => entry.trim()).filter(Boolean)
+                  setTrigger({ ...trigger, channels: channels.length ? channels : undefined })
+                }}
+              />
+            )}
+            <p className="text-xs text-slate-500">Loaded from the selected Slack connection. Hold ⌘/Ctrl to select more than one.</p>
           </div>
           <div className="grid gap-2">
             <label className={labelClass}>Only when the message contains (optional)</label>

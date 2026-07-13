@@ -19,7 +19,6 @@ const FULL_PROD_ENV = {
   DIRECT_URL: 'postgresql://u:p@h:5432/db',
   NEXT_PUBLIC_SUPABASE_URL: 'https://x.supabase.co',
   NEXT_PUBLIC_SUPABASE_ANON_KEY: 'anon',
-  SUPABASE_SERVICE_ROLE_KEY: 'service-role',
   ENCRYPTION_KEY: 'k',
   ANTHROPIC_API_KEY: 'sk-ant-x',
 }
@@ -38,14 +37,11 @@ test('production with missing vars: throws listing every missing name', async ()
   Object.assign(process.env, FULL_PROD_ENV)
   delete process.env.DATABASE_URL
   delete process.env.ENCRYPTION_KEY
-  delete process.env.SUPABASE_SERVICE_ROLE_KEY
   const { assertServerEnv } = await freshEnv()
   assert.throws(
     () => assertServerEnv(),
     (error: Error) =>
-      error.message.includes('DATABASE_URL') &&
-      error.message.includes('ENCRYPTION_KEY') &&
-      error.message.includes('SUPABASE_SERVICE_ROLE_KEY'),
+      error.message.includes('DATABASE_URL') && error.message.includes('ENCRYPTION_KEY'),
   )
 })
 

@@ -2,9 +2,9 @@
  * Nango outbound delivery adapters.
  *
  * Nango is the delivery arm: agents post to Slack, send Gmail, and write
- * Salesforce records through connected accounts. Delivery requires the acting
- * user's own connection; another workspace member's credentials are never a
- * fallback.
+ * Salesforce records through connected accounts. Delivery prefers the acting
+ * user's OWN connection (so a message arrives as the rep) and falls back to an
+ * org-level connection.
  *
  * Each adapter goes through Nango's proxy so credentials never touch our
  * process. The proxy is injectable for tests.
@@ -16,8 +16,6 @@ import { getNangoClient, nangoConfigured } from './client'
 export interface DeliveryConnection {
   connectionId: string
   providerConfigKey: string
-  // `org` remains in the adapter type for backward-compatible callers/tests;
-  // resolveDeliveryConnection only returns personal connections.
   scope: 'user' | 'org'
 }
 
@@ -63,25 +61,27 @@ export function capabilitiesToPurgeOnDisconnect<T extends string>(affected: T[],
 }
 
 /**
- * Resolve the acting user's connection for a capability. No user means no
- * credentialed delivery plane, and org/other-user rows are never considered.
+ * Resolve the connection to use for a capability: the acting user's own
+ * connection first, then any org connection. Matches provider config keys for
+ * the capability.
  */
 export async function resolveDeliveryConnection(
   organizationId: string,
   capability: DeliveryCapability,
   userId?: string | null,
 ): Promise<DeliveryConnection | null> {
-  if (!userId) return null
   const keys = DELIVERY_PROVIDERS[capability] as readonly string[]
-  const connection = await prisma.nangoConnection.findFirst({
-    where: { organizationId, userId, providerConfigKey: { in: [...keys] }, status: 'connected' },
-    orderBy: { updatedAt: 'desc' },
+  const connections = await prisma.nangoConnection.findMany({
+    where: { organizationId, providerConfigKey: { in: [...keys] }, status: 'connected' },
   })
-  if (!connection) return null
+  if (connections.length === 0) return null
+
+  const own = userId ? connections.find((connection) => connection.userId === userId) : undefined
+  const chosen = own ?? connections.find((connection) => !connection.userId) ?? connections[0]
   return {
-    connectionId: connection.connectionId,
-    providerConfigKey: connection.providerConfigKey,
-    scope: 'user',
+    connectionId: chosen.connectionId,
+    providerConfigKey: chosen.providerConfigKey,
+    scope: chosen.userId === userId && userId ? 'user' : 'org',
   }
 }
 

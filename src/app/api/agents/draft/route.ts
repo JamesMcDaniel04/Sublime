@@ -92,7 +92,7 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
   // emoji (no ASCII letters/digits, short), else fall back to a default mark.
   const rawIcon = draft.icon?.trim() || ''
   const icon = rawIcon && !/[A-Za-z0-9]/.test(rawIcon) && [...rawIcon].length <= 4 ? rawIcon : '🤖'
-  const enrichedDraft = { ...draft, icon, schedule, model: DEFAULT_AGENT_MODEL, priority: 'medium', visibility: 'private' as const, folder: null }
+  const enrichedDraft = { ...draft, icon, schedule, model: DEFAULT_AGENT_MODEL, priority: 'medium', visibility: 'shared' as const, folder: null }
   if (!create) {
     return { success: true, draft: enrichedDraft }
   }
@@ -107,7 +107,7 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
       context: {},
       schedule,
       status: 'ACTIVE',
-      visibility: 'private',
+      visibility: 'shared',
       organizationId: auth.organizationId,
       userId: auth.dbUser.id,
       metadata: {

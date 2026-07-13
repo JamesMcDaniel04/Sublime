@@ -20,8 +20,11 @@ export type NodeType =
   | 'agent'
   | 'run'
   | 'insight'
+  | 'actor'
+  | 'activity'
+  | 'entity'
 
-/** Legacy storage marker. User-facing retrieval is owner-only. */
+/** Who may see a node. 'shared' = the whole org; 'private' = only its owner. */
 export type NodeVisibility = 'shared' | 'private'
 
 export interface GraphNode {
@@ -45,15 +48,17 @@ export interface GraphNode {
 }
 
 /**
- * The single owner contract shared by every store implementation. A signed-in
- * viewer sees only their nodes. A null/system viewer sees only unowned system
- * nodes. Legacy `shared` markers do not grant cross-user visibility.
+ * The single visibility contract, shared by every store implementation so
+ * MemoryGraphStore and Neo4jGraphStore scope identically. A node is visible to
+ * `viewerUserId` unless it is private and owned by someone else. Mirrors the
+ * Prisma `agentVisibilityScope`/`executionVisibilityScope` row-level rules.
  */
 export function nodeVisibleTo(
   node: Pick<GraphNode, 'ownerUserId' | 'visibility'>,
   viewerUserId: string | null,
 ): boolean {
-  return (node.ownerUserId ?? null) === viewerUserId
+  if ((node.visibility ?? 'shared') !== 'private') return true
+  return node.ownerUserId != null && node.ownerUserId === viewerUserId
 }
 
 export type EdgeRelation =
@@ -63,6 +68,13 @@ export type EdgeRelation =
   | 'triggered_run'
   | 'ran_agent'
   | 'belongs_to' // opportunity/stakeholder → account
+  | 'performed' // actor → activity
+  | 'on' // activity → entity
+  | 'relates_to' // activity → account/opportunity
+  | 'participant' // activity → actor
+  | 'preceded_by' // activity → prior activity on same entity (state chains)
+  | 'evidence' // insight(inferred_pattern) → activity
+  | 'based_on' // insight(recommendation) → insight(inferred_pattern)
 
 export interface GraphEdge {
   organizationId: string

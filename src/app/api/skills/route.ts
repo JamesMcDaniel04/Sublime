@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { prisma } from '@/lib/prisma'
+import { prisma, systemPrisma } from '@/lib/prisma'
 import { ApiError, withAuthenticatedApi } from '@/lib/server/api-handler'
 import { listSkills } from '@/lib/skills/compose'
 
@@ -23,9 +23,8 @@ function serializeShared(
     integrations: unknown
     authorName: string
     organizationId: string
-    userId: string | null
   },
-  viewerUserId: string,
+  viewerOrgId: string,
 ) {
   return {
     id: skill.id,
@@ -38,22 +37,23 @@ function serializeShared(
     authorName: skill.authorName,
     instructions: skill.instructions,
     custom: true,
-    mine: skill.userId === viewerUserId,
+    // Only the creating org may edit/delete its community skills.
+    mine: skill.organizationId === viewerOrgId,
   }
 }
 
-// GET — built-in product skills plus the acting user's custom skills. Custom
-// instructions can contain sensitive operating context and are not shared.
+// GET — built-in skills plus the PUBLIC community library (all orgs).
 export const GET = withAuthenticatedApi(async (_request, auth) => {
-  const shared = await prisma.sharedSkill.findMany({
-    where: { organizationId: auth.organizationId, userId: auth.dbUser.id, isActive: true },
+  // systemPrisma: public community skill library — visible to all orgs by design.
+  const shared = await systemPrisma.sharedSkill.findMany({
+    where: { isActive: true },
     orderBy: { updatedAt: 'desc' },
     take: 500,
   })
   return {
     success: true,
     skills: [
-      ...shared.map((skill) => serializeShared(skill, auth.dbUser.id)),
+      ...shared.map((skill) => serializeShared(skill, auth.organizationId)),
       ...listSkills().map((skill) => ({ ...skill, custom: false, mine: false })),
     ],
   }
@@ -70,14 +70,14 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
       userId: auth.dbUser.id,
     },
   })
-  return { success: true, skill: serializeShared(skill, auth.dbUser.id) }
+  return { success: true, skill: serializeShared(skill, auth.organizationId) }
 })
 
 // PUT — edit your own community skill.
 export const PUT = withAuthenticatedApi(async (request, auth) => {
   const body = z.object({ id: z.string().min(1) }).merge(skillSchema.partial()).parse(await request.json())
   const existing = await prisma.sharedSkill.findFirst({
-    where: { id: body.id, organizationId: auth.organizationId, userId: auth.dbUser.id, isActive: true },
+    where: { id: body.id, organizationId: auth.organizationId, isActive: true },
   })
   if (!existing) throw new ApiError('Skill not found (you can only edit skills you published)', 404, 'NOT_FOUND')
   const { id, ...patch } = body
@@ -87,7 +87,7 @@ export const PUT = withAuthenticatedApi(async (request, auth) => {
     where: { id, organizationId: auth.organizationId },
     data: patch,
   })
-  return { success: true, skill: serializeShared(skill, auth.dbUser.id) }
+  return { success: true, skill: serializeShared(skill, auth.organizationId) }
 })
 
 // DELETE — retract your own community skill (soft delete; agents referencing it
@@ -95,7 +95,7 @@ export const PUT = withAuthenticatedApi(async (request, auth) => {
 export const DELETE = withAuthenticatedApi(async (request, auth) => {
   const { id } = z.object({ id: z.string().min(1) }).parse(await request.json())
   const result = await prisma.sharedSkill.updateMany({
-    where: { id, organizationId: auth.organizationId, userId: auth.dbUser.id },
+    where: { id, organizationId: auth.organizationId },
     data: { isActive: false },
   })
   if (!result.count) throw new ApiError('Skill not found (you can only remove skills you published)', 404, 'NOT_FOUND')

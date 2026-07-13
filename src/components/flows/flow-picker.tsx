@@ -199,7 +199,7 @@ export function FlowPicker({
   agents: Agent[]
   toolCatalog: ToolCatalog
   onPick: (type: StepType, seed?: FlowInsertSeed) => void
-  onPickTrigger?: (triggerType: 'manual' | 'schedule' | 'webhook' | 'signal') => void
+  onPickTrigger?: (triggerType: 'manual' | 'schedule' | 'webhook' | 'signal' | 'slack') => void
   onClose: () => void
 }) {
   const [query, setQuery] = useState('')

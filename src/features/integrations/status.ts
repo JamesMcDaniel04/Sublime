@@ -56,8 +56,7 @@ export async function getIntegrationStatus(userId: string, organizationId: strin
   const integrations = await prisma.integration.findMany({
     where: {
       isActive: true,
-      userId,
-      organizationId,
+      OR: [{ userId }, { organizationId }],
     },
     select: {
       provider: true,

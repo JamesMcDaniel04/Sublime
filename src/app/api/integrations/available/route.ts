@@ -1,7 +1,7 @@
 import { prisma } from '@/lib/prisma'
 import { withAuthenticatedApi } from '@/lib/server/api-handler'
 import { granolaConfigured } from '@/lib/integrations/granola'
-import { getUserStrataConnection, getStrataServerNames, isStrataUrl, STRATA_KEY_PREFIX } from '@/lib/mcp/strata'
+import { getOrgStrataConnection, getStrataServerNames, isStrataUrl, STRATA_KEY_PREFIX } from '@/lib/mcp/strata'
 import {
   BUILTIN_CONNECTORS,
   fromNangoProviderKey,
@@ -32,20 +32,20 @@ export const GET = withAuthenticatedApi(async (_request, auth) => {
   const organizationId = auth.organizationId
   const [connectionsRaw, hasGranola, nango, klavis, strataConnection] = await Promise.all([
     prisma.mcpConnection.findMany({
-      where: { organizationId, userId: auth.dbUser.id, isActive: true },
+      where: { organizationId, isActive: true },
       select: { id: true, name: true, serverUrl: true },
       orderBy: { createdAt: 'desc' },
     }),
     granolaConfigured(organizationId),
     prisma.nangoConnection.findMany({
-      where: { organizationId, userId: auth.dbUser.id, status: 'connected' },
+      where: { organizationId, status: 'connected' },
       select: { providerConfigKey: true },
     }),
     prisma.mCPAgent.findMany({
-      where: { organizationId, userId: auth.dbUser.id, isActive: true },
+      where: { organizationId, isActive: true },
       select: { agentType: true },
     }),
-    getUserStrataConnection(organizationId, auth.dbUser.id),
+    getOrgStrataConnection(organizationId),
   ])
 
   // The Strata connection is surfaced as individual per-server chips below, not
@@ -77,7 +77,6 @@ export const GET = withAuthenticatedApi(async (_request, auth) => {
   // availability is per-org (an API key), the rest come from env via available().
   for (const c of BUILTIN_CONNECTORS) {
     if (c.kind !== 'builtin') continue
-    if (auth.dbUser.role !== 'ADMIN' && c.providerId !== 'http') continue
     // Resend email is redundant with Gmail delivery, so it's retired from the
     // picker. The registry entry stays so the runtime email plane still works
     // for any agent that already has it selected.

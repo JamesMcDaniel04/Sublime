@@ -1,7 +1,7 @@
 import type { Metadata } from 'next'
 import Link from 'next/link'
 import { redirect } from 'next/navigation'
-import { Bot, Cable, ScrollText } from 'lucide-react'
+import { Bot, Cable, ScrollText, Sparkles, Zap, BrainCircuit } from 'lucide-react'
 import { createClient } from '@/lib/supabase/server'
 import './landing.css'
 
@@ -10,9 +10,9 @@ import './landing.css'
 export const dynamic = 'force-dynamic'
 
 export const metadata: Metadata = {
-  title: 'Sublime — agents that show their work',
+  title: 'Sublime — AI that knows your business',
   description:
-    'Build AI agents, connect them to the tools you already use, and read every run — each tool call, each result, each error, in plain sight.',
+    'Connect your business tools and deploy evidence-backed AI agents and workflows that learn how your team works.',
 }
 
 function Tick() {
@@ -48,7 +48,28 @@ function AbstractRow({ widths }: { widths: number[] }) {
 
 function ProductShot() {
   return (
-    <div className="sl-l-stage sl-l-rise sl-l-rise--3" role="img" aria-label="A Sublime run log: an agent's tool calls with results, one flagged error, and the run's output.">
+    <div className="sl-l-stage sl-l-stage--3d sl-l-rise sl-l-rise--3" role="img" aria-label="Connected business tools feeding a live Sublime AI workflow.">
+      <div className="sl-l-orbit sl-l-orbit--one" />
+      <div className="sl-l-orbit sl-l-orbit--two" />
+      <div className="sl-l-core">
+        <div className="sl-l-core-face">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/sublime-mark-blue.svg" alt="" />
+          <span>Business intelligence</span>
+          <strong>Live and learning</strong>
+        </div>
+      </div>
+      {[
+        ['/logos/salesforce.svg', 'Salesforce', 'one'],
+        ['/logos/slack.png', 'Slack', 'two'],
+        ['/logos/googledrive.svg', 'Google Drive', 'three'],
+        ['/logos/granola.jpg', 'Granola', 'four'],
+      ].map(([src, label, position]) => (
+        <div key={label} className={`sl-l-float-logo sl-l-float-logo--${position}`}>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={src} alt={label} />
+        </div>
+      ))}
       <div className="sl-l-appbar">
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img src="/sublime-mark-blue.svg" alt="" />
@@ -103,6 +124,60 @@ function ProductShot() {
   )
 }
 
+// Keep this showcase intentionally limited to providers that are present in
+// the live integration catalogue and have a verified vector or bundled mark.
+const integrationTools = [
+  ['Salesforce', 'salesforce.com', '/logos/salesforce.svg'], ['Slack', 'slack.com', '/logos/slack.png'],
+  ['Google Drive', 'drive.google.com', '/logos/googledrive.svg'], ['Google Sheets', 'sheets.google.com', '/logos/googlesheets.webp'],
+  ['Monday', 'monday.com', '/logos/monday.jpg'], ['Figma', 'figma.com', '/logos/figma.svg'],
+  ['GitHub', 'github.com'], ['Linear', 'linear.app'], ['Jira', 'atlassian.com'], ['Asana', 'asana.com'],
+  ['Notion', 'notion.so'], ['Zendesk', 'zendesk.com'], ['HubSpot', 'hubspot.com'], ['Gmail', 'gmail.com'],
+  ['Snowflake', 'snowflake.com'], ['Airtable', 'airtable.com'], ['Confluence', 'atlassian.com'], ['ClickUp', 'clickup.com'],
+  ['Google Calendar', 'calendar.google.com'], ['Google Docs', 'docs.google.com'], ['Google Forms', 'forms.google.com'],
+  ['Google Cloud', 'cloud.google.com'], ['Supabase', 'supabase.com'], ['Intercom', 'intercom.com'],
+  ['PostHog', 'posthog.com'], ['Postman', 'postman.com'], ['YouTube', 'youtube.com'], ['GitLab', 'gitlab.com'],
+  ['Microsoft Teams', 'teams.microsoft.com'], ['Hugging Face', 'huggingface.co'], ['Amplitude', 'amplitude.com'],
+] as const
+
+type LandingTool = readonly [name: string, domain: string, localSrc?: string]
+
+const toolIconSlugs: Record<string, string> = {
+  Slack: 'slack', 'Google Sheets': 'googlesheets', Monday: 'mondaydotcom', GitHub: 'github', Linear: 'linear',
+  Jira: 'jira', Asana: 'asana', Notion: 'notion', Zendesk: 'zendesk', HubSpot: 'hubspot', Gmail: 'gmail',
+  Snowflake: 'snowflake', Airtable: 'airtable', Confluence: 'confluence', Trello: 'trello', ClickUp: 'clickup',
+  LaunchDarkly: 'launchdarkly', 'Google Calendar': 'googlecalendar', 'Google Docs': 'googledocs',
+  'Google Forms': 'googleforms', 'Google Cloud': 'googlecloud', Supabase: 'supabase', Intercom: 'intercom',
+  Figma: 'figma', PostHog: 'posthog', Postman: 'postman', YouTube: 'youtube', GitLab: 'gitlab',
+  'Microsoft Teams': 'microsoftteams', 'Hugging Face': 'huggingface', Amplitude: 'amplitude',
+}
+
+function landingToolLogo([name, domain, localSrc]: LandingTool): string {
+  // Keep bundled SVGs / trademark-only marks, otherwise use brand vector art.
+  if (localSrc) return localSrc
+  const vectorSlug = toolIconSlugs[name]
+  return vectorSlug ? `https://cdn.simpleicons.org/${vectorSlug}` : `https://www.google.com/s2/favicons?domain=${domain}&sz=256`
+}
+
+function ToolCarouselRow({ tools, reverse = false }: { tools: readonly LandingTool[]; reverse?: boolean }) {
+  const repeated = [...tools, ...tools]
+  return (
+    <div className="sl-l-tool-track-clip">
+      <div className={`sl-l-tool-track${reverse ? ' sl-l-tool-track--reverse' : ''}`}>
+        {repeated.map((tool, index) => {
+          const [name] = tool
+          return (
+          <div className="sl-l-tool-chip" key={`${name}-${index}`} aria-hidden={index >= tools.length}>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={landingToolLogo(tool)} alt={index < tools.length ? name : ''} />
+            <span>{name}</span>
+          </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
 export default async function Home() {
   // Signed-in visitors go straight to the app; everyone else sees the landing.
   // If Supabase isn't configured, the public page still renders.
@@ -137,17 +212,17 @@ export default async function Home() {
 
       <section className="sl-l-wrap sl-l-hero">
         <div>
-          <div className="sl-l-eyebrow sl-l-rise">— the AI agent workspace</div>
+          <div className="sl-l-eyebrow sl-l-rise">— AI that learns how your business works</div>
           <h1 className="sl-l-h1 sl-l-rise">
-            Agents that <em>show their work</em>.
+            AI that knows <em>your business.</em>
           </h1>
           <p className="sl-l-lede sl-l-rise sl-l-rise--2">
-            Sublime is where you build AI agents, connect them to the tools you already use, and read
-            every run — each tool call, each result, each error, in plain sight.
+            Connect the tools your team already uses. Sublime reconstructs how work gets done, then powers
+            agents and workflows that deliver useful outcomes from day one.
           </p>
           <div className="sl-l-cta-row sl-l-rise sl-l-rise--2">
             <Link href="/auth/signup" className="sl-l-btn sl-l-btn--dark">
-              Create your first agent →
+              Start building →
             </Link>
             <Link href="/auth/login" className="sl-l-btn sl-l-btn--ghost">
               Sign in
@@ -163,13 +238,23 @@ export default async function Home() {
         <ProductShot />
       </section>
 
+      <section className="sl-l-logo-cloud" aria-labelledby="tools-heading">
+        <div className="sl-l-tool-carousel" aria-label={`${integrationTools.length} available integration tools`}>
+          <ToolCarouselRow tools={integrationTools.slice(0, 16)} />
+          <ToolCarouselRow tools={integrationTools.slice(16)} reverse />
+        </div>
+        <div className="sl-l-wrap sl-l-logo-cloud-heading">
+          <h2 id="tools-heading">All your tools in <em>one place.</em></h2>
+          <p>One connected knowledge layer across the systems your team already trusts.</p>
+        </div>
+      </section>
+
       <section id="features" className="sl-l-section">
         <div className="sl-l-wrap">
           <div className="sl-l-eyebrow">— what you get</div>
-          <h2 className="sl-l-section-h">The whole story of every run.</h2>
+          <h2 className="sl-l-section-h sl-l-big-statement">Builds immediately.<br /><em>Delivers from day one.</em></h2>
           <p className="sl-l-section-sub">
-            Sublime keeps agents legible: what they were asked, which tools they touched, what came back, and
-            what to do next.
+            No migration project or technical setup. Connect your business tools and Sublime handles the rest.
           </p>
           <div className="sl-l-feature-grid">
             <div className="sl-l-feature">
@@ -178,8 +263,8 @@ export default async function Home() {
               </span>
               <h3>Build agents in minutes</h3>
               <p>
-                Describe the objective in plain words. Attach reusable skills for tone, method, or format. Set a
-                schedule, a webhook, or run it by hand.
+                Describe the outcome in plain language. Sublime creates the agent, its instructions, delivery format,
+                integrations, and schedule.
               </p>
             </div>
             <div className="sl-l-feature">
@@ -188,8 +273,8 @@ export default async function Home() {
               </span>
               <h3>Connect the tools you already use</h3>
               <p>
-                Gmail, Slack, HubSpot, Notion — through MCP servers and Pipedream connections scoped to your
-                workspace. You approve every connection.
+                Historical backfill and live events build a practical understanding of customers, projects,
+                decisions, bottlenecks, and ownership.
               </p>
             </div>
             <div className="sl-l-feature">
@@ -198,8 +283,8 @@ export default async function Home() {
               </span>
               <h3>Read every run</h3>
               <p>
-                A timeline of tool calls, outputs, and errors for every execution. Ask a follow-up question and
-                get an answer grounded in what actually happened.
+                Every run shows its evidence, tool calls, decisions, errors, and finished artifact—so teams can trust
+                the work and improve it.
               </p>
             </div>
           </div>
@@ -209,46 +294,63 @@ export default async function Home() {
       <section id="how" className="sl-l-section sl-l-section--blue">
         <div className="sl-l-wrap">
           <div className="sl-l-eyebrow">— how it works</div>
-          <h2 className="sl-l-section-h">From idea to audited run.</h2>
+          <h2 className="sl-l-section-h">Automate your work in <em>minutes.</em></h2>
           <div className="sl-l-steps">
             <div className="sl-l-step">
               <span className="sl-l-step-num">01</span>
-              <h3>Describe the agent</h3>
-              <p>An objective, a model, and the skills it should follow.</p>
+              <h3>Connect your tools</h3>
+              <p>Authorize the systems your team already uses. No migration required.</p>
             </div>
             <div className="sl-l-step">
               <span className="sl-l-step-num">02</span>
-              <h3>Connect its tools</h3>
-              <p>MCP and Pipedream integrations, approved by you.</p>
+              <h3>Your data takes shape</h3>
+              <p>Facts, relationships, activities, and evidence become one business context.</p>
             </div>
             <div className="sl-l-step">
               <span className="sl-l-step-num">03</span>
-              <h3>Run it</h3>
-              <p>By hand, on a schedule, or from a webhook.</p>
-            </div>
-            <div className="sl-l-step">
-              <span className="sl-l-step-num">04</span>
-              <h3>Ask what happened</h3>
-              <p>Chat with any run. The trace is the evidence.</p>
+              <h3>Your AI goes live</h3>
+              <p>Deploy agents and flows on schedules, webhooks, Slack, or demand.</p>
             </div>
           </div>
         </div>
       </section>
 
-      <section className="sl-l-section sl-l-section--dark">
+      <section className="sl-l-section sl-l-outcome-section">
+        <div className="sl-l-wrap sl-l-outcome-grid">
+          <div>
+            <div className="sl-l-eyebrow">— operational intelligence</div>
+            <h2 className="sl-l-section-h">Not another chatbot.<br /><em>A system that does the work.</em></h2>
+            <p className="sl-l-section-sub">Sublime combines historical reconstruction, live operational learning, and evidence-backed recommendations.</p>
+            <div className="sl-l-outcome-list">
+              <span><Sparkles /> Creates decision-ready artifacts, not skeletal summaries.</span>
+              <span><BrainCircuit /> Remembers the context users provide across future runs.</span>
+              <span><Zap /> Delivers through Slack or Gmail on the cadence you choose.</span>
+            </div>
+          </div>
+          <div className="sl-l-artifact-card">
+            <div className="sl-l-artifact-tabs"><b>REVENUE</b><span>MARKETING</span><span>OPERATIONS</span></div>
+            <h3>Weekly pipeline intelligence</h3>
+            <div className="sl-l-mini-metrics"><b>$1.2M <small>open pipeline</small></b><b>4 <small>deals at risk</small></b><b>92% <small>evidence mapped</small></b></div>
+            <p>Two enterprise opportunities need executive action this week. Security review delays account for 68% of the value at risk.</p>
+            <div className="sl-l-artifact-check">✓ Evidence gathered &nbsp; ✓ Owners assigned &nbsp; ✓ Delivered to #revenue</div>
+          </div>
+        </div>
+      </section>
+
+      <section className="sl-l-section sl-l-section--orange">
         <div className="sl-l-wrap sl-l-cta-band">
           <div>
             <div className="sl-l-eyebrow" style={{ color: 'var(--horizon-200)' }}>
               — get started
             </div>
-            <h2 className="sl-l-section-h">Stop wondering what your agents did.</h2>
-            <p className="sl-l-section-sub">Create a workspace and read your first run today.</p>
+            <h2 className="sl-l-section-h">Start using AI that <em>actually</em> works.</h2>
+            <p className="sl-l-section-sub">Connect your tools and deploy your first business-ready agent today.</p>
           </div>
           <div className="sl-l-cta-row">
-            <Link href="/auth/signup" className="sl-l-btn sl-l-btn--blue">
+            <Link href="/auth/signup" className="sl-l-btn sl-l-btn--dark">
               Create an account →
             </Link>
-            <Link href="/auth/login" className="sl-l-btn sl-l-btn--ghost-inverse">
+            <Link href="/auth/login" className="sl-l-btn sl-l-btn--ghost">
               Sign in
             </Link>
           </div>

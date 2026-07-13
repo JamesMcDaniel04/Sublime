@@ -52,6 +52,15 @@ test('channel allowlist and keyword filter', () => {
   assert.deepEqual(matchSlackFlows(mention, flows).map((m) => m.id), ['f1', 'f3'])
 })
 
+test('workspace binding and user allowlists scope bot workflows', () => {
+  const flows = [
+    flow('workspace-user', { type: 'slack', events: ['app_mention'], bindingId: 'binding-1', users: ['U0USER111'] }),
+    flow('wrong-workspace', { type: 'slack', events: ['app_mention'], bindingId: 'binding-2' }),
+    flow('wrong-user', { type: 'slack', events: ['app_mention'], users: ['U0OTHER'] }),
+  ]
+  assert.deepEqual(matchSlackFlows(mention, flows, 'binding-1').map((match) => match.id), ['workspace-user'])
+})
+
 test('multiple matches all dispatch (each gets its own run)', () => {
   const flows = [
     flow('f1', { type: 'slack', events: ['app_mention'] }),

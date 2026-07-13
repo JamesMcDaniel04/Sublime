@@ -1,6 +1,5 @@
 import { getGranolaApiKey, GRANOLA_BASE_URL } from '@/lib/integrations/granola'
 import { withAuthenticatedApi } from '@/lib/server/api-handler'
-import { ApiError } from '@/lib/server/api-handler'
 
 type GranolaNoteSummary = {
   id: string
@@ -10,7 +9,6 @@ type GranolaNoteSummary = {
 }
 
 export const GET = withAuthenticatedApi(async (_request, auth) => {
-  if (auth.dbUser.role !== 'ADMIN') throw new ApiError('Admin access required', 403, 'FORBIDDEN')
   const resolved = await getGranolaApiKey(auth.organizationId)
   if (!resolved) {
     return { success: false, error: 'Granola is not connected', notes: [] }

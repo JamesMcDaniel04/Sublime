@@ -6,8 +6,11 @@ import { SLACK_EVENT_KINDS, type SlackEventKind, type SlackTriggerInput } from '
 export type SlackTriggerConfig = {
   type: 'slack'
   events: SlackEventKind[]
+  /** Restrict this bot workflow to one verified workspace binding. */
+  bindingId?: string
   command?: string
   channels?: string[]
+  users?: string[]
   keyword?: string
   threadMemory?: boolean
 }
@@ -28,9 +31,13 @@ export function slackTriggerConfigOf(trigger: unknown): SlackTriggerConfig | nul
   return {
     type: 'slack',
     events,
+    ...(typeof trigger.bindingId === 'string' && trigger.bindingId.trim() ? { bindingId: trigger.bindingId.trim() } : {}),
     ...(typeof trigger.command === 'string' && trigger.command.trim() ? { command: trigger.command.trim() } : {}),
     ...(Array.isArray(trigger.channels) && trigger.channels.length
       ? { channels: trigger.channels.filter((entry): entry is string => typeof entry === 'string') }
+      : {}),
+    ...(Array.isArray(trigger.users) && trigger.users.length
+      ? { users: trigger.users.filter((entry): entry is string => typeof entry === 'string') }
       : {}),
     ...(typeof trigger.keyword === 'string' && trigger.keyword.trim() ? { keyword: trigger.keyword.trim() } : {}),
     ...(trigger.threadMemory === true ? { threadMemory: true } : {}),
@@ -42,17 +49,20 @@ const normalizeCommand = (command: string) => command.trim().toLowerCase().repla
 export function matchSlackFlows(
   input: SlackTriggerInput,
   flows: SlackFlowCandidate[],
+  bindingId?: string,
 ): { id: string; config: SlackTriggerConfig }[] {
   const matches: { id: string; config: SlackTriggerConfig }[] = []
   for (const candidate of flows) {
     const config = slackTriggerConfigOf(candidate.trigger)
     if (!config) continue
+    if (config.bindingId && config.bindingId !== bindingId) continue
     if (!config.events.includes(input.kind)) continue
     if (input.kind === 'slash_command') {
       if (!config.command || !input.command) continue
       if (normalizeCommand(config.command) !== normalizeCommand(input.command)) continue
     }
     if (config.channels?.length && !config.channels.includes(input.channel)) continue
+    if (config.users?.length && !config.users.includes(input.user)) continue
     if (config.keyword && !input.text.toLowerCase().includes(config.keyword.toLowerCase())) continue
     matches.push({ id: candidate.id, config })
   }

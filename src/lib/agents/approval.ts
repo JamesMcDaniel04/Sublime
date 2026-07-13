@@ -146,8 +146,6 @@ export async function decideApproval(input: {
     where: { id: input.approvalId, organizationId: input.organizationId },
   })
   if (!approval) throw new Error('Approval not found')
-  const requesterUserId = (approval.payload as { userId?: string } | null)?.userId
-  if (requesterUserId !== input.deciderUserId) throw new Error('Approval not found')
   if (approval.status !== 'pending') {
     // Idempotent replay — but if the fire-and-forget flow resume crashed after
     // the decision was recorded, the run is stranded `waiting`. Hand the caller
@@ -174,6 +172,7 @@ export async function decideApproval(input: {
     })
     const rejectedReply = rejectedDecisionReply(approval.id)
     const resume = await resumeInfoFor(approval.executionId, input.organizationId, rejectedReply)
+    const requesterUserId = (approval.payload as { userId?: string } | null)?.userId
     const resumeFlow = resume ? undefined : await flowResumeInfoFor(approval.executionId, input.organizationId, rejectedReply, requesterUserId)
     return { status: 'rejected', executed: false, ...(resume ? { resume } : {}), ...(resumeFlow ? { resumeFlow } : {}) }
   }

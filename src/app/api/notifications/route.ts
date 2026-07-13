@@ -1,10 +1,9 @@
 import { prisma } from '@/lib/prisma'
 import { withAuthenticatedApi } from '@/lib/server/api-handler'
 
-// Notifications are personal. Null/org-wide rows are administrative legacy
-// events and must not reveal another member's activity.
+// Notifications visible to the user: their own plus org-wide (userId null).
 function scope(organizationId: string, userId: string) {
-  return { organizationId, userId }
+  return { organizationId, OR: [{ userId }, { userId: null }] }
 }
 
 export const GET = withAuthenticatedApi(async (request, auth) => {

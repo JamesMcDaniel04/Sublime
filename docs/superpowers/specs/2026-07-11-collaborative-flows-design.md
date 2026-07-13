@@ -1,6 +1,6 @@
-# Collaborative Flow Editing (FigJam-style) — Design Spec
+# Collaborative Flow Editing (FigJam-style) — Design Spec (DRAFT)
 
-**Date:** 2026-07-11 · **Status:** Implemented and hardened 2026-07-13
+**Date:** 2026-07-11 · **Status:** Draft for review — scheduled after Graph RAG unless reprioritized
 **Ask:** two or more members of the same org build a flow together in real time on a shared scaffold.
 
 ## Current-state facts (verified)
@@ -15,9 +15,9 @@
 
 1. **Channel per flow**: Supabase Realtime channel `flow:<flowId>`, joined by any org member with the builder open. RLS-style guard: join token derived from an authenticated API call that verifies org membership.
 2. **Presence**: avatar stack in the builder header; each client publishes `{ userId, name, selectedNodeId }`. Selected node shows the collaborator's avatar ring + "Sam is editing" badge.
-3. **Patch broadcast**: local mutations are diffed into id-addressed node/edge patches and sent through the authenticated collaboration API. The API applies them against the latest graph with a monotonic `collaborationRevision`; Realtime accelerates delivery, while polling provides reconnect catch-up. Same-node conflicts are visible and topology conflicts fail closed.
+3. **Op broadcast**: every structural mutation (the existing `mutate.ts` calls) is applied locally then broadcast as `{ op, args, baseRev }`. Receivers apply the same pure mutation to their local graph. Because ops are structural (keyed by node id), most concurrent edits commute; conflicting edits to the *same node's data* resolve last-write-wins at field granularity.
 4. **Soft node claims**: selecting a node publishes a claim; other clients render that node read-only-ish (visible warning, still overridable — FigJam-style optimism, not hard locks).
-5. **Server as sequencer (durability)**: `POST /api/flows/[id]/collaboration` applies patches with an atomic monotonic revision. The full-graph PUT remains for compatibility and uses compare-and-swap plus the same revision counter so it cannot silently clobber a concurrent Jam edit.
+5. **Server as sequencer (durability)**: a new `POST /api/flows/[id]/ops` appends ops with a monotonically increasing `rev` (optimistic-concurrency: op carries `baseRev`; stale ops are rebased client-side or rejected with a refetch). The full-graph PUT stays for compat but gains a `rev` guard so it can never silently clobber (fixes today's two-tab data-loss bug even without collab).
 6. **Late joiners / reconnect**: fetch graph + current `rev`, then apply buffered ops.
 7. **Undo/redo**: per-user undo of *their own* ops (inverse ops), FigJam-style; global undo is explicitly out of scope for v1.
 
@@ -26,8 +26,7 @@
 ## v1 scope cut
 
 - ✅ presence avatars, per-node editing indicators, live op sync, rev-guarded saves, conflict toast ("Sam changed this step"), late-join catch-up
-- ✅ viewport cursors plus exact per-node editing indicators
-- ❌ (defer) character-level text cursors, comments/threads, global undo, offline authoring, view-only share links, cross-org guests
+- ❌ (defer) field-level cursors/character co-editing, comments/threads, global undo, offline merge, view-only share links, cross-org guests
 
 ## Open questions for review
 

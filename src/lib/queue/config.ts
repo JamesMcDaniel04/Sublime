@@ -11,6 +11,7 @@ export const QUEUE_NAMES = {
   DEAD_LETTER: 'agent-dead-letter',
   FLOW_EXECUTION: 'flow-execution',
   FLOW_DEAD_LETTER: 'flow-dead-letter',
+  ACTIVITY_BACKFILL: 'activity-backfill',
 } as const
 
 const buildPhase = process.env.NEXT_PHASE === 'phase-production-build'

@@ -8,6 +8,7 @@ import { runAgentExecution } from '@/features/agents/execute-agent'
 import { inlineExecution } from '@/lib/queue/execution-mode'
 import { hashToken, timingSafeEqualHex } from '@/lib/crypto/secrets'
 import { rateLimit } from '@/lib/ratelimit'
+import { agentWebhookEventName, agentWebhookInput } from '@/lib/agents/webhook-input'
 
 export const runtime = 'nodejs'
 export const maxDuration = 1200
@@ -52,10 +53,11 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: false, error: 'Invalid trigger secret' }, { status: 401 })
     }
 
-    const body = await request.json().catch(() => ({})) as { input?: unknown }
+    const body = await request.json().catch(() => ({})) as unknown
     // Skills are composed into the system prompt inside runAgentExecution — pass
     // the raw objective so attached skills aren't applied twice.
-    const input = typeof body.input === 'string' && body.input.trim() ? body.input.trim() : agent.objective
+    const input = agentWebhookInput(body, agent.objective)
+    const eventName = agentWebhookEventName(body, request.headers.get('x-event-type'))
 
     // Attribute the run to the agent's owner when set; otherwise fall back to
     // the org's oldest active member (shared agents have no single owner).
@@ -88,7 +90,7 @@ export async function POST(request: NextRequest) {
           agentTaskId: agent.id,
           status: 'pending',
           input: { prompt: input },
-          trigger: { type: 'webhook' },
+          trigger: { type: 'webhook', ...(eventName ? { event: eventName } : {}) },
           metadata: { title: (metadata.title as string) || agent.description },
           userId: user.id,
           organizationId: agent.organizationId,

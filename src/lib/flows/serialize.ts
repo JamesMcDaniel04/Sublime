@@ -12,7 +12,6 @@ export function serializeFlow(flow: {
   version?: number
   visibility: string
   metadata?: unknown
-  collaborationRevision?: number
   createdAt: Date
   updatedAt: Date
 }) {
@@ -34,7 +33,6 @@ export function serializeFlow(flow: {
     suggested: metadata.suggested === true,
     stepCount,
     version: flow.version ?? 1,
-    collaborationRevision: flow.collaborationRevision ?? 0,
     published,
     // True when the draft differs from what's published (or nothing is published).
     unpublishedChanges: !published || JSON.stringify(flow.publishedGraph) !== JSON.stringify(graph),

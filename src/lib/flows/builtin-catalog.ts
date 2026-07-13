@@ -9,7 +9,7 @@ export type PickerLeaf = {
   mode: 'action' | 'trigger' | 'both'
   stepType?: StepType
   seed?: { agentId?: string; connectionId?: string; toolName?: string; label?: string; variableOp?: VariableOp; dataOp?: DataOp }
-  triggerType?: 'manual' | 'schedule' | 'webhook' | 'signal'
+  triggerType?: 'manual' | 'schedule' | 'webhook' | 'signal' | 'slack'
 }
 
 export type PickerGroup = {
@@ -56,6 +56,7 @@ export const BUILTIN_GROUPS: PickerGroup[] = [
       { id: 'data-join', label: 'Join', description: 'Combine a list into one text value with a separator.', mode: 'action', stepType: 'data', seed: { dataOp: 'join' } },
       { id: 'data-csv-table', label: 'Create CSV table', description: 'Turn a list of records into a CSV table.', mode: 'action', stepType: 'data', seed: { dataOp: 'csvTable' } },
       { id: 'data-html-table', label: 'Create HTML table', description: 'Turn a list of records into an HTML table.', mode: 'action', stepType: 'data', seed: { dataOp: 'htmlTable' } },
+      { id: 'data-slack-message', label: 'Format Slack message', description: 'Turn aggregated records into mrkdwn fallback text and Block Kit sections.', mode: 'action', stepType: 'data', seed: { dataOp: 'slackMessage' } },
       { id: 'data-filter-array', label: 'Filter array', description: 'Keep only the list items that match your conditions.', mode: 'action', stepType: 'data', seed: { dataOp: 'filterArray' } },
       { id: 'data-select', label: 'Select', description: 'Map each list item to a new shape with the fields you choose.', mode: 'action', stepType: 'data', seed: { dataOp: 'select' } },
     ],
@@ -97,6 +98,7 @@ export const TRIGGER_LEAVES: PickerLeaf[] = [
   { id: 'trigger-schedule', label: 'Schedule', description: 'Run on a recurrence you define.', mode: 'trigger', triggerType: 'schedule' },
   { id: 'trigger-webhook', label: 'When an HTTP request is received', description: 'Start when an external system posts to a secret URL.', mode: 'trigger', triggerType: 'webhook' },
   { id: 'trigger-signal', label: 'When a signal fires', description: 'Start from an in-platform event, like another flow completing.', mode: 'trigger', triggerType: 'signal' },
+  { id: 'trigger-slack', label: 'When a Slack message arrives', description: 'Start from mentions, DMs, channel messages, or slash commands.', mode: 'trigger', triggerType: 'slack' },
 ]
 
 export function searchCorpus(leaf: PickerLeaf): string {

@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { rewriteGraphAgentRefs } from '../provision-plan'
+import { resolveGraphToolConnections, rewriteGraphAgentRefs } from '../provision-plan'
 import type { FlowGraph } from '@/lib/flows/graph'
 
 const g: FlowGraph = {
@@ -22,4 +22,26 @@ test('rewrites matching agent refs, leaves other nodes untouched, does not mutat
 
 test('throws on an unresolved agent ref', () => {
   assert.throws(() => rewriteGraphAgentRefs(g, {}), /unresolved agent/i)
+})
+
+test('template tool placeholders prefer Klavis and adopt its discovered tool name', () => {
+  const graph: FlowGraph = {
+    nodes: [{ id: 'sf', type: 'tool', data: { connectionId: 'template:salesforce', toolName: 'salesforce_create_record', args: '{}' } }],
+    edges: [],
+  }
+  const out = resolveGraphToolConnections(graph, [
+    { id: 'nango:salesforce', name: 'Salesforce', tools: [{ name: 'salesforce_create_record', description: '' }] },
+    { id: 'klavis:sf-row', name: 'Salesforce', tools: [{ name: 'create_record', description: '' }] },
+  ])
+  const node = out.nodes[0] as any
+  assert.equal(node.data.connectionId, 'klavis:sf-row')
+  assert.equal(node.data.toolName, 'create_record')
+})
+
+test('template tool placeholders fail clearly when the integration is disconnected', () => {
+  const graph: FlowGraph = {
+    nodes: [{ id: 'sf', type: 'tool', data: { connectionId: 'template:salesforce', toolName: 'create_record', args: '{}' } }],
+    edges: [],
+  }
+  assert.throws(() => resolveGraphToolConnections(graph, []), /Connect salesforce/)
 })

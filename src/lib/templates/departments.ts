@@ -9,6 +9,10 @@ export type Department = 'sales' | 'engineering' | 'marketing' | 'finance' | 'cs
 /** Canonical department display/sort order. */
 export const DEPARTMENTS = ['sales', 'engineering', 'marketing', 'finance', 'csm', 'general'] as const
 
+/** User-facing catalogue filters. `general` is a BI fallback classification,
+ * not a product department tab. */
+export const PRODUCT_DEPARTMENTS = ['sales', 'engineering', 'marketing', 'finance', 'csm'] as const
+
 /** Anchor tool (canonical slug) → the departments it implies. */
 const ANCHOR_DEPARTMENTS: Record<string, Department[]> = {
   github: ['engineering'],
