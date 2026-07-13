@@ -110,7 +110,6 @@ export async function GET(request: Request) {
     } catch (error) {
       apiLogger.error('cron/dispatch: slack session sweep failed', { error: capError(error) })
     }
-
     // Best-effort: drop claimed Slack dedup rows old enough that Slack would
     // no longer retry the same event_id/trigger_id — keeps the table bounded.
     await pruneSlackProcessedEvents().catch((error) => {
