@@ -29,6 +29,9 @@ export const nodeIds = {
   signal: (id: string) => `signal:${id}`,
   run: (id: string) => `run:${id}`,
   agent: (id: string) => `agent:${id}`,
+  activity: (id: string) => `activity:${id}`,
+  actor: (source: string, ref: string) => `actor:${source}:${ref}`,
+  entity: (source: string, type: string, ref: string) => `entity:${source}:${type}:${ref}`,
 }
 const nid = nodeIds
 

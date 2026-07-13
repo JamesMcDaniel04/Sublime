@@ -20,6 +20,9 @@ export type NodeType =
   | 'agent'
   | 'run'
   | 'insight'
+  | 'actor'
+  | 'activity'
+  | 'entity'
 
 /** Who may see a node. 'shared' = the whole org; 'private' = only its owner. */
 export type NodeVisibility = 'shared' | 'private'
@@ -65,6 +68,13 @@ export type EdgeRelation =
   | 'triggered_run'
   | 'ran_agent'
   | 'belongs_to' // opportunity/stakeholder → account
+  | 'performed' // actor → activity
+  | 'on' // activity → entity
+  | 'relates_to' // activity → account/opportunity
+  | 'participant' // activity → actor
+  | 'preceded_by' // activity → prior activity on same entity (state chains)
+  | 'evidence' // insight(inferred_pattern) → activity
+  | 'based_on' // insight(recommendation) → insight(inferred_pattern)
 
 export interface GraphEdge {
   organizationId: string
