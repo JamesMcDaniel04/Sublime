@@ -8,6 +8,7 @@ import { deadLetterFromJob } from '@/lib/queue/dead-letter'
 import { deadLetterFromFlowJob } from '@/lib/queue/flow-dead-letter'
 import { registerAgentSchedules } from '@/lib/workers/agent-schedule-registrar'
 import { initSentry, captureError, flushErrorReporting } from '@/lib/observability/sentry'
+import { executeActivityBackfillJob } from '@/lib/activity/backfill'
 
 class WorkerRuntime {
   private server = Fastify({ logger: true })
@@ -21,6 +22,7 @@ class WorkerRuntime {
     // Flow execution: same worker pool, its own queue and dead-letter target
     // (flowRun rows, not agentExecution rows) — see flow-dead-letter.ts.
     { queue: QUEUE_NAMES.FLOW_EXECUTION, handler: executeFlowJob, onFailed: deadLetterFromFlowJob(QUEUE_NAMES.FLOW_EXECUTION) },
+    { queue: QUEUE_NAMES.ACTIVITY_BACKFILL, handler: executeActivityBackfillJob, onFailed: () => undefined },
   ]
   private workers = this.workerSpecs.map(
     (spec) => new Worker(spec.queue, spec.handler, { ...workerConfig, connection: getRedisConnection() }),
