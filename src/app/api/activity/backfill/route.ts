@@ -16,7 +16,7 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
     throw new ApiError(`source ${data.source} does not support backfill`, 400, 'UNSUPPORTED_ACTIVITY_SOURCE')
   }
   const result = await startActivityBackfill({ organizationId: auth.organizationId, ...data })
-  return { success: true, ...result }
+  return Response.json({ success: true, ...result }, { status: 202 })
 })
 
 export const GET = withAuthenticatedApi(async (_request, auth) => {
