@@ -6,6 +6,7 @@ import { createQueue, QUEUE_NAMES, workersEnabled } from '@/lib/queue/config'
 import { getActivitySource } from './registry'
 import { ingestActivity } from './ingest'
 import type { BackfillBatch, BackfillWindow, NormalizedActivity } from './types'
+import { inferActivityPatterns } from '@/lib/intelligence/infer-patterns'
 
 export const INLINE_BACKFILL_MAX_BATCHES = 15
 
@@ -73,6 +74,9 @@ export async function runActivityBackfill(backfillId: string, opts: { maxBatches
       ...(result.status === 'failed' ? { error: 'backfill batch failed — see logs; retry resumes from checkpoint' } : {}),
     },
   })
+  if (result.status === 'done') {
+    void inferActivityPatterns(row.organizationId).catch(() => undefined)
+  }
 }
 
 export async function startActivityBackfill(params: {
