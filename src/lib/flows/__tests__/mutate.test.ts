@@ -25,9 +25,10 @@ test('insertAgentAfter appends a node and links the trigger to it', () => {
 test('insertAgentAfter splices between an existing pair, healing the chain', () => {
   // trigger -> n1 ; insert after trigger => trigger -> new -> n1
   const base = insertAgentAfter(emptyGraph(), 'trigger', 'a1').graph
+  const oldNodeId = base.nodes.find((node) => node.type === 'agent')!.id
   const { graph, nodeId } = insertAgentAfter(base, 'trigger', 'a2')
   assert.ok(graph.edges.some((e) => e.source === 'trigger' && e.target === nodeId))
-  assert.ok(graph.edges.some((e) => e.source === nodeId && e.target === 'n2')) // new -> old n1 (id n2)
+  assert.ok(graph.edges.some((e) => e.source === nodeId && e.target === oldNodeId))
 })
 
 test('deleteNode heals predecessor→successor and drops the node', () => {

@@ -19,14 +19,16 @@ export const DELETE = withAuthenticatedApi(async (request, auth) => {
   try {
     response = await client.listConnections({
       integrationId,
-      tags: { [NANGO_ORG_TAG]: auth.organizationId },
+      tags: { [NANGO_ORG_TAG]: auth.organizationId, user_id: auth.dbUser.id },
     })
   } catch (error) {
     throw nangoApiError(error)
   }
 
   const matching = (response.connections ?? []).filter(
-    (connection) => connection.provider_config_key === integrationId,
+    (connection) =>
+      connection.provider_config_key === integrationId &&
+      connection.end_user?.id === auth.dbUser.id,
   )
   if (!matching.length) throw new ApiError('Connected account not found', 404, 'NOT_FOUND')
 
@@ -42,6 +44,7 @@ export const DELETE = withAuthenticatedApi(async (request, auth) => {
   await prisma.nangoConnection.deleteMany({
     where: {
       organizationId,
+      userId: auth.dbUser.id,
       connectionId: { in: matching.map((connection) => connection.connection_id) },
     },
   })
@@ -55,7 +58,7 @@ export const DELETE = withAuthenticatedApi(async (request, auth) => {
   const affectedCapability = capabilityForProviderConfigKey(integrationId)
   if (affectedCapability) {
     const stillConnectedRows = await prisma.nangoConnection.findMany({
-      where: { organizationId, status: 'connected' },
+      where: { organizationId, userId: auth.dbUser.id, status: 'connected' },
       select: { providerConfigKey: true },
     })
     const stillConnectedCapabilities = [

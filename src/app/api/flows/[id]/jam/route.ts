@@ -13,9 +13,12 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
   if (!id) throw new ApiError('Flow id is required')
   const flow = await prisma.flow.findFirst({
     where: { id, organizationId: auth.organizationId },
-    select: { id: true, name: true },
+    select: { id: true, name: true, visibility: true },
   })
   if (!flow) throw new ApiError('Flow not found', 404, 'NOT_FOUND')
+  if (flow.visibility !== 'shared') {
+    throw new ApiError('Make this flow shared before inviting teammates to a Jam', 409, 'PRIVATE_FLOW')
+  }
 
   const { userIds } = z.object({ userIds: z.array(z.string().min(1)).min(1).max(50) }).parse(await request.json())
   // Only active members of THIS org can be invited — a foreign id is dropped.

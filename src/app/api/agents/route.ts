@@ -42,7 +42,9 @@ const agentSchema = z.object({
   integrations: z.array(z.string()).default([]),
   skills: z.array(z.string()).default([]),
   folder: z.string().trim().max(60).nullish(),
-  visibility: z.enum(['shared', 'private']).default('shared'),
+  // Kept in the request shape for backward-compatible clients; content is
+  // always stored personal and owner-scoped by the server.
+  visibility: z.enum(['shared', 'private']).default('private'),
   icon: z.string().trim().max(8).optional(),
   // Lets this agent delegate to other agents via the run_agent tool (pipelines).
   allowSubagents: z.boolean().optional(),
@@ -93,7 +95,7 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
       schedule: data.schedule,
       status: 'ACTIVE',
       folder: data.folder || null,
-      visibility: data.visibility,
+      visibility: 'private',
       goal: data.goal?.trim() ? data.goal.trim() : null,
       organizationId: auth.organizationId,
       userId: auth.dbUser.id,
@@ -134,7 +136,7 @@ export const PUT = withAuthenticatedApi(async (request, auth) => {
       ...(body.priority !== undefined && { priority: body.priority.toUpperCase() }),
       ...(body.schedule !== undefined && { schedule: body.schedule }),
       ...(body.folder !== undefined && { folder: body.folder || null }),
-      ...(body.visibility !== undefined && { visibility: body.visibility }),
+      ...(body.visibility !== undefined && { visibility: 'private' }),
       ...(body.goal !== undefined && { goal: body.goal?.trim() ? body.goal.trim() : null }),
       metadata: {
         ...metadata,

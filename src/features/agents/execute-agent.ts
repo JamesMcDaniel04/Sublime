@@ -258,7 +258,7 @@ async function loadTools(organizationId: string, providers: string[], ownerUserI
   const klavisProviders = providers
 
   if (process.env.KLAVIS_API_KEY && klavisProviders.length > 0) {
-    const klavisGroups = await loadKlavisPlaneGroups(organizationId, {
+    const klavisGroups = await loadKlavisPlaneGroups(organizationId, ownerUserId, {
       agentTypes: klavisProviders.map((provider) => provider.toUpperCase()),
     })
     for (const group of klavisGroups) {

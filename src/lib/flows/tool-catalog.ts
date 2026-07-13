@@ -43,7 +43,7 @@ export async function loadFlowToolCatalog(
   const wantPlane = (plane: 'klavis' | 'mcp' | 'native' | 'nango') => !wanted || wanted.planes.has(plane)
 
   const [klavis, mcp, native, nango] = await Promise.all([
-    wantPlane('klavis') ? loadKlavisPlaneGroups(organizationId).catch(() => [] as ToolPlaneGroup[]) : [],
+    wantPlane('klavis') ? loadKlavisPlaneGroups(organizationId, options.userId).catch(() => [] as ToolPlaneGroup[]) : [],
     wantPlane('mcp') && (!wanted || wanted.mcpIds.length)
       ? loadMcpConnectionPlaneGroups(organizationId, options.userId, {
           connectionIds: wanted?.mcpIds,

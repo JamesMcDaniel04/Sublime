@@ -18,10 +18,10 @@ const listKey = (connectionId: string) => `strata:servers:${connectionId}`
 
 export type StrataConnection = { id: string; name: string; serverUrl: string; authType: string; authConfig: unknown }
 
-/** The org's active Strata MCP connection, if one exists. */
-export async function getOrgStrataConnection(organizationId: string): Promise<StrataConnection | null> {
+/** The acting user's active Strata MCP connection, if one exists. */
+export async function getUserStrataConnection(organizationId: string, userId: string): Promise<StrataConnection | null> {
   return prisma.mcpConnection.findFirst({
-    where: { organizationId, isActive: true, serverUrl: { contains: 'strata.klavis.ai' } },
+    where: { organizationId, userId, isActive: true, serverUrl: { contains: 'strata.klavis.ai' } },
     orderBy: { createdAt: 'desc' },
     select: { id: true, name: true, serverUrl: true, authType: true, authConfig: true },
   })

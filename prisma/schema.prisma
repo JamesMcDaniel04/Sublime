@@ -683,6 +683,9 @@ model Flow {
   userId         String?
   // Freeform per-flow metadata grab-bag (e.g. behavioral-intelligence provenance).
   metadata       Json?
+  // Monotonic sequencer for Flow Jam patches. Unlike updatedAt, this changes
+  // only when the collaborative draft graph changes and is safe to compare.
+  collaborationRevision Int @default(0)
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 

@@ -83,7 +83,7 @@ function serializeConnection(conn: {
 
 export const GET = withAuthenticatedApi(async (_request, auth) => {
   const connections = await prisma.mcpConnection.findMany({
-    where: { organizationId: auth.organizationId, OR: [{ userId: null }, { userId: auth.dbUser.id }] },
+    where: { organizationId: auth.organizationId, userId: auth.dbUser.id },
     orderBy: { createdAt: 'desc' },
   })
 
@@ -113,6 +113,7 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
   const connection = await prisma.mcpConnection.create({
     data: {
       organizationId: auth.organizationId,
+      userId: auth.dbUser.id,
       name: data.name,
       description: data.description ?? null,
       serverUrl: data.serverUrl,
@@ -148,7 +149,7 @@ export const PUT = withAuthenticatedApi(async (request, auth) => {
     .parse(await request.json())
 
   const existing = await prisma.mcpConnection.findFirst({
-    where: { id: body.id, organizationId: auth.organizationId },
+    where: { id: body.id, organizationId: auth.organizationId, userId: auth.dbUser.id },
   })
   if (!existing) throw new ApiError('MCP connection not found', 404, 'NOT_FOUND')
   if (existing.provider) {
@@ -218,7 +219,7 @@ export const DELETE = withAuthenticatedApi(async (request, auth) => {
   }
 
   const existing = await prisma.mcpConnection.findFirst({
-    where: { id, organizationId: auth.organizationId },
+    where: { id, organizationId: auth.organizationId, userId: auth.dbUser.id },
   })
   if (!existing) throw new ApiError('MCP connection not found', 404, 'NOT_FOUND')
   if (existing.provider) {

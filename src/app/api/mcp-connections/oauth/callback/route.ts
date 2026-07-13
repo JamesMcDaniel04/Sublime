@@ -97,7 +97,7 @@ export async function GET(request: NextRequest) {
     let connectionRef: string
     if (payload.connectionId) {
       const updated = await prisma.mcpConnection.updateMany({
-        where: { id: payload.connectionId, organizationId: payload.organizationId },
+        where: { id: payload.connectionId, organizationId: payload.organizationId, userId: payload.userId },
         data: {
           authType: 'oauth2',
           authConfig: authConfig as Prisma.InputJsonValue,
@@ -111,6 +111,7 @@ export async function GET(request: NextRequest) {
       const created = await prisma.mcpConnection.create({
         data: {
           organizationId: payload.organizationId,
+          userId: payload.userId,
           name: payload.name,
           serverUrl: payload.serverUrl,
           authType: 'oauth2',

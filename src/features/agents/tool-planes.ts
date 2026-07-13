@@ -84,11 +84,9 @@ export function toolName(provider: string, name: string) {
   return `${provider}_${name}`.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 64)
 }
 
-/** Shared connection visibility: org-shared rows plus the acting user's own. */
-export function mcpConnectionScope(organizationId: string, userId?: string) {
-  return userId
-    ? { organizationId, isActive: true, OR: [{ userId: null }, { userId }] }
-    : { organizationId, isActive: true }
+/** Personal connection visibility: credentials never fall back to another user. */
+export function mcpConnectionScope(organizationId: string, userId?: string | null) {
+  return { organizationId, isActive: true, userId: userId ?? '__no_user__' }
 }
 
 // MCP tool lists are near-static, but discovery re-ran (initialize + tools/list
@@ -120,14 +118,17 @@ const EMPTY_SCHEMA = { type: 'object', properties: {} }
  */
 export async function loadKlavisPlaneGroups(
   organizationId: string,
+  userId: string | null | undefined,
   options: { agentTypes?: string[] } = {},
 ): Promise<ToolPlaneGroup[]> {
+  if (!userId) return []
   if (!process.env.KLAVIS_API_KEY) return []
   if (options.agentTypes && options.agentTypes.length === 0) return []
   const client = new KlavisClient({ apiKey: process.env.KLAVIS_API_KEY, platformName: 'sublime' })
   const agents = await prisma.mCPAgent.findMany({
     where: {
       organizationId,
+      userId,
       isActive: true,
       ...(options.agentTypes ? { agentType: { in: options.agentTypes } } : {}),
     },
@@ -388,6 +389,7 @@ export async function loadFlowPlaneGroups(
   const flows = await prisma.flow.findMany({
     where: {
       organizationId,
+      userId,
       status: 'ACTIVE',
       ...(options.flowIds?.length ? { id: { in: options.flowIds } } : {}),
     },
@@ -474,7 +476,7 @@ export async function resolveFlowToolExecutor(params: {
 
   if (plane === 'mcp') {
     const conn = await prisma.mcpConnection.findFirst({
-      where: { id: ref, organizationId, isActive: true },
+      where: { id: ref, organizationId, userId, isActive: true },
     })
     if (!conn) throw new Error('The selected connection no longer exists — pick another in the step config.')
     const fresh = await ensureFreshConnectionToken(conn)
@@ -488,7 +490,7 @@ export async function resolveFlowToolExecutor(params: {
 
   if (plane === 'klavis') {
     if (!process.env.KLAVIS_API_KEY) throw new Error('Klavis is not configured for this workspace.')
-    const agent = await prisma.mCPAgent.findFirst({ where: { id: ref, organizationId, isActive: true } })
+    const agent = await prisma.mCPAgent.findFirst({ where: { id: ref, organizationId, userId, isActive: true } })
     if (!agent) throw new Error('The selected Klavis connection no longer exists — pick another in the step config.')
     const client = new KlavisClient({ apiKey: process.env.KLAVIS_API_KEY, platformName: 'sublime' })
     return {
@@ -518,7 +520,7 @@ export async function resolveFlowToolExecutor(params: {
   if (plane === 'flow') {
     // status: 'ACTIVE' mirrors loadFlowPlaneGroups + every sibling plane —
     // a DRAFT/DISABLED flow must not be executable as a tool.
-    const flow = await prisma.flow.findFirst({ where: { id: ref, organizationId, status: 'ACTIVE' } })
+    const flow = await prisma.flow.findFirst({ where: { id: ref, organizationId, userId, status: 'ACTIVE' } })
     if (!flow) throw new Error('The selected flow no longer exists — pick another in the step config.')
     return {
       provider: 'flow',

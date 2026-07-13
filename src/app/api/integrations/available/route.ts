@@ -1,7 +1,7 @@
 import { prisma } from '@/lib/prisma'
 import { withAuthenticatedApi } from '@/lib/server/api-handler'
 import { granolaConfigured } from '@/lib/integrations/granola'
-import { getOrgStrataConnection, getStrataServerNames, isStrataUrl, STRATA_KEY_PREFIX } from '@/lib/mcp/strata'
+import { getUserStrataConnection, getStrataServerNames, isStrataUrl, STRATA_KEY_PREFIX } from '@/lib/mcp/strata'
 import {
   BUILTIN_CONNECTORS,
   fromNangoProviderKey,
@@ -32,20 +32,20 @@ export const GET = withAuthenticatedApi(async (_request, auth) => {
   const organizationId = auth.organizationId
   const [connectionsRaw, hasGranola, nango, klavis, strataConnection] = await Promise.all([
     prisma.mcpConnection.findMany({
-      where: { organizationId, isActive: true },
+      where: { organizationId, userId: auth.dbUser.id, isActive: true },
       select: { id: true, name: true, serverUrl: true },
       orderBy: { createdAt: 'desc' },
     }),
     granolaConfigured(organizationId),
     prisma.nangoConnection.findMany({
-      where: { organizationId, status: 'connected' },
+      where: { organizationId, userId: auth.dbUser.id, status: 'connected' },
       select: { providerConfigKey: true },
     }),
     prisma.mCPAgent.findMany({
-      where: { organizationId, isActive: true },
+      where: { organizationId, userId: auth.dbUser.id, isActive: true },
       select: { agentType: true },
     }),
-    getOrgStrataConnection(organizationId),
+    getUserStrataConnection(organizationId, auth.dbUser.id),
   ])
 
   // The Strata connection is surfaced as individual per-server chips below, not

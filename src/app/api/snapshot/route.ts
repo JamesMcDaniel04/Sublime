@@ -46,7 +46,7 @@ export const GET = withAuthenticatedApi(async (_request, auth) => {
       take: 50,
     }),
     prisma.agentExecution.aggregate({
-      where: { organizationId: auth.organizationId, startedAt: { gte: monthStart } },
+      where: { organizationId: auth.organizationId, userId: auth.dbUser.id, startedAt: { gte: monthStart } },
       _sum: { inputTokens: true, outputTokens: true },
       _count: true,
     }),

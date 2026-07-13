@@ -6,9 +6,15 @@ export type StepType = Exclude<FlowNode['type'], 'trigger'>
 /** Generate a node id not already used in the graph. */
 function newNodeId(graph: FlowGraph, prefix = 'n'): string {
   const ids = new Set(graph.nodes.map((node) => node.id))
-  let index = graph.nodes.length + 1
-  while (ids.has(`${prefix}${index}`)) index += 1
-  return `${prefix}${index}`
+  // Sequential ids collide when two Jam participants insert from the same
+  // graph revision. Random ids make independently-created nodes mergeable.
+  const randomId = () =>
+    typeof globalThis.crypto?.randomUUID === 'function'
+      ? globalThis.crypto.randomUUID().replace(/-/g, '').slice(0, 12)
+      : `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`
+  let id = `${prefix}_${randomId()}`
+  while (ids.has(id)) id = `${prefix}_${randomId()}`
+  return id
 }
 
 function edgeId(source: string, target: string, branch?: string): string {

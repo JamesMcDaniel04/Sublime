@@ -13,7 +13,6 @@ import {
   Folder,
   ImagePlus,
   Loader2,
-  Lock,
   LogOut,
   Play,
   Plug,
@@ -205,30 +204,28 @@ export function Sidebar() {
   }
 
   const sections = useMemo(() => {
-    const shared = agents.filter((agent) => agent.visibility !== 'private')
     const folders = new Map<string, Agent[]>()
-    for (const agent of shared) {
+    for (const agent of agents) {
       const key = agent.folder?.trim() || 'General'
       const bucket = folders.get(key)
       if (bucket) bucket.push(agent)
       else folders.set(key, [agent])
     }
     return {
-      workspace: [...folders.entries()].sort(([a], [b]) => a.localeCompare(b)),
-      private: agents.filter((agent) => agent.visibility === 'private'),
+      folders: [...folders.entries()].sort(([a], [b]) => a.localeCompare(b)),
     }
   }, [agents])
 
   const creditPct = usage ? Math.min(100, Math.round(((usage.inputTokens + usage.outputTokens) / CREDIT_TOKENS) * 100)) : 0
 
-  const moveAgent = async (agentId: string, target: { folder: string | null; visibility: 'shared' | 'private' }) => {
+  const moveAgent = async (agentId: string, target: { folder: string | null }) => {
     const agent = agents.find((candidate) => candidate.id === agentId)
     if (!agent) return
-    if ((agent.folder || null) === target.folder && agent.visibility === target.visibility) return
+    if ((agent.folder || null) === target.folder) return
     await fetch('/api/agents', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id: agentId, folder: target.folder, visibility: target.visibility }),
+      body: JSON.stringify({ id: agentId, folder: target.folder }),
     })
     notifyAgentsChanged()
   }
@@ -267,7 +264,7 @@ export function Sidebar() {
     notifyAgentsChanged()
   }
 
-  const dropProps = (key: string, target: { folder: string | null; visibility: 'shared' | 'private' }) => ({
+  const dropProps = (key: string, target: { folder: string | null }) => ({
     onDragOver: (event: React.DragEvent) => {
       event.preventDefault()
       setDragOver(key)
@@ -442,9 +439,9 @@ export function Sidebar() {
               'flex items-center justify-between rounded-lg px-2 pb-1 pt-3',
               dragOver === 'workspace' && 'bg-indigo-50',
             )}
-            {...dropProps('workspace', { folder: null, visibility: 'shared' })}
+            {...dropProps('workspace', { folder: null })}
           >
-            <span className="text-xs font-semibold uppercase tracking-wide text-gray-400">Workspace</span>
+            <span className="text-xs font-semibold uppercase tracking-wide text-gray-400">My agents</span>
             <Button
               size="icon"
               variant="ghost"
@@ -455,7 +452,7 @@ export function Sidebar() {
               <Plus className="h-3.5 w-3.5" />
             </Button>
           </div>
-          {sections.workspace.map(([folder, folderAgents]) => {
+          {sections.folders.map(([folder, folderAgents]) => {
             const key = `ws:${folder}`
             const isCollapsed = collapsed[key]
             const isGeneral = folder === 'General'
@@ -467,7 +464,7 @@ export function Sidebar() {
                     dragOver === key && 'bg-indigo-50',
                   )}
                   onClick={() => setCollapsed((current) => ({ ...current, [key]: !current[key] }))}
-                  {...dropProps(key, { folder: isGeneral ? null : folder, visibility: 'shared' })}
+                  {...dropProps(key, { folder: isGeneral ? null : folder })}
                 >
                   {isCollapsed ? <ChevronRight className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
                   <Folder className="h-3.5 w-3.5 text-gray-400" />
@@ -479,18 +476,6 @@ export function Sidebar() {
             )
           })}
 
-          <div
-            className={cn(
-              'flex items-center gap-1.5 rounded-lg px-2 pb-1 pt-3 text-xs font-semibold uppercase tracking-wide text-gray-400',
-              dragOver === 'private' && 'bg-indigo-50',
-            )}
-            {...dropProps('private', { folder: null, visibility: 'private' })}
-          >
-            <Lock className="h-3 w-3" /> Private
-          </div>
-          {sections.private.length > 0
-            ? <div className="ml-3 border-l pl-1">{sections.private.map(renderAgent)}</div>
-            : <p className="px-2 py-1 text-xs text-gray-400">Drag agents here to make them private.</p>}
         </div>
 
         {/* Footer: usage + user */}

@@ -144,7 +144,7 @@ const emptyDraft: AgentDraft = {
   skills: [],
   icon: '🤖',
   folder: '',
-  visibility: 'shared',
+  visibility: 'private',
   allowSubagents: false,
   subagentIds: [],
   goal: '',
@@ -461,7 +461,7 @@ export function AgentConfigForm({
       skills: source.skills || [],
       icon: source.icon || emptyDraft.icon,
       folder: source.folder || '',
-      visibility: source.visibility || 'shared',
+      visibility: 'private',
       allowSubagents: source.allowSubagents === true,
       subagentIds: Array.isArray(source.subagentIds) ? source.subagentIds : [],
       goal: source.goal || '',
@@ -650,7 +650,7 @@ export function AgentConfigForm({
         <Label>Description</Label>
         <Input value={draft.description} onChange={(event) => setDraft({ ...draft, description: event.target.value })} />
       </div>
-      <div className="grid grid-cols-2 gap-4">
+      <div>
         <div>
           <Label>Folder</Label>
           <Input
@@ -658,16 +658,6 @@ export function AgentConfigForm({
             value={draft.folder}
             onChange={(event) => setDraft({ ...draft, folder: event.target.value })}
           />
-        </div>
-        <div>
-          <Label>Visibility</Label>
-          <Select value={draft.visibility} onValueChange={(visibility: AgentDraft['visibility']) => setDraft({ ...draft, visibility })}>
-            <SelectTrigger><SelectValue /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="shared">Workspace</SelectItem>
-              <SelectItem value="private">Private</SelectItem>
-            </SelectContent>
-          </Select>
         </div>
       </div>
       <div>

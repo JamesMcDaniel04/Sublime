@@ -11,7 +11,7 @@ import { toast } from 'sonner'
 import { Loader2, Users } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
-import type { JamPeer } from './use-flow-jam'
+import type { JamConnectionState, JamPeer } from './use-flow-jam'
 
 type Member = { id: string; name: string; email?: string | null; isSelf: boolean }
 
@@ -23,7 +23,14 @@ export function jamAvatarTone(userId: string) {
   return AVATAR_TONES[Math.abs(hash) % AVATAR_TONES.length]
 }
 
-export function JamButton({ flowId, peers }: { flowId: string; peers: JamPeer[] }) {
+const CONNECTION_LABEL: Record<JamConnectionState, string> = {
+  connecting: 'Connecting',
+  connected: 'Live',
+  degraded: 'Live edits via fallback',
+  offline: 'Reconnecting',
+}
+
+export function JamButton({ flowId, peers, connectionState }: { flowId: string; peers: JamPeer[]; connectionState: JamConnectionState }) {
   const [open, setOpen] = useState(false)
   const [members, setMembers] = useState<Member[]>([])
   const [selected, setSelected] = useState<Set<string>>(new Set())
@@ -82,6 +89,13 @@ export function JamButton({ flowId, peers }: { flowId: string; peers: JamPeer[] 
         </div>
       )}
       <Button variant="outline" size="sm" onClick={() => setOpen((value) => !value)}>
+        <span
+          className={cn(
+            'h-2 w-2 rounded-full',
+            connectionState === 'connected' ? 'bg-emerald-500' : connectionState === 'connecting' ? 'animate-pulse bg-amber-400' : 'bg-rose-500',
+          )}
+          aria-hidden="true"
+        />
         <Users className="h-4 w-4" /> Jam
       </Button>
       {open && (
@@ -90,6 +104,10 @@ export function JamButton({ flowId, peers }: { flowId: string; peers: JamPeer[] 
           <div className="absolute right-0 top-full z-40 mt-2 w-72 rounded-xl border border-slate-200 bg-white p-3 shadow-xl">
             <p className="text-sm font-semibold text-slate-900">Start a Flow Jam</p>
             <p className="mt-0.5 text-xs text-slate-500">Invite teammates to build this flow with you, live.</p>
+            <p className="mt-2 flex items-center gap-1.5 text-xs text-slate-600">
+              <span className={cn('h-2 w-2 rounded-full', connectionState === 'connected' ? 'bg-emerald-500' : 'bg-amber-400')} />
+              {CONNECTION_LABEL[connectionState]}
+            </p>
             <div className="mt-2 max-h-56 space-y-1 overflow-y-auto">
               {loading && <Loader2 className="mx-auto my-3 h-4 w-4 animate-spin text-slate-400" />}
               {!loading && members.length === 0 && (

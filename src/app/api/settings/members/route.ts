@@ -90,6 +90,7 @@ async function ensureAdminWouldRemain(
 }
 
 export const GET = withAuthenticatedApi(async (_request, auth) => {
+  requireAdmin(auth.dbUser.role)
   const [members, invitations] = await Promise.all([
     prisma.user.findMany({
       where: { organizationId: auth.organizationId },

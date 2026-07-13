@@ -243,7 +243,7 @@ async function loadScanGroup(
 ): Promise<ToolPlaneGroup | undefined> {
   const groups =
     plane === 'klavis'
-      ? await loadKlavisPlaneGroups(organizationId)
+      ? await loadKlavisPlaneGroups(organizationId, userId)
       : plane === 'nango'
         ? await loadNangoPlaneGroups(organizationId, userId)
         : await loadMcpConnectionPlaneGroups(organizationId, userId, { connectionIds: [connectionRef] })

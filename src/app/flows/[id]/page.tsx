@@ -30,9 +30,8 @@ import { CheckerPanel } from '@/components/flows/checker-panel'
 import { ResizablePanel } from '@/components/flows/resizable-panel'
 import { TestPanel } from '@/components/flows/test-panel'
 import { VersionsPanel } from '@/components/flows/versions-panel'
-import { useFlowJam } from '@/components/flows/use-flow-jam'
+import { useFlowJam, type JamPeer } from '@/components/flows/use-flow-jam'
 import { JamButton } from '@/components/flows/jam-button'
-import { useAuth } from '@/hooks/use-auth'
 import type { StepStatus } from '@/components/flows/step-card'
 import { SuggestedImprovementBanner } from '@/components/intelligence/suggested-improvement-banner'
 
@@ -164,6 +163,27 @@ function filenameSlug(value: string): string {
     .slice(0, 80) || 'flow'
 }
 
+function JamCursorOverlay({ peers }: { peers: JamPeer[] }) {
+  return (
+    <div className="pointer-events-none fixed inset-0 z-[70]" aria-hidden="true">
+      {peers.filter((peer) => peer.cursor).map((peer) => (
+        <div
+          key={peer.clientId}
+          className="absolute transition-[left,top] duration-75 ease-linear"
+          style={{ left: `${peer.cursor!.x * 100}vw`, top: `${peer.cursor!.y * 100}vh` }}
+        >
+          <svg width="18" height="24" viewBox="0 0 18 24" className="drop-shadow" aria-hidden="true">
+            <path d="M2 1L16 13H9.5L6 21L2 1Z" fill="#4f46e5" stroke="white" strokeWidth="1.5" />
+          </svg>
+          <span className="ml-3 -mt-1 block whitespace-nowrap rounded bg-indigo-600 px-1.5 py-0.5 text-[10px] font-semibold text-white shadow">
+            {peer.name}
+          </span>
+        </div>
+      ))}
+    </div>
+  )
+}
+
 function FlowBuilder() {
   const { id } = useParams<{ id: string }>()
   const router = useRouter()
@@ -217,6 +237,7 @@ function FlowBuilder() {
   })
   const canvasPanRef = useRef(canvasPan)
   canvasPanRef.current = canvasPan
+  const jamCursorUpdateRef = useRef<(cursor: { x: number; y: number } | null) => void>(() => {})
   const panRef = useRef<ReturnType<typeof startCanvasPan>>(null)
   const suppressCanvasClickRef = useRef(false)
   const onCanvasPointerDown = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
@@ -235,6 +256,10 @@ function FlowBuilder() {
   }, [snapToGrid])
   const onCanvasPointerMove = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
     panRef.current?.move(event.clientX, event.clientY)
+    jamCursorUpdateRef.current({
+      x: Math.min(1, Math.max(0, event.clientX / window.innerWidth)),
+      y: Math.min(1, Math.max(0, event.clientY / window.innerHeight)),
+    })
   }, [])
   const onCanvasPointerEnd = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
     const pan = panRef.current
@@ -258,12 +283,10 @@ function FlowBuilder() {
   // Flow Jam: live presence + graph sync. Remote graphs apply outside the
   // undo stack and must not echo back out (applyingRemoteRef gates the
   // broadcast effect below).
-  const { user: jamUser } = useAuth()
   const applyingRemoteRef = useRef(false)
-  const { peers, broadcastGraph, broadcastSaved } = useFlowJam({
+  const { peers, connectionState, broadcastGraph, updateCursor } = useFlowJam({
     flowId: id,
-    userId: jamUser?.id,
-    userName: jamUser?.firstName || 'Teammate',
+    enabled: !loading,
     selectedNodeId: selectedId,
     onRemoteGraph: (remote) => {
       applyingRemoteRef.current = true
@@ -272,15 +295,18 @@ function FlowBuilder() {
     onRemoteSaved: (updatedAt) => {
       baseUpdatedAtRef.current = updatedAt
     },
+    onConflict: (message) => toast.warning(message, { duration: 8000 }),
   })
+  jamCursorUpdateRef.current = updateCursor
   useEffect(() => {
+    if (loading) return
     if (applyingRemoteRef.current) {
       applyingRemoteRef.current = false
       return
     }
     broadcastGraph(graph)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [graph])
+  }, [graph, loading])
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
   // Run the user explicitly picked (dropdown or ?run= deep-link). While set,
   // the poll tick refreshes that run's details instead of stealing selection.
@@ -612,7 +638,6 @@ function FlowBuilder() {
       }
       if (data.flow?.updatedAt) {
         baseUpdatedAtRef.current = data.flow.updatedAt
-        broadcastSaved(data.flow.updatedAt)
       }
       setSavedSnapshot(JSON.stringify({ name, description, graph, status }))
       return true
@@ -1021,7 +1046,7 @@ function FlowBuilder() {
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
-        <JamButton flowId={id} peers={peers} />
+        <JamButton flowId={id} peers={peers} connectionState={connectionState} />
         <Button variant="outline" size="sm" onClick={() => setShowTest((v) => !v)}>
           <FlaskConical className="mr-1.5 h-4 w-4" /> Test
         </Button>
@@ -1104,6 +1129,7 @@ function FlowBuilder() {
           onPointerMove={onCanvasPointerMove}
           onPointerUp={onCanvasPointerEnd}
           onPointerCancel={onCanvasPointerEnd}
+          onPointerLeave={() => jamCursorUpdateRef.current(null)}
           style={{
             backgroundImage: 'radial-gradient(circle, rgba(15, 23, 42, 0.22) 1px, transparent 1px)',
             backgroundSize: '28px 28px',
@@ -1314,6 +1340,7 @@ function FlowBuilder() {
           </ResizablePanel>
         )}
       </div>
+      <JamCursorOverlay peers={peers} />
     </div>
   )
 }

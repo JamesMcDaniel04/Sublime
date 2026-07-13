@@ -3,14 +3,15 @@ import { prisma } from '@/lib/prisma'
 import { ApiError, withAuthenticatedApi } from '@/lib/server/api-handler'
 import { isValidScanExclusionEntry } from '@/lib/intelligence/scan-exclusions'
 
-const ORG_SELECT = { id: true, name: true, slug: true, plan: true, logoUrl: true, settings: true } as const
+const ORG_PUBLIC_SELECT = { id: true, name: true, slug: true, plan: true, logoUrl: true } as const
+const ORG_ADMIN_SELECT = { ...ORG_PUBLIC_SELECT, settings: true } as const
 
 // Organizations the user belongs to. Membership is single-org today; the
 // shape is a list so the org switcher works unchanged when multi-org lands.
 export const GET = withAuthenticatedApi(async (_request, auth) => {
   const organization = await prisma.organization.findUnique({
     where: { id: auth.organizationId },
-    select: ORG_SELECT,
+    select: auth.dbUser.role === 'ADMIN' ? ORG_ADMIN_SELECT : ORG_PUBLIC_SELECT,
   })
   return {
     success: true,
@@ -70,7 +71,7 @@ export const PATCH = withAuthenticatedApi(async (request, auth) => {
       ...(logoUrl !== undefined && { logoUrl }),
       ...(mergedSettings !== undefined && { settings: mergedSettings }),
     },
-    select: ORG_SELECT,
+    select: ORG_ADMIN_SELECT,
   })
   return { success: true, organization }
 })
