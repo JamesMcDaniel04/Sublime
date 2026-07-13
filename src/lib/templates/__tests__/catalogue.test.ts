@@ -2,19 +2,30 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { SEED_CATALOGUE, getSeedByKey, serializeSeed } from '../catalogue'
 import { MULTI_TOOL_SEEDS } from '../catalogue-expansion'
+import { GMAIL_SEEDS } from '../gmail-catalogue'
 import { flowGraphSchema } from '@/lib/flows/graph'
 import { canonicalIntegrationSlug, departmentsForTools, DEPARTMENTS } from '../departments'
 
 const KNOWN = new Set(DEPARTMENTS)
 const STABLE_TOOL_PLANES = new Set(['nango', 'native', 'template']) // template placeholders bind to per-org Klavis ids at provision time
 
-test('70 seeds, 14 per department bucket, unique seedKeys', () => {
-  assert.equal(SEED_CATALOGUE.length, 70)
+test('80 seeds, 16 per department bucket, unique seedKeys', () => {
+  assert.equal(SEED_CATALOGUE.length, 80)
   const keys = SEED_CATALOGUE.map((s) => s.seedKey)
-  assert.equal(new Set(keys).size, 70, 'seedKeys must be unique')
+  assert.equal(new Set(keys).size, 80, 'seedKeys must be unique')
   for (const dept of DEPARTMENTS.filter((d) => d !== 'general')) {
     const n = SEED_CATALOGUE.filter((s) => s.departments.includes(dept)).length
-    assert.equal(n, 14, `${dept} needs exactly 14 seeds, got ${n}`)
+    assert.equal(n, 16, `${dept} needs exactly 16 seeds, got ${n}`)
+  }
+})
+
+test('adds 10 Gmail-first templates with executable delivery configuration', () => {
+  assert.equal(GMAIL_SEEDS.length, 10)
+  for (const seed of GMAIL_SEEDS) {
+    assert.ok(seed.requiredIntegrations.includes('gmail'), `${seed.seedKey} must require Gmail`)
+    assert.ok(!seed.requiredIntegrations.includes('slack'), `${seed.seedKey} should deliver through Gmail, not Slack`)
+    assert.equal(seed.trigger?.type, 'schedule')
+    assert.match(seed.instructions ?? '', /semantic HTML email/)
   }
 })
 

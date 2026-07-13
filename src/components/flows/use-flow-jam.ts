@@ -7,6 +7,8 @@
  * no polling, edits land on peers in tens of ms):
  *  - presence: { userId, name, selectedNodeId } → avatar stack + per-node
  *    "who's editing" badges
+ *  - broadcast 'cursor': throttled, normalized viewport coordinates so peers
+ *    can see each other's pointers even when their canvas sizes differ
  *  - broadcast 'graph': debounced full-graph payload after every local edit
  *    (flow graphs are KB-scale; whole-state sync beats op-rebase complexity
  *    for v1 and can't diverge)
@@ -20,9 +22,21 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import type { FlowGraph } from '@/lib/flows/graph'
 
-export type JamPeer = { userId: string; name: string; selectedNodeId: string | null }
+export type JamCursor = { x: number; y: number }
+export type JamPeer = { userId: string; name: string; selectedNodeId: string | null; cursor: JamCursor | null }
 
 const BROADCAST_DEBOUNCE_MS = 120
+const CURSOR_THROTTLE_MS = 40
+
+export function normalizeJamCursor(x: number, y: number): JamCursor {
+  return { x: Math.max(0, Math.min(1, x)), y: Math.max(0, Math.min(1, y)) }
+}
+
+export function jamCursorColor(userId: string): string {
+  let hash = 0
+  for (let index = 0; index < userId.length; index++) hash = (hash * 31 + userId.charCodeAt(index)) | 0
+  return `hsl(${Math.abs(hash) % 360} 72% 46%)`
+}
 
 export function useFlowJam(options: {
   flowId: string
@@ -39,6 +53,7 @@ export function useFlowJam(options: {
   const clientId = useMemo(() => Math.random().toString(36).slice(2), [])
   const channelRef = useRef<ReturnType<ReturnType<typeof createClient>['channel']> | null>(null)
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const lastCursorSentRef = useRef(0)
   // Refs so the channel subscription (created once) sees fresh callbacks.
   const callbacksRef = useRef(options)
   callbacksRef.current = options
@@ -54,14 +69,17 @@ export function useFlowJam(options: {
     channel
       .on('presence', { event: 'sync' }, () => {
         const state = channel.presenceState<{ userId: string; name: string; selectedNodeId: string | null }>()
-        const next: JamPeer[] = []
-        for (const entries of Object.values(state)) {
-          const entry = entries[0]
-          if (entry && entry.userId !== userId) {
-            next.push({ userId: entry.userId, name: entry.name, selectedNodeId: entry.selectedNodeId ?? null })
+        setPeers((current) => {
+          const cursorByUser = new Map(current.map((peer) => [peer.userId, peer.cursor]))
+          const next: JamPeer[] = []
+          for (const entries of Object.values(state)) {
+            const entry = entries[0]
+            if (entry && entry.userId !== userId) {
+              next.push({ userId: entry.userId, name: entry.name, selectedNodeId: entry.selectedNodeId ?? null, cursor: cursorByUser.get(entry.userId) ?? null })
+            }
           }
-        }
-        setPeers(next)
+          return next
+        })
       })
       .on('broadcast', { event: 'graph' }, ({ payload }) => {
         if (!payload || payload.clientId === clientId) return
@@ -71,6 +89,18 @@ export function useFlowJam(options: {
       .on('broadcast', { event: 'saved' }, ({ payload }) => {
         if (!payload || payload.clientId === clientId) return
         if (typeof payload.updatedAt === 'string') callbacksRef.current.onRemoteSaved(payload.updatedAt)
+      })
+      .on('broadcast', { event: 'cursor' }, ({ payload }) => {
+        if (!payload || payload.clientId === clientId || typeof payload.userId !== 'string') return
+        const cursor = payload.cursor && typeof payload.cursor.x === 'number' && typeof payload.cursor.y === 'number'
+          ? normalizeJamCursor(payload.cursor.x, payload.cursor.y)
+          : null
+        setPeers((current) => {
+          const found = current.some((peer) => peer.userId === payload.userId)
+          if (found) return current.map((peer) => peer.userId === payload.userId ? { ...peer, cursor } : peer)
+          if (!cursor) return current
+          return [...current, { userId: payload.userId, name: typeof payload.name === 'string' ? payload.name : 'Teammate', selectedNodeId: null, cursor }]
+        })
       })
       .subscribe(async (status) => {
         if (status === 'SUBSCRIBED') {
@@ -103,5 +133,17 @@ export function useFlowJam(options: {
     void channelRef.current?.send({ type: 'broadcast', event: 'saved', payload: { clientId, updatedAt } })
   }
 
-  return { peers, broadcastGraph, broadcastSaved }
+  const broadcastCursor = (cursor: JamCursor | null) => {
+    if (!channelRef.current || !userId) return
+    const now = Date.now()
+    if (cursor && now - lastCursorSentRef.current < CURSOR_THROTTLE_MS) return
+    lastCursorSentRef.current = now
+    void channelRef.current.send({
+      type: 'broadcast',
+      event: 'cursor',
+      payload: { clientId, userId, name: userName, cursor: cursor ? normalizeJamCursor(cursor.x, cursor.y) : null },
+    })
+  }
+
+  return { peers, broadcastGraph, broadcastSaved, broadcastCursor }
 }

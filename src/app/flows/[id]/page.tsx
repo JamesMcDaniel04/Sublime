@@ -31,7 +31,7 @@ import { CheckerPanel } from '@/components/flows/checker-panel'
 import { ResizablePanel } from '@/components/flows/resizable-panel'
 import { TestPanel } from '@/components/flows/test-panel'
 import { VersionsPanel } from '@/components/flows/versions-panel'
-import { useFlowJam } from '@/components/flows/use-flow-jam'
+import { jamCursorColor, useFlowJam } from '@/components/flows/use-flow-jam'
 import { JamButton } from '@/components/flows/jam-button'
 import { useAuth } from '@/hooks/use-auth'
 import type { StepStatus } from '@/components/flows/step-card'
@@ -264,7 +264,7 @@ function FlowBuilder() {
   // broadcast effect below).
   const { user: jamUser } = useAuth()
   const applyingRemoteRef = useRef(false)
-  const { peers, broadcastGraph, broadcastSaved } = useFlowJam({
+  const { peers, broadcastGraph, broadcastSaved, broadcastCursor } = useFlowJam({
     flowId: id,
     userId: jamUser?.id,
     userName: jamUser?.firstName || 'Teammate',
@@ -1140,7 +1140,17 @@ function FlowBuilder() {
             setSelectedId(null)
           }}
           onPointerDown={onCanvasPointerDown}
-          onPointerMove={onCanvasPointerMove}
+          onPointerMove={(event) => {
+            onCanvasPointerMove(event)
+            const bounds = event.currentTarget.getBoundingClientRect()
+            if (bounds.width > 0 && bounds.height > 0) {
+              broadcastCursor({
+                x: (event.clientX - bounds.left) / bounds.width,
+                y: (event.clientY - bounds.top) / bounds.height,
+              })
+            }
+          }}
+          onPointerLeave={() => broadcastCursor(null)}
           onPointerUp={onCanvasPointerEnd}
           onPointerCancel={onCanvasPointerEnd}
           style={{
@@ -1243,6 +1253,27 @@ function FlowBuilder() {
               }
             />
           </div>
+          {peers.filter((peer) => peer.cursor).map((peer) => {
+            const cursor = peer.cursor!
+            const bounds = canvasScrollRef.current?.getBoundingClientRect()
+            if (!bounds) return null
+            const color = jamCursorColor(peer.userId)
+            return (
+              <div
+                key={`cursor-${peer.userId}`}
+                className="pointer-events-none fixed z-50 flex items-start drop-shadow-md transition-transform duration-75"
+                style={{ left: bounds.left + cursor.x * bounds.width, top: bounds.top + cursor.y * bounds.height }}
+                aria-label={`${peer.name}'s cursor`}
+              >
+                <svg width="22" height="27" viewBox="0 0 22 27" fill="none" aria-hidden>
+                  <path d="M2 1.5v19.7l5.1-4.9 3.6 8.5 3.6-1.6-3.6-8.2h7.1L2 1.5Z" fill={color} stroke="white" strokeWidth="1.6" strokeLinejoin="round" />
+                </svg>
+                <span className="mt-4 -ml-1 whitespace-nowrap rounded-md px-2 py-1 text-[11px] font-semibold text-white shadow-sm" style={{ backgroundColor: color }}>
+                  {peer.name}
+                </span>
+              </div>
+            )
+          })}
         </div>
 
         <CanvasRail

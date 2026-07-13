@@ -1,6 +1,7 @@
 import type { FlowGraph } from '@/lib/flows/graph'
 import type { Department } from './departments'
 import { MULTI_TOOL_SEEDS } from './catalogue-expansion'
+import { GMAIL_SEEDS } from './gmail-catalogue'
 import { withTemplateOutputStandard } from './output-standard'
 import { artifactOutputContract } from './example-artifact'
 
@@ -450,7 +451,7 @@ function normalizeDelivery(seed: SeedTemplate): SeedTemplate {
   }
 }
 
-export const SEED_CATALOGUE: SeedTemplate[] = [...BASE_SEED_CATALOGUE, ...MULTI_TOOL_SEEDS].map(normalizeDelivery)
+export const SEED_CATALOGUE: SeedTemplate[] = [...BASE_SEED_CATALOGUE, ...MULTI_TOOL_SEEDS, ...GMAIL_SEEDS].map(normalizeDelivery)
 
 export function getSeedByKey(seedKey: string): SeedTemplate | undefined {
   return SEED_CATALOGUE.find((s) => s.seedKey === seedKey)
