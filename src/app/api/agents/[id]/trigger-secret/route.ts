@@ -30,7 +30,7 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
   const base = {
     success: true as const,
     url: `${baseUrl}/api/agents/${agent.id}/trigger`,
-    usage: 'POST with header "x-trigger-secret: <secret>" and optional JSON body {"input": "..."}',
+    usage: 'POST with header "x-trigger-secret: <secret>" and any JSON event body. Use {"input": ...} to select the exact agent input; x-event-type records event provenance.',
   }
 
   if (hasSecret && !rotate) {
