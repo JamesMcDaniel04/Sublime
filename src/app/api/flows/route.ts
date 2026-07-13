@@ -1,7 +1,7 @@
 import { z } from 'zod'
 import { prisma } from '@/lib/prisma'
 import { ApiError, withAuthenticatedApi } from '@/lib/server/api-handler'
-import { agentVisibilityScope } from '@/lib/server/visibility'
+import { agentVisibilityScope, flowVisibilityScope } from '@/lib/server/visibility'
 import { flowGraphSchema, emptyGraph } from '@/lib/flows/graph'
 import { serializeFlow } from '@/lib/flows/serialize'
 import { hasSaveConflict } from '@/lib/flows/save-conflict'
@@ -19,7 +19,8 @@ const flowSchema = z.object({
   name: z.string().min(1),
   description: z.string().default(''),
   status: z.enum(['DRAFT', 'ACTIVE', 'DISABLED']).default('DRAFT'),
-  visibility: z.enum(['shared', 'private']).default('shared'),
+  // Accepted for older clients, but flows are private unless shared by Jam.
+  visibility: z.enum(['shared', 'private']).default('private'),
   trigger: triggerSchema.optional(),
   graph: flowGraphSchema.optional(),
 })
@@ -27,7 +28,7 @@ const flowSchema = z.object({
 export const GET = withAuthenticatedApi(async (_request, auth) => {
   const [flows, counts] = await Promise.all([
     prisma.flow.findMany({
-      where: { organizationId: auth.organizationId, ...agentVisibilityScope(auth.dbUser.id) },
+      where: { organizationId: auth.organizationId, ...flowVisibilityScope(auth.dbUser.id) },
       orderBy: { updatedAt: 'desc' },
       take: 200,
     }),
@@ -37,7 +38,10 @@ export const GET = withAuthenticatedApi(async (_request, auth) => {
   const ready = meetsSuggestionGate(counts)
   return {
     success: true,
-    flows: flows.map(serializeFlow),
+    flows: flows.map((flow) => ({
+      ...serializeFlow(flow),
+      canManageJam: flow.userId === auth.dbUser.id,
+    })),
     // Behavioral-intelligence: drives the flows-page "Suggested for you" rail
     // vs. its below-gate progress copy.
     suggestionReadiness: { ready, totalConnections, connectionsNeeded: ready ? 0 : Math.max(0, 3 - totalConnections) },
@@ -53,7 +57,7 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
       name: data.name,
       description: data.description,
       status: data.status,
-      visibility: data.visibility,
+      visibility: 'private',
       trigger: jsonValue(trigger),
       graph: jsonValue(graph),
       organizationId: auth.organizationId,
@@ -69,7 +73,7 @@ export const PUT = withAuthenticatedApi(async (request, auth) => {
     .merge(flowSchema.partial())
     .parse(await request.json())
   const existing = await prisma.flow.findFirst({
-    where: { id: body.id, organizationId: auth.organizationId, ...agentVisibilityScope(auth.dbUser.id) },
+    where: { id: body.id, organizationId: auth.organizationId, ...flowVisibilityScope(auth.dbUser.id) },
   })
   if (!existing) throw new ApiError('Flow not found', 404, 'NOT_FOUND')
   // Optimistic concurrency: reject a save based on a stale copy instead of
@@ -87,19 +91,36 @@ export const PUT = withAuthenticatedApi(async (request, auth) => {
       : body.graph !== undefined
         ? triggerFromGraph(body.graph, existing.trigger)
         : undefined
-  const flow = await prisma.flow.update({
-    where: { id: body.id, organizationId: auth.organizationId },
+  const result = await prisma.flow.updateMany({
+    where: {
+      id: body.id,
+      organizationId: auth.organizationId,
+      updatedAt: existing.updatedAt,
+      ...flowVisibilityScope(auth.dbUser.id),
+    },
     data: {
       ...(body.name !== undefined && { name: body.name }),
       ...(body.description !== undefined && { description: body.description }),
       ...(body.status !== undefined && { status: body.status }),
-      ...(body.visibility !== undefined && { visibility: body.visibility }),
+      ...(body.visibility !== undefined && { visibility: 'private' }),
       // Preserve the webhook secret hash across trigger edits — the client
       // never sees it, so a plain PUT would silently wipe it.
       ...(nextTrigger !== undefined && { trigger: jsonValue(preserveWebhookSecretHash(nextTrigger, existing.trigger)) }),
       ...(body.graph !== undefined && { graph: jsonValue(body.graph) }),
+      ...(body.graph !== undefined && { collaborationRevision: { increment: 1 } }),
     },
   })
+  if (!result.count) {
+    throw new ApiError(
+      'Someone else changed this flow while you were saving. The shared draft was not overwritten.',
+      409,
+      'FLOW_SAVE_CONFLICT',
+    )
+  }
+  const flow = await prisma.flow.findFirst({
+    where: { id: body.id, organizationId: auth.organizationId, ...flowVisibilityScope(auth.dbUser.id) },
+  })
+  if (!flow) throw new ApiError('Flow not found after save', 404, 'NOT_FOUND')
   return { success: true, flow: serializeFlow(flow) }
 })
 

@@ -1,0 +1,2 @@
+ALTER TABLE "flows"
+ADD COLUMN "collaborationRevision" INTEGER NOT NULL DEFAULT 0;

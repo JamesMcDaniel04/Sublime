@@ -61,6 +61,7 @@ model Organization {
   knowledgeDocuments  KnowledgeDocument[]
   sharedSkills        SharedSkill[]
   invitations         OrganizationInvitation[]
+  flowCollaborators   FlowCollaborator[]
   slackWorkspaceConnections SlackWorkspaceConnection[]
   slackThreadSessions       SlackThreadSession[]
 
@@ -93,6 +94,8 @@ model User {
   ownedAgents  AgentTask[]
   peopleAiConnections PeopleAiConnection[]
   mcpConnections      McpConnection[]
+  flowCollaborations  FlowCollaborator[] @relation("FlowCollaboratorUser")
+  flowInvitesSent     FlowCollaborator[] @relation("FlowCollaboratorInviter")
 
   @@index([organizationId])
   @@map("users")
@@ -127,7 +130,7 @@ model AgentTask {
   schedule       Json      @default("{}")
   status         String    @default("ACTIVE")
   folder         String?
-  visibility     String    @default("shared")
+  visibility     String    @default("private")
   organizationId String    @db.Uuid
   userId         String?
   metadata       Json?
@@ -623,6 +626,7 @@ model McpConnection {
   agentBindings AgentConnector[]
 
   @@index([organizationId, isActive])
+  @@index([organizationId, userId, isActive])
   @@unique([organizationId, userId, provider])
   @@map("mcp_connections")
 }
@@ -646,6 +650,7 @@ model NangoConnection {
 
   @@unique([organizationId, connectionId])
   @@index([organizationId, providerConfigKey])
+  @@index([organizationId, userId, status])
   @@map("nango_connections")
 }
 
@@ -680,20 +685,43 @@ model Flow {
   graph          Json     @default("{}") // working draft: { nodes, edges }
   publishedGraph Json? // the live version scheduled/triggered runs execute
   version        Int      @default(1) // bumped on each publish
-  visibility     String   @default("shared")
+  visibility     String   @default("private")
   organizationId String   @db.Uuid
   userId         String?
   // Freeform per-flow metadata grab-bag (e.g. behavioral-intelligence provenance).
   metadata       Json?
+  // Monotonic sequencer for durable Flow Jam graph patches.
+  collaborationRevision Int @default(0)
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
   organization Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   runs         FlowRun[]
   versions     FlowVersion[]
+  collaborators FlowCollaborator[]
 
   @@index([organizationId, updatedAt])
   @@map("flows")
+}
+
+/// Explicit per-flow edit access. Workspace membership alone never exposes a
+/// personal flow; the owner must invite each collaborator through Flow Jam.
+model FlowCollaborator {
+  id             String   @id @default(cuid())
+  flowId         String
+  organizationId String   @db.Uuid
+  userId         String
+  invitedById    String?
+  createdAt      DateTime @default(now()) @db.Timestamptz(6)
+
+  flow         Flow         @relation(fields: [flowId], references: [id], onDelete: Cascade)
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user         User         @relation("FlowCollaboratorUser", fields: [userId], references: [id], onDelete: Cascade)
+  invitedBy    User?        @relation("FlowCollaboratorInviter", fields: [invitedById], references: [id], onDelete: SetNull)
+
+  @@unique([flowId, userId])
+  @@index([organizationId, userId])
+  @@map("flow_collaborators")
 }
 
 model FlowVersion {

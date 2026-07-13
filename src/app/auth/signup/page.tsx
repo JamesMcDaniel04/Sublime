@@ -16,7 +16,6 @@ export default function SignUpPage() {
   const [confirmPassword, setConfirmPassword] = useState('')
   const [firstName, setFirstName] = useState('')
   const [lastName, setLastName] = useState('')
-  const [organizationName, setOrganizationName] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
@@ -44,8 +43,7 @@ export default function SignUpPage() {
         data: {
           first_name: firstName,
           last_name: lastName,
-          full_name: `${firstName} ${lastName}`.trim(),
-          organization_name: organizationName
+          full_name: `${firstName} ${lastName}`.trim()
         }
       })
       
@@ -123,18 +121,6 @@ export default function SignUpPage() {
                     required
                   />
                 </div>
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="organizationName">Organization name</Label>
-                <Input
-                  id="organizationName"
-                  type="text"
-                  placeholder="Acme Inc"
-                  value={organizationName}
-                  onChange={(e) => setOrganizationName(e.target.value)}
-                  required
-                />
               </div>
 
               <div className="space-y-2">

@@ -1,29 +1,33 @@
 /**
- * Tenant + owner visibility scopes, shared by every route so a "private" agent
- * is enforced consistently: only its owner may see the agent, its runs, its
- * messages, its search hits, or its trigger secret. Shared agents remain
- * visible to the whole organization.
+ * Organization membership shares the integration and template catalogues, not
+ * user work. Agents, flows, and execution history are always owner-private.
  *
  * Combine with other conditions via Prisma `AND` when the target `where`
  * already carries an `OR` (two `OR` keys collide in one object).
  */
 
-/** Agent rows: private agents are visible only to their owner. */
+/** Agent rows are visible only to their creator. */
 export function agentVisibilityScope(userId: string) {
-  return { OR: [{ visibility: { not: 'private' } }, { userId }] }
+  return { userId }
 }
 
 /**
- * Execution rows: runs belonging to a private agent are visible only to that
- * agent's owner. Runs with no linked agent (e.g. template runs) are never
- * private, so they stay org-visible.
+ * Flows remain personal unless their owner explicitly grants Jam access.
+ * Merely belonging to the same organization never exposes a flow.
  */
-export function executionVisibilityScope(userId: string) {
+export function flowVisibilityScope(userId: string) {
   return {
     OR: [
-      { agentTaskId: null },
-      { agentTask: { is: { visibility: { not: 'private' } } } },
-      { agentTask: { is: { userId } } },
+      { userId },
+      { collaborators: { some: { userId } } },
     ],
   }
+}
+
+/**
+ * Execution rows are visible only to the user who started them, including
+ * template runs without a linked saved agent.
+ */
+export function executionVisibilityScope(userId: string) {
+  return { userId }
 }

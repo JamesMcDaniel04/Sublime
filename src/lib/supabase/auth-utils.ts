@@ -26,32 +26,11 @@ async function findDbUserCached(supabaseId: string): Promise<DbUserRow> {
   return row
 }
 
-// Self-healing bootstrap: the handle_new_user Postgres trigger is optional
-// infra that may never be installed, so provision the app user + organization
-// on first authenticated request when they don't exist yet.
-async function provisionUser(user: User) {
+// Self-healing bootstrap: every accepted Supabase identity joins the original
+// workspace. The first-ever identity bootstraps that workspace; all later
+// signups are regular members. Pending invitations still win.
+async function provisionUser(user: User, existing?: NonNullable<DbUserRow>) {
   const normalizedEmail = user.email?.trim().toLowerCase()
-  if (normalizedEmail) {
-    const invitation = await prisma.organizationInvitation.findFirst({
-      where: { email: normalizedEmail, acceptedAt: null, revokedAt: null, expiresAt: { gt: new Date() } },
-      orderBy: { createdAt: 'desc' },
-    })
-    if (invitation) {
-      return prisma.$transaction(async (tx) => {
-        const created = await tx.user.create({
-          data: { supabaseId: user.id, email: normalizedEmail, name: String(user.user_metadata?.full_name || normalizedEmail.split('@')[0]), role: invitation.role, organizationId: invitation.organizationId },
-          include: { organization: true },
-        })
-        await tx.organizationInvitation.update({ where: { id: invitation.id }, data: { acceptedAt: new Date() } })
-        return created
-      })
-    }
-  }
-  // Unknown identities must not be able to mint an administrator workspace in
-  // production. Self-service/JIT tenancy is an explicit deployment choice.
-  if (process.env.NODE_ENV === 'production' && process.env.AUTH_ALLOW_JIT_PROVISIONING !== 'true') {
-    return null
-  }
   const meta = (user.user_metadata || {}) as Record<string, unknown>
   const emailPrefix = (user.email || 'user').split('@')[0]
   const metaString = (key: string) => (typeof meta[key] === 'string' ? (meta[key] as string) : '')
@@ -60,25 +39,75 @@ async function provisionUser(user: User) {
 
   try {
     return await prisma.$transaction(async (tx) => {
-      const organization = await tx.organization.create({
-        data: { name: orgName, slug: `org-${user.id}` },
-      })
-      return tx.user.create({
-        data: {
-          supabaseId: user.id,
-          email: user.email ?? null,
-          name,
-          role: 'ADMIN', // creator owns the workspace only in explicit JIT mode
-          organizationId: organization.id,
-        },
-        include: { organization: true },
-      })
+      // Serialize first-workspace creation and concurrent first requests from
+      // the same new session. This is transaction-scoped and auto-releases.
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(73194521)`
+
+      const invitation = normalizedEmail
+        ? await tx.organizationInvitation.findFirst({
+            where: { email: normalizedEmail, acceptedAt: null, revokedAt: null, expiresAt: { gt: new Date() } },
+            orderBy: { createdAt: 'desc' },
+          })
+        : null
+
+      // The oldest active-admin workspace is the original platform workspace.
+      // This avoids another deployment setting and deterministically ignores
+      // any accidental per-signup workspaces created by the reverted build.
+      const primary = invitation
+        ? null
+        : await tx.organization.findFirst({
+            where: { users: { some: { isActive: true, role: 'ADMIN' } } },
+            orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+          })
+
+      const organization = invitation
+        ? { id: invitation.organizationId }
+        : primary ?? await tx.organization.create({
+            data: { name: orgName, slug: `org-${user.id}` },
+          })
+      const role = invitation?.role
+        ?? (!primary ? 'ADMIN' : existing?.organizationId === organization.id ? existing.role : 'USER')
+
+      const member = existing
+        ? await tx.user.update({
+            where: { id: existing.id },
+            data: { organizationId: organization.id, role, email: normalizedEmail ?? existing.email, name },
+            include: { organization: true },
+          })
+        : await tx.user.create({
+            data: { supabaseId: user.id, email: normalizedEmail, name, role, organizationId: organization.id },
+            include: { organization: true },
+          })
+
+      if (invitation) {
+        await tx.organizationInvitation.update({ where: { id: invitation.id }, data: { acceptedAt: new Date() } })
+      }
+      return member
     })
-  } catch {
-    // Lost a race (unique supabaseId/slug) or the trigger created it
-    // concurrently — re-read whatever now exists.
-    return findDbUser(user.id)
+  } catch (error) {
+    // A concurrent request may have created the membership while this one was
+    // waiting. Re-read that winner, but never hide a real database failure as
+    // a misleading "Organization access required" response.
+    const winner = await findDbUser(user.id)
+    if (winner?.organizationId) return winner
+    throw error
   }
+}
+
+function needsPrimaryWorkspace(row: NonNullable<DbUserRow>, supabaseId: string): boolean {
+  return !row.organizationId || row.organization?.slug === `org-${supabaseId}`
+}
+
+async function ensureWorkspaceMembership(user: User): Promise<DbUserRow> {
+  const existing = await findDbUserCached(user.id)
+  if (existing && !needsPrimaryWorkspace(existing, user.id)) return existing
+
+  // A sole first user legitimately owns the oldest workspace; provisionUser
+  // will select that same organization and leave them as its admin. Users in
+  // accidental per-signup orgs are moved into the older primary workspace.
+  const provisioned = await provisionUser(user, existing ?? undefined)
+  if (provisioned) dbUserCache.set(user.id, { row: provisioned, ts: Date.now() })
+  return provisioned
 }
 
 export async function getAuthWithUser() {
@@ -113,7 +142,7 @@ export async function getAuthWithUser() {
     user = data.user
   }
 
-  const dbUser = (await findDbUserCached(user.id)) ?? (await provisionUser(user))
+  const dbUser = await ensureWorkspaceMembership(user)
 
   return {
     user,
