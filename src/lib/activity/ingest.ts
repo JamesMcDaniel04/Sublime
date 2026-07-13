@@ -2,6 +2,7 @@
 import { apiLogger } from '@/lib/logger'
 import { persistActivity, type PersistedActivity } from './ledger'
 import { indexActivity } from './index-activity'
+import { routeActivityEvent } from './route-activity'
 import type { IngestKind, NormalizedActivity } from './types'
 
 export async function ingestActivity(
@@ -13,6 +14,9 @@ export async function ingestActivity(
   try {
     const { created } = await persistActivity(organizationId, ingestKind, events)
     await indexActivity(created)
+    if (ingestKind !== 'backfill') {
+      for (const event of created) await routeActivityEvent(event)
+    }
     return created
   } catch (error) {
     apiLogger.warn('activity.ingest failed', {
