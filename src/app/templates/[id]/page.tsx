@@ -11,6 +11,7 @@ import { IntegrationChip } from '@/components/integrations/integration-chip'
 import { HtmlPreview, looksLikeHtml } from '@/components/ui/html-preview'
 import { missingIntegrations, connectedSlugSet } from '@/lib/templates/relevance'
 import { findTemplateForRoute } from '@/lib/templates/route-id'
+import { exampleArtifactHtml } from '@/lib/templates/example-artifact'
 
 type Template = {
   id: string
@@ -69,10 +70,7 @@ function exampleHtml(template: Template): string {
     if (looksLikeHtml(template.exampleOutput)) return template.exampleOutput
     return `<section><h2>Example result</h2><p>${escapeHtml(template.exampleOutput).replace(/\n\n/g, '</p><p>').replace(/\n/g, '<br>')}</p></section>`
   }
-  const sources = template.integrations.length
-    ? `<h3>Sources used</h3><ul>${template.integrations.map((name) => `<li>${escapeHtml(name)}</li>`).join('')}</ul>`
-    : ''
-  return `<section><h2>${escapeHtml(template.name)}</h2><p>${escapeHtml(template.description)}</p>${sources}<h3>Recommended actions</h3><ol><li>Review the evidence gathered from connected tools.</li><li>Confirm owners, timing, and any missing context.</li><li>Run or publish the scheduled automation.</li></ol></section>`
+  return exampleArtifactHtml(template)
 }
 
 export default function TemplateDetails() {

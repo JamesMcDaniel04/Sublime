@@ -3,14 +3,11 @@ import { ApiError, withAuthenticatedApi } from '@/lib/server/api-handler'
 import { getSkill } from '@/lib/skills/compose'
 import { recommendTemplatesForSkill } from '@/lib/skills/recommend'
 import { SEED_CATALOGUE, serializeSeed } from '@/lib/templates/catalogue'
+import { decodeSkillRouteId } from '@/lib/skills/route-id'
 
 function skillIdFromRequest(request: Request): string {
   const raw = new URL(request.url).pathname.split('/').at(-1) || ''
-  try {
-    return decodeURIComponent(raw)
-  } catch {
-    return raw
-  }
+  return decodeSkillRouteId(raw)
 }
 
 export const GET = withAuthenticatedApi(async (request) => {

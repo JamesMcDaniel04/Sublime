@@ -496,10 +496,10 @@ function ExplorePage() {
     setOpenSkillMenu(null)
     const updatedSkills = Array.from(new Set([...(agent.skills || []), skill.id]))
     try {
-      const res = await fetch('/api/agents', {
-        method: 'PUT',
+      const res = await fetch(`/api/agents/${encodeURIComponent(agent.id)}/skills`, {
+        method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id: agent.id, skills: updatedSkills }),
+        body: JSON.stringify({ skillId: skill.id }),
       })
       if (!res.ok) throw new Error(`status ${res.status}`)
       // Update local agent list so subsequent "add" operations see the latest skills
@@ -518,10 +518,10 @@ function ExplorePage() {
     const results = await Promise.all(
       agents.map(async (agent) => {
         const updatedSkills = Array.from(new Set([...(agent.skills || []), skill.id]))
-        const res = await fetch('/api/agents', {
-          method: 'PUT',
+        const res = await fetch(`/api/agents/${encodeURIComponent(agent.id)}/skills`, {
+          method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ id: agent.id, skills: updatedSkills }),
+          body: JSON.stringify({ skillId: skill.id }),
         }).catch(() => null)
         return { agent, ok: Boolean(res?.ok), updatedSkills }
       }),

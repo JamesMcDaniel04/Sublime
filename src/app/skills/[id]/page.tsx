@@ -10,6 +10,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
 import { IntegrationChip } from '@/components/integrations/integration-chip'
+import { decodeSkillRouteId } from '@/lib/skills/route-id'
 
 type Skill = {
   id: string
@@ -33,6 +34,7 @@ type Agent = { id: string; title: string; skills: string[] }
 
 export default function SkillDetailsPage() {
   const { id } = useParams<{ id: string }>()
+  const skillId = decodeSkillRouteId(id)
   const [skill, setSkill] = useState<Skill | null>(null)
   const [templates, setTemplates] = useState<SuggestedTemplate[]>([])
   const [agents, setAgents] = useState<Agent[]>([])
@@ -44,7 +46,7 @@ export default function SkillDetailsPage() {
   useEffect(() => {
     let cancelled = false
     Promise.all([
-      fetch(`/api/skills/${encodeURIComponent(id)}`, { cache: 'no-store' }),
+      fetch(`/api/skills/${encodeURIComponent(skillId)}`, { cache: 'no-store' }),
       fetch('/api/agents', { cache: 'no-store' }),
     ])
       .then(async ([skillResponse, agentsResponse]) => {
@@ -61,7 +63,7 @@ export default function SkillDetailsPage() {
       .catch((cause) => !cancelled && setError(cause instanceof Error ? cause.message : 'Could not load this skill.'))
       .finally(() => !cancelled && setLoading(false))
     return () => { cancelled = true }
-  }, [id])
+  }, [skillId])
 
   const addToAgent = async () => {
     if (!skill || !selectedAgentId || adding) return
@@ -74,10 +76,10 @@ export default function SkillDetailsPage() {
     setAdding(true)
     try {
       const skills = [...agent.skills, skill.id]
-      const response = await fetch('/api/agents', {
-        method: 'PUT',
+      const response = await fetch(`/api/agents/${encodeURIComponent(agent.id)}/skills`, {
+        method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id: agent.id, skills }),
+        body: JSON.stringify({ skillId: skill.id }),
       })
       const data = await response.json().catch(() => ({}))
       if (!response.ok) throw new Error(data.error || 'Could not attach the skill.')
