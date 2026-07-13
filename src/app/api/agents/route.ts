@@ -108,7 +108,7 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
         icon: data.icon || '',
         allowSubagents: data.allowSubagents === true,
         subagentIds: data.subagentIds ?? [],
-        autoAnswerFromMemory: data.autoAnswerFromMemory === true,
+        autoAnswerFromMemory: data.autoAnswerFromMemory !== false,
         alwaysStrategize: data.alwaysStrategize === true,
         ...(data.outputFields?.length ? { outputFields: data.outputFields, responseFormat: 'structured' } : {}),
       },

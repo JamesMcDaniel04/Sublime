@@ -88,6 +88,7 @@ async function materializeAgent(
         icon: '',
         allowSubagents: false,
         subagentIds: [],
+        autoAnswerFromMemory: true,
       },
     },
     select: { id: true },

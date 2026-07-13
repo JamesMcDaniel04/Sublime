@@ -34,7 +34,9 @@ export function serializeAgent(agent: {
     icon: metadata.icon || '',
     allowSubagents: (metadata as { allowSubagents?: boolean }).allowSubagents === true,
     subagentIds: ((metadata as { subagentIds?: string[] }).subagentIds ?? []).filter((id) => typeof id === 'string'),
-    autoAnswerFromMemory: metadata.autoAnswerFromMemory === true,
+    // Undefined is the legacy value; remembered blocking answers are now the
+    // safe default unless an agent explicitly opts out.
+    autoAnswerFromMemory: metadata.autoAnswerFromMemory !== false,
     alwaysStrategize: metadata.alwaysStrategize === true,
     suggestedGoal: metadata.suggestedGoal || null,
     folder: agent.folder || null,

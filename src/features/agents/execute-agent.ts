@@ -453,7 +453,9 @@ export async function runAgentExecution(
     }
     await recordEvent(queuedExecution.id, pending.stepId || null, 'user.replied', { answer: reply })
     // Input memory (WS1.9): remember the Q/A so future runs stop re-asking.
-    void saveAgentMemory({
+    // Await persistence so a new run started immediately after this resume can
+    // reliably reuse the answer instead of racing the background write.
+    await saveAgentMemory({
       organizationId,
       agentId,
       kind: 'user_answer',
@@ -1025,7 +1027,10 @@ export async function runAgentExecution(
           /* best-effort */
         }
 
-        if (suggestedAnswer && agentMetadata.autoAnswerFromMemory === true) {
+        // Remembered blocking answers are reused by default. An agent may opt
+        // out explicitly when its workflow must collect a fresh answer every
+        // run (for example, a rotating approval decision).
+        if (suggestedAnswer && agentMetadata.autoAnswerFromMemory !== false) {
           await recordEvent(execution.id, null, 'agent.question.autoanswered', {
             question: pendingAsk.question,
             answer: suggestedAnswer.content,
