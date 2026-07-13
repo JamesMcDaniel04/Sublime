@@ -139,10 +139,10 @@ function ExplorePage() {
   const [agents, setAgents] = useState<AgentItem[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  // One search box filters whichever tab is active (name/description/category/tags).
+  // Goal prompt for the AI catalogue assistant. It intentionally does not
+  // filter the grids while someone is still describing what they need.
   const [search, setSearch] = useState('')
-  // AI template finder: same search box, but Enter/"Ask AI" asks the model to
-  // match the typed goal against the loaded catalog instead of substring-filtering.
+  // Enter/"Ask AI" asks the model to match the goal against the loaded catalog.
   const [aiResults, setAiResults] = useState<{ id: string; kind: string; reason: string }[] | null>(null)
   const [aiLoading, setAiLoading] = useState(false)
   const [aiError, setAiError] = useState<string | null>(null)
@@ -275,19 +275,14 @@ function ExplorePage() {
     return () => document.removeEventListener('mousedown', handleClick)
   }, [openSkillMenu])
 
-  // Search filter across name, description, category, and tags.
-  const q = search.trim().toLowerCase()
-  const matches = (item: { name: string; description: string; category: string; tags?: string[] }) =>
-    !q || `${item.name} ${item.description} ${item.category} ${(item.tags || []).join(' ')}`.toLowerCase().includes(q)
-  const filteredTemplates = templates.filter(matches)
-  const filteredSkills = skills.filter(matches)
   // Org-scoped catalogue priority: the caller's own templates (auto-distilled
   // from their runs, or hand-authored by their org) always render above the
   // shared community library, in their own "Your library" section. Seed
   // (Starter catalogue) rows are pulled into their own section below.
-  const seeds = filteredTemplates.filter((t) => t.seed)
-  const myTemplates = filteredTemplates.filter((t) => t.mine && !t.seed)
-  const communityTemplates = filteredTemplates.filter((t) => !t.mine && !t.seed)
+  const seeds = templates.filter((t) => t.seed)
+  const myTemplates = templates.filter((t) => t.mine && !t.seed)
+  const communityTemplates = templates.filter((t) => !t.mine && !t.seed)
+  const filteredSkills = skills
 
   // Department filter — applies only to the Starter catalogue; never hides a
   // template outright, just narrows which seeds are shown for the chosen dept.
@@ -447,10 +442,6 @@ function ExplorePage() {
 
   const onSearch = (value: string) => {
     setSearch(value)
-    setTemplatesPage(1)
-    setCataloguePage(1)
-    setMyTemplatesPage(1)
-    setSkillsPage(1)
   }
 
   // Asks the model to match the typed goal against the already-loaded catalog.
@@ -493,9 +484,12 @@ function ExplorePage() {
     setAiLoading(false)
   }
 
-  const jumpToMatch = (match: { id: string; kind: string }, name: string) => {
-    handleTabChange(match.kind === 'skill' ? 'skills' : 'templates')
-    onSearch(name)
+  const jumpToMatch = (match: { id: string; kind: string }, _name: string) => {
+    if (match.kind === 'template') {
+      router.push(`/templates/${match.id}`)
+      return
+    }
+    handleTabChange('skills')
   }
 
   const addSkillToAgent = async (skill: SkillItem, agent: AgentItem) => {
@@ -799,27 +793,31 @@ function ExplorePage() {
                         <button type="button" aria-label="Delete skill" onClick={() => deleteAsset('skill', skill.id, skill.name)} className="rounded-md border bg-card p-1.5 text-muted-foreground shadow-1 hover:text-red-600"><Trash2 className="h-3.5 w-3.5" /></button>
                       </div>
                     )}
-                    <CardHeader className="space-y-2.5 pt-5">
-                      <div className="flex items-center gap-1.5">
-                        <Badge variant="outline" className={cn('text-[11px] font-medium', accent.badge)}>{skill.category}</Badge>
-                        {skill.custom && <Badge variant="outline" className="text-[11px] font-medium border-indigo-200 bg-indigo-50 text-indigo-700 dark:border-indigo-500/30 dark:bg-indigo-500/10 dark:text-indigo-300">Community</Badge>}
-                      </div>
-                      <div className="flex items-start gap-2.5">
-                        <span className={cn('flex h-9 w-9 shrink-0 items-center justify-center rounded-lg transition-transform group-hover:scale-105', accent.tile)}>
-                          <Icon className="h-[18px] w-[18px]" />
-                        </span>
-                        <CardTitle className="min-w-0 text-base leading-snug">{skill.name}</CardTitle>
-                      </div>
-                      {skill.tags && skill.tags.length > 0 && (
-                        <div className="flex flex-wrap gap-1">
-                          {skill.tags.slice(0, 3).map((tag) => (
-                            <Badge key={tag} variant="outline" className="text-xs text-muted-foreground">{tag}</Badge>
-                          ))}
+                    <Link href={`/skills/${encodeURIComponent(skill.id)}`} className="flex flex-1 flex-col">
+                      <CardHeader className="space-y-2.5 pt-5">
+                        <div className="flex items-center gap-1.5">
+                          <Badge variant="outline" className={cn('text-[11px] font-medium', accent.badge)}>{skill.category}</Badge>
+                          {skill.custom && <Badge variant="outline" className="text-[11px] font-medium border-indigo-200 bg-indigo-50 text-indigo-700 dark:border-indigo-500/30 dark:bg-indigo-500/10 dark:text-indigo-300">Community</Badge>}
                         </div>
-                      )}
-                    </CardHeader>
-                    <CardContent className="flex flex-col flex-1 space-y-3">
-                      <p className="text-sm text-muted-foreground line-clamp-3 flex-1">{skill.description}</p>
+                        <div className="flex items-start gap-2.5">
+                          <span className={cn('flex h-9 w-9 shrink-0 items-center justify-center rounded-lg transition-transform group-hover:scale-105', accent.tile)}>
+                            <Icon className="h-[18px] w-[18px]" />
+                          </span>
+                          <CardTitle className="min-w-0 text-base leading-snug">{skill.name}</CardTitle>
+                        </div>
+                        {skill.tags && skill.tags.length > 0 && (
+                          <div className="flex flex-wrap gap-1">
+                            {skill.tags.slice(0, 3).map((tag) => (
+                              <Badge key={tag} variant="outline" className="text-xs text-muted-foreground">{tag}</Badge>
+                            ))}
+                          </div>
+                        )}
+                      </CardHeader>
+                      <div className="flex-1 px-6 pb-3">
+                        <p className="line-clamp-3 text-sm text-muted-foreground">{skill.description}</p>
+                      </div>
+                    </Link>
+                    <CardContent className="flex flex-col space-y-3">
 
                       {skill.integrations && skill.integrations.length > 0 && (
                         <div className="flex flex-wrap gap-1.5">

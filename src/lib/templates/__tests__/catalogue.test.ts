@@ -26,6 +26,20 @@ test('expansion adds exactly 10 multi-tool templates per product department', ()
   for (const seed of MULTI_TOOL_SEEDS) {
     const tools = new Set([...seed.requiredIntegrations, ...seed.recommendedIntegrations])
     assert.ok(tools.size >= 3, `${seed.seedKey} must combine at least three tools`)
+    assert.equal(seed.trigger?.type, 'schedule', `${seed.seedKey} should be a recurring agent enhancer recipe`)
+    assert.equal(seed.trigger?.schedule?.type, 'cron')
+    assert.equal(seed.trigger?.schedule?.isActive, true)
+  }
+})
+
+test('scheduled seeds use the runtime trigger.schedule contract', () => {
+  const scheduled = SEED_CATALOGUE.filter((seed) => seed.trigger?.type === 'schedule')
+  assert.ok(scheduled.length >= MULTI_TOOL_SEEDS.length)
+  for (const seed of scheduled) {
+    assert.ok(seed.trigger?.schedule?.cron, `${seed.seedKey} needs trigger.schedule.cron`)
+    assert.ok(seed.trigger?.schedule?.timezone, `${seed.seedKey} needs trigger.schedule.timezone`)
+    assert.equal(seed.trigger?.schedule?.isActive, true)
+    assert.deepEqual(serializeSeed(seed).trigger, seed.trigger)
   }
 })
 

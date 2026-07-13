@@ -9,7 +9,16 @@ export type SeedTemplate = {
   kind: 'agent' | 'flow'
   instructions?: string; model?: string; integrations?: string[]
   agents?: TemplateAgentSpec[]; flowGraph?: FlowGraph
-  trigger?: { type: 'manual' | 'schedule'; [k: string]: unknown }
+  trigger?: {
+    type: 'manual' | 'schedule'
+    schedule?: {
+      type: 'cron'
+      cron: string
+      time: string
+      timezone: string
+      isActive: boolean
+    }
+  }
   icon?: string; exampleOutput?: string
 }
 
@@ -23,7 +32,10 @@ const sfCreate = (id: string, sobject: string, fields: Record<string, string>, l
 const gmailStep = (id: string, to: string, subject: string, bodyTok: string, label = 'Send email') =>
   ({ id, type: 'tool' as const, data: { label, connectionId: 'nango:gmail', toolName: 'gmail_send_email', args: JSON.stringify({ to, subject, body: bodyTok }) } })
 const edge = (source: string, target: string) => ({ id: `${source}-${target}`, source, target })
-const schedule = (cron: string) => ({ type: 'schedule' as const, cron, timezone: 'UTC' })
+const schedule = (cron: string) => ({
+  type: 'schedule' as const,
+  schedule: { type: 'cron' as const, cron, time: '', timezone: 'UTC', isActive: true },
+})
 
 const BASE_SEED_CATALOGUE: SeedTemplate[] = [
   // ───────────────────────── SALES ─────────────────────────
@@ -437,6 +449,7 @@ export function serializeSeed(seed: SeedTemplate) {
     requiredIntegrations: seed.requiredIntegrations,
     recommendedIntegrations: seed.recommendedIntegrations,
     kind: seed.kind,
+    trigger: seed.trigger ?? { type: 'manual' as const },
     seed: true as const,
     seedKey: seed.seedKey,
   }

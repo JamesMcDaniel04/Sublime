@@ -7,8 +7,49 @@ import { resolveGraphToolConnections, rewriteGraphAgentRefs } from '@/lib/templa
 import { loadFlowToolCatalog } from '@/lib/flows/tool-catalog'
 import { normalizeFlowTrigger, triggerFromGraph } from '@/lib/flows/trigger'
 import { syncAgentConnectors } from '@/lib/connectors/agent-connectors'
+import type { AgentSchedule } from '@/lib/scheduling/due'
+import type { FlowGraph } from '@/lib/flows/graph'
 
-const bodySchema = z.object({ seedKey: z.string().min(1) })
+const bodySchema = z.object({
+  seedKey: z.string().min(1),
+  // Omitted by catalogue cards for backwards compatibility. The detail page
+  // supplies it so every recipe can be deployed as either a standalone Agent
+  // or an orchestrated Flow.
+  targetKind: z.enum(['agent', 'flow']).optional(),
+})
+
+const MANUAL_SCHEDULE: AgentSchedule = {
+  type: 'manual', time: '', cron: '', timezone: 'UTC', isActive: false,
+}
+
+function scheduleForSeed(seed: ReturnType<typeof getSeedByKey>): AgentSchedule {
+  const schedule = seed?.trigger?.type === 'schedule' ? seed.trigger.schedule : undefined
+  return schedule
+    ? { ...schedule }
+    : { ...MANUAL_SCHEDULE }
+}
+
+function combinedAgentSpec(seed: NonNullable<ReturnType<typeof getSeedByKey>>) {
+  const embedded = seed.agents ?? []
+  const instructions = seed.instructions?.trim() || [
+    `Run the ${seed.name} process.`,
+    seed.description,
+    ...embedded.map((agent) => `${agent.title}: ${agent.instructions}`),
+  ].join('\n\n')
+  const integrations = Array.from(new Set([
+    ...(seed.integrations ?? []),
+    ...seed.requiredIntegrations,
+    ...seed.recommendedIntegrations,
+    ...embedded.flatMap((agent) => agent.integrations),
+  ]))
+  return {
+    title: seed.name,
+    description: seed.description,
+    instructions,
+    model: seed.model,
+    integrations,
+  }
+}
 
 // Strip undefined + narrow to plain JSON so Prisma's InputJsonValue accepts the
 // zod-inferred trigger/graph shapes (mirrors src/app/api/flows/route.ts).
@@ -21,6 +62,7 @@ async function materializeAgent(
   spec: { title: string; instructions: string; model?: string; integrations: string[]; description?: string },
   organizationId: string,
   userId: string,
+  schedule: AgentSchedule = MANUAL_SCHEDULE,
 ): Promise<string> {
   // Preserve the catalogue description a user saw on the template card; fall
   // back to the title only when the spec carries none (embedded flow specs).
@@ -33,7 +75,7 @@ async function materializeAgent(
       description,
       objective: spec.instructions,
       context: {},
-      schedule: { type: 'manual', timezone: 'UTC', isActive: false },
+      schedule,
       status: 'ACTIVE',
       visibility: 'shared',
       organizationId,
@@ -59,38 +101,61 @@ async function materializeAgent(
 // is never trusted. Flows are always created DRAFT; the caller reviews and
 // activates from the flow editor, this endpoint never auto-runs anything.
 export const POST = withAuthenticatedApi(async (request, auth) => {
-  const { seedKey } = bodySchema.parse(await request.json())
+  const { seedKey, targetKind } = bodySchema.parse(await request.json())
   const seed = getSeedByKey(seedKey)
   if (!seed) throw new ApiError('Template not found', 404, 'SEED_NOT_FOUND')
 
   const organizationId = auth.organizationId
   const userId = auth.dbUser.id
 
-  if (seed.kind === 'agent') {
-    const integrations = seed.integrations ?? []
+  const desiredKind = targetKind ?? seed.kind
+  const schedule = scheduleForSeed(seed)
+
+  if (desiredKind === 'agent') {
+    const spec = combinedAgentSpec(seed)
     const agentId = await materializeAgent(
-      { title: seed.name, instructions: seed.instructions ?? seed.description, model: seed.model, integrations, description: seed.description },
+      spec,
       organizationId,
       userId,
+      schedule,
     )
-    await syncAgentConnectors(agentId, organizationId, integrations)
+    await syncAgentConnectors(agentId, organizationId, spec.integrations)
     return { success: true, kind: 'agent' as const, agentId }
   }
 
-  // kind === 'flow': materialize the embedded agents, rewrite the graph's
-  // agent-ref placeholders to real ids, then create the flow itself.
-  const specs: TemplateAgentSpec[] = seed.agents ?? []
+  // targetKind === 'flow': preserve an authored orchestration graph when one
+  // exists. Agent recipes become trigger -> agent flows, retaining the same
+  // instructions, connected tools, and recommended schedule.
+  const specs: TemplateAgentSpec[] = seed.kind === 'flow'
+    ? seed.agents ?? []
+    : [{ ref: 'template-agent', ...combinedAgentSpec(seed) }]
   const refToId: Record<string, string> = {}
   const created: Array<{ id: string; integrations: string[] }> = []
   try {
     for (const spec of specs) {
-      const id = await materializeAgent(spec, organizationId, userId)
+      const id = await materializeAgent(spec, organizationId, userId, MANUAL_SCHEDULE)
       refToId[spec.ref] = id
       created.push({ id, integrations: spec.integrations })
     }
 
-    if (!seed.flowGraph) throw new ApiError('Template is missing its flow graph', 500, 'SEED_INVALID')
-    const withAgents = rewriteGraphAgentRefs(seed.flowGraph, refToId)
+    const baseGraph: FlowGraph = seed.kind === 'flow' && seed.flowGraph
+      ? seed.flowGraph
+      : {
+          nodes: [
+            { id: 'trigger', type: 'trigger', data: { trigger: seed.trigger ?? { type: 'manual' } } },
+            {
+              id: 'run-agent',
+              type: 'agent',
+              data: {
+                agentId: 'template-agent',
+                label: seed.name,
+                input: '{{trigger.input}}',
+              },
+            },
+          ],
+          edges: [{ id: 'trigger-run-agent', source: 'trigger', target: 'run-agent' }],
+        }
+    const withAgents = rewriteGraphAgentRefs(baseGraph, refToId)
     const toolCatalog = await loadFlowToolCatalog(organizationId, { userId, takeTools: 200 })
     const graph = resolveGraphToolConnections(withAgents, toolCatalog)
     const trigger = seed.trigger ? normalizeFlowTrigger(seed.trigger) : triggerFromGraph(graph)
@@ -103,7 +168,7 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
         visibility: 'shared',
         trigger: jsonValue(trigger),
         graph: jsonValue(graph),
-        metadata: jsonValue({ seededFrom: seed.seedKey }),
+        metadata: jsonValue({ seededFrom: seed.seedKey, provisionedAs: 'flow' }),
         organizationId,
         userId,
       },

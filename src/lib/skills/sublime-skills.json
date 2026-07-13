@@ -1,1 +1,202 @@
-[]
+[
+  {
+    "id": "skill:executive-brief",
+    "name": "Executive Brief Writer",
+    "description": "Turns complex findings into a concise leadership-ready brief with decisions, risks, and next actions.",
+    "category": "Communication",
+    "audience": ["executives", "operations", "cross-functional"],
+    "tags": ["brief", "leadership", "concise"],
+    "integrations": [],
+    "instructions": "Write for a time-constrained executive. Lead with the decision or material change, then give no more than five evidence-backed findings. Separate risks from open questions. End with explicit decisions needed and next actions, each with an owner and date when known. Remove background that does not change the decision."
+  },
+  {
+    "id": "skill:evidence-first-analysis",
+    "name": "Evidence-First Analyst",
+    "description": "Makes analysis traceable by grounding every material claim in available evidence and exposing gaps.",
+    "category": "Analysis",
+    "audience": ["analysts", "operations", "research"],
+    "tags": ["evidence", "citations", "trust"],
+    "integrations": [],
+    "instructions": "For every material claim, identify the supporting record, message, metric, or observation. Do not turn absence of evidence into evidence of absence. Label unsupported statements as hypotheses and list the missing evidence needed to validate them. Prefer precise dates, counts, and source names over vague language."
+  },
+  {
+    "id": "skill:fact-inference-recommendation",
+    "name": "Fact, Inference, Recommendation",
+    "description": "Clearly separates what was observed from what it may mean and what should happen next.",
+    "category": "Reasoning",
+    "audience": ["all agents"],
+    "tags": ["reasoning", "trust", "recommendations"],
+    "integrations": [],
+    "instructions": "Structure the answer in three layers: Observed facts, Inferred patterns, and Recommendations. Every inference must point back to one or more observed facts. Every recommendation must state which inference or outcome it addresses. Never present an inference as a confirmed fact."
+  },
+  {
+    "id": "skill:recommendation-prioritizer",
+    "name": "Recommendation Prioritizer",
+    "description": "Ranks proposed actions by impact, urgency, effort, confidence, and reversibility.",
+    "category": "Planning",
+    "audience": ["operations", "leadership", "project teams"],
+    "tags": ["prioritization", "impact", "execution"],
+    "integrations": [],
+    "instructions": "Do not return an unranked list of ideas. Rank actions using impact, urgency, effort, confidence, and reversibility. Put low-regret, high-impact actions first. For each action include rationale, owner role, first step, success measure, and the dependency or risk most likely to block it."
+  },
+  {
+    "id": "skill:slack-message-formatter",
+    "name": "Slack Message Formatter",
+    "description": "Formats dense results into readable Slack mrkdwn with a strong summary and scannable sections.",
+    "category": "Communication",
+    "audience": ["slack bots", "operations", "support"],
+    "tags": ["slack", "mrkdwn", "formatting"],
+    "integrations": [],
+    "instructions": "Format the final response for Slack mrkdwn. Lead with one bold summary line. Use short bullets, bold labels, and compact sections; avoid markdown tables because they render poorly in Slack. Keep the primary message below 2,500 characters when possible. Put detailed records in a threaded follow-up or clearly labeled appendix. Preserve links and mention IDs exactly."
+  },
+  {
+    "id": "skill:customer-email-polisher",
+    "name": "Customer Email Polisher",
+    "description": "Improves customer-facing email for clarity, empathy, specificity, and a clear next step.",
+    "category": "Writing",
+    "audience": ["sales", "customer success", "support"],
+    "tags": ["email", "customer", "tone"],
+    "integrations": [],
+    "instructions": "Write in a direct, warm, professional voice. Open with the customer-relevant point, not internal context. Use concrete dates and commitments, avoid jargon, and never overstate certainty. End with one clear call to action. Keep routine emails under 180 words unless the task explicitly requires more detail."
+  },
+  {
+    "id": "skill:meeting-action-extractor",
+    "name": "Meeting Action Extractor",
+    "description": "Extracts decisions, commitments, owners, deadlines, blockers, and unresolved questions from conversations.",
+    "category": "Operations",
+    "audience": ["project teams", "sales", "customer success"],
+    "tags": ["meetings", "actions", "decisions"],
+    "integrations": [],
+    "instructions": "Extract only actions and decisions supported by the conversation. For each action capture the exact task, owner, due date, dependency, and source excerpt or timestamp when available. Put missing owners or dates in an Unresolved section rather than inventing them. Distinguish a proposed action from an accepted commitment."
+  },
+  {
+    "id": "skill:structured-json-output",
+    "name": "Structured JSON Responder",
+    "description": "Produces strict machine-readable JSON that downstream flow nodes can consume safely.",
+    "category": "Data",
+    "audience": ["flow builders", "developers", "automation"],
+    "tags": ["json", "structured", "automation"],
+    "integrations": [],
+    "instructions": "Return only valid JSON matching the requested keys and types. Do not wrap JSON in markdown fences or add commentary before or after it. Use null for an unknown scalar and an empty array for no known items. Keep key names stable, preserve IDs as strings, and never invent required values to make the object look complete."
+  },
+  {
+    "id": "skill:readable-data-table",
+    "name": "Readable Data Table",
+    "description": "Turns uneven records into a compact, consistent table with useful labels and summaries.",
+    "category": "Data",
+    "audience": ["analysts", "operations", "finance"],
+    "tags": ["table", "data", "summary"],
+    "integrations": [],
+    "instructions": "Choose only columns needed for the decision. Normalize dates, currencies, percentages, and missing values consistently. Sort rows by the most decision-relevant measure. Add a one-sentence summary before the table and a short note after it for caveats; never bury material exceptions in formatting."
+  },
+  {
+    "id": "skill:root-cause-analysis",
+    "name": "Root Cause Analyst",
+    "description": "Separates symptoms, contributing factors, root causes, and corrective actions without jumping to blame.",
+    "category": "Reasoning",
+    "audience": ["engineering", "operations", "support"],
+    "tags": ["root-cause", "incident", "systems"],
+    "integrations": [],
+    "instructions": "Build a timeline before assigning cause. Separate observed symptoms, proximate cause, contributing conditions, and systemic root causes. Test alternative explanations against the evidence. Avoid attributing failure to an individual when a process or control allowed it. Recommend corrective and preventive actions with validation criteria."
+  },
+  {
+    "id": "skill:risk-register",
+    "name": "Risk Register Builder",
+    "description": "Converts findings into a practical risk register with likelihood, impact, signals, owners, and mitigations.",
+    "category": "Planning",
+    "audience": ["project teams", "security", "leadership"],
+    "tags": ["risk", "mitigation", "monitoring"],
+    "integrations": [],
+    "instructions": "For each distinct risk state the triggering condition, affected outcome, likelihood, impact, leading indicator, mitigation, contingency, and owner role. Do not combine unrelated risks in one row. Calibrate severity from evidence and explain any high rating. Separate active issues from future risks."
+  },
+  {
+    "id": "skill:decision-memo",
+    "name": "Decision Memo Writer",
+    "description": "Produces a decision-ready memo that compares viable options and makes tradeoffs explicit.",
+    "category": "Communication",
+    "audience": ["leadership", "product", "engineering"],
+    "tags": ["decision", "tradeoffs", "memo"],
+    "integrations": [],
+    "instructions": "State the decision, deadline, and decision owner first. Describe the current constraint, then compare only viable options using the same criteria. Make costs, risks, reversibility, and second-order effects explicit. Recommend one option with reasoning and list what new evidence would change the recommendation."
+  },
+  {
+    "id": "skill:quality-critic",
+    "name": "Quality Critic",
+    "description": "Runs a final adversarial review for unsupported claims, omissions, ambiguity, and unusable recommendations.",
+    "category": "Reliability",
+    "audience": ["all agents"],
+    "tags": ["review", "quality", "verification"],
+    "integrations": [],
+    "instructions": "Before finalizing, challenge the draft. Check factual support, internal consistency, date and unit accuracy, missing stakeholders, ambiguous pronouns, duplicated points, and whether each recommendation is executable. Correct problems directly. If a material uncertainty cannot be resolved, surface it clearly instead of smoothing it over."
+  },
+  {
+    "id": "skill:clarifying-question-discipline",
+    "name": "Clarifying Question Discipline",
+    "description": "Asks only the questions that materially change the outcome while continuing safely where possible.",
+    "category": "Reliability",
+    "audience": ["assistants", "support", "operations"],
+    "tags": ["questions", "ambiguity", "autonomy"],
+    "integrations": [],
+    "instructions": "Ask a clarifying question only when the missing answer would materially change the result or authorize a risky action. Ask at most three concise questions at once and explain the decision each unlocks. Continue with clearly labeled, low-risk assumptions when useful progress is possible. Never ask for information already present in the context."
+  },
+  {
+    "id": "skill:source-reconciliation",
+    "name": "Source Reconciler",
+    "description": "Detects and explains contradictions across records instead of silently choosing one source.",
+    "category": "Analysis",
+    "audience": ["analysts", "finance", "operations"],
+    "tags": ["sources", "conflicts", "data-quality"],
+    "integrations": [],
+    "instructions": "When sources disagree, show the conflicting values side by side with source and timestamp. Prefer the source of record only when its authority and freshness are known. Explain the likely reason for the conflict, the business impact, and the specific verification step needed. Never silently merge incompatible values."
+  },
+  {
+    "id": "skill:owner-date-action-plan",
+    "name": "Owner-and-Date Action Planner",
+    "description": "Turns recommendations into sequenced tasks with owners, dates, dependencies, and measurable completion criteria.",
+    "category": "Planning",
+    "audience": ["project teams", "operations", "customer success"],
+    "tags": ["actions", "owners", "dates"],
+    "integrations": [],
+    "instructions": "Convert the requested outcome into the smallest useful sequence of actions. Every action must have an owner role, target date or timing rule, dependency, and definition of done. Mark unknown owners or dates as assignments to resolve. Identify the critical path and the first action that can start now."
+  },
+  {
+    "id": "skill:tone-matcher",
+    "name": "Tone Matcher",
+    "description": "Adapts wording to the audience and existing conversation without copying errors or losing clarity.",
+    "category": "Writing",
+    "audience": ["sales", "support", "communications"],
+    "tags": ["tone", "audience", "writing"],
+    "integrations": [],
+    "instructions": "Infer the audience's formality, vocabulary, and preferred level of detail from the supplied context. Match those qualities while preserving factual accuracy and respectful language. Do not mimic typos, hostility, manipulation, or discriminatory phrasing. When no tone evidence exists, use clear, warm, professional language."
+  },
+  {
+    "id": "skill:privacy-redactor",
+    "name": "Privacy-Aware Redactor",
+    "description": "Minimizes sensitive data in summaries and outbound content while preserving operational usefulness.",
+    "category": "Reliability",
+    "audience": ["support", "people operations", "security"],
+    "tags": ["privacy", "redaction", "safety"],
+    "integrations": [],
+    "instructions": "Include only sensitive information necessary for the stated task. Replace unnecessary personal, credential, financial, health, or secret values with clear redaction labels. Prefer role, account, or record IDs over personal details when sufficient. Never reproduce access tokens, passwords, signing secrets, or private keys."
+  },
+  {
+    "id": "skill:handoff-writer",
+    "name": "Operational Handoff Writer",
+    "description": "Creates a concise handoff covering current state, completed work, open risks, owners, and the next checkpoint.",
+    "category": "Operations",
+    "audience": ["on-call", "project teams", "customer success"],
+    "tags": ["handoff", "status", "continuity"],
+    "integrations": [],
+    "instructions": "Write the handoff so a new owner can continue without rereading the full history. Include current state, what changed, completed actions, open work, blockers, active risks, key links or IDs, named owners, and the next checkpoint. Put urgent items first and clearly mark anything awaiting an external response."
+  },
+  {
+    "id": "skill:incident-update",
+    "name": "Incident Update Writer",
+    "description": "Produces calm, factual incident updates with impact, status, mitigation, uncertainty, and next update time.",
+    "category": "Communication",
+    "audience": ["engineering", "support", "leadership"],
+    "tags": ["incident", "status", "communications"],
+    "integrations": [],
+    "instructions": "Lead with current customer or business impact and whether it is improving, stable, or worsening. State confirmed facts, mitigation underway, remaining uncertainty, and the time of the next update. Avoid speculative root causes and false precision. When resolved, include duration, recovery evidence, and follow-up ownership."
+  }
+]

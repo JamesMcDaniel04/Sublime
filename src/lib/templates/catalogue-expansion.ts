@@ -84,6 +84,13 @@ function toSeed(department: Exclude<Department, 'general'>, recipe: Recipe): See
     recommendedIntegrations: recipe.recommended,
     integrations,
     kind: 'agent',
+    // These reconstruction/analysis recipes are recurring operating reviews,
+    // so both the Agent and Flow provisioning paths inherit a real weekly
+    // schedule. The user can change or pause it after creation.
+    trigger: {
+      type: 'schedule',
+      schedule: { type: 'cron', cron: '0 14 * * 1', time: '', timezone: 'UTC', isActive: true },
+    },
     icon: recipe.icon,
     model: 'gpt-4o',
     instructions: [
