@@ -4,7 +4,6 @@ import { Suspense } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { Bot, Cable, Server } from 'lucide-react'
 import { MCPIntegrationCards } from '@/components/integrations/mcp-integration-cards'
-import { SlackBotCard } from '@/components/integrations/slack-bot-card'
 import { McpServersPanel } from '@/components/connections/mcp-servers-panel'
 import { PageHeader } from '@/components/ui/page-header'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
@@ -29,7 +28,6 @@ function IntegrationsTabs() {
       </TabsList>
       <TabsContent value="tools" className="mt-6"><MCPIntegrationCards /></TabsContent>
       <TabsContent value="accounts" className="mt-6 space-y-6">
-        <SlackBotCard />
         <Suspense fallback={<p className="text-sm text-gray-500">Loading integrations...</p>}>
           <OAuthIntegrationsGrid />
         </Suspense>
