@@ -27,6 +27,7 @@ import { ensureFreshConnectionToken, persistRefreshedAuthcodeTokens } from '@/li
 import { isStrataUrl } from '@/lib/mcp/strata'
 import { GranolaToolClient, getGranolaApiKey, granolaTools } from '@/lib/integrations/granola'
 import { SlackToolClient, slackTools } from '@/lib/integrations/slack'
+import { decryptSecretJson } from '@/lib/slack/connections'
 import { HttpToolClient, httpTools } from '@/lib/integrations/http'
 import { EmailToolClient, emailTools } from '@/lib/integrations/email'
 import { BUILTIN_CONNECTORS, fromKlavisAgentType, isSelected, nangoConnector, type ConnectorDescriptor } from '@/lib/connectors/registry'
@@ -288,11 +289,27 @@ export async function loadNativePlaneGroups(
     }
   }
 
-  // Slack REST API — gated on SLACK_BOT_TOKEN.
+  // Slack REST API — prefer the org's verified Slack bot connection. The env
+  // token remains a backwards-compatible fallback for older deployments.
   const slackConn = BUILTIN_CONNECTORS.find((c) => c.kind === 'builtin' && c.providerId === 'slack')!
-  if (slackConn.available() && selected(slackConn)) {
+  if (selected(slackConn)) {
     try {
-      groups.push(group(slackConn, 'https://slack.com/api', new SlackToolClient(), slackTools()))
+      const binding = await prisma.slackWorkspaceConnection.findFirst({
+        where: { organizationId, status: 'active' },
+        orderBy: { createdAt: 'asc' },
+      })
+      if (binding) {
+        const slackGroup = group(
+          slackConn,
+          'https://slack.com/api',
+          new SlackToolClient(decryptSecretJson(binding.botToken)),
+          slackTools(),
+        )
+        slackGroup.name = `Slack — ${binding.teamName ?? binding.teamId}`
+        groups.push(slackGroup)
+      } else if (slackConn.available()) {
+        groups.push(group(slackConn, 'https://slack.com/api', new SlackToolClient(), slackTools()))
+      }
     } catch (error) {
       apiLogger.warn('loadTools: Slack tool setup failed, skipping provider', {
         provider: 'slack',
@@ -505,11 +522,24 @@ export async function resolveFlowToolExecutor(params: {
       const client = new GranolaToolClient(granolaKey.apiKey)
       return { provider: 'granola', isWrite: false, execute: (name, args) => client.executeTool('', name, args) }
     }
-    if (ref === 'slack' || ref === 'email' || ref === 'http') {
+    if (ref === 'slack') {
+      const binding = await prisma.slackWorkspaceConnection.findFirst({
+        where: { organizationId, status: 'active' },
+        orderBy: { createdAt: 'asc' },
+      })
+      if (binding) {
+        const client = new SlackToolClient(decryptSecretJson(binding.botToken))
+        return { provider: 'slack', isWrite: true, execute: (name, args) => client.executeTool('', name, args) }
+      }
+      const descriptor = BUILTIN_CONNECTORS.find((c) => c.kind === 'builtin' && c.providerId === ref)!
+      if (!descriptor.available()) throw new Error('Slack is not configured for this workspace.')
+      const client = new SlackToolClient()
+      return { provider: 'slack', isWrite: descriptor.isWrite, execute: (name, args) => client.executeTool('', name, args) }
+    }
+    if (ref === 'email' || ref === 'http') {
       const descriptor = BUILTIN_CONNECTORS.find((c) => c.kind === 'builtin' && c.providerId === ref)!
       if (!descriptor.available()) throw new Error(`${descriptor.label} is not configured for this workspace.`)
-      const client: McpToolClient =
-        ref === 'slack' ? new SlackToolClient() : ref === 'email' ? new EmailToolClient() : new HttpToolClient()
+      const client: McpToolClient = ref === 'email' ? new EmailToolClient() : new HttpToolClient()
       return { provider: ref, isWrite: descriptor.isWrite, execute: (name, args) => client.executeTool('', name, args) }
     }
     throw new Error(`Unknown built-in integration "${ref}" — pick another in the step config.`)

@@ -295,6 +295,41 @@ function resolveConfigValue(value: string | undefined, ctx: FlowContext): unknow
   }
 }
 
+const DEFAULT_AGENT_INPUTS = new Set(['{{trigger.input}}', 'Use this flow input:\n{{trigger.input}}'])
+
+/**
+ * Existing Agent nodes become Slack-bot handlers without a special node type:
+ * when the node still has the builder's default/blank input and the trigger
+ * payload is a normalized Slack message, feed the user's query text directly
+ * to the agent. Explicit node input always wins, and non-Slack flow inputs keep
+ * the existing template-resolution behavior.
+ */
+function agentInput(nodeInput: string | undefined, ctx: FlowContext): string {
+  const template = nodeInput?.trim() || '{{trigger.input}}'
+  const triggerInput = ctx.trigger.input
+  if (
+    DEFAULT_AGENT_INPUTS.has(template) &&
+    triggerInput &&
+    typeof triggerInput === 'object' &&
+    !Array.isArray(triggerInput)
+  ) {
+    const payload = triggerInput as Record<string, unknown>
+    const slackKind = payload.kind
+    const text = payload.text
+    if (
+      typeof text === 'string' &&
+      text.trim() &&
+      typeof slackKind === 'string' &&
+      ['app_mention', 'message.im', 'message.channels', 'slash_command'].includes(slackKind)
+    ) {
+      // app_mention text begins with the bot mention; it is transport syntax,
+      // not part of the user's question.
+      return text.replace(/^<@[A-Z0-9]+>\s*/i, '').trim()
+    }
+  }
+  return resolveTemplate(nodeInput ?? '{{trigger.input}}', ctx)
+}
+
 /**
  * Deterministically interpret a flow graph. Pure: agent execution is delegated
  * to `opts.runAgent`. Supports nested control flow (loops/parallels containing
@@ -583,7 +618,7 @@ export async function interpretFlow(graph: FlowGraph, input: unknown, opts: Opts
     if (node.type === 'agent') {
       const outputFields = node.data.outputFields ?? []
       const structured = node.data.responseFormat === 'structured' && outputFields.some((field) => field.name.trim())
-      let resolved = resolveTemplate(node.data.input ?? '{{trigger.input}}', ctx)
+      let resolved = agentInput(node.data.input, ctx)
       if (structured) resolved = `${resolved}\n\n${structuredResponseInstruction(outputFields)}`
       const inline = !node.data.agentId?.trim()
       const prompt = inline ? resolveTemplate(node.data.prompt ?? '', ctx) : undefined

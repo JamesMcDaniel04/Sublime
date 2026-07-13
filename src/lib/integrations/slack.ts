@@ -48,6 +48,11 @@ export function slackTools(): ToolDefinition[] {
 // ---------------------------------------------------------------------------
 
 export class SlackToolClient {
+  constructor(
+    private readonly botToken?: string,
+    private readonly fetchImpl: typeof fetch = fetch,
+  ) {}
+
   // Satisfies the McpToolClient interface in execute-agent.ts:
   //   executeTool(serverUrl, name, args): Promise<any>
   // Returns the parsed JSON object directly — the same shape as
@@ -58,11 +63,11 @@ export class SlackToolClient {
     name: string,
     args: Record<string, unknown>,
   ): Promise<unknown> {
-    const token = process.env.SLACK_BOT_TOKEN
+    const token = this.botToken || process.env.SLACK_BOT_TOKEN
     if (!token) throw new Error('Slack bot token is not configured')
 
     if (name === 'post_message') {
-      const response = await fetch(SLACK_API_URL, {
+      const response = await this.fetchImpl(SLACK_API_URL, {
         method: 'POST',
         headers: {
           Authorization: `Bearer ${token}`,

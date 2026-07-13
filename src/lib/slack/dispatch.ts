@@ -174,7 +174,7 @@ export async function routeSlackEvent(args: SlackRouteArgs): Promise<void> {
     take: 200,
   })
   const candidates = flows.filter((flow) => flow.publishedGraph != null)
-  const matches = matchSlackFlows(input, candidates)
+  const matches = matchSlackFlows(input, candidates, bindingId)
   if (!matches.length) return
 
   for (const match of matches) {
