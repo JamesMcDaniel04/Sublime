@@ -51,17 +51,17 @@ if (TEST_DB) {
   const json = async (response: Response) => response.json() as Promise<any>
 
   test('agents, flows, executions, and custom MCP rows are owner-only', async () => {
-    const agents = await json((await import('../agents/route')).GET(request('/api/agents')))
+    const agents = await json(await (await import('../agents/route')).GET(request('/api/agents')))
     assert.deepEqual(agents.agents.map((row: any) => row.title), ['mine'])
 
-    const flows = await json((await import('../flows/route')).GET(request('/api/flows')))
+    const flows = await json(await (await import('../flows/route')).GET(request('/api/flows')))
     assert.deepEqual(flows.flows.map((row: any) => row.name), ['Mine flow'])
 
-    const executions = await json((await import('../agents/activity/route')).GET(request('/api/agents/activity')))
+    const executions = await json(await (await import('../agents/activity/route')).GET(request('/api/agents/activity')))
     assert.equal(executions.activities.length, 1)
     assert.equal(executions.activities[0].userId, seeded.userId)
 
-    const mcp = await json((await import('../mcp-connections/route')).GET(request('/api/mcp-connections')))
+    const mcp = await json(await (await import('../mcp-connections/route')).GET(request('/api/mcp-connections')))
     assert.deepEqual(mcp.connections.map((row: any) => row.name), ['Mine MCP'])
   })
 
@@ -89,7 +89,7 @@ if (TEST_DB) {
   })
 
   test('integration availability uses only the acting user credentials', async () => {
-    const available = await json((await import('../integrations/available/route')).GET(request('/api/integrations/available')))
+    const available = await json(await (await import('../integrations/available/route')).GET(request('/api/integrations/available')))
     assert.deepEqual(available.connections.map((row: any) => row.name), ['Mine MCP'])
     const connected = available.tools.filter((row: any) => row.connected).map((row: any) => row.key.toLowerCase())
     assert.ok(connected.includes('github'))
@@ -97,7 +97,7 @@ if (TEST_DB) {
   })
 
   test('hand-authored templates are shared but another user run-derived template is hidden', async () => {
-    const body = await json((await import('../agent-templates/route')).GET(request('/api/agent-templates')))
+    const body = await json(await (await import('../agent-templates/route')).GET(request('/api/agent-templates')))
     const names = body.templates.map((row: any) => row.name)
     assert.ok(names.includes('Shared hand template'))
     assert.ok(!names.includes('Other run-derived template'))
