@@ -5,6 +5,8 @@ import { matchSlackFlows, slackTriggerConfigOf, type SlackTriggerConfig } from '
 import { claimSlackEvent } from '@/lib/slack/dedup'
 import { findOpenSession, resolveSessionRouting, upsertThreadSession, closeSession } from '@/lib/slack/session'
 import type { NormalizedSlackEvent, SlackTriggerInput } from '@/lib/slack/payload'
+import { ingestActivity } from '@/lib/activity/ingest'
+import { slackActivityFromInput } from '@/lib/activity/sources/slack'
 
 export type SlackRouteArgs = {
   bindingId: string
@@ -154,6 +156,10 @@ async function tryThreadContinuation(args: {
 export async function routeSlackEvent(args: SlackRouteArgs): Promise<void> {
   const { bindingId, organizationId, normalized } = args
   const input = normalized.input
+
+  // Observe every verified, deduped, non-bot event without delaying dispatch.
+  const observed = slackActivityFromInput(input)
+  if (observed) void ingestActivity(organizationId, 'webhook', [observed]).catch(() => undefined)
 
   // Ingress precedence: an open thread session takes priority over normal
   // trigger matching (see tryThreadContinuation). No thread_ts, or a thread
