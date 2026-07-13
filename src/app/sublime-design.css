@@ -8,6 +8,18 @@
    ============================================================ */
 
 :root {
+  /* ---------- COLOR — Landing identity ----------
+     These used to live only inside landing.css. Keeping them here makes the
+     public site and signed-in product read as one continuous experience. */
+  --sublime-ink: #062F33;
+  --sublime-ink-2: #0B484C;
+  --sublime-orange: #FF6B35;
+  --sublime-orange-hover: #E95725;
+  --sublime-orange-soft: #FFF0E8;
+  --sublime-mint: #E9F3F1;
+  --sublime-mint-strong: #C8DFDB;
+  --sublime-canvas: #F8FAF8;
+
   /* ---------- COLOR — Primary: Horizon (signature blue) ---------- */
   --horizon-50:  #EBF3F6;
   --horizon-100: #DBEBF2;
@@ -48,9 +60,9 @@
   --fg-4: var(--graphite-400);
   --fg-on-blue: var(--white);
   --fg-link: var(--horizon-500);
-  --fg-accent: var(--horizon-700);
+  --fg-accent: var(--sublime-ink);
 
-  --bg-page:    var(--white);
+  --bg-page:    var(--sublime-canvas);
   --bg-surface: var(--white);
   --bg-muted:   var(--graphite-100);
   --bg-inverse: var(--graphite-900);
@@ -70,6 +82,8 @@
   --gradient-horizon-soft: linear-gradient(180deg, #DBEBF2 0%, #99C1D1 100%);
   --gradient-graphite: linear-gradient(180deg, #171721 44%, #191922 100%);
   --gradient-card-blue: linear-gradient(180deg, #EBF3F6 0%, #DBEBF2 100%);
+  --gradient-sublime: linear-gradient(145deg, var(--sublime-ink-2), var(--sublime-ink));
+  --gradient-sublime-soft: linear-gradient(145deg, var(--sublime-mint), var(--sublime-canvas) 55%, var(--sublime-orange-soft));
 
   /* ---------- RADII (product rounded, marketing sharper) ---------- */
   --radius-xs: 4px;
@@ -91,6 +105,7 @@
   --shadow-3: 0 8px 24px rgba(13, 26, 51, 0.08), 0 2px 6px rgba(13, 26, 51, 0.05);
   --shadow-4: 0 16px 48px rgba(13, 26, 51, 0.15), 0 4px 12px rgba(13, 26, 51, 0.08);
   --shadow-popover: 0 12px 32px rgba(13, 26, 51, 0.15);
+  --shadow-brand: 0 20px 50px rgba(6, 47, 51, 0.10), 0 3px 10px rgba(6, 47, 51, 0.06);
 
   /* ---------- TYPOGRAPHY — scale ---------- */
   --type-xl-header-size: 40px;  --type-xl-header-line: 60px;  --type-xl-header-track: -1px;  --type-xl-header-weight: 700;

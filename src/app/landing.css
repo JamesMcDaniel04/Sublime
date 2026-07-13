@@ -6,9 +6,9 @@
    ============================================================ */
 
 .sl-l-page {
-  --landing-ink: #062f33;
-  --landing-orange: #ff6b35;
-  --landing-orange-soft: #fff0e8;
+  --landing-ink: var(--sublime-ink);
+  --landing-orange: var(--sublime-orange);
+  --landing-orange-soft: var(--sublime-orange-soft);
   background: #f8faf8;
   color: var(--fg-1);
   font-family: var(--font-display), 'Arimo', system-ui, sans-serif;

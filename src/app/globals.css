@@ -8,26 +8,26 @@
    (button, card, badge, input, …) reads these, so the whole app inherits
    Horizon (primary) + Graphite (neutrals) from here. */
 :root {
-  --background: 0 0% 100%;            /* white */
-  --foreground: 240 18% 11%;         /* graphite-900 #171721 */
+  --background: 120 17% 98%;          /* sublime-canvas #F8FAF8 */
+  --foreground: 185 79% 11%;          /* sublime-ink #062F33 */
   --card: 0 0% 100%;
-  --card-foreground: 240 18% 11%;
+  --card-foreground: 185 79% 11%;
   --popover: 0 0% 100%;
-  --popover-foreground: 240 18% 11%;
-  --primary: 197 37% 42%;            /* horizon-500 #447C93 */
+  --popover-foreground: 185 79% 11%;
+  --primary: 185 79% 11%;            /* landing ink #062F33 */
   --primary-foreground: 0 0% 100%;
-  --secondary: 225 17% 95%;          /* graphite-100 #F1F2F5 */
-  --secondary-foreground: 240 18% 11%;
-  --muted: 225 17% 95%;
-  --muted-foreground: 240 3% 46%;    /* graphite-600 #717178 */
-  --accent: 225 17% 95%;
-  --accent-foreground: 240 18% 11%;
+  --secondary: 168 29% 93%;          /* landing mint #E9F3F1 */
+  --secondary-foreground: 185 79% 11%;
+  --muted: 120 9% 95%;
+  --muted-foreground: 185 15% 38%;
+  --accent: 21 100% 95%;             /* landing orange soft #FFF0E8 */
+  --accent-foreground: 185 79% 11%;
   --destructive: 1 77% 55%;          /* red-500 #E53935 */
   --destructive-foreground: 0 0% 100%;
-  --border: 240 2% 89%;              /* graphite-200 #E3E3E4 */
-  --input: 240 2% 89%;
-  --ring: 197 37% 42%;               /* horizon-500 */
-  --radius: 0.75rem;                 /* 12px — product cards (rounded-lg) */
+  --border: 165 20% 88%;             /* cool mint border */
+  --input: 165 20% 84%;
+  --ring: 16 100% 60%;               /* landing orange #FF6B35 */
+  --radius: 1rem;
 }
 
 .dark {
@@ -60,9 +60,28 @@
    --background/--card, which stay white) read as raised. */
 body {
   min-height: 100vh;
-  background: var(--graphite-50);
+  background: var(--sublime-canvas);
   color: hsl(var(--foreground));
   font-family: var(--font-display), "Arimo", system-ui, sans-serif;
+}
+
+/* Authenticated product canvas. The quiet mint/orange glow mirrors the
+   landing hero stage without competing with dense workflow content. */
+.sublime-app-shell {
+  background:
+    radial-gradient(circle at 18% -12%, rgba(200, 223, 219, 0.72), transparent 30rem),
+    radial-gradient(circle at 96% 5%, rgba(255, 107, 53, 0.08), transparent 24rem),
+    var(--sublime-canvas);
+}
+
+.sublime-app-main {
+  background: transparent;
+  scrollbar-color: var(--sublime-mint-strong) transparent;
+}
+
+::selection {
+  background: rgba(255, 107, 53, 0.22);
+  color: var(--sublime-ink);
 }
 
 /* Entrance stagger: put .stagger-children on a list/grid container and its
