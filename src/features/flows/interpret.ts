@@ -36,10 +36,11 @@ export type InterpretResult = {
   status: 'succeeded' | 'failed' | 'waiting'
   steps: StepOutcome[]
   output: unknown
-  waiting?: { nodeId: string; question?: string }
+  waiting?: { nodeId: string; question?: string; wakeAt?: string }
   // Why a failed run failed — the failing node's error (e.g. the timeout
   // message) so callers can persist it on the run record.
   error?: string
+  webhookResponse?: { statusCode: number; headers: Record<string, string>; bodyMode: 'json' | 'text' | 'binary' | 'none'; body?: unknown }
 }
 
 type Opts = {
@@ -75,6 +76,8 @@ type Opts = {
   // source for input-node precedence (user > webhook > default). Absent for
   // manual/API/flow-as-tool runs, where the trigger input is the sole user source.
   webhookInput?: unknown
+  /** Builder test mode: begin at this node, with upstream mock outputs in completed. */
+  startNodeId?: string
 }
 
 // Result of executing a single node — an output, or a control signal that
@@ -84,7 +87,7 @@ type NodeResult =
   | { kind: 'skip' }
   | { kind: 'stop' }
   | { kind: 'fail'; error: string }
-  | { kind: 'pause'; nodeId: string; question?: string }
+  | { kind: 'pause'; nodeId: string; question?: string; wakeAt?: string }
   // A filter that didn't pass: drops the current loop item, or ends the main chain.
   | { kind: 'drop' }
 
@@ -364,6 +367,7 @@ export async function interpretFlow(graph: FlowGraph, input: unknown, opts: Opts
   // The last output node's bound return object (if any). When set, it becomes
   // the flow's returned output in place of the implicit lastOutput.
   let explicitOutput: { value: unknown } | undefined
+  let webhookResponse: InterpretResult['webhookResponse']
   let visits = 0
   const overBudget = () => ++visits > maxSteps
 
@@ -408,6 +412,18 @@ export async function interpretFlow(graph: FlowGraph, input: unknown, opts: Opts
     if (overBudget()) return { kind: 'fail', error: 'Flow exceeded the maximum number of steps.' }
 
     if (node.type === 'trigger') return { kind: 'skip' }
+
+    if ((node.type === 'agent' || node.type === 'tool' || node.type === 'http') && node.data.disabled) {
+      emit({ nodeId: node.id, status: 'skipped', output: node.data.mockOutput, iterationPath: ctx.iterationPath })
+      if (node.data.mockOutput !== undefined) ctx.step[node.id] = { output: node.data.mockOutput }
+      return { kind: 'ok', output: node.data.mockOutput }
+    }
+    if ((node.type === 'agent' || node.type === 'tool' || node.type === 'http') && node.data.mockOutput !== undefined) {
+      const output = resolveTemplateValue(node.data.mockOutput, ctx)
+      ctx.step[node.id] = { output }
+      emit({ nodeId: node.id, status: 'succeeded', output, iterationPath: ctx.iterationPath })
+      return { kind: 'ok', output }
+    }
 
     // Resume: a node finished on the prior run is reused, not re-executed.
     // Variable state was already reconstructed by the pre-walk replay (which
@@ -459,6 +475,47 @@ export async function interpretFlow(graph: FlowGraph, input: unknown, opts: Opts
       const question = resolveTemplate(node.data.message, ctx)
       emit({ nodeId: node.id, status: 'waiting', output: { waiting: { kind: 'input', question } }, iterationPath: ctx.iterationPath })
       return { kind: 'pause', nodeId: node.id, question }
+    }
+
+    if (node.type === 'respondWebhook') {
+      let headers: Record<string, string> = {}
+      if (node.data.headers?.trim()) {
+        try {
+          const parsed = resolveTemplateValue(JSON.parse(node.data.headers), ctx)
+          if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('Headers must be a JSON object.')
+          headers = Object.fromEntries(Object.entries(parsed as Record<string, unknown>).map(([key, value]) => [key, String(value)]))
+        } catch (error) {
+          const message = error instanceof Error ? error.message : 'Headers must be valid JSON.'
+          emit({ nodeId: node.id, status: 'failed', error: message, iterationPath: ctx.iterationPath })
+          return { kind: 'fail', error: message }
+        }
+      }
+      let body = node.data.bodyMode === 'none' ? undefined : resolveTemplateValue(node.data.body ?? '', ctx)
+      if (node.data.bodyMode === 'json' && typeof body === 'string' && body.trim()) {
+        try { body = JSON.parse(body) } catch {
+          const error = 'Webhook response body is not valid JSON after template substitution.'
+          emit({ nodeId: node.id, status: 'failed', error, iterationPath: ctx.iterationPath })
+          return { kind: 'fail', error }
+        }
+      }
+      webhookResponse = { statusCode: node.data.statusCode, headers, bodyMode: node.data.bodyMode, body }
+      ctx.step[node.id] = { output: webhookResponse }
+      emit({ nodeId: node.id, status: 'succeeded', output: webhookResponse, iterationPath: ctx.iterationPath })
+      return { kind: 'ok', output: webhookResponse }
+    }
+
+    if (node.type === 'wait') {
+      const resume = resumeKey !== undefined && resumeKey === completedKey(node.id, ctx.iterationPath)
+      if (resume) {
+        const output = { waited: true }
+        ctx.step[node.id] = { output }
+        emit({ nodeId: node.id, status: 'succeeded', output, iterationPath: ctx.iterationPath })
+        return { kind: 'ok', output }
+      }
+      const multiplier = node.data.unit === 'days' ? 86_400_000 : node.data.unit === 'hours' ? 3_600_000 : node.data.unit === 'minutes' ? 60_000 : 1000
+      const wakeAt = new Date(Date.now() + node.data.amount * multiplier).toISOString()
+      emit({ nodeId: node.id, status: 'waiting', output: { waiting: { kind: 'time', wakeAt } }, iterationPath: ctx.iterationPath })
+      return { kind: 'pause', nodeId: node.id, wakeAt }
     }
 
     if (node.type === 'transform') {
@@ -545,6 +602,7 @@ export async function interpretFlow(graph: FlowGraph, input: unknown, opts: Opts
               args: resolvedArgs,
               retries: node.data.retries,
               timeoutMs: node.data.timeoutMs,
+              ...(node.data.risk ? { risk: node.data.risk } : {}),
             }
           : {
               ...(node.data.connectionId ? { connectionId: node.data.connectionId } : {}),
@@ -558,6 +616,12 @@ export async function interpretFlow(graph: FlowGraph, input: unknown, opts: Opts
               failOnHttpError: node.data.failOnHttpError,
               retries: node.data.retries,
               timeoutMs: node.data.timeoutMs,
+              ...(node.data.retryDelayMs !== undefined ? { retryDelayMs: node.data.retryDelayMs } : {}),
+              ...(node.data.retryStatusCodes ? { retryStatusCodes: node.data.retryStatusCodes } : {}),
+              ...(node.data.followRedirects !== undefined ? { followRedirects: node.data.followRedirects } : {}),
+              ...(node.data.maxRedirects !== undefined ? { maxRedirects: node.data.maxRedirects } : {}),
+              ...(node.data.pagination ? { pagination: resolveTemplateValue(node.data.pagination, ctx) } : {}),
+              ...(node.data.batch ? { batch: node.data.batch } : {}),
             }
       const res: RunAgentResult = opts.runAction
         ? await opts.runAction({
@@ -739,6 +803,29 @@ export async function interpretFlow(graph: FlowGraph, input: unknown, opts: Opts
       return { kind: 'ok', output }
     }
 
+    if (node.type === 'repeatUntil') {
+      let output: unknown = ctx.item
+      for (let iteration = 0; iteration < node.data.maxIterations; iteration += 1) {
+        const iterationCtx: FlowContext = { ...ctx, step: { ...ctx.step }, loop: { index: iteration, count: node.data.maxIterations }, iterationPath: [...(ctx.iterationPath ?? []), iteration] }
+        const result = await execBody(node.data.body, iterationCtx)
+        if (result.control && result.control.kind !== 'drop') {
+          emit({ nodeId: node.id, status: result.control.kind === 'fail' ? 'failed' : result.control.kind === 'pause' ? 'waiting' : 'stopped', iterationPath: ctx.iterationPath })
+          return result.control
+        }
+        output = result.output
+        ctx.step = { ...ctx.step, ...iterationCtx.step }
+        if (evalCondition(node.data, iterationCtx)) {
+          ctx.step[node.id] = { output }
+          emit({ nodeId: node.id, status: 'succeeded', output, iterationPath: ctx.iterationPath })
+          return { kind: 'ok', output }
+        }
+        if (node.data.delayMs) await sleep(node.data.delayMs)
+      }
+      const error = `Repeat until reached its ${node.data.maxIterations}-run safety limit.`
+      emit({ nodeId: node.id, status: 'failed', error, iterationPath: ctx.iterationPath })
+      return { kind: 'fail', error }
+    }
+
     if (node.type === 'parallel') {
       const results = await Promise.all(
         node.data.branches.map(async (branch) => {
@@ -799,6 +886,39 @@ export async function interpretFlow(graph: FlowGraph, input: unknown, opts: Opts
     for (const id of nodeIds) {
       const node = byId.get(id)
       if (!node) continue
+      if (node.type === 'condition' || node.type === 'switch' || node.type === 'router') {
+        let branch = 'default'
+        if (node.type === 'condition') branch = evalCondition(node.data, ctx) ? 'true' : 'false'
+        else if (node.type === 'switch') branch = node.data.cases.find((candidate) => evalClause({ left: candidate.left, op: candidate.op, right: candidate.right }, ctx))?.id ?? 'default'
+        else {
+          const prior = opts.completed?.[completedKey(node.id, ctx.iterationPath)]
+          if (typeof prior === 'string' && prior) branch = prior
+          else if (!opts.routeAi) return { output: last, control: { kind: 'fail', error: 'Router steps need an AI runtime.' } }
+          else {
+            const routed = await opts.routeAi({ id: node.id, branches: node.data.branches, instructions: node.data.instructions, input: resolveTemplate(node.data.input ?? '{{trigger.input}}', ctx) })
+            if ('error' in routed) return { output: last, control: { kind: 'fail', error: routed.error } }
+            branch = routed.branch
+          }
+        }
+        ctx.step[node.id] = { output: branch }
+        emit({ nodeId: node.id, status: 'succeeded', output: branch, iterationPath: ctx.iterationPath })
+        const head = outgoing(node.id, branch) ?? outgoing(node.id, 'default')
+        if (head) {
+          const chain: string[] = []
+          const seen = new Set<string>()
+          let cursor: string | undefined = head.target
+          while (cursor && !seen.has(cursor)) {
+            seen.add(cursor)
+            chain.push(cursor)
+            const next = outgoing(cursor)
+            cursor = next?.target
+          }
+          const routed = await execBody(chain, ctx)
+          if (routed.control) return routed
+          last = routed.output
+        }
+        continue
+      }
       const res = await execNode(node, ctx)
       if (res.kind === 'ok') {
         if (res.output !== undefined) {
@@ -817,6 +937,7 @@ export async function interpretFlow(graph: FlowGraph, input: unknown, opts: Opts
   const contained = new Set(
     graph.nodes.flatMap((node) =>
       node.type === 'loop' ? node.data.body
+      : node.type === 'repeatUntil' ? node.data.body
       : node.type === 'parallel' ? node.data.branches.flat()
       : node.type === 'errorShield' ? [...node.data.body, ...node.data.fallback]
       : [],
@@ -837,6 +958,7 @@ export async function interpretFlow(graph: FlowGraph, input: unknown, opts: Opts
     for (const [key, output] of Object.entries(opts.completed)) {
       const nodeId = nodeIdOfCompletedKey(key)
       const node = byId.get(nodeId)
+      ctx.step[nodeId] = { output }
       if (node?.type === 'variable' && node.data.name.trim()) variables[node.data.name.trim()] = output
       if (node?.type === 'input' && output && typeof output === 'object' && !Array.isArray(output)) {
         ctx.input = { ...(ctx.input ?? {}), ...(output as Record<string, unknown>) }
@@ -870,7 +992,7 @@ export async function interpretFlow(graph: FlowGraph, input: unknown, opts: Opts
   // Prefer the explicit output node's bound object when one ran; otherwise the
   // implicit lastOutput (back-compat for flows with no output node).
   const terminalOutput = () => (explicitOutput ? explicitOutput.value : lastOutput)
-  let current: FlowNode | undefined = byId.get('trigger') ?? graph.nodes[0]
+  let current: FlowNode | undefined = (opts.startNodeId ? byId.get(opts.startNodeId) : undefined) ?? byId.get('trigger') ?? graph.nodes[0]
 
   while (current) {
     if (current.type === 'condition') {
@@ -921,10 +1043,10 @@ export async function interpretFlow(graph: FlowGraph, input: unknown, opts: Opts
     }
 
     const res = await execNode(current, ctx)
-    if (res.kind === 'fail') return { status: 'failed', steps, output: lastOutput, error: res.error }
-    if (res.kind === 'pause') return { status: 'waiting', steps, output: lastOutput, waiting: { nodeId: res.nodeId, question: res.question } }
+    if (res.kind === 'fail') return { status: 'failed', steps, output: lastOutput, error: res.error, webhookResponse }
+    if (res.kind === 'pause') return { status: 'waiting', steps, output: lastOutput, waiting: { nodeId: res.nodeId, question: res.question, ...(res.wakeAt ? { wakeAt: res.wakeAt } : {}) }, webhookResponse }
     // A stop node or a main-chain filter that didn't pass ends the flow cleanly.
-    if (res.kind === 'stop' || res.kind === 'drop') return { status: 'succeeded', steps, output: terminalOutput() }
+    if (res.kind === 'stop' || res.kind === 'drop') return { status: 'succeeded', steps, output: terminalOutput(), webhookResponse }
     if (res.kind === 'ok' && res.output !== undefined) lastOutput = res.output
 
     const edge = outgoing(current.id)
@@ -936,5 +1058,5 @@ export async function interpretFlow(graph: FlowGraph, input: unknown, opts: Opts
     current = next
   }
 
-  return { status: 'succeeded', steps, output: terminalOutput() }
+  return { status: 'succeeded', steps, output: terminalOutput(), webhookResponse }
 }

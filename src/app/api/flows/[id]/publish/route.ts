@@ -42,7 +42,7 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
       take: 500,
     }),
     usedConnectionIds.length
-      ? loadFlowToolCatalog(auth.organizationId, { userId: auth.dbUser.id, connectionIds: usedConnectionIds, takeConnections: usedConnectionIds.length, takeTools: 100 })
+      ? loadFlowToolCatalog(auth.organizationId, { userId: auth.dbUser.id, connectionIds: usedConnectionIds, takeConnections: usedConnectionIds.length })
       : Promise.resolve([]),
   ])
   const validation = validateFlowGraph(graph, {

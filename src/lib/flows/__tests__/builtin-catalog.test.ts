@@ -9,9 +9,9 @@ test('built-in groups cover the drill-in taxonomy', () => {
   const ids = BUILTIN_GROUPS.map((g) => g.id)
   assert.deepEqual(ids, ['http', 'control', 'data-operation', 'variable', 'human-review'])
   const control = BUILTIN_GROUPS.find((g) => g.id === 'control')!
-  assert.deepEqual(control.children.map((c) => c.stepType), ['condition', 'switch', 'loop', 'parallel', 'stop'])
+  assert.deepEqual(control.children.map((c) => c.stepType), ['condition', 'switch', 'loop', 'repeatUntil', 'wait', 'subflow', 'parallel', 'stop'])
   const http = BUILTIN_GROUPS.find((g) => g.id === 'http')!
-  assert.ok(http.children.every((c) => c.stepType === 'http'))
+  assert.deepEqual(http.children.map((c) => c.stepType), ['http', 'http', 'respondWebhook'])
 })
 
 test('the Data operations group offers all seven data ops with their display labels', () => {
@@ -63,7 +63,7 @@ test('AI capabilities are action-mode agent steps', () => {
 })
 
 test('trigger leaves cover all five trigger types', () => {
-  assert.deepEqual(TRIGGER_LEAVES.map((l) => l.triggerType), ['manual', 'schedule', 'webhook', 'signal', 'slack'])
+  assert.deepEqual(TRIGGER_LEAVES.map((l) => l.triggerType), ['manual', 'schedule', 'webhook', 'signal', 'slack', 'activity'])
 })
 
 test('searchCorpus is lowercase label+description', () => {

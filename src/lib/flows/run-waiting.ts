@@ -3,7 +3,7 @@
 // output.waiting ({ kind, question?, approvalId? }); this surfaces what the
 // run is blocked on so reply/approval UIs know what to render.
 
-export type RunWaiting = { nodeId: string; kind: 'input' | 'approval'; question?: string }
+export type RunWaiting = { nodeId: string; kind: 'input' | 'approval' | 'time'; question?: string; wakeAt?: string }
 
 export function deriveRunWaiting(
   status: string,
@@ -21,10 +21,11 @@ export function deriveRunWaiting(
     }
   }
   if (!step) return null
-  const info = (step.output as { waiting?: { kind?: string; question?: string } } | null | undefined)?.waiting
+  const info = (step.output as { waiting?: { kind?: string; question?: string; wakeAt?: string } } | null | undefined)?.waiting
   return {
     nodeId: step.nodeId,
-    kind: info?.kind === 'approval' ? ('approval' as const) : ('input' as const),
+    kind: info?.kind === 'approval' ? ('approval' as const) : info?.kind === 'time' ? ('time' as const) : ('input' as const),
     question: info?.question,
+    ...(info?.wakeAt ? { wakeAt: info.wakeAt } : {}),
   }
 }

@@ -28,6 +28,8 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
       input: z.unknown().optional(),
       flowRunId: z.string().optional(),
       reply: z.string().refine((value) => value.trim().length > 0, 'Reply cannot be empty.').optional(),
+      startNodeId: z.string().optional(),
+      mockOutputs: z.record(z.string(), z.unknown()).optional(),
     })
     .parse(body)
   // flowRunId only resumes a paused run when paired with the user's reply —
@@ -55,9 +57,11 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
         orderBy: { order: 'asc' },
         select: { nodeId: true, status: true, output: true },
       })
-      if (deriveRunWaiting(owned.status, steps)?.kind === 'approval') {
+      const waiting = deriveRunWaiting(owned.status, steps)
+      if (waiting?.kind === 'approval') {
         throw new ApiError('This run is waiting for an approval decision, not a reply.', 400, 'FLOW_RUN_AWAITING_APPROVAL')
       }
+      if (waiting?.kind === 'time') throw new ApiError('This run is waiting for its scheduled resume time.', 400, 'FLOW_RUN_AWAITING_TIME')
     }
   }
   // Inline mode returns the terminal result; queue mode returns immediately
@@ -69,6 +73,8 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
     input: parseFlowInput(parsed.input),
     flowRunId: parsed.flowRunId,
     reply: parsed.reply,
+    startNodeId: parsed.startNodeId,
+    mockOutputs: parsed.mockOutputs,
   })
   const run = 'queued' in result ? { flowRunId: result.flowRunId, status: 'queued', output: null } : result
   return { success: true, run }

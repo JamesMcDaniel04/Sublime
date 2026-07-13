@@ -30,16 +30,16 @@ function schemaDescription(value: unknown): string | undefined {
   return isRecord(value) && typeof value.description === 'string' ? value.description : undefined
 }
 
-export function outputFieldsFromJsonSchema(schema: unknown, maxFields = 20): OutputField[] {
+export function outputFieldsFromJsonSchema(schema: unknown, maxFields = 200): OutputField[] {
   if (!isRecord(schema)) return []
   const properties = isRecord(schema.properties) ? schema.properties : undefined
   if (!properties) return []
-  return Object.entries(properties)
+  const walk = (value: Record<string, unknown>, prefix = ''): OutputField[] => Object.entries(isRecord(value.properties) ? value.properties : {}).flatMap(([name, property]) => {
+    const path = prefix ? `${prefix}.${name}` : name
+    if (isRecord(property) && isRecord(property.properties)) return walk(property, path)
+    return [{ name: path, type: schemaType(property), ...(schemaDescription(property) ? { description: schemaDescription(property) } : {}) }]
+  })
+  return walk(schema)
     .slice(0, maxFields)
-    .map(([name, property]) => ({
-      name,
-      type: schemaType(property),
-      ...(schemaDescription(property) ? { description: schemaDescription(property) } : {}),
-    }))
     .filter((field) => field.name.trim())
 }

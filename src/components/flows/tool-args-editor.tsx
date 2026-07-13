@@ -8,25 +8,36 @@ import { TokenTextEditor, type TokenTextEditorHandle } from '@/components/flows/
 import type { TokenLabelContext } from '@/lib/flows/token-text'
 
 type JsonSchema = {
-  type?: string
-  properties?: Record<string, { type?: string; description?: string; enum?: unknown[] }>
+  type?: string | string[]
+  description?: string
+  enum?: unknown[]
+  properties?: Record<string, JsonSchema>
   required?: string[]
+  items?: JsonSchema
+  oneOf?: JsonSchema[]
+  anyOf?: JsonSchema[]
+  default?: unknown
 }
 
-export type SchemaField = { name: string; type: string; required: boolean; description?: string; enumValues?: string[] }
+export type SchemaField = { name: string; type: string; required: boolean; description?: string; enumValues?: string[]; defaultValue?: unknown }
 
-/** Flatten a tool's top-level JSON-schema object into form fields. */
+/** Flatten nested JSON-schema leaves into dot-path form fields. */
 export function schemaFields(inputSchema: unknown): SchemaField[] {
   const schema = inputSchema as JsonSchema | null
-  if (!schema || schema.type !== 'object' || !schema.properties) return []
-  const required = new Set(schema.required ?? [])
-  return Object.entries(schema.properties).map(([name, prop]) => ({
-    name,
-    type: prop.type ?? 'string',
-    required: required.has(name),
-    description: prop.description,
-    enumValues: Array.isArray(prop.enum) ? prop.enum.map(String) : undefined,
-  }))
+  if (!schema?.properties) return []
+  const walk = (current: JsonSchema, prefix = '', ancestorRequired = true): SchemaField[] => {
+    const required = new Set(current.required ?? [])
+    return Object.entries(current.properties ?? {}).flatMap(([name, raw]) => {
+      const prop = raw.oneOf?.[0] ?? raw.anyOf?.[0] ?? raw
+      const path = prefix ? `${prefix}.${name}` : name
+      const isRequired = ancestorRequired && required.has(name)
+      if (prop.properties) return walk(prop, path, isRequired)
+      const type = Array.isArray(prop.type) ? prop.type.find((entry) => entry !== 'null') ?? 'any' : prop.type ?? (prop.enum ? 'string' : 'any')
+      const defaultValue = raw.default ?? prop.default
+      return [{ name: path, type, required: isRequired, description: raw.description ?? prop.description, enumValues: Array.isArray(raw.enum ?? prop.enum) ? (raw.enum ?? prop.enum)!.map(String) : undefined, ...(defaultValue !== undefined ? { defaultValue } : {}) }]
+    })
+  }
+  return walk(schema)
 }
 
 export function parseArgs(args: string | undefined): Record<string, string> {
@@ -35,7 +46,7 @@ export function parseArgs(args: string | undefined): Record<string, string> {
     const parsed = JSON.parse(args)
     if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
       const out: Record<string, string> = {}
-      for (const [k, v] of Object.entries(parsed)) out[k] = typeof v === 'string' ? v : JSON.stringify(v)
+      for (const [key, value] of Object.entries(parsed)) out[key] = typeof value === 'string' ? value : JSON.stringify(value)
       return out
     }
   } catch {
@@ -67,20 +78,30 @@ export function serializeArgs(values: Record<string, string>, fields: SchemaFiel
     if (raw === undefined || raw === '') continue
     const parsed = isJsonValueField(field) ? parseJsonLike(raw) : undefined
     if (parsed !== undefined) {
-      out[field.name] = parsed
+      setPath(out, field.name, parsed)
     } else if (raw.includes('{{')) {
       // Exact-token object/array values are preserved by resolveTemplateValue at runtime.
-      out[field.name] = raw
+      setPath(out, field.name, raw)
     } else if (field.type === 'number' || field.type === 'integer') {
       const n = Number(raw)
-      out[field.name] = Number.isNaN(n) ? raw : n
+      setPath(out, field.name, Number.isNaN(n) ? raw : n)
     } else if (field.type === 'boolean') {
-      out[field.name] = raw === 'true'
+      setPath(out, field.name, raw === 'true')
     } else {
-      out[field.name] = raw
+      setPath(out, field.name, raw)
     }
   }
   return JSON.stringify(out, null, 2)
+}
+
+function setPath(target: Record<string, unknown>, path: string, value: unknown) {
+  const parts = path.split('.')
+  let cursor = target
+  for (let index = 0; index < parts.length - 1; index += 1) {
+    const existing = cursor[parts[index]]
+    cursor = existing && typeof existing === 'object' && !Array.isArray(existing) ? existing as Record<string, unknown> : (cursor[parts[index]] = {}) as Record<string, unknown>
+  }
+  cursor[parts.at(-1)!] = value
 }
 
 function placeholderFor(field: SchemaField): string {
@@ -133,6 +154,16 @@ export function ToolArgsEditor({
   const rawElRef = useRef<HTMLTextAreaElement | null>(null)
 
   const values = parseArgs(args)
+  if (args) {
+    try {
+      const parsed = JSON.parse(args) as unknown
+      for (const field of fields) {
+        if (!field.name.includes('.')) continue
+        const value = field.name.split('.').reduce<unknown>((current, key) => current && typeof current === 'object' && !Array.isArray(current) ? (current as Record<string, unknown>)[key] : undefined, parsed)
+        if (value !== undefined) values[field.name] = typeof value === 'string' ? value : JSON.stringify(value)
+      }
+    } catch { /* raw editor handles invalid JSON */ }
+  }
   const setValue = (name: string, value: string) => onChange(serializeArgs({ ...values, [name]: value }, fields))
   const insertAtCaret = (value: string, token: string, el: HTMLTextAreaElement | null) => {
     if (!el || typeof el.selectionStart !== 'number') return value + token
@@ -204,7 +235,7 @@ export function ToolArgsEditor({
               {field.enumValues ? (
                 <select
                   className={fieldClass}
-                  value={values[field.name] ?? ''}
+                  value={values[field.name] ?? (field.defaultValue === undefined ? '' : String(field.defaultValue))}
                   onChange={(e) => setValue(field.name, e.target.value)}
                 >
                   <option value="">—</option>
@@ -217,7 +248,7 @@ export function ToolArgsEditor({
               ) : field.type === 'boolean' ? (
                 <select
                   className={fieldClass}
-                  value={values[field.name] ?? ''}
+                  value={values[field.name] ?? (field.defaultValue === undefined ? '' : String(field.defaultValue))}
                   onChange={(e) => setValue(field.name, e.target.value)}
                 >
                   <option value="">—</option>
@@ -230,7 +261,7 @@ export function ToolArgsEditor({
                   multiline
                   rows={field.type === 'array' || field.type === 'object' ? 4 : 2}
                   className="font-mono text-xs"
-                  value={values[field.name] ?? ''}
+                  value={values[field.name] ?? (field.defaultValue === undefined ? '' : typeof field.defaultValue === 'string' ? field.defaultValue : JSON.stringify(field.defaultValue))}
                   labelCtx={labelCtx}
                   placeholder={placeholderFor(field)}
                   onFocus={() => {
@@ -242,7 +273,7 @@ export function ToolArgsEditor({
               ) : (
                 <TokenTextEditor
                   ref={registerEditor(field.name)}
-                  value={values[field.name] ?? ''}
+                  value={values[field.name] ?? (field.defaultValue === undefined ? '' : String(field.defaultValue))}
                   labelCtx={labelCtx}
                   placeholder={placeholderFor(field)}
                   onFocus={() => {

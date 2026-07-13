@@ -467,7 +467,7 @@ test('validateFlowGraph does not warn on a humanReview step in the main flow', (
   assert.ok(!result.warnings.some((entry) => entry.code === 'HUMAN_REVIEW_IN_CONTAINER'))
 })
 
-test('blocks a condition inside a loop body (branching cannot route in flat bodies)', () => {
+test('allows a condition inside a loop body', () => {
   const graph: FlowGraph = {
     nodes: [
       { id: 'trigger', type: 'trigger', data: {} },
@@ -477,13 +477,10 @@ test('blocks a condition inside a loop body (branching cannot route in flat bodi
     edges: [{ id: 'e1', source: 'trigger', target: 'loop' }],
   }
   const result = validateFlowGraph(graph)
-  const issue = result.errors.find((candidate) => candidate.code === 'CONDITION_IN_CONTAINER')
-  assert.ok(issue, 'expected CONDITION_IN_CONTAINER error')
-  assert.equal(issue!.nodeId, 'c1')
-  assert.match(issue!.message, /Filter step/)
+  assert.ok(!result.errors.some((candidate) => candidate.code === 'CONDITION_IN_CONTAINER'))
 })
 
-test('blocks a switch inside a parallel branch; a main-chain condition stays valid', () => {
+test('allows a switch inside a parallel branch; a main-chain condition stays valid', () => {
   const graph: FlowGraph = {
     nodes: [
       { id: 'trigger', type: 'trigger', data: {} },
@@ -497,7 +494,7 @@ test('blocks a switch inside a parallel branch; a main-chain condition stays val
     ],
   }
   const result = validateFlowGraph(graph)
-  assert.ok(result.errors.some((issue) => issue.code === 'CONDITION_IN_CONTAINER' && issue.nodeId === 's1'))
+  assert.ok(!result.errors.some((issue) => issue.code === 'CONDITION_IN_CONTAINER' && issue.nodeId === 's1'))
   assert.ok(!result.errors.some((issue) => issue.nodeId === 'c-main'))
 })
 
@@ -550,7 +547,7 @@ test('subflow node inside a loop body is ALLOWED (subflow-per-item pattern)', ()
   assert.ok(!r.errors.some((e) => e.code === 'IO_NODE_IN_CONTAINER'))
 })
 
-test('router: needs branches, unique ids, and is blocked inside a container', () => {
+test('router needs unique branch ids and may run inside a container', () => {
   const r = validateFlowGraph({
     nodes: [
       { id: 'trigger', type: 'trigger', data: {} },
@@ -561,7 +558,7 @@ test('router: needs branches, unique ids, and is blocked inside a container', ()
   })
   const codes = r.errors.map((e) => e.code)
   assert.ok(codes.includes('DUPLICATE_ROUTER_BRANCH'))
-  assert.ok(codes.includes('ROUTER_IN_CONTAINER'))
+  assert.ok(!codes.includes('ROUTER_IN_CONTAINER'))
 })
 
 test('errorShield needs a body; empty fallback is a warning', () => {

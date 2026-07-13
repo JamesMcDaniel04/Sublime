@@ -81,7 +81,7 @@ type Agent = { id: string; title: string }
 // The full trigger shape the card edits inline (the old drawer's TriggerData):
 // full trigger configuration inline without dropping fields on mutation.
 type TriggerData = {
-  type?: 'manual' | 'schedule' | 'webhook' | 'signal' | 'slack'
+  type?: 'manual' | 'schedule' | 'webhook' | 'signal' | 'slack' | 'activity'
   schedule?: { type?: string; time?: string; cron?: string; timezone?: string; runAt?: string; isActive?: boolean }
   input?: string
   inputFields?: TriggerInputField[]
@@ -92,6 +92,15 @@ type TriggerData = {
   keyword?: string
   threadMemory?: boolean
   bindingId?: string
+  sources?: string[]
+  actions?: string[]
+  entityTypes?: string[]
+  webhookMethods?: string[]
+  webhookAuth?: 'none' | 'header' | 'bearer' | 'basic'
+  webhookHeaderName?: string
+  webhookUsername?: string
+  webhookPayload?: 'body' | 'request'
+  webhookResponse?: 'immediate' | 'lastNode' | 'respondNode'
   /** "Only run when…": the run is skipped unless these clauses match the trigger payload. */
   filter?: { match?: 'all' | 'any'; clauses?: ConditionClause[] }
 }
@@ -113,6 +122,7 @@ const TRIGGER_SUBTYPE_ICON: Record<string, typeof Bot> = {
   webhook: Webhook,
   schedule: Clock,
   signal: Radio,
+  activity: Radio,
   manual: Zap,
   slack: MessageSquare,
 }
@@ -136,6 +146,9 @@ const NODE_ICON: Record<FlowNode['type'], typeof Bot> = {
   stop: CircleStop,
   tool: Wrench,
   http: Globe,
+  respondWebhook: Webhook,
+  wait: Clock,
+  repeatUntil: Repeat,
   transform: SlidersHorizontal,
   filter: Filter,
   switch: Split,
@@ -155,6 +168,9 @@ const NODE_TONE: Record<FlowNode['type'], string> = {
   trigger: 'bg-blue-600 text-white',
   agent: 'bg-slate-900 text-white',
   http: 'bg-emerald-600 text-white',
+  respondWebhook: 'bg-emerald-700 text-white',
+  wait: 'bg-sky-600 text-white',
+  repeatUntil: 'bg-cyan-700 text-white',
   tool: 'bg-orange-500 text-white',
   condition: 'bg-amber-500 text-white',
   loop: 'bg-sky-500 text-white',
@@ -922,6 +938,12 @@ function renderNodeBody({
       return <AgentBody node={node} agents={agents} update={update} onRefreshAgents={onRefreshAgents} tokenWiring={tokenWiring} showErrors={showErrors} />
     case 'http':
       return <HttpBody node={node} toolCatalog={toolCatalog} update={update} tokenWiring={tokenWiring} showErrors={showErrors} />
+    case 'respondWebhook':
+      return <RespondWebhookBody node={node} update={update} />
+    case 'wait':
+      return <WaitBody node={node} update={update} />
+    case 'repeatUntil':
+      return <RepeatUntilBody node={node} update={update} tokenWiring={tokenWiring} onAddStep={onAddStep} />
     case 'tool':
       return <ToolBody node={node} toolCatalog={toolCatalog} update={update} showErrors={showErrors} dataFields={dataFields ?? []} tokenWiring={tokenWiring} />
     case 'condition':
@@ -966,7 +988,43 @@ function renderNodeBody({
       return <RouterBody node={node} update={update} tokenWiring={tokenWiring} />
     case 'errorShield':
       return <ErrorShieldBody node={node} onAddStep={onAddStep} />
+    case 'input':
+      return <p className="text-sm text-slate-600">Define the typed values callers may pass to this workflow.</p>
+    case 'output':
+      return <p className="text-sm text-slate-600">Define the values this workflow returns to callers.</p>
+    case 'subflow':
+      return <SubflowBody node={node} update={update} />
   }
+}
+
+function RespondWebhookBody({ node, update }: { node: Extract<FlowNode, { type: 'respondWebhook' }>; update: (node: FlowNode) => void }) {
+  return <div className="space-y-3">
+    <div className="grid grid-cols-2 gap-2">
+      <label className={labelClass}>Status code<input className={controlClass} type="number" min={100} max={599} value={node.data.statusCode} onChange={(event) => update({ ...node, data: { ...node.data, statusCode: Number(event.target.value) } })} /></label>
+      <label className={labelClass}>Body type<select className={controlClass} value={node.data.bodyMode} onChange={(event) => update({ ...node, data: { ...node.data, bodyMode: event.target.value as typeof node.data.bodyMode } })}><option value="json">JSON</option><option value="text">Text</option><option value="binary">Binary (base64)</option><option value="none">No body</option></select></label>
+    </div>
+    <label className={labelClass}>Headers (JSON)<textarea className={controlClass} rows={2} value={node.data.headers ?? ''} onChange={(event) => update({ ...node, data: { ...node.data, headers: event.target.value } })} placeholder={'{"x-result":"ok"}'} /></label>
+    {node.data.bodyMode !== 'none' && <label className={labelClass}>Response body<textarea className={controlClass} rows={4} value={node.data.body ?? ''} onChange={(event) => update({ ...node, data: { ...node.data, body: event.target.value } })} placeholder="{{step.previous.output}}" /></label>}
+  </div>
+}
+
+function WaitBody({ node, update }: { node: Extract<FlowNode, { type: 'wait' }>; update: (node: FlowNode) => void }) {
+  return <div className="grid grid-cols-2 gap-2">
+    <label className={labelClass}>Amount<input className={controlClass} type="number" min={0} value={node.data.amount} onChange={(event) => update({ ...node, data: { ...node.data, amount: Number(event.target.value) } })} /></label>
+    <label className={labelClass}>Unit<select className={controlClass} value={node.data.unit} onChange={(event) => update({ ...node, data: { ...node.data, unit: event.target.value as typeof node.data.unit } })}><option value="seconds">Seconds</option><option value="minutes">Minutes</option><option value="hours">Hours</option><option value="days">Days</option></select></label>
+  </div>
+}
+
+function RepeatUntilBody({ node, update, tokenWiring, onAddStep }: { node: Extract<FlowNode, { type: 'repeatUntil' }>; update: (node: FlowNode) => void; tokenWiring: TokenEditorWiring; onAddStep?: (type: EditableType) => void }) {
+  return <div className="space-y-3">
+    <ConditionBody node={{ id: node.id, type: 'condition', data: { clauses: node.data.clauses, match: node.data.match } }} update={(updated) => updated.type === 'condition' && update({ ...node, data: { ...node.data, clauses: updated.data.clauses ?? [], match: updated.data.match } })} tokenWiring={tokenWiring} />
+    <div className="grid grid-cols-2 gap-2"><label className={labelClass}>Maximum runs<input className={controlClass} type="number" min={1} max={1000} value={node.data.maxIterations} onChange={(event) => update({ ...node, data: { ...node.data, maxIterations: Number(event.target.value) } })} /></label><label className={labelClass}>Delay (ms)<input className={controlClass} type="number" min={0} max={60000} value={node.data.delayMs ?? 0} onChange={(event) => update({ ...node, data: { ...node.data, delayMs: Number(event.target.value) } })} /></label></div>
+    {onAddStep && <AddNestedStepMenu label="Add repeated step" onPick={onAddStep} />}
+  </div>
+}
+
+function SubflowBody({ node, update }: { node: Extract<FlowNode, { type: 'subflow' }>; update: (node: FlowNode) => void }) {
+  return <div className="space-y-3"><label className={labelClass}>Workflow ID<input className={controlClass} value={node.data.flowId} onChange={(event) => update({ ...node, data: { ...node.data, flowId: event.target.value } })} /></label><label className={labelClass}>Inputs (JSON)<textarea className={controlClass} rows={4} value={node.data.input ?? ''} onChange={(event) => update({ ...node, data: { ...node.data, input: event.target.value } })} placeholder={'{"customer":"{{trigger.input.customer}}"}'} /></label></div>
 }
 
 function TriggerBody({
@@ -979,7 +1037,7 @@ function TriggerBody({
   flowId?: string
 }) {
   const [choosingInput, setChoosingInput] = useState(false)
-  const [webhook, setWebhook] = useState<{ url: string; secret: string | null } | null>(null)
+  const [webhook, setWebhook] = useState<{ url: string; testUrl?: string; secret: string | null } | null>(null)
   const [minting, setMinting] = useState(false)
   const [slackBindings, setSlackBindings] = useState<{ id: string; teamName: string | null; status: string; ingressUrl: string }[]>([])
   const [slackChannels, setSlackChannels] = useState<{ id: string; name: string; isPrivate: boolean; isMember: boolean }[]>([])
@@ -1093,7 +1151,7 @@ function TriggerBody({
         toast.error(data.error || 'Could not create the webhook URL.')
         return
       }
-      setWebhook({ url: data.url, secret: data.secret })
+      setWebhook({ url: data.url, testUrl: data.testUrl, secret: data.secret })
       if (data.secret) toast.success('Webhook secret created — copy it now; it is shown only once.')
     } finally {
       setMinting(false)
@@ -1124,7 +1182,7 @@ function TriggerBody({
           className={controlClass}
           value={type}
           onChange={(event) => {
-            const next = event.target.value as 'manual' | 'schedule' | 'webhook' | 'signal' | 'slack'
+            const next = event.target.value as NonNullable<TriggerData['type']>
             setTrigger(next === 'schedule' ? { ...trigger, type: next, schedule: { ...schedule, isActive: true } } : { ...trigger, type: next })
           }}
         >
@@ -1133,6 +1191,7 @@ function TriggerBody({
           <option value="webhook">When an HTTP request is received</option>
           <option value="signal">When a signal fires</option>
           <option value="slack">When a Slack message arrives</option>
+          <option value="activity">When connected activity occurs</option>
         </select>
       </div>
 
@@ -1210,8 +1269,23 @@ function TriggerBody({
         </div>
       )}
 
+      {type === 'activity' && <div className="space-y-3">
+        <label className={labelClass}>Sources (optional)<input className={controlClass} value={(trigger.sources ?? []).join(', ')} onChange={(event) => setTrigger({ ...trigger, sources: event.target.value.split(',').map((value) => value.trim()).filter(Boolean) })} placeholder="slack, github" /></label>
+        <label className={labelClass}>Actions (optional)<input className={controlClass} value={(trigger.actions ?? []).join(', ')} onChange={(event) => setTrigger({ ...trigger, actions: event.target.value.split(',').map((value) => value.trim()).filter(Boolean) })} placeholder="created, updated" /></label>
+        <label className={labelClass}>Entity types (optional)<input className={controlClass} value={(trigger.entityTypes ?? []).join(', ')} onChange={(event) => setTrigger({ ...trigger, entityTypes: event.target.value.split(',').map((value) => value.trim()).filter(Boolean) })} placeholder="issue, message" /></label>
+        <p className="text-xs text-slate-500">Filters normalized live activity from connected integrations. Leave a field blank to accept any value.</p>
+      </div>}
+
       {type === 'webhook' && flowId && (
         <div className="space-y-3">
+          <div className="grid grid-cols-2 gap-2">
+            <label className={labelClass}>Method<select className={controlClass} value={trigger.webhookMethods?.[0] ?? 'POST'} onChange={(event) => setTrigger({ ...trigger, webhookMethods: [event.target.value] })}>{['GET','POST','PUT','PATCH','DELETE','HEAD','OPTIONS'].map((method) => <option key={method}>{method}</option>)}</select></label>
+            <label className={labelClass}>Authentication<select className={controlClass} value={trigger.webhookAuth ?? 'header'} onChange={(event) => setTrigger({ ...trigger, webhookAuth: event.target.value as TriggerData['webhookAuth'] })}><option value="header">Secret header</option><option value="bearer">Bearer token</option><option value="basic">Basic auth</option><option value="none">None</option></select></label>
+            <label className={labelClass}>Payload<select className={controlClass} value={trigger.webhookPayload ?? 'body'} onChange={(event) => setTrigger({ ...trigger, webhookPayload: event.target.value as TriggerData['webhookPayload'] })}><option value="body">Body only (compatible)</option><option value="request">Full request</option></select></label>
+            <label className={labelClass}>Response<select className={controlClass} value={trigger.webhookResponse ?? 'immediate'} onChange={(event) => setTrigger({ ...trigger, webhookResponse: event.target.value as TriggerData['webhookResponse'] })}><option value="immediate">Run receipt</option><option value="lastNode">Last step output</option><option value="respondNode">Respond node</option></select></label>
+          </div>
+          {(trigger.webhookAuth ?? 'header') === 'header' && <label className={labelClass}>Secret header name<input className={controlClass} value={trigger.webhookHeaderName ?? 'x-trigger-secret'} onChange={(event) => setTrigger({ ...trigger, webhookHeaderName: event.target.value || undefined })} /></label>}
+          {trigger.webhookAuth === 'basic' && <label className={labelClass}>Basic auth username<input className={controlClass} value={trigger.webhookUsername ?? ''} onChange={(event) => setTrigger({ ...trigger, webhookUsername: event.target.value || undefined })} placeholder="webhook" /></label>}
           <div className="flex gap-2">
             <Button type="button" variant="outline" size="sm" className="flex-1" onClick={() => mintWebhook(false)} loading={minting}>
               <Link2 className="mr-1.5 h-3.5 w-3.5" /> Get webhook URL
@@ -1223,6 +1297,7 @@ function TriggerBody({
           {webhook && (
             <div className="space-y-3 rounded-lg border border-slate-200 bg-slate-50 p-2.5">
               {copyBlock('Webhook URL', webhook.url)}
+              {webhook.testUrl && copyBlock('Test URL (runs current draft)', webhook.testUrl)}
               <div>
                 {copyBlock('Auth header', webhookHeader, 'text-amber-700')}
                 {!webhook.secret && <p className="mt-1 text-[11px] text-slate-500">A secret already exists. Rotate to mint and display a new one.</p>}
@@ -1687,7 +1762,7 @@ function HttpBody({
             onChange={(event) => update({ ...node, data: { ...node.data, method: event.target.value as typeof node.data.method } })}
             className={controlClass}
           >
-            {['GET', 'POST', 'PUT', 'PATCH', 'DELETE'].map((method) => (
+            {['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS'].map((method) => (
               <option key={method} value={method}>
                 {method}
               </option>
@@ -1728,7 +1803,7 @@ function HttpBody({
         tokenWiring={tokenWiring}
       />
       <div className="grid gap-2">
-        <label className={labelClass}>Body</label>
+        <div className="flex items-center justify-between gap-2"><label className={labelClass}>Body</label><select className="h-8 rounded-md border border-slate-300 bg-white px-2 text-xs" value={node.data.bodyMode ?? 'json'} onChange={(event) => update({ ...node, data: { ...node.data, bodyMode: event.target.value as typeof node.data.bodyMode } })}><option value="json">JSON</option><option value="text">Text</option><option value="raw">Raw</option><option value="formUrlencoded">Form URL encoded</option><option value="multipart">Multipart form</option><option value="binary">Binary (base64)</option><option value="none">No body</option></select></div>
         <TokenTextEditor
           ref={registerEditor('http.body')}
           multiline
@@ -1840,7 +1915,8 @@ function ToolBody({
   dataFields: DataField[]
   tokenWiring: TokenEditorWiring
 }) {
-  const { connection, tool } = selectedTool(node.data.connectionId, node.data.toolName, toolCatalog)
+  const { connection, tool: liveTool } = selectedTool(node.data.connectionId, node.data.toolName, toolCatalog)
+  const tool = liveTool ?? (node.data.actionInputSchema ? { name: node.data.toolName, description: node.data.actionDescription ?? '', inputSchema: node.data.actionInputSchema, outputSchema: node.data.actionOutputSchema, schemaHash: node.data.actionSchemaHash ?? '', risk: node.data.risk ?? 'read' as const } : undefined)
   return (
     <div className="space-y-4">
       <div className="grid gap-2">
@@ -1849,7 +1925,8 @@ function ToolBody({
           value={node.data.connectionId}
           onChange={(event) => {
             const nextConnection = toolCatalog.find((entry) => entry.id === event.target.value)
-            update({ ...node, data: { ...node.data, connectionId: event.target.value, toolName: nextConnection?.tools[0]?.name ?? '' } })
+            const selected = nextConnection?.tools[0]
+            update({ ...node, data: { ...node.data, connectionId: event.target.value, toolName: selected?.name ?? '', actionDescription: selected?.description, actionInputSchema: selected?.inputSchema, actionOutputSchema: selected?.outputSchema, actionSchemaHash: selected?.schemaHash, risk: selected?.risk } })
           }}
           className={cn(controlClass, showErrors && !node.data.connectionId && 'border-red-400 focus:border-red-500')}
         >
@@ -1866,7 +1943,7 @@ function ToolBody({
           <label className={labelClass}>Action <span className="text-red-500">*</span></label>
           <select
             value={node.data.toolName}
-            onChange={(event) => update({ ...node, data: { ...node.data, toolName: event.target.value } })}
+            onChange={(event) => { const selected = connection.tools.find((entry) => entry.name === event.target.value); update({ ...node, data: { ...node.data, toolName: event.target.value, actionDescription: selected?.description, actionInputSchema: selected?.inputSchema, actionOutputSchema: selected?.outputSchema, actionSchemaHash: selected?.schemaHash, risk: selected?.risk } }) }}
             className={cn(controlClass, showErrors && !node.data.toolName && 'border-red-400 focus:border-red-500')}
           >
             <option value="">Choose an action</option>
@@ -1895,6 +1972,7 @@ function ToolBody({
           labelCtx={tokenWiring.labelCtx}
         />
       )}
+      {node.data.risk && node.data.risk !== 'read' && <p className="rounded-lg bg-amber-50 p-2 text-xs text-amber-800">This action is classified as {node.data.risk} and requires approval before it runs.</p>}
       <AdvancedParamsSection node={node} onChange={update} />
     </div>
   )
@@ -2087,7 +2165,7 @@ function LoopBody({
 }
 
 function ErrorShieldBody({
-  node,
+  node: _node,
   onAddStep,
 }: {
   node: Extract<FlowNode, { type: 'errorShield' }>

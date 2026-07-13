@@ -193,8 +193,9 @@ function buildSynthesisPrompt(params: {
   profiles: { title: string; content: string }[]
   flows: FlowSummary[]
   agents: AgentSummary[]
+  feedback?: { title: string; status: string }[]
 }): { system: string; user: string } {
-  const { profiles, flows, agents } = params
+  const { profiles, flows, agents, feedback = [] } = params
   return {
     system: [
       'You are the workflow-suggestion engine for an org that has connected several business tools to an automation platform.',
@@ -202,6 +203,7 @@ function buildSynthesisPrompt(params: {
       'Propose up to 3 new workflow suggestions. Prefer suggestions that span at least two different tools (e.g. "GitHub issues -> Slack digest") — cross-tool automations are the whole point of having multiple profiles to compare. Each suggestion needs a short title, a one-sentence description of the value, and a flowPrompt: an instruction detailed enough for a flow-builder AI to generate a runnable graph from it alone.',
       'Also review the existing flows and agents listed below against the same usage profiles, and propose up to 5 concrete improvements: a schedule that matches an observed cadence, a trigger filter that matches an observed pattern, converting a manual flow to scheduled, splitting an overloaded agent, etc. Each improvement needs targetType (flow or agent), the EXACT targetId from the list below (never invent one), a short title, and a one-sentence rationale grounded in the usage profiles or run history.',
       'Only propose an improvement when the existing flows/agents list below is non-empty and you have a concrete, evidenced change to suggest — otherwise leave improvements empty. Never fabricate a targetId.',
+      'Use prior feedback as preference learning: do not repeat dismissed ideas, and favor the kinds of improvements the workspace accepted when evidence supports them.',
     ].join(' '),
     user: [
       'Usage profiles (from connected tools):',
@@ -216,6 +218,9 @@ function buildSynthesisPrompt(params: {
       agents.length
         ? agents.map((a) => `- id:${a.id} "${a.title}" — objective: ${truncate(a.objective, 200)} — recent runs: ${a.recentRunHeadlines.join(', ') || 'none'}`).join('\n')
         : '- None yet',
+      '',
+      'Prior suggestion feedback:',
+      feedback.length ? feedback.map((item) => `- ${item.status}: ${item.title}`).join('\n') : '- None yet',
     ].join('\n'),
   }
 }
@@ -332,8 +337,12 @@ export async function synthesizeWorkflowSuggestions(organizationId: string, over
     if (!claimed) return { skipped: 'throttled' }
 
     try {
-      const [flows, agents] = await Promise.all([loadExistingFlows(organizationId), loadExistingAgents(organizationId)])
-      const { system, user } = buildSynthesisPrompt({ profiles: memories, flows, agents })
+      const [flows, agents, feedback] = await Promise.all([
+        loadExistingFlows(organizationId),
+        loadExistingAgents(organizationId),
+        prisma.agentMemory.findMany({ where: { organizationId, agentId, kind: 'suggestion', status: { in: ['accepted', 'dismissed'] } }, orderBy: { updatedAt: 'desc' }, take: 30, select: { title: true, status: true } }),
+      ])
+      const { system, user } = buildSynthesisPrompt({ profiles: memories, flows, agents, feedback })
 
       const model = process.env.AGENT_REFLECTION_MODEL?.trim() || DEFAULT_SUMMARY_MODEL
       const raw = await generate({ system, user, schema: SUGGESTIONS_JSON_SCHEMA, schemaName: 'workflow_suggestions', maxTokens: 2000, model })

@@ -62,10 +62,77 @@ export function readPath(ctx: FlowContext, path: string): unknown {
   return cursor
 }
 
+/**
+ * Small, deterministic expression language for flow mappings. Expressions use
+ * `{{= function(arg, ...) }}` and intentionally have no property assignment,
+ * imports, constructors, or arbitrary JavaScript execution.
+ */
+function splitArgs(source: string): string[] {
+  const args: string[] = []
+  let quote = ''
+  let depth = 0
+  let start = 0
+  for (let i = 0; i < source.length; i += 1) {
+    const ch = source[i]
+    if (quote) {
+      if (ch === '\\') i += 1
+      else if (ch === quote) quote = ''
+      continue
+    }
+    if (ch === '"' || ch === "'") quote = ch
+    else if (ch === '(' || ch === '[' || ch === '{') depth += 1
+    else if (ch === ')' || ch === ']' || ch === '}') depth -= 1
+    else if (ch === ',' && depth === 0) {
+      args.push(source.slice(start, i).trim())
+      start = i + 1
+    }
+  }
+  const tail = source.slice(start).trim()
+  if (tail) args.push(tail)
+  return args
+}
+
+function expressionValue(source: string, ctx: FlowContext): unknown {
+  const value = source.trim()
+  if (!value) return ''
+  if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
+    try { return JSON.parse(value.startsWith("'") ? `"${value.slice(1, -1).replace(/"/g, '\\"')}"` : value) } catch { return value.slice(1, -1) }
+  }
+  if (value === 'true') return true
+  if (value === 'false') return false
+  if (value === 'null') return null
+  if (/^-?\d+(?:\.\d+)?$/.test(value)) return Number(value)
+  if ((value.startsWith('{') && value.endsWith('}')) || (value.startsWith('[') && value.endsWith(']'))) {
+    try { return resolveTemplateValue(JSON.parse(value), ctx) } catch { return value }
+  }
+  const call = value.match(/^([a-zA-Z][\w]*)\((.*)\)$/s)
+  if (!call) return readPath(ctx, value)
+  const args = splitArgs(call[2]).map((arg) => expressionValue(arg, ctx))
+  const text = (item: unknown) => item == null ? '' : typeof item === 'object' ? JSON.stringify(item) : String(item)
+  const number = (item: unknown) => Number(item ?? 0)
+  switch (call[1]) {
+    case 'coalesce': return args.find((item) => item !== undefined && item !== null && item !== '') ?? ''
+    case 'concat': return args.map(text).join('')
+    case 'upper': return text(args[0]).toUpperCase()
+    case 'lower': return text(args[0]).toLowerCase()
+    case 'trim': return text(args[0]).trim()
+    case 'length': return typeof args[0] === 'string' || Array.isArray(args[0]) ? args[0].length : args[0] && typeof args[0] === 'object' ? Object.keys(args[0]).length : 0
+    case 'add': return args.reduce((sum: number, item) => sum + number(item), 0)
+    case 'subtract': return number(args[0]) - number(args[1])
+    case 'multiply': return args.reduce((product: number, item) => product * number(item), 1)
+    case 'divide': return number(args[1]) === 0 ? null : number(args[0]) / number(args[1])
+    case 'if': return args[0] ? args[1] : args[2]
+    case 'json': try { return JSON.parse(text(args[0])) } catch { return null }
+    case 'stringify': return JSON.stringify(args[0])
+    case 'now': return new Date().toISOString()
+    default: return undefined
+  }
+}
+
 /** Replace `{{path}}` tokens with values from the context. Objects -> JSON; missing -> ''. */
 export function resolveTemplate(template: string, ctx: FlowContext): string {
   return template.replace(/\{\{\s*([^{}]+?)\s*\}\}/g, (_match, path: string) => {
-    const value = readPath(ctx, path)
+    const value = path.trim().startsWith('=') ? expressionValue(path.trim().slice(1), ctx) : readPath(ctx, path)
     if (value == null) return ''
     return typeof value === 'object' ? JSON.stringify(value) : String(value)
   })
@@ -75,7 +142,7 @@ export function resolveTemplate(template: string, ctx: FlowContext): string {
 export function resolveTemplateValue(value: unknown, ctx: FlowContext): unknown {
   if (typeof value === 'string') {
     const exact = value.trim().match(/^\{\{\s*([^{}]+?)\s*\}\}$/)
-    if (exact) return readPath(ctx, exact[1]) ?? ''
+    if (exact) return (exact[1].trim().startsWith('=') ? expressionValue(exact[1].trim().slice(1), ctx) : readPath(ctx, exact[1])) ?? ''
     return resolveTemplate(value, ctx)
   }
   if (Array.isArray(value)) return value.map((item) => resolveTemplateValue(item, ctx))

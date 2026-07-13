@@ -115,6 +115,28 @@ export async function GET(request: Request) {
     await pruneSlackProcessedEvents().catch((error) => {
       apiLogger.error('cron/dispatch: slack dedup prune failed', { error: capError(error) })
     })
+    const now = new Date()
+
+    // Durable Wait nodes release their worker and resume on the first cron
+    // tick at or after wakeAt. The execution path atomically claims
+    // waiting->running, so overlapping cron invocations cannot resume twice.
+    const dueWaits = await systemPrisma.flowRun.findMany({
+      where: { status: 'waiting', wakeAt: { lte: now } },
+      orderBy: { wakeAt: 'asc' },
+      take: 50,
+      select: { id: true, flowId: true, organizationId: true, userId: true, trigger: true },
+    })
+    for (const waiting of dueWaits) {
+      if (!waiting.userId) continue
+      await dispatchFlowExecution({
+        flowId: waiting.flowId,
+        organizationId: waiting.organizationId,
+        userId: waiting.userId,
+        flowRunId: waiting.id,
+        resumeReason: 'time',
+        usePublished: (waiting.trigger as { type?: string } | null)?.type !== 'manual',
+      }).catch((error) => apiLogger.error('cron/dispatch: timed flow resume failed', { flowRunId: waiting.id, error: capError(error) }))
+    }
 
     // Single-owner scheduling: when the BullMQ worker is live in queue mode it
     // owns RECURRING dispatch (via its JobScheduler), so this cron must not also
@@ -130,8 +152,6 @@ export async function GET(request: Request) {
       where: { status: 'ACTIVE' },
       take: 200,
     })
-
-    const now = new Date()
 
     // Filter to agents whose schedule is currently due
     const dueAgents = agents

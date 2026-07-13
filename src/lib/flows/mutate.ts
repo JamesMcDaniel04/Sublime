@@ -32,6 +32,12 @@ function defaultData(type: FlowNode['type'], extra?: { bodyId?: string; agentId?
       return { connectionId: '', toolName: '', args: '{}' }
     case 'http':
       return { method: 'POST', url: '', bodyMode: 'json', responseType: 'auto', failOnHttpError: true, retries: 0, body: '' }
+    case 'respondWebhook':
+      return { statusCode: 200, bodyMode: 'json', body: '{{trigger.input}}' }
+    case 'wait':
+      return { amount: 1, unit: 'seconds' }
+    case 'repeatUntil':
+      return { body: extra?.bodyId ? [extra.bodyId] : [], clauses: [], match: 'all', maxIterations: 20, delayMs: 1000 }
     case 'transform':
       return { fields: [{ name: '', value: '' }] }
     case 'filter':
@@ -62,7 +68,7 @@ function defaultData(type: FlowNode['type'], extra?: { bodyId?: string; agentId?
 function makeNode(graph: FlowGraph, type: StepType, agentId?: string): { node: FlowNode; extraNodes: FlowNode[] } {
   const id = newNodeId(graph)
   // Containers are born with one agent body step so they are runnable.
-  if (type === 'loop' || type === 'parallel' || type === 'errorShield') {
+  if (type === 'loop' || type === 'parallel' || type === 'errorShield' || type === 'repeatUntil') {
     const bodyId = `${id}b1`
     const body = {
       id: bodyId,
@@ -132,7 +138,7 @@ export function updateNode(graph: FlowGraph, updated: FlowNode): FlowGraph {
 
 /** Change a node's type, resetting its data. Containers get a body agent step. */
 export function changeNodeType(graph: FlowGraph, id: string, type: StepType): FlowGraph {
-  if (type === 'loop' || type === 'parallel' || type === 'errorShield') {
+  if (type === 'loop' || type === 'parallel' || type === 'errorShield' || type === 'repeatUntil') {
     const bodyId = newNodeId(graph, 'b')
     const bodyNode = {
       id: bodyId,
@@ -162,6 +168,7 @@ export function addContainerStep(graph: FlowGraph, containerId: string, type: St
     if (node.type === 'loop') return { ...node, data: { ...node.data, body: [...node.data.body, bodyNode.id] } }
     if (node.type === 'parallel') return { ...node, data: { ...node.data, branches: [...node.data.branches, [bodyNode.id]] } }
     if (node.type === 'errorShield') return { ...node, data: { ...node.data, body: [...node.data.body, bodyNode.id] } }
+    if (node.type === 'repeatUntil') return { ...node, data: { ...node.data, body: [...node.data.body, bodyNode.id] } }
     return node
   })
   return { graph: { ...graph, nodes: [...nodes, bodyNode, ...extraNodes] }, nodeId: bodyNode.id }
@@ -187,6 +194,10 @@ function containerPositionOf(graph: FlowGraph, id: string): { containerId: strin
       const f = node.data.fallback.indexOf(id)
       if (f >= 0) return { containerId: node.id, branchIndex: -1, index: f } // -1 marks the fallback list
     }
+    if (node.type === 'repeatUntil') {
+      const index = node.data.body.indexOf(id)
+      if (index >= 0) return { containerId: node.id, index }
+    }
   }
   return null
 }
@@ -196,6 +207,11 @@ function insertIntoContainer(graph: FlowGraph, position: { containerId: string; 
   return graph.nodes.map((entry) => {
     if (entry.id !== position.containerId) return entry
     if (entry.type === 'loop') {
+      const body = [...entry.data.body]
+      body.splice(position.index + 1, 0, insertedId)
+      return { ...entry, data: { ...entry.data, body } }
+    }
+    if (entry.type === 'repeatUntil') {
       const body = [...entry.data.body]
       body.splice(position.index + 1, 0, insertedId)
       return { ...entry, data: { ...entry.data, body } }
@@ -229,6 +245,7 @@ export function duplicateNode(graph: FlowGraph, id: string): { graph: FlowGraph;
   // Containers duplicate shallowly (fresh empty body) — bodies keep their ids
   // and must not be shared between two containers.
   if (copy.type === 'loop') copy.data = { ...copy.data, body: [] }
+  if (copy.type === 'repeatUntil') copy.data = { ...copy.data, body: [] }
   if (copy.type === 'parallel') copy.data = { ...copy.data, branches: [] }
   if (copy.type === 'errorShield') copy.data = { ...copy.data, body: [], fallback: [] }
   const position = containerPositionOf(graph, id)
@@ -264,6 +281,7 @@ export function deleteNode(graph: FlowGraph, id: string): FlowGraph {
     // Purge the id from any loop body / parallel branches that referenced it.
     .map((node) => {
       if (node.type === 'loop') return { ...node, data: { ...node.data, body: node.data.body.filter((b) => b !== id) } }
+      if (node.type === 'repeatUntil') return { ...node, data: { ...node.data, body: node.data.body.filter((b) => b !== id) } }
       if (node.type === 'parallel') return { ...node, data: { ...node.data, branches: node.data.branches.map((br) => br.filter((b) => b !== id)) } }
       if (node.type === 'errorShield') return { ...node, data: { ...node.data, body: node.data.body.filter((b) => b !== id), fallback: node.data.fallback.filter((b) => b !== id) } }
       return node
@@ -274,6 +292,7 @@ export function deleteNode(graph: FlowGraph, id: string): FlowGraph {
 /** Ids living inside a container node's own subtree (its body/branch steps). */
 function containedIdsOf(node: FlowNode): string[] {
   if (node.type === 'loop') return node.data.body
+  if (node.type === 'repeatUntil') return node.data.body
   if (node.type === 'parallel') return node.data.branches.flat()
   if (node.type === 'errorShield') return [...node.data.body, ...node.data.fallback]
   return []
@@ -370,6 +389,11 @@ export function moveContainerStep(graph: FlowGraph, containerId: string, from: n
     if (!next) return graph
     return updateNode(graph, { ...container, data: { ...container.data, body: next } })
   }
+  if (container.type === 'repeatUntil') {
+    const next = reorder(container.data.body)
+    if (!next) return graph
+    return updateNode(graph, { ...container, data: { ...container.data, body: next } })
+  }
   if (container.type === 'parallel' && branchIndex !== undefined) {
     const branch = container.data.branches[branchIndex]
     if (!branch) return graph
@@ -387,6 +411,7 @@ export function sanitizeCopiedNode(raw: unknown): FlowNode | null {
   if (!parsed.success || parsed.data.type === 'trigger') return null
   const node = parsed.data
   if (node.type === 'loop') return { ...node, data: { ...node.data, body: [] } }
+  if (node.type === 'repeatUntil') return { ...node, data: { ...node.data, body: [] } }
   if (node.type === 'parallel') return { ...node, data: { ...node.data, branches: [] } }
   if (node.type === 'errorShield') return { ...node, data: { ...node.data, body: [], fallback: [] } }
   return node

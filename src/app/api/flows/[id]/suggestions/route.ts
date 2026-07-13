@@ -47,7 +47,7 @@ export const GET = withAuthenticatedApi(async (request, auth) => {
 export const PATCH = withAuthenticatedApi(async (request, auth) => {
   const flowId = await requireFlow(request, auth)
   const agentId = await orgIntelligenceAgentId(auth.organizationId)
-  const { id, status } = z.object({ id: z.string(), status: z.enum(['dismissed', 'open']) }).parse(await request.json())
+  const { id, status } = z.object({ id: z.string(), status: z.enum(['dismissed', 'accepted', 'open']) }).parse(await request.json())
   const updated = await prisma.agentMemory.updateMany({
     where: { id, organizationId: auth.organizationId, agentId, question: `${FLOW_TARGET_MARKER_PREFIX}${flowId}` },
     data: { status },

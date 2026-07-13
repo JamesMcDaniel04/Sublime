@@ -12,6 +12,7 @@ import {
   GitBranch,
   Globe,
   Play,
+  Radio,
   Repeat,
   Rows3,
   Search,
@@ -114,6 +115,7 @@ const TRIGGER_ICON: Record<string, LucideIcon> = {
   // must not render pixel-identical to it in the picker.
   webhook: Webhook,
   signal: Zap,
+  activity: Radio,
 }
 
 const TRIGGER_TONE: Record<string, string> = {
@@ -121,6 +123,7 @@ const TRIGGER_TONE: Record<string, string> = {
   schedule: 'bg-blue-600 text-white',
   webhook: 'bg-blue-600 text-white',
   signal: 'bg-purple-600 text-white',
+  activity: 'bg-teal-600 text-white',
 }
 
 type Row = {
@@ -199,7 +202,7 @@ export function FlowPicker({
   agents: Agent[]
   toolCatalog: ToolCatalog
   onPick: (type: StepType, seed?: FlowInsertSeed) => void
-  onPickTrigger?: (triggerType: 'manual' | 'schedule' | 'webhook' | 'signal' | 'slack') => void
+  onPickTrigger?: (triggerType: 'manual' | 'schedule' | 'webhook' | 'signal' | 'slack' | 'activity') => void
   onClose: () => void
 }) {
   const [query, setQuery] = useState('')
@@ -267,7 +270,7 @@ export function FlowPicker({
       logo: { slug: connectionLogoSlug(connection), name: connection.name },
       favoriteId,
       onSelect: () => {
-        onPick('tool', { connectionId: connection.id, toolName: tool.name, label: tool.name })
+        onPick('tool', { connectionId: connection.id, toolName: tool.name, label: tool.name, actionDescription: tool.description, actionInputSchema: tool.inputSchema, actionOutputSchema: tool.outputSchema, actionSchemaHash: tool.schemaHash, risk: tool.risk })
         onClose()
       },
     }

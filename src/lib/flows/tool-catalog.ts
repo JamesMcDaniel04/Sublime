@@ -26,11 +26,12 @@ import {
   loadNativePlaneGroups,
   type ToolPlaneGroup,
 } from '@/features/agents/tool-planes'
+import { createHash } from 'crypto'
 import { planesForConnectionIds } from '@/lib/flows/tool-connection-id'
 
 export { mcpConnectionScope } from '@/features/agents/tool-planes'
 
-export type FlowToolSummary = { name: string; description: string; inputSchema?: unknown; outputSchema?: unknown }
+export type FlowToolSummary = { name: string; description: string; inputSchema?: unknown; outputSchema?: unknown; schemaHash?: string; risk?: 'read' | 'write' | 'destructive' }
 export type FlowToolCatalogConnection = { id: string; name: string; tools: FlowToolSummary[]; toolsError?: string }
 
 export async function loadFlowToolCatalog(
@@ -59,17 +60,25 @@ export async function loadFlowToolCatalog(
   // the remaining planes.
   const groups = [...mcp, ...klavis, ...native, ...nango]
   const wantedIds = wanted ? new Set(options.connectionIds) : null
+  const riskFor = (name: string, groupWrite: boolean): 'read' | 'write' | 'destructive' => {
+    const normalized = name.toLowerCase()
+    if (/\b(delete|remove|destroy|revoke|archive|cancel|terminate|drop)\b/.test(normalized.replace(/[_-]/g, ' '))) return 'destructive'
+    if (groupWrite || /\b(create|update|set|send|post|publish|upload|invite|add|write|execute|trigger|reply)\b/.test(normalized.replace(/[_-]/g, ' '))) return 'write'
+    return 'read'
+  }
   return groups
     .filter((group) => !wantedIds || wantedIds.has(group.id))
     .map((group) => ({
       id: group.id,
       name: group.name,
       ...(group.toolsError ? { toolsError: group.toolsError } : {}),
-      tools: group.tools.slice(0, options.takeTools ?? 100).map((tool) => ({
+      tools: group.tools.slice(0, options.takeTools ?? group.tools.length).map((tool) => ({
         name: tool.name,
         description: tool.description ?? '',
         inputSchema: tool.inputSchema ?? null,
         outputSchema: tool.outputSchema ?? null,
+        schemaHash: createHash('sha256').update(JSON.stringify({ input: tool.inputSchema ?? null, output: tool.outputSchema ?? null })).digest('hex'),
+        risk: riskFor(tool.name, group.isWrite),
       })),
     }))
 }

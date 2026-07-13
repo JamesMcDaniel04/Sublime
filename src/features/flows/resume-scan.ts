@@ -4,7 +4,7 @@ import { completedKey } from './completed-key'
 // errorShield — each at a HIGHER order than the leaf it wraps (see
 // resolveResumeState below) — so these node types never qualify as the resume
 // target even though their own 'waiting' row sorts later than the leaf's.
-const CONTAINER_NODE_TYPES = new Set(['loop', 'parallel', 'errorShield'])
+const CONTAINER_NODE_TYPES = new Set(['loop', 'parallel', 'errorShield', 'repeatUntil'])
 
 export type PriorStepRow = {
   nodeId: string

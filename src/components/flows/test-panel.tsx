@@ -1,5 +1,6 @@
 'use client'
 
+import { useState } from 'react'
 import { Play, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
@@ -43,17 +44,23 @@ export function TestPanel({
   labelForNode,
   onInspect,
   onClose,
+  selectedNodeId,
+  selectedNodeLabel,
 }: {
   fields: TriggerInputField[]
   value: string
   onChange: (value: string) => void
-  onRun: () => void
+  onRun: (options?: { startNodeId?: string; mockOutputsText?: string }) => void
   running: boolean
   steps: TestStep[]
   labelForNode: (nodeId: string) => string
   onInspect: () => void
   onClose: () => void
+  selectedNodeId?: string
+  selectedNodeLabel?: string
 }) {
+  const [partial, setPartial] = useState(false)
+  const [mockOutputsText, setMockOutputsText] = useState('')
   const usableFields = fields.filter((field) => field.name.trim())
   const values = fieldValuesFromFlowInput(value, usableFields)
 
@@ -112,7 +119,11 @@ export function TestPanel({
               />
             </div>
           )}
-          <Button size="sm" className="w-full" onClick={onRun} loading={running} disabled={running}>
+          {selectedNodeId && <div className="space-y-2 rounded-lg border border-border bg-muted/30 p-2.5">
+            <label className="flex items-center gap-2 text-xs font-medium"><input type="checkbox" checked={partial} onChange={(event) => setPartial(event.target.checked)} /> Start at selected step: {selectedNodeLabel ?? selectedNodeId}</label>
+            {partial && <><textarea rows={3} className={`${fieldClass} font-mono text-xs`} value={mockOutputsText} onChange={(event) => setMockOutputsText(event.target.value)} placeholder={'{"upstreamStepId":{"result":"mocked"}}'} /><p className="text-[11px] text-muted-foreground">Optional upstream outputs keyed by step id.</p></>}
+          </div>}
+          <Button size="sm" className="w-full" onClick={() => onRun(partial ? { startNodeId: selectedNodeId, mockOutputsText } : undefined)} loading={running} disabled={running}>
             <Play className="mr-1.5 h-4 w-4" /> Run test
           </Button>
         </div>

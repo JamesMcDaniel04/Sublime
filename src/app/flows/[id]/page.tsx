@@ -109,7 +109,7 @@ function outputFieldsForNode(node: FlowNode | undefined, toolCatalog: ToolCatalo
   const tool = toolCatalog
     .find((connection) => connection.id === node.data.connectionId)
     ?.tools.find((entry) => entry.name === node.data.toolName)
-  const fields = outputFieldsFromJsonSchema(tool?.outputSchema)
+  const fields = outputFieldsFromJsonSchema(tool?.outputSchema ?? node.data.actionOutputSchema)
   return fields.length ? fields : undefined
 }
 
@@ -806,7 +806,7 @@ function FlowBuilder() {
     [id, commitGraph, name, description, status],
   )
 
-  const run = useCallback(async () => {
+  const run = useCallback(async (options?: { startNodeId?: string; mockOutputsText?: string }) => {
     if (viewingVersion) {
       toast.error('Close the version view before running.')
       return
@@ -829,10 +829,21 @@ function FlowBuilder() {
     try {
       if (!(await save())) return
       pollRuns()
+      let mockOutputs: Record<string, unknown> | undefined
+      if (options?.mockOutputsText?.trim()) {
+        try {
+          const parsed = JSON.parse(options.mockOutputsText)
+          if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error()
+          mockOutputs = parsed
+        } catch {
+          toast.error('Mock upstream outputs must be a JSON object keyed by step id.')
+          return
+        }
+      }
       const response = await fetch(`/api/flows/${id}/execute`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ input: testInput }),
+        body: JSON.stringify({ input: testInput, startNodeId: options?.startNodeId, mockOutputs }),
       })
       const data = await response.json().catch(() => ({}))
       if (!response.ok) toast.error(data.error || 'Run failed.')
@@ -987,6 +998,11 @@ function FlowBuilder() {
           ...node.data,
           connectionId: seed.connectionId ?? node.data.connectionId,
           toolName: seed.toolName ?? node.data.toolName,
+          actionDescription: seed.actionDescription ?? node.data.actionDescription,
+          actionInputSchema: seed.actionInputSchema ?? node.data.actionInputSchema,
+          actionOutputSchema: seed.actionOutputSchema ?? node.data.actionOutputSchema,
+          actionSchemaHash: seed.actionSchemaHash ?? node.data.actionSchemaHash,
+          risk: seed.risk ?? node.data.risk,
           ...(seed.label ? { label: seed.label } : {}),
         },
       })
@@ -1125,7 +1141,7 @@ function FlowBuilder() {
             Revert
           </Button>
         )}
-        <Button size="sm" onClick={run} disabled={running}>
+        <Button size="sm" onClick={() => void run()} disabled={running}>
           {running ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <Play className="mr-1.5 h-4 w-4" />} Run
         </Button>
       </div>
@@ -1337,6 +1353,8 @@ function FlowBuilder() {
               value={testInput}
               onChange={setTestInput}
               onRun={run}
+              selectedNodeId={selectedId && selectedId !== 'trigger' ? selectedId : undefined}
+              selectedNodeLabel={selectedId && selectedId !== 'trigger' ? labelForNode(selectedId) : undefined}
               running={running}
               steps={(selectedRun?.steps ?? []).map((s) => ({ nodeId: s.nodeId, status: s.status }))}
               labelForNode={labelForNode}

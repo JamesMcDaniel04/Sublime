@@ -1272,18 +1272,20 @@ test('humanReview resume turns the reply into the step output for downstream ste
   assert.equal(result.output, 'ran:got Approved by Jane')
 })
 
-test('condition inside a loop body fails the run loudly (no silent skip)', async () => {
+test('condition inside a loop body routes each item', async () => {
   const graph: FlowGraph = {
     nodes: [
       { id: 'trigger', type: 'trigger', data: {} },
       { id: 'loop', type: 'loop', data: { over: '{{trigger.input}}', body: ['c1'] } },
       { id: 'c1', type: 'condition', data: { match: 'all', clauses: [{ left: '{{item}}', op: 'eq', right: 'a' }] } },
+      { id: 'yes', type: 'agent', data: { agentId: 'yes', input: '{{item}}-yes' } },
+      { id: 'no', type: 'agent', data: { agentId: 'no', input: '{{item}}-no' } },
     ],
-    edges: [{ id: 'e1', source: 'trigger', target: 'loop' }],
+    edges: [{ id: 'e1', source: 'trigger', target: 'loop' }, { id: 'et', source: 'c1', target: 'yes', branch: 'true' }, { id: 'ef', source: 'c1', target: 'no', branch: 'false' }],
   }
   const result = await interpretFlow(graph, ['a', 'b'], { runAgent: stub({}) })
-  assert.equal(result.status, 'failed')
-  assert.match(result.error ?? '', /can't run inside a For each \/ Parallel body/)
+  assert.equal(result.status, 'succeeded')
+  assert.deepEqual(result.output, ['ran:a-yes', 'ran:b-no'])
 })
 
 test('a condition on the main chain still routes normally after the body guard', async () => {
@@ -1358,4 +1360,33 @@ test('a trigger without a filter (or with empty clauses) is unaffected', async (
   const result = await interpretFlow(graph, { status: 'anything' }, { runAgent: stub({ a1: 'ran' }) })
   assert.equal(result.status, 'succeeded')
   assert.equal(result.output, 'ran')
+})
+
+test('respondWebhook records an independent custom response', async () => {
+  const graph: FlowGraph = {
+    nodes: [
+      { id: 'trigger', type: 'trigger', data: { trigger: { type: 'webhook' } } },
+      { id: 'reply', type: 'respondWebhook', data: { statusCode: 202, bodyMode: 'json', headers: '{"x-id":"{{trigger.input.id}}"}', body: '{"accepted":"{{trigger.input.id}}"}' } },
+    ],
+    edges: [{ id: 'e', source: 'trigger', target: 'reply' }],
+  }
+  const result = await interpretFlow(graph, { id: 'abc' }, { runAgent: stub({}) })
+  assert.deepEqual(result.webhookResponse, { statusCode: 202, headers: { 'x-id': 'abc' }, bodyMode: 'json', body: { accepted: 'abc' } })
+})
+
+test('wait pauses durably and succeeds when the scheduler resumes it', async () => {
+  const graph: FlowGraph = { nodes: [{ id: 'trigger', type: 'trigger', data: { trigger: { type: 'manual' } } }, { id: 'wait', type: 'wait', data: { amount: 0, unit: 'seconds' } }], edges: [{ id: 'e', source: 'trigger', target: 'wait' }] }
+  const paused = await interpretFlow(graph, {}, { runAgent: stub({}) })
+  assert.equal(paused.status, 'waiting')
+  assert.ok(paused.waiting?.wakeAt)
+  const resumed = await interpretFlow(graph, {}, { runAgent: stub({}), resumeNodeId: 'wait', resumeKey: 'wait' })
+  assert.equal(resumed.status, 'succeeded')
+})
+
+test('disabled and mocked action nodes do not invoke their adapters', async () => {
+  let calls = 0
+  const graph: FlowGraph = { nodes: [{ id: 'trigger', type: 'trigger', data: { trigger: { type: 'manual' } } }, { id: 'http', type: 'http', data: { method: 'GET', url: 'https://example.com', disabled: true, mockOutput: { ok: true } } }], edges: [{ id: 'e', source: 'trigger', target: 'http' }] }
+  const result = await interpretFlow(graph, {}, { runAgent: stub({}), runAction: async () => { calls += 1; return { output: null } } })
+  assert.equal(calls, 0)
+  assert.deepEqual(result.output, { ok: true })
 })

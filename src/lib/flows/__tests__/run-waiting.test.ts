@@ -32,6 +32,10 @@ test('defaults to input when the waiting info is missing or malformed', () => {
   assert.deepEqual(deriveRunWaiting('waiting', [{ nodeId: 'b', status: 'waiting', output: { waiting: { kind: 'bogus' } } }]), { nodeId: 'b', kind: 'input', question: undefined })
 })
 
+test('derives a durable time pause with wakeAt', () => {
+  assert.deepEqual(deriveRunWaiting('waiting', [{ nodeId: 'wait', status: 'waiting', output: { waiting: { kind: 'time', wakeAt: '2030-01-01T00:00:00.000Z' } } }]), { nodeId: 'wait', kind: 'time', question: undefined, wakeAt: '2030-01-01T00:00:00.000Z' })
+})
+
 test('picks the latest waiting step when multiple are waiting', () => {
   const steps = [
     { nodeId: 'a', status: 'waiting', output: { waiting: { kind: 'approval' } } },

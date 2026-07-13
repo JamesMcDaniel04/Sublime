@@ -107,6 +107,16 @@ export function AdvancedParamsSection({
         </select>
       )
     }
+    if (key === 'disabled' || key === 'followRedirects') {
+      const active = data[key] === true
+      return <select className={controlClass} value={active ? 'true' : 'false'} onChange={(event) => patch({ [key]: event.target.value === 'true' || undefined })}><option value="false">{key === 'disabled' ? 'Enabled' : 'Block redirects'}</option><option value="true">{key === 'disabled' ? 'Disabled' : 'Follow redirects safely'}</option></select>
+    }
+    if (key === 'mockOutput') {
+      return <textarea rows={3} className={cn(controlClass, 'h-auto min-h-20 py-2 font-mono text-xs')} value={data.mockOutput === undefined ? '' : JSON.stringify(data.mockOutput, null, 2)} placeholder="No mock output" onChange={(event) => { try { patch({ mockOutput: event.target.value.trim() ? JSON.parse(event.target.value) : undefined }) } catch { /* keep last valid value until JSON is valid */ } }} />
+    }
+    if (key === 'retryDelayMs' || key === 'maxRedirects') {
+      return <input type="number" min={0} max={key === 'maxRedirects' ? 10 : 60000} className={controlClass} value={(data[key] as number | undefined) ?? ''} placeholder={key === 'maxRedirects' ? '3' : '500'} onChange={(event) => patch({ [key]: event.target.value === '' ? undefined : Number(event.target.value) })} />
+    }
     // concurrency
     return (
       <input
@@ -128,6 +138,11 @@ export function AdvancedParamsSection({
     responseType: 'Parse response as',
     failOnHttpError: 'HTTP errors',
     concurrency: 'At a time',
+    disabled: 'Execution',
+    mockOutput: 'Mock output (JSON)',
+    retryDelayMs: 'Retry delay (ms)',
+    followRedirects: 'Redirects',
+    maxRedirects: 'Maximum redirects',
   }
 
   return (

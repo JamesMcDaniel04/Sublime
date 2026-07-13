@@ -9,7 +9,7 @@ export type PickerLeaf = {
   mode: 'action' | 'trigger' | 'both'
   stepType?: StepType
   seed?: { agentId?: string; connectionId?: string; toolName?: string; label?: string; variableOp?: VariableOp; dataOp?: DataOp }
-  triggerType?: 'manual' | 'schedule' | 'webhook' | 'signal' | 'slack'
+  triggerType?: 'manual' | 'schedule' | 'webhook' | 'signal' | 'slack' | 'activity'
 }
 
 export type PickerGroup = {
@@ -30,6 +30,7 @@ export const BUILTIN_GROUPS: PickerGroup[] = [
     children: [
       { id: 'http-request', label: 'HTTP', description: 'Send a request to any API endpoint and use the response.', mode: 'action', stepType: 'http' },
       { id: 'http-webhook-out', label: 'HTTP Webhook', description: 'Post a payload to an external webhook URL.', mode: 'action', stepType: 'http', seed: { label: 'Webhook' } },
+      { id: 'http-webhook-response', label: 'Respond to webhook', description: 'Return a custom status, headers, and body to the webhook caller.', mode: 'action', stepType: 'respondWebhook' },
     ],
   },
   {
@@ -41,6 +42,9 @@ export const BUILTIN_GROUPS: PickerGroup[] = [
       { id: 'control-condition', label: 'Condition', description: 'Route down different paths based on a rule.', mode: 'action', stepType: 'condition' },
       { id: 'control-switch', label: 'Switch', description: 'Route to one of several cases, with a default path.', mode: 'action', stepType: 'switch' },
       { id: 'control-loop', label: 'For each', description: 'Run steps once for every item in a list.', mode: 'action', stepType: 'loop' },
+      { id: 'control-repeat-until', label: 'Repeat until', description: 'Repeat steps until a rule matches, with safe run limits.', mode: 'action', stepType: 'repeatUntil' },
+      { id: 'control-wait', label: 'Wait', description: 'Delay the next step for a configured duration.', mode: 'action', stepType: 'wait' },
+      { id: 'control-subflow', label: 'Run workflow', description: 'Call another workflow and use its output.', mode: 'action', stepType: 'subflow' },
       { id: 'control-parallel', label: 'Parallel branches', description: 'Run independent branches at the same time.', mode: 'action', stepType: 'parallel' },
       { id: 'control-stop', label: 'Stop flow', description: 'End the flow early with an optional message.', mode: 'action', stepType: 'stop' },
     ],
@@ -99,6 +103,7 @@ export const TRIGGER_LEAVES: PickerLeaf[] = [
   { id: 'trigger-webhook', label: 'When an HTTP request is received', description: 'Start when an external system posts to a secret URL.', mode: 'trigger', triggerType: 'webhook' },
   { id: 'trigger-signal', label: 'When a signal fires', description: 'Start from an in-platform event, like another flow completing.', mode: 'trigger', triggerType: 'signal' },
   { id: 'trigger-slack', label: 'When a Slack message arrives', description: 'Start from mentions, DMs, channel messages, or slash commands.', mode: 'trigger', triggerType: 'slack' },
+  { id: 'trigger-activity', label: 'When connected activity occurs', description: 'Start from normalized activity emitted by connected tools.', mode: 'trigger', triggerType: 'activity' },
 ]
 
 export function searchCorpus(leaf: PickerLeaf): string {

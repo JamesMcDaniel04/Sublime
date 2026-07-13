@@ -40,6 +40,11 @@ export type FlowExecutionJob = {
   flowRunId?: string
   // Resume a paused run: the user's reply to the ask-user step that paused it.
   reply?: string
+  /** Scheduler-driven resume for a durable Wait node. */
+  resumeReason?: 'time'
+  /** Draft-test partial execution controls. Never used by external triggers. */
+  startNodeId?: string
+  mockOutputs?: Record<string, unknown>
   // Queue mode only: dispatchFlowExecution pre-created this FlowRun row (so
   // the caller has an id to poll) — adopt it instead of creating a new one.
   // Distinct from flowRunId, which always means "resume a waiting run".
@@ -51,6 +56,7 @@ export type FlowExecutionJob = {
   trigger?: { type: 'manual' | 'schedule' | 'webhook' | 'signal' | 'slack' | 'activity'; [key: string]: unknown }
   // Synchronous subflow nesting depth — bounds runaway flow->flow recursion.
   subflowDepth?: number
+  errorDepth?: number
   // Slack multi-turn: a prior AgentExecution id whose transcript seeds the
   // FIRST saved-agent step of this run (execution order), so a thread carries
   // one conversation across runs. Consumed at most once per run.
@@ -155,13 +161,13 @@ export async function terminalizeAbandonedChildRun(organizationId: string, child
  */
 export async function runFlowExecution(
   job: FlowExecutionJob,
-): Promise<{ flowRunId: string; status: string; output: unknown; error?: string }> {
+): Promise<{ flowRunId: string; status: string; output: unknown; error?: string; webhookResponse?: { statusCode: number; headers: Record<string, string>; bodyMode: 'json' | 'text' | 'binary' | 'none'; body?: unknown } }> {
   const flow = await prisma.flow.findFirst({ where: { id: job.flowId, organizationId: job.organizationId } })
   if (!flow) throw new Error('Flow not found')
   if ((job.subflowDepth ?? 0) > MAX_SUBFLOW_DEPTH) {
     throw new ApiError('Subflow nesting is too deep.', 400, 'SUBFLOW_DEPTH_EXCEEDED')
   }
-  const resuming = Boolean(job.flowRunId && job.reply !== undefined)
+  const resuming = Boolean(job.flowRunId && (job.reply !== undefined || job.resumeReason === 'time'))
 
   // Resume: atomically claim the run — only a genuinely `waiting` run may be
   // resumed. A concurrent resume (e.g. the reply route and the approvals
@@ -217,7 +223,7 @@ export async function runFlowExecution(
         take: 500,
       }),
       usedConnectionIds.length
-        ? loadFlowToolCatalog(job.organizationId, { userId: job.userId, connectionIds: usedConnectionIds, takeConnections: usedConnectionIds.length, takeTools: 100 })
+        ? loadFlowToolCatalog(job.organizationId, { userId: job.userId, connectionIds: usedConnectionIds, takeConnections: usedConnectionIds.length })
         : Promise.resolve([]),
     ])
     const validation = validateFlowGraph(graph, {
@@ -594,14 +600,21 @@ export async function runFlowExecution(
         // run actually paused on, and each decision is consumed once. A step
         // whose approval the decision does NOT match (another loop item's
         // pause) falls through and re-queues its own approval below.
+        let approvalGranted = false
         if (node.resume && typeof job.reply === 'string') {
           const decision = parseApprovalDecision(job.reply)
           if (decision && shouldConsumeApprovalDecision(decision, pausedApprovalIds)) {
             pausedApprovalIds.delete(String(decision.approvalId))
             if (decision.status === 'approved') {
-              const output = decision.result ?? { status: 'approved', executed: decision.executed === true }
-              await finish({ status: 'succeeded', output })
-              return { output }
+              if (decision.executed === true) {
+                const output = decision.result ?? { status: 'approved', executed: true }
+                await finish({ status: 'succeeded', output })
+                return { output }
+              }
+              // Generic MCP/Klavis writes are not executed by the approval
+              // service (it has no live client). Approval resumes this exact
+              // step, which executes once below without queuing another gate.
+              approvalGranted = true
             }
             const message = 'The approver rejected this action.'
             await finish({ status: 'failed', error: message })
@@ -622,7 +635,8 @@ export async function runFlowExecution(
         // write plane (Nango delivery) is queued for approval instead of
         // executed, and the run pauses `waiting` (kind 'approval'). The
         // decision resumes this run via the approvals route.
-        if (capabilityFromProvider(executor.provider)) {
+        const configuredRisk = node.config.risk === 'write' || node.config.risk === 'destructive'
+        if (!approvalGranted && (configuredRisk || executor.isWrite || capabilityFromProvider(executor.provider))) {
           const approval = await createApproval({
             organizationId: job.organizationId,
             executionId: run.id,
@@ -701,7 +715,6 @@ export async function runFlowExecution(
       }
       const retries = flowActionRetries(node.config.retries)
       const output = await runWithRetries(async () => {
-        await assertPublicUrl(request.url) // SSRF guard: re-check before every attempt
         const controller = new AbortController()
         let timedOut = false
         const timer = setTimeout(() => {
@@ -709,17 +722,57 @@ export async function runFlowExecution(
           controller.abort()
         }, request.timeoutMs)
         try {
-          const response = await fetch(request.url, { ...request.init, signal: controller.signal })
-          const nextOutput = await responseOutput(response, request.responseType, HTTP_MAX_RESPONSE_CHARS)
-          if (request.failOnHttpError && !nextOutput.ok) throw new Error(`HTTP ${nextOutput.status}: ${nextOutput.bodyText.slice(0, 200)}`)
-          return nextOutput
+          const fetchPage = async (initialUrl: string) => {
+            let url = initialUrl
+            for (let redirects = 0;; redirects += 1) {
+              await assertPublicUrl(url) // SSRF guard every page, attempt, and redirect hop
+              const response = await fetch(url, { ...request.init, signal: controller.signal })
+              if (response.status >= 300 && response.status < 400 && response.headers.get('location')) {
+                if (!request.followRedirects) throw new Error(`HTTP ${response.status}: redirect blocked (enable Follow redirects to allow it).`)
+                if (redirects >= request.maxRedirects) throw new Error(`HTTP redirect limit (${request.maxRedirects}) exceeded.`)
+                url = new URL(response.headers.get('location')!, url).toString()
+                continue
+              }
+              const nextOutput = await responseOutput(response, request.responseType, HTTP_MAX_RESPONSE_CHARS)
+              const retryCodes = Array.isArray(node.config.retryStatusCodes) ? node.config.retryStatusCodes.map(Number) : []
+              if (retryCodes.includes(nextOutput.status)) throw new Error(`HTTP ${nextOutput.status}: configured for retry.`)
+              if (request.failOnHttpError && !nextOutput.ok) throw new Error(`HTTP ${nextOutput.status}: ${nextOutput.bodyText.slice(0, 200)}`)
+              return nextOutput
+            }
+          }
+          const pagination = node.config.pagination && typeof node.config.pagination === 'object' ? node.config.pagination as Record<string, unknown> : null
+          if (!pagination || pagination.mode === 'off' || !pagination.mode) return fetchPage(request.url)
+          const pages: unknown[] = []
+          const maxPages = Math.max(1, Math.min(1000, Number(pagination.maxPages ?? 100)))
+          let pageUrl = request.url
+          let cursor: unknown
+          const atPath = (value: unknown, path: unknown) => String(path ?? '').split('.').filter(Boolean).reduce<unknown>((current, key) => current && typeof current === 'object' ? (current as Record<string, unknown>)[key] : undefined, value)
+          for (let page = Number(pagination.startPage ?? 1); pages.length < maxPages; page += 1) {
+            const url = new URL(pageUrl)
+            if (pagination.mode === 'page') url.searchParams.set(String(pagination.pageParam ?? 'page'), String(page))
+            if (pagination.mode === 'cursor' && cursor != null) url.searchParams.set(String(pagination.cursorParam ?? 'cursor'), String(cursor))
+            const pageOutput = await fetchPage(url.toString())
+            pages.push(pageOutput.body)
+            if (pagination.mode === 'page') {
+              if (pageOutput.body == null || (Array.isArray(pageOutput.body) && pageOutput.body.length === 0)) break
+            } else if (pagination.mode === 'cursor') {
+              const next = atPath(pageOutput.body, pagination.cursorPath ?? 'nextCursor')
+              if (next == null || next === '' || next === cursor) break
+              cursor = next
+            } else {
+              const next = atPath(pageOutput.body, pagination.nextUrlPath ?? 'next')
+              if (typeof next !== 'string' || !next) break
+              pageUrl = new URL(next, pageUrl).toString()
+            }
+          }
+          return { ok: true, pages, pageCount: pages.length }
         } catch (error) {
           if (timedOut) throw new Error(`HTTP request timed out after ${request.timeoutMs}ms`)
           throw error
         } finally {
           clearTimeout(timer)
         }
-      }, { retries })
+      }, { retries, retryDelayMs: typeof node.config.retryDelayMs === 'number' ? node.config.retryDelayMs : undefined })
       await finish({ status: 'succeeded', output })
       return { output }
     } catch (error) {
@@ -751,7 +804,8 @@ export async function runFlowExecution(
     // resumeKey names the EXACT paused iteration (see resume-scan.ts) — the
     // interpreter's guards match on it, so dropping it here would silently
     // downgrade every loop resume to the bare-id fallback (reply lost).
-    ...(resuming ? { completed, resumeNodeId, resumeKey, resumeReply: job.reply } : {}),
+    ...((resuming || job.mockOutputs) ? { completed: { ...(resuming ? completed : {}), ...(job.mockOutputs ?? {}) }, ...(resuming ? { resumeNodeId, resumeKey, resumeReply: job.reply } : {}) } : {}),
+    ...(job.startNodeId ? { startNodeId: job.startNodeId } : {}),
   })
   await Promise.all(pending) // ensure all container-step rows are written
   const status = result.status === 'succeeded' ? 'succeeded' : result.status === 'waiting' ? 'waiting' : 'failed'
@@ -760,7 +814,7 @@ export async function runFlowExecution(
   const runError = status === 'failed' ? (result.error ?? 'The flow failed.').slice(0, 300) : null
   await prisma.flowRun.update({
     where: { id: run.id, organizationId: job.organizationId },
-    data: { status, output: jsonValue(result.output), error: runError, finishedAt: status === 'waiting' ? null : new Date() },
+    data: { status, output: jsonValue(result.output), error: runError, wakeAt: result.waiting?.wakeAt ? new Date(result.waiting.wakeAt) : null, webhookResponse: result.webhookResponse ? jsonValue(result.webhookResponse) : undefined, finishedAt: status === 'waiting' ? null : new Date() },
   })
   // A humanReview ("Request information") pause has no adapter: its waiting
   // FlowRunStep row was persisted by the interpreter's onStep path (the
@@ -801,6 +855,31 @@ export async function runFlowExecution(
         },
       })
       .catch(() => undefined)
+  }
+
+  // Best-effort recursive-learning pass: repeated run evidence becomes a
+  // reviewable builder suggestion; it never mutates the published graph.
+  await import('@/lib/intelligence/reflect-flow-run')
+    .then(({ reflectFlowRun }) => reflectFlowRun({ organizationId: job.organizationId, flowId: flow.id, flowRunId: run.id, graph, status, error: runError }))
+    .catch((error) => apiLogger.warn('flow reflection failed', { flowRunId: run.id, error: error instanceof Error ? error.message : String(error) }))
+
+  // Optional workflow-level error handler. It receives a structured failure
+  // envelope, runs the published handler, and is depth-bounded to prevent
+  // handler cycles from recursively dispatching forever.
+  if (status === 'failed' && (job.errorDepth ?? 0) < 3) {
+    const metadata = flow.metadata && typeof flow.metadata === 'object' && !Array.isArray(flow.metadata) ? flow.metadata as Record<string, unknown> : {}
+    const errorFlowId = typeof metadata.errorFlowId === 'string' ? metadata.errorFlowId : ''
+    if (errorFlowId && errorFlowId !== flow.id) {
+      await dispatchFlowExecution({
+        flowId: errorFlowId,
+        organizationId: job.organizationId,
+        userId: job.userId,
+        input: { failedFlowId: flow.id, failedRunId: run.id, error: runError, originalInput: input },
+        usePublished: true,
+        trigger: { type: 'signal', signal: 'flow.failed', sourceFlowId: flow.id },
+        errorDepth: (job.errorDepth ?? 0) + 1,
+      }).catch((error) => apiLogger.error('flow error handler dispatch failed', { flowRunId: run.id, error: error instanceof Error ? error.message : String(error) }))
+    }
   }
 
   // Slack reply-to-origin: a run started from Slack reports its outcome back
@@ -845,7 +924,7 @@ export async function runFlowExecution(
       .catch(() => undefined)
   }
 
-  return { flowRunId: run.id, status, output: result.output, error: runError ?? undefined }
+  return { flowRunId: run.id, status, output: result.output, error: runError ?? undefined, webhookResponse: result.webhookResponse }
 }
 
 /**
@@ -861,11 +940,11 @@ export async function runFlowExecution(
  */
 export async function dispatchFlowExecution(
   job: FlowExecutionJob,
-): Promise<{ flowRunId: string; status: string; output: unknown; error?: string } | { queued: true; flowRunId: string }> {
+): Promise<{ flowRunId: string; status: string; output: unknown; error?: string; webhookResponse?: { statusCode: number; headers: Record<string, string>; bodyMode: 'json' | 'text' | 'binary' | 'none'; body?: unknown } } | { queued: true; flowRunId: string }> {
   if (inlineExecution) return runFlowExecution(job)
   if (!workersEnabled) throw new Error('Flow worker is disabled')
 
-  const resuming = Boolean(job.flowRunId && job.reply !== undefined)
+  const resuming = Boolean(job.flowRunId && (job.reply !== undefined || job.resumeReason === 'time'))
   if (resuming) {
     const queue = createQueue(QUEUE_NAMES.FLOW_EXECUTION)
     await queue.add('execute-flow', job, flowJobOptions(job.flowRunId))

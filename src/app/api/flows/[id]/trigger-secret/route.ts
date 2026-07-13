@@ -24,6 +24,7 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
   const base = {
     success: true as const,
     url: `${baseUrl}/api/flows/${flow.id}/trigger`,
+    testUrl: `${baseUrl}/api/flows/${flow.id}/trigger?mode=test`,
     usage: 'POST with header "x-trigger-secret: <secret>". Send {"input": ...} or any JSON body as the flow input.',
   }
 

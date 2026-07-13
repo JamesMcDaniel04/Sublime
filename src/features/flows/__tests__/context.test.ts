@@ -102,3 +102,10 @@ test('evalCondition combines clauses with all (AND) / any (OR)', () => {
   assert.equal(evalCondition({ match: 'any', clauses: [pass, fail] }, ctx), true)
   assert.equal(evalCondition({ match: 'all', clauses: [pass] }, ctx), true)
 })
+
+test('safe expressions transform values without executing JavaScript', () => {
+  assert.equal(resolveTemplate('{{= upper(trigger.input.name) }}', { trigger: { input: { name: 'acme' } }, step: {} }), 'ACME')
+  assert.equal(resolveTemplateValue('{{= add(2, step.n3.output.score) }}', ctx), 93)
+  assert.equal(resolveTemplateValue('{{= coalesce(step.missing.output, "fallback") }}', ctx), 'fallback')
+  assert.equal(resolveTemplateValue('{{= process.exit() }}', ctx), '')
+})

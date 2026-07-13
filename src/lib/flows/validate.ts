@@ -12,7 +12,7 @@ export type FlowValidationIssue = {
 
 export type FlowValidationContext = {
   agents?: { id: string; title?: string }[]
-  toolCatalog?: { id: string; name?: string; tools?: { name: string; inputSchema?: unknown }[] }[]
+  toolCatalog?: { id: string; name?: string; tools?: { name: string; inputSchema?: unknown; schemaHash?: string; risk?: 'read' | 'write' | 'destructive' }[] }[]
   requireRunnable?: boolean
 }
 
@@ -277,6 +277,7 @@ function reachableFrom(graph: FlowGraph, startId: string): Set<string> {
     if (!node) return
     seen.add(id)
     if (node.type === 'loop') node.data.body.forEach(visit)
+    if (node.type === 'repeatUntil') node.data.body.forEach(visit)
     if (node.type === 'parallel') node.data.branches.flat().forEach(visit)
     if (node.type === 'errorShield') {
       node.data.body.forEach(visit)
@@ -410,6 +411,12 @@ export function validateFlowGraph(graph: FlowGraph, context: FlowValidationConte
       }
       validateJsonObjectField(issues, node.data.args, `${nodeLabel(node)} arguments must be a JSON object.`, node.id)
       const selectedTool = toolsByConnection.get(node.data.connectionId)?.get(node.data.toolName)
+      if (node.data.actionSchemaHash && selectedTool?.schemaHash && node.data.actionSchemaHash !== selectedTool.schemaHash) {
+        add(issues, 'error', 'TOOL_SCHEMA_CHANGED', `${nodeLabel(node)} changed in the connected integration. Re-select the action and review its arguments before publishing.`, node.id)
+      }
+      if (node.data.risk && selectedTool?.risk && node.data.risk !== selectedTool.risk) {
+        add(issues, 'error', 'TOOL_RISK_CHANGED', `${nodeLabel(node)} has a new safety classification. Re-select the action before publishing.`, node.id)
+      }
       const requiredArgs = requiredToolArgs(selectedTool?.inputSchema)
       if (requiredArgs.length) {
         const parsedArgs = parseObjectJson(node.data.args)
@@ -466,6 +473,12 @@ export function validateFlowGraph(graph: FlowGraph, context: FlowValidationConte
       if (node.data.join === 'object' && node.data.labels && node.data.labels.length !== node.data.branches.length) {
         add(issues, 'warning', 'JOIN_LABELS_MISMATCH', `${nodeLabel(node)} has ${node.data.labels.length} join label(s) for ${node.data.branches.length} branch(es).`, node.id)
       }
+    }
+
+    if (node.type === 'repeatUntil') {
+      if (node.data.body.length === 0) add(issues, 'error', 'EMPTY_REPEAT_BODY', `${nodeLabel(node)} needs at least one nested step.`, node.id)
+      if (node.data.clauses.length === 0) add(issues, 'error', 'EMPTY_REPEAT_CONDITION', `${nodeLabel(node)} needs a stop condition.`, node.id)
+      for (const bodyId of node.data.body) if (!byId.has(bodyId)) add(issues, 'error', 'MISSING_CONTAINER_STEP', `${nodeLabel(node)} references missing nested step "${bodyId}".`, node.id)
     }
 
     if (node.type === 'condition' || node.type === 'filter') {
@@ -601,6 +614,7 @@ export function validateFlowGraph(graph: FlowGraph, context: FlowValidationConte
   const containerMemberIds = new Set(
     graph.nodes.flatMap((node) =>
       node.type === 'loop' ? node.data.body
+      : node.type === 'repeatUntil' ? node.data.body
       : node.type === 'parallel' ? node.data.branches.flat()
       : node.type === 'errorShield' ? [...node.data.body, ...node.data.fallback]
       : [],
@@ -609,19 +623,7 @@ export function validateFlowGraph(graph: FlowGraph, context: FlowValidationConte
   for (const memberId of containerMemberIds) {
     const member = byId.get(memberId)
     if (!member) continue
-    // Branching nodes can't execute inside container bodies: bodies are flat
-    // ordered lists with no edges, so condition/switch/router have nothing to
-    // route on. The interpreter refuses them at runtime; this catches it at publish.
-    if (member.type === 'condition' || member.type === 'switch' || member.type === 'router') {
-      add(
-        issues,
-        'error',
-        member.type === 'router' ? 'ROUTER_IN_CONTAINER' : 'CONDITION_IN_CONTAINER',
-        `${nodeLabel(member)} can't run inside a For each / Parallel / Error shield body — branching isn't supported there. Use a Filter step to gate items instead.`,
-        member.id,
-      )
-    }
-    if (member.type === 'tool' && member.data.connectionId && parseFlowToolConnectionId(member.data.connectionId).plane === 'nango') {
+    if (member.type === 'tool' && member.data.connectionId && (parseFlowToolConnectionId(member.data.connectionId).plane === 'nango' || member.data.risk === 'write' || member.data.risk === 'destructive')) {
       add(
         issues,
         'error',

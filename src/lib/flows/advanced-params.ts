@@ -13,11 +13,16 @@ export type AdvancedParamKey =
   | 'responseType'
   | 'failOnHttpError'
   | 'concurrency'
+  | 'disabled'
+  | 'mockOutput'
+  | 'retryDelayMs'
+  | 'followRedirects'
+  | 'maxRedirects'
 
 const BY_TYPE: Partial<Record<FlowNode['type'], AdvancedParamKey[]>> = {
-  agent: ['onError', 'retries', 'timeoutMs'],
-  tool: ['onError', 'retries', 'timeoutMs'],
-  http: ['bodyMode', 'responseType', 'failOnHttpError', 'onError', 'retries', 'timeoutMs'],
+  agent: ['onError', 'retries', 'timeoutMs', 'disabled', 'mockOutput'],
+  tool: ['onError', 'retries', 'timeoutMs', 'disabled', 'mockOutput'],
+  http: ['bodyMode', 'responseType', 'failOnHttpError', 'onError', 'retries', 'retryDelayMs', 'timeoutMs', 'followRedirects', 'maxRedirects', 'disabled', 'mockOutput'],
   loop: ['concurrency'],
 }
 

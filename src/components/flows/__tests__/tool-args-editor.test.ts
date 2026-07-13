@@ -67,3 +67,16 @@ test('parseArgs makes structured args editable as field text', () => {
     query: 'Acme',
   })
 })
+
+test('schemaFields and serializeArgs support nested tool contracts', () => {
+  const fields = schemaFields({
+    type: 'object',
+    required: ['customer'],
+    properties: {
+      customer: { type: 'object', required: ['id'], properties: { id: { type: 'string' }, tier: { enum: ['pro', 'free'] } } },
+      options: { type: 'object', properties: { limit: { type: 'integer', default: 10 } } },
+    },
+  })
+  assert.deepEqual(fields.map((field) => [field.name, field.required]), [['customer.id', true], ['customer.tier', false], ['options.limit', false]])
+  assert.deepEqual(JSON.parse(serializeArgs({ 'customer.id': 'c1', 'customer.tier': 'pro', 'options.limit': '5' }, fields)), { customer: { id: 'c1', tier: 'pro' }, options: { limit: 5 } })
+})

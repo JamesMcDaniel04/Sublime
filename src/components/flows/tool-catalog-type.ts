@@ -7,6 +7,6 @@
 export type ToolCatalog = {
   id: string
   name: string
-  tools: { name: string; description: string; inputSchema?: unknown; outputSchema?: unknown }[]
+  tools: { name: string; description: string; inputSchema?: unknown; outputSchema?: unknown; schemaHash?: string; risk?: 'read' | 'write' | 'destructive' }[]
   toolsError?: string
 }[]

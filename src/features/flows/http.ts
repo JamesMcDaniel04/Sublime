@@ -11,6 +11,8 @@ export type FlowHttpConfig = {
   retries?: unknown
   timeoutMs?: unknown
   cookie?: unknown
+  followRedirects?: unknown
+  maxRedirects?: unknown
 }
 
 export type FlowHttpOutput = {
@@ -23,7 +25,7 @@ export type FlowHttpOutput = {
   bodyText: string
 }
 
-const BODY_METHODS = new Set(['POST', 'PUT', 'PATCH'])
+const BODY_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE'])
 const JSON_RE = /^(?:\{|\[|true|false|null|-?\d|")/
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -75,8 +77,8 @@ function queryUrl(url: string, query: unknown): string {
   return next.toString()
 }
 
-function explicitBodyMode(value: unknown): 'json' | 'text' | 'none' | undefined {
-  return value === 'json' || value === 'text' || value === 'none' ? value : undefined
+function explicitBodyMode(value: unknown): 'json' | 'text' | 'raw' | 'formUrlencoded' | 'multipart' | 'binary' | 'none' | undefined {
+  return ['json', 'text', 'raw', 'formUrlencoded', 'multipart', 'binary', 'none'].includes(String(value)) ? value as 'json' | 'text' | 'raw' | 'formUrlencoded' | 'multipart' | 'binary' | 'none' : undefined
 }
 
 function inferBodyMode(body: unknown): 'json' | 'text' | 'none' {
@@ -104,7 +106,7 @@ function textBody(body: unknown): string | undefined {
   return typeof body === 'string' ? body : JSON.stringify(body)
 }
 
-export function prepareHttpRequest(config: FlowHttpConfig): { url: string; init: RequestInit; timeoutMs: number; failOnHttpError: boolean; responseType: 'auto' | 'json' | 'text' } {
+export function prepareHttpRequest(config: FlowHttpConfig): { url: string; init: RequestInit; timeoutMs: number; failOnHttpError: boolean; responseType: 'auto' | 'json' | 'text' | 'binary'; followRedirects: boolean; maxRedirects: number } {
   const method = String(config.method || 'POST').toUpperCase()
   const url = queryUrl(String(config.url || ''), config.query)
   const headers = headersFrom(config.headers)
@@ -115,23 +117,41 @@ export function prepareHttpRequest(config: FlowHttpConfig): { url: string; init:
   }
   const mode = explicitBodyMode(config.bodyMode) ?? inferBodyMode(config.body)
   const bodyAllowed = BODY_METHODS.has(method)
-  let body: string | undefined
+  let body: BodyInit | undefined
   if (bodyAllowed && mode !== 'none') {
-    body = mode === 'json' ? jsonBody(config.body) : textBody(config.body)
+    if (mode === 'json') body = jsonBody(config.body)
+    else if (mode === 'formUrlencoded') {
+      const values = parseObjectInput(config.body, 'Form body')
+      const params = new URLSearchParams()
+      for (const [key, value] of Object.entries(values)) {
+        if (Array.isArray(value)) value.forEach((item) => params.append(key, String(item)))
+        else params.set(key, String(value ?? ''))
+      }
+      body = params
+    } else if (mode === 'multipart') {
+      const values = parseObjectInput(config.body, 'Multipart body')
+      const form = new FormData()
+      for (const [key, value] of Object.entries(values)) form.append(key, typeof value === 'object' ? JSON.stringify(value) : String(value ?? ''))
+      body = form
+    } else if (mode === 'binary') body = Buffer.from(String(config.body ?? ''), 'base64')
+    else body = textBody(config.body)
     if (mode === 'json' && body && !Object.keys(headers).some((key) => key.toLowerCase() === 'content-type')) {
       headers['content-type'] = 'application/json'
     }
+    if (mode === 'formUrlencoded' && !Object.keys(headers).some((key) => key.toLowerCase() === 'content-type')) headers['content-type'] = 'application/x-www-form-urlencoded'
   }
   const timeoutMs = typeof config.timeoutMs === 'number' && Number.isFinite(config.timeoutMs)
     ? Math.max(1000, Math.min(120000, Math.round(config.timeoutMs)))
     : 30_000
-  const responseType = config.responseType === 'json' || config.responseType === 'text' ? config.responseType : 'auto'
+  const responseType = config.responseType === 'json' || config.responseType === 'text' || config.responseType === 'binary' ? config.responseType : 'auto'
   return {
     url,
-    init: { method, headers, ...(body !== undefined ? { body } : {}), redirect: 'error' },
+    init: { method, headers, ...(body !== undefined ? { body } : {}), redirect: 'manual' },
     timeoutMs,
     failOnHttpError: config.failOnHttpError !== false,
     responseType,
+    followRedirects: config.followRedirects === true,
+    maxRedirects: typeof config.maxRedirects === 'number' ? Math.max(0, Math.min(10, Math.round(config.maxRedirects))) : 3,
   }
 }
 
@@ -198,7 +218,12 @@ function shouldParseJson(contentType: string, responseType: 'auto' | 'json' | 't
   return contentType.toLowerCase().includes('json') || JSON_RE.test(text.trim())
 }
 
-export async function responseOutput(response: Response, responseType: 'auto' | 'json' | 'text', maxChars = 50_000): Promise<FlowHttpOutput> {
+export async function responseOutput(response: Response, responseType: 'auto' | 'json' | 'text' | 'binary', maxChars = 50_000): Promise<FlowHttpOutput> {
+  if (responseType === 'binary') {
+    const bytes = Buffer.from(await response.arrayBuffer())
+    const bodyText = bytes.subarray(0, maxChars).toString('base64')
+    return { ok: response.ok, status: response.status, statusText: response.statusText, url: response.url, headers: Object.fromEntries(response.headers.entries()), body: { encoding: 'base64', data: bodyText, size: bytes.length }, bodyText }
+  }
   const bodyText = (await response.text()).slice(0, maxChars)
   const headers = Object.fromEntries(response.headers.entries())
   let body: unknown = bodyText

@@ -78,6 +78,8 @@ const agentNode = z.object({
     // default; ignored when agentId is set (a saved agent brings its own model).
     prompt: z.string().optional(),
     model: z.string().optional(),
+    disabled: z.boolean().optional(),
+    mockOutput: z.any().optional(),
   }),
 })
 /** One left/op/right comparison; a condition ANDs/ORs a list of these. */
@@ -118,6 +120,16 @@ const toolNode = z.object({
     timeoutMs: z.number().int().min(1000).max(120000).optional(),
     onError: z.enum(['stop', 'continue']).optional(),
     outputFields: z.array(outputFieldSchema).optional(),
+    // Snapshot the discovered MCP action contract at authoring/publish time.
+    // Runtime still calls the live tool name, while these fields keep the node
+    // editable and its safety policy stable if discovery later changes.
+    actionSchemaHash: z.string().optional(),
+    actionDescription: z.string().optional(),
+    actionInputSchema: z.any().optional(),
+    actionOutputSchema: z.any().optional(),
+    risk: z.enum(['read', 'write', 'destructive']).optional(),
+    disabled: z.boolean().optional(),
+    mockOutput: z.any().optional(),
   }),
 })
 // Plain HTTP request (webhook-out) step. URL/headers/body may use {{tokens}}.
@@ -131,19 +143,35 @@ const httpNode = z.object({
     label: z.string().optional(),
     note: z.string().optional(),
     connectionId: z.string().optional(),
-    method: z.enum(['GET', 'POST', 'PUT', 'PATCH', 'DELETE']).default('POST'),
+    method: z.enum(['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS']).default('POST'),
     url: z.string(),
     query: z.string().optional(),
     headers: z.string().optional(),
     body: z.string().optional(),
     cookie: z.string().optional(),
-    bodyMode: z.enum(['json', 'text', 'none']).optional(),
-    responseType: z.enum(['auto', 'json', 'text']).optional(),
+    bodyMode: z.enum(['json', 'text', 'raw', 'formUrlencoded', 'multipart', 'binary', 'none']).optional(),
+    responseType: z.enum(['auto', 'json', 'text', 'binary']).optional(),
     failOnHttpError: z.boolean().optional(),
     retries: z.number().int().min(0).max(5).optional(),
     timeoutMs: z.number().int().min(1000).max(120000).optional(),
     onError: z.enum(['stop', 'continue']).optional(),
     outputFields: z.array(outputFieldSchema).optional(),
+    retryDelayMs: z.number().int().min(0).max(60000).optional(),
+    retryStatusCodes: z.array(z.number().int().min(100).max(599)).optional(),
+    followRedirects: z.boolean().optional(),
+    maxRedirects: z.number().int().min(0).max(10).optional(),
+    pagination: z.object({
+      mode: z.enum(['off', 'page', 'cursor', 'nextUrl']).default('off'),
+      pageParam: z.string().optional(),
+      startPage: z.number().int().min(0).optional(),
+      cursorParam: z.string().optional(),
+      cursorPath: z.string().optional(),
+      nextUrlPath: z.string().optional(),
+      maxPages: z.number().int().min(1).max(1000).optional(),
+    }).optional(),
+    batch: z.object({ size: z.number().int().min(1).max(1000), delayMs: z.number().int().min(0).max(60000).optional() }).optional(),
+    disabled: z.boolean().optional(),
+    mockOutput: z.any().optional(),
   }),
 })
 const loopNode = z.object({
@@ -293,6 +321,51 @@ const humanReviewNode = z.object({
   }),
 })
 
+// Return an explicit HTTP response to an inbound webhook caller. The runtime
+// records this independently from the flow's normal output so later cleanup
+// steps may continue without changing what the caller receives.
+const respondWebhookNode = z.object({
+  id: z.string(),
+  type: z.literal('respondWebhook'),
+  data: z.object({
+    label: z.string().optional(),
+    note: z.string().optional(),
+    statusCode: z.number().int().min(100).max(599).default(200),
+    headers: z.string().optional(),
+    body: z.string().optional(),
+    bodyMode: z.enum(['json', 'text', 'binary', 'none']).default('json'),
+  }),
+})
+
+// Durable delay. Short waits sleep inline; long waits pause the run with a
+// wakeAt marker so cron/worker dispatch can resume it without holding a worker.
+const waitNode = z.object({
+  id: z.string(),
+  type: z.literal('wait'),
+  data: z.object({
+    label: z.string().optional(),
+    note: z.string().optional(),
+    amount: z.number().min(0).default(1),
+    unit: z.enum(['seconds', 'minutes', 'hours', 'days']).default('seconds'),
+  }),
+})
+
+// Repeat a flat body until its condition succeeds, with hard caps preventing
+// accidental infinite polling loops.
+const repeatUntilNode = z.object({
+  id: z.string(),
+  type: z.literal('repeatUntil'),
+  data: z.object({
+    label: z.string().optional(),
+    note: z.string().optional(),
+    body: z.array(z.string()).default([]),
+    clauses: z.array(conditionClauseSchema).default([]),
+    match: z.enum(['all', 'any']).optional(),
+    maxIterations: z.number().int().min(1).max(1000).default(20),
+    delayMs: z.number().int().min(0).max(60000).optional(),
+  }),
+})
+
 // First-class INPUT: the flow's typed, named parameter list — its callable
 // signature. Values resolve with precedence user > webhook > default and are
 // coerced at the boundary, then exposed as {{input.<name>}}. A flow WITHOUT an
@@ -367,7 +440,7 @@ const errorShieldNode = z.object({
 })
 
 export const flowNodeSchema = z.discriminatedUnion('type', [
-  triggerNode, agentNode, conditionNode, loopNode, parallelNode, stopNode, toolNode, httpNode, transformNode, filterNode, switchNode, variableNode, dataNode, humanReviewNode, inputNode, outputNode, subflowNode, routerNode, errorShieldNode,
+  triggerNode, agentNode, conditionNode, loopNode, parallelNode, stopNode, toolNode, httpNode, transformNode, filterNode, switchNode, variableNode, dataNode, humanReviewNode, respondWebhookNode, waitNode, repeatUntilNode, inputNode, outputNode, subflowNode, routerNode, errorShieldNode,
 ])
 export const flowEdgeSchema = z.object({
   id: z.string(),

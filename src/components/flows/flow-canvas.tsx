@@ -22,6 +22,11 @@ export type FlowInsertSeed = {
   label?: string
   variableOp?: VariableOp
   dataOp?: DataOp
+  actionDescription?: string
+  actionInputSchema?: unknown
+  actionOutputSchema?: unknown
+  actionSchemaHash?: string
+  risk?: 'read' | 'write' | 'destructive'
 }
 
 function InsertMenu({
@@ -202,7 +207,7 @@ export function FlowCanvas({
   onDuplicateNode?: (id: string) => void
   onDeleteNode?: (id: string) => void
   onBackgroundClick?: () => void
-  onPickTrigger?: (triggerType: 'manual' | 'schedule' | 'webhook' | 'signal' | 'slack') => void
+  onPickTrigger?: (triggerType: 'manual' | 'schedule' | 'webhook' | 'signal' | 'slack' | 'activity') => void
   onMoveAfter?: (nodeId: string, afterId: string) => void
   onReorderContainer?: (containerId: string, from: number, to: number, branchIndex?: number) => void
   onChangeNodeType?: (nodeId: string, type: EditableType) => void
@@ -227,6 +232,7 @@ export function FlowCanvas({
   const contained = new Set(
     graph.nodes.flatMap((node) =>
       node.type === 'loop' ? node.data.body
+      : node.type === 'repeatUntil' ? node.data.body
       : node.type === 'parallel' ? node.data.branches.flat()
       : node.type === 'errorShield' ? [...node.data.body, ...node.data.fallback]
       : [],
@@ -253,6 +259,18 @@ export function FlowCanvas({
       }
       case 'loop':
         return node.data.label || 'For each'
+      case 'repeatUntil':
+        return node.data.label || 'Repeat until'
+      case 'wait':
+        return node.data.label || 'Wait'
+      case 'respondWebhook':
+        return node.data.label || 'Respond to webhook'
+      case 'input':
+        return node.data.label || 'Workflow inputs'
+      case 'output':
+        return node.data.label || 'Workflow output'
+      case 'subflow':
+        return node.data.label || 'Run workflow'
       case 'parallel':
         return node.data.label || 'Parallel branches'
       case 'stop':
@@ -282,7 +300,7 @@ export function FlowCanvas({
       // input/output/subflow: no dedicated builder palette copy yet (follow-up
       // UI task) — fall back to the node's own label like subtitleFor does.
       default:
-        return node.data.label || 'Step'
+        return 'Step'
     }
   }
 
@@ -307,6 +325,14 @@ export function FlowCanvas({
         return agentName(node.data.agentId) || 'Choose an agent'
       case 'loop':
         return node.data.over === '{{trigger.input}}' ? 'Loop over trigger input' : `Loop over ${node.data.over}`
+      case 'repeatUntil':
+        return `At most ${node.data.maxIterations} runs`
+      case 'wait':
+        return `${node.data.amount} ${node.data.unit}`
+      case 'respondWebhook':
+        return `HTTP ${node.data.statusCode}`
+      case 'subflow':
+        return node.data.flowId || 'Choose a workflow'
       case 'parallel':
         return `${node.data.branches.length} branch${node.data.branches.length === 1 ? '' : 'es'}`
       case 'stop':
@@ -373,7 +399,7 @@ export function FlowCanvas({
         onDragStartNode={setDragId}
         onDragEndNode={() => setDragId(null)}
         onChangeType={node.type !== 'trigger' && onChangeNodeType ? (type) => onChangeNodeType(node.id, type) : undefined}
-        onAddStep={(node.type === 'loop' || node.type === 'parallel' || node.type === 'errorShield') && onAddContainerStep ? (type) => onAddContainerStep(node.id, type) : undefined}
+        onAddStep={(node.type === 'loop' || node.type === 'repeatUntil' || node.type === 'parallel' || node.type === 'errorShield') && onAddContainerStep ? (type) => onAddContainerStep(node.id, type) : undefined}
         jamEditors={jamPeers?.filter((peer) => peer.selectedNodeId === node.id)}
       />
     </div>
@@ -382,6 +408,7 @@ export function FlowCanvas({
   const nestedCards = (node: FlowNode) => {
     const ids =
       node.type === 'loop' ? node.data.body
+      : node.type === 'repeatUntil' ? node.data.body
       : node.type === 'parallel' ? node.data.branches.flat()
       : node.type === 'errorShield' ? [...node.data.body, ...node.data.fallback]
       : []
@@ -393,6 +420,7 @@ export function FlowCanvas({
     // list (branchIndex -1, matching insertIntoContainer's fallback marker).
     const siblingsOf = (id: string): { list: string[]; branchIndex?: number } => {
       if (node.type === 'loop') return { list: node.data.body }
+      if (node.type === 'repeatUntil') return { list: node.data.body }
       if (node.type === 'parallel') {
         const branchIndex = node.data.branches.findIndex((branch) => branch.includes(id))
         return { list: branchIndex >= 0 ? node.data.branches[branchIndex] : [], branchIndex: branchIndex >= 0 ? branchIndex : undefined }
