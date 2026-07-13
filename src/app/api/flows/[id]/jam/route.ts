@@ -78,6 +78,10 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
       })),
       skipDuplicates: true,
     }),
+    prisma.flow.updateMany({
+      where: { id, organizationId: auth.organizationId, userId: auth.dbUser.id },
+      data: { collaborationAccessRevision: { increment: 1 } },
+    }),
   ])
 
   await Promise.all(addedIds.map((userId) => notify({

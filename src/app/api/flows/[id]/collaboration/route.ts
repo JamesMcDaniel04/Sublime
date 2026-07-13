@@ -19,17 +19,17 @@ const postSchema = z.object({
 })
 const MAX_REQUEST_BYTES = 512 * 1024
 
-function channelTopic(flowId: string, organizationId: string): string {
+function channelTopic(flowId: string, organizationId: string, accessRevision: number): string {
   const secret = process.env.ENCRYPTION_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY
   if (!secret && process.env.NODE_ENV === 'production') {
     throw new ApiError('Flow collaboration is not configured', 503, 'COLLABORATION_NOT_CONFIGURED')
   }
   const signature = crypto
     .createHmac('sha256', secret || 'sublime-local-collaboration')
-    .update(`${organizationId}:${flowId}`)
+    .update(`${organizationId}:${flowId}:${accessRevision}`)
     .digest('base64url')
     .slice(0, 24)
-  return `flow-jam:${flowId}:${signature}`
+  return `flow-jam:${flowId}:${accessRevision}:${signature}`
 }
 
 async function collaborationFlow(id: string, organizationId: string, userId: string) {
@@ -40,6 +40,7 @@ async function collaborationFlow(id: string, organizationId: string, userId: str
       userId: true,
       graph: true,
       collaborationRevision: true,
+      collaborationAccessRevision: true,
       updatedAt: true,
     },
   })
@@ -53,7 +54,7 @@ export const GET = withAuthenticatedApi(async (request, auth) => {
   const flow = await collaborationFlow(id, auth.organizationId, auth.dbUser.id)
   return {
     success: true,
-    topic: channelTopic(flow.id, auth.organizationId),
+    topic: channelTopic(flow.id, auth.organizationId, flow.collaborationAccessRevision),
     actor: {
       userId: auth.dbUser.id,
       name: auth.dbUser.name || auth.dbUser.email || 'Teammate',

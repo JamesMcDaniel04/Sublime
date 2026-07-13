@@ -77,6 +77,7 @@ export function useFlowJam(options: {
   const channelRef = useRef<ReturnType<ReturnType<typeof createClient>['channel']> | null>(null)
   const supabaseRef = useRef<ReturnType<typeof createClient> | null>(null)
   const actorRef = useRef<{ userId: string; name: string } | null>(null)
+  const topicRef = useRef<string | null>(null)
   const baselineRef = useRef<FlowGraph | null>(null)
   const latestLocalRef = useRef<FlowGraph | null>(null)
   const revisionRef = useRef(0)
@@ -95,6 +96,7 @@ export function useFlowJam(options: {
   const seenPreviewMutationsRef = useRef(new Set<string>())
   const accessDeniedRef = useRef(false)
   const refreshAccessRef = useRef<() => void>(() => {})
+  const reconnectRef = useRef<() => void>(() => {})
   const connectionStateRef = useRef<JamConnectionState>('connecting')
   const callbacksRef = useRef(options)
   callbacksRef.current = options
@@ -280,9 +282,14 @@ export function useFlowJam(options: {
           disconnectRealtime()
         }
         if (!response.ok || !data.success) throw new Error(data.error || 'Collaboration unavailable')
+        const topicChanged = Boolean(topicRef.current && topicRef.current !== data.topic)
         if (!disposed) {
           acceptServerGraph(data)
           if (connectionStateRef.current !== 'connected') setConnectionState('degraded')
+          if (topicChanged) {
+            topicRef.current = data.topic
+            reconnectRef.current()
+          }
         }
         return data
       } catch {
@@ -313,6 +320,7 @@ export function useFlowJam(options: {
         void connect()
       }, 1000)
     }
+    reconnectRef.current = scheduleReconnect
 
     const connect = async () => {
       setConnectionState('connecting')
@@ -323,6 +331,7 @@ export function useFlowJam(options: {
       }
 
       actorRef.current = snapshot.actor
+      topicRef.current = snapshot.topic
       const supabase = createClient()
       supabaseRef.current = supabase
       const channel = supabase.channel(snapshot.topic, {
@@ -431,6 +440,8 @@ export function useFlowJam(options: {
       if (previewTimerRef.current) clearTimeout(previewTimerRef.current)
       if (cursorTimerRef.current) clearTimeout(cursorTimerRef.current)
       refreshAccessRef.current = () => {}
+      reconnectRef.current = () => {}
+      topicRef.current = null
       window.removeEventListener('online', handleOnline)
       disconnectRealtime()
     }

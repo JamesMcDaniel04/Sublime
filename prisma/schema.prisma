@@ -692,6 +692,8 @@ model Flow {
   metadata       Json?
   // Monotonic sequencer for durable Flow Jam graph patches.
   collaborationRevision Int @default(0)
+  // Rotates the private Realtime topic whenever the collaborator allow-list changes.
+  collaborationAccessRevision Int @default(0)
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
