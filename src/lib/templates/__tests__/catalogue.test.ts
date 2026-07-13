@@ -52,6 +52,20 @@ test('every seed: valid departments, non-empty required∪recommended slugs cano
   }
 })
 
+test('every template requires Slack or Gmail delivery and exposes an executable runbook', () => {
+  for (const seed of SEED_CATALOGUE) {
+    assert.ok(
+      seed.requiredIntegrations.includes('slack') || seed.requiredIntegrations.includes('gmail'),
+      `${seed.seedKey} needs Slack or Gmail delivery`,
+    )
+    const instructions = serializeSeed(seed).instructions
+    assert.match(instructions, /Trigger and cadence/, seed.seedKey)
+    assert.match(instructions, /Delivery requirement/, seed.seedKey)
+    assert.match(instructions, /Guardrails/, seed.seedKey)
+    assert.match(instructions, /Output quality standard/, seed.seedKey)
+  }
+})
+
 test('agent seeds have instructions; flow seeds have a schema-valid graph', () => {
   for (const s of SEED_CATALOGUE) {
     if (s.kind === 'agent') {
@@ -76,6 +90,7 @@ test('seed graphs never ship placeholder HTTP endpoints', () => {
 test('flow graphs: every agent node ref resolves to an embedded spec; no per-org connection ids', () => {
   for (const s of SEED_CATALOGUE.filter((x) => x.kind === 'flow')) {
     const refs = new Set((s.agents ?? []).map((a) => a.ref))
+    let hasDeliveryNode = false
     for (const node of s.flowGraph!.nodes) {
       if (node.type === 'agent') {
         assert.ok(refs.has(node.data.agentId), `${s.seedKey}: agent node "${node.data.agentId}" has no spec`)
@@ -83,8 +98,10 @@ test('flow graphs: every agent node ref resolves to an embedded spec; no per-org
       if (node.type === 'tool') {
         const [plane] = node.data.connectionId.split(':')
         assert.ok(STABLE_TOOL_PLANES.has(plane), `${s.seedKey}: tool connectionId "${node.data.connectionId}" is not a stable plane`)
+        if (/slack|gmail/i.test(node.data.connectionId)) hasDeliveryNode = true
       }
     }
+    assert.ok(hasDeliveryNode, `${s.seedKey}: flow graph needs a Slack or Gmail delivery node`)
   }
 })
 

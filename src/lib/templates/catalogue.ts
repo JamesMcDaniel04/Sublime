@@ -419,26 +419,94 @@ const BASE_SEED_CATALOGUE: SeedTemplate[] = [
   },
 ]
 
-export const SEED_CATALOGUE: SeedTemplate[] = [...BASE_SEED_CATALOGUE, ...MULTI_TOOL_SEEDS]
+const DEPARTMENT_CHANNEL: Record<string, string> = {
+  sales: '#sales', engineering: '#engineering', marketing: '#marketing', finance: '#finance', csm: '#customer-success',
+}
+
+export type TemplateDelivery = { kind: 'slack' | 'gmail'; integration: 'slack' | 'gmail'; destination: string }
+
+export function deliveryForSeed(seed: SeedTemplate): TemplateDelivery {
+  const tools = [...seed.requiredIntegrations, ...seed.recommendedIntegrations, ...(seed.integrations ?? [])]
+  const graphTools = (seed.flowGraph?.nodes ?? [])
+    .filter((node) => node.type === 'tool')
+    .map((node) => node.type === 'tool' ? node.data.connectionId.toLowerCase() : '')
+  const gmailOnly = [...tools, ...graphTools].some((tool) => tool.includes('gmail'))
+    && ![...tools, ...graphTools].some((tool) => tool.includes('slack'))
+  return gmailOnly
+    ? { kind: 'gmail', integration: 'gmail', destination: 'the requesting user by email' }
+    : { kind: 'slack', integration: 'slack', destination: DEPARTMENT_CHANNEL[seed.departments[0] ?? ''] ?? '#team-updates' }
+}
+
+function normalizeDelivery(seed: SeedTemplate): SeedTemplate {
+  const delivery = deliveryForSeed(seed)
+  return {
+    ...seed,
+    requiredIntegrations: Array.from(new Set([...seed.requiredIntegrations, delivery.integration])),
+    recommendedIntegrations: seed.recommendedIntegrations.filter((item) => item !== delivery.integration),
+    integrations: seed.integrations
+      ? Array.from(new Set([...seed.integrations, delivery.integration]))
+      : seed.integrations,
+  }
+}
+
+export const SEED_CATALOGUE: SeedTemplate[] = [...BASE_SEED_CATALOGUE, ...MULTI_TOOL_SEEDS].map(normalizeDelivery)
 
 export function getSeedByKey(seedKey: string): SeedTemplate | undefined {
   return SEED_CATALOGUE.find((s) => s.seedKey === seedKey)
 }
 
+export function instructionsForSeed(seed: SeedTemplate): string {
+  const delivery = deliveryForSeed(seed)
+  const schedule = seed.trigger?.type === 'schedule' ? seed.trigger.schedule : undefined
+  const friendlyCron: Record<string, string> = {
+    '0 14 * * 1': 'Every Monday at 14:00',
+    '0 13 * * 1': 'Every Monday at 13:00',
+    '0 12 * * 1': 'Every Monday at 12:00',
+    '0 14 * * 1-5': 'Every weekday at 14:00',
+    '0 13 * * 1-5': 'Every weekday at 13:00',
+    '30 13 * * 1-5': 'Every weekday at 13:30',
+  }
+  const cadence = schedule
+    ? `Automatic schedule: ${friendlyCron[schedule.cron] ?? `cron ${schedule.cron}`} ${schedule.timezone}. The schedule is active immediately after the required tools are connected; the user may adjust it in Agent settings.`
+    : 'Cadence: event-driven or on demand. Run once for each supplied business event; do not poll or repeat the same event. A recurring schedule can be added in Agent settings when the use case calls for batching.'
+  const workflow = seed.agents?.length
+    ? seed.agents.map((agent, index) => `${index + 1}. ${agent.title}: ${agent.instructions}`).join('\n')
+    : `1. Gather the records needed to accomplish the stated objective from the connected systems.\n2. Reconcile the sources, identify missing or contradictory data, and complete the requested analysis or action.\n3. Produce and deliver the finished artifact.`
+  const base = seed.instructions?.trim() || seed.description
+  return withTemplateOutputStandard(`You are responsible for running the ${seed.name} workflow from start to finish.
+
+Objective
+${base}
+
+Trigger and cadence
+${cadence}
+
+Execution workflow
+${workflow}
+
+Delivery requirement
+Always deliver the final user-facing artifact through ${delivery.kind === 'slack' ? 'Slack' : 'Gmail'} to ${delivery.destination}. Do not stop after gathering data or merely say that the task is complete. Include the finished artifact in the delivery. If delivery fails, report the destination, error, and retryable next step; never claim it was sent.
+${delivery.kind === 'gmail' ? 'Resolve the recipient from the trigger or requesting user profile. If no verified email address is available, ask for it; never guess an address.' : `Use ${delivery.destination} unless the user explicitly selects a different connected channel.`}
+
+Guardrails
+- Use only records returned by connected tools and preserve material source references.
+- Separate observed facts from interpretations and recommendations.
+- Never invent people, amounts, dates, statuses, links, or completed actions.
+- Flag stale, missing, or contradictory evidence and state what must be verified.
+- Do not overwrite, delete, publish, email, or post anything beyond the workflow's stated actions.
+- Avoid duplicate delivery: one completed artifact per trigger unless the user explicitly requests another copy.
+- Protect secrets and personal data; include only the minimum sensitive detail needed for the business outcome.`)
+}
+
 export type SerializedTemplate = ReturnType<typeof serializeSeed>
 export function serializeSeed(seed: SeedTemplate) {
   const integrations = Array.from(new Set([...seed.requiredIntegrations, ...seed.recommendedIntegrations]))
-  const baseInstructions = seed.instructions?.trim() || [
-    `Run the ${seed.name} process.`,
-    seed.description,
-    ...(seed.agents ?? []).map((agent) => `${agent.title}: ${agent.instructions}`),
-  ].join('\n\n')
   return {
     id: `seed:${seed.seedKey}`,
     name: seed.name,
     description: seed.description,
     category: seed.departments[0] ?? 'general',
-    instructions: withTemplateOutputStandard(baseInstructions),
+    instructions: instructionsForSeed(seed),
     integrations,
     skills: [] as string[],
     tags: seed.departments as string[],

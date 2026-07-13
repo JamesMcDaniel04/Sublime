@@ -2,7 +2,7 @@ import { z } from 'zod'
 import { prisma } from '@/lib/prisma'
 import { DEFAULT_AGENT_MODEL } from '@/lib/llm/model-runner'
 import { ApiError, withAuthenticatedApi } from '@/lib/server/api-handler'
-import { getSeedByKey, type TemplateAgentSpec } from '@/lib/templates/catalogue'
+import { deliveryForSeed, getSeedByKey, instructionsForSeed, type TemplateAgentSpec } from '@/lib/templates/catalogue'
 import { resolveGraphToolConnections, rewriteGraphAgentRefs } from '@/lib/templates/provision-plan'
 import { loadFlowToolCatalog } from '@/lib/flows/tool-catalog'
 import { normalizeFlowTrigger, triggerFromGraph } from '@/lib/flows/trigger'
@@ -32,11 +32,7 @@ function scheduleForSeed(seed: ReturnType<typeof getSeedByKey>): AgentSchedule {
 
 function combinedAgentSpec(seed: NonNullable<ReturnType<typeof getSeedByKey>>) {
   const embedded = seed.agents ?? []
-  const instructions = seed.instructions?.trim() || [
-    `Run the ${seed.name} process.`,
-    seed.description,
-    ...embedded.map((agent) => `${agent.title}: ${agent.instructions}`),
-  ].join('\n\n')
+  const instructions = instructionsForSeed(seed)
   const integrations = Array.from(new Set([
     ...(seed.integrations ?? []),
     ...seed.requiredIntegrations,
@@ -141,6 +137,7 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
       created.push({ id, integrations: spec.integrations })
     }
 
+    const delivery = deliveryForSeed(seed)
     const baseGraph: FlowGraph = seed.kind === 'flow' && seed.flowGraph
       ? seed.flowGraph
       : {
@@ -155,8 +152,20 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
                 input: '{{trigger.input}}',
               },
             },
+            delivery.kind === 'slack'
+              ? {
+                  id: 'deliver-output', type: 'tool',
+                  data: { label: `Deliver to ${delivery.destination}`, connectionId: 'native:slack', toolName: 'post_message', args: JSON.stringify({ channel: delivery.destination, text: '{{step.run-agent.output}}' }) },
+                }
+              : {
+                  id: 'deliver-output', type: 'tool',
+                  data: { label: 'Email finished artifact', connectionId: 'nango:gmail', toolName: 'gmail_send_email', args: JSON.stringify({ to: '{{trigger.input.requesterEmail}}', subject: `${seed.name} — completed`, body: '{{step.run-agent.output}}' }) },
+                },
           ],
-          edges: [{ id: 'trigger-run-agent', source: 'trigger', target: 'run-agent' }],
+          edges: [
+            { id: 'trigger-run-agent', source: 'trigger', target: 'run-agent' },
+            { id: 'run-agent-deliver-output', source: 'run-agent', target: 'deliver-output' },
+          ],
         }
     const withAgents = rewriteGraphAgentRefs(baseGraph, refToId)
     const toolCatalog = await loadFlowToolCatalog(organizationId, { userId, takeTools: 200 })
