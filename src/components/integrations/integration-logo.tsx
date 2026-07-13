@@ -71,6 +71,7 @@ export function normalizeIconSlug(key: string): string {
 const LOCAL_LOGOS: Record<string, string> = {
   slack: '/logos/slack.png',
   granola: '/logos/granola.jpg',
+  figma: '/logos/figma.svg',
   // Salesforce was removed from the Simple Icons CDN (trademark), so bundle it.
   salesforce: '/logos/salesforce.svg',
   sublime: '/sublime-mark-blue.svg',
