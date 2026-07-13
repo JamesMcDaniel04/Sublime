@@ -5,7 +5,7 @@ import { flowGraphSchema } from '@/lib/flows/graph'
 import { canonicalIntegrationSlug, departmentsForTools, DEPARTMENTS } from '../departments'
 
 const KNOWN = new Set(DEPARTMENTS)
-const STABLE_TOOL_PLANES = new Set(['nango', 'native']) // per-org mcp/klavis ids are forbidden in seed graphs
+const STABLE_TOOL_PLANES = new Set(['nango', 'native', 'template']) // template placeholders bind to per-org Klavis ids at provision time
 
 test('exactly 20 seeds, 4 per department bucket, unique seedKeys', () => {
   assert.equal(SEED_CATALOGUE.length, 20)
@@ -35,6 +35,15 @@ test('agent seeds have instructions; flow seeds have a schema-valid graph', () =
       const parsed = flowGraphSchema.safeParse(s.flowGraph)
       assert.ok(parsed.success, `${s.seedKey} graph invalid: ${parsed.success ? '' : JSON.stringify(parsed.error.issues)}`)
     }
+  }
+})
+
+test('seed graphs never ship placeholder HTTP endpoints', () => {
+  for (const seed of SEED_CATALOGUE) {
+    for (const node of seed.flowGraph?.nodes ?? []) {
+      assert.notEqual(node.type, 'http', `${seed.seedKey}: use a connected integration tool instead of HTTP`)
+    }
+    assert.ok(!seed.requiredIntegrations.includes('http'), `${seed.seedKey}: HTTP cannot be a required integration`)
   }
 })
 

@@ -3,7 +3,8 @@ import { prisma } from '@/lib/prisma'
 import { DEFAULT_AGENT_MODEL } from '@/lib/llm/model-runner'
 import { ApiError, withAuthenticatedApi } from '@/lib/server/api-handler'
 import { getSeedByKey, type TemplateAgentSpec } from '@/lib/templates/catalogue'
-import { rewriteGraphAgentRefs } from '@/lib/templates/provision-plan'
+import { resolveGraphToolConnections, rewriteGraphAgentRefs } from '@/lib/templates/provision-plan'
+import { loadFlowToolCatalog } from '@/lib/flows/tool-catalog'
 import { normalizeFlowTrigger, triggerFromGraph } from '@/lib/flows/trigger'
 import { syncAgentConnectors } from '@/lib/connectors/agent-connectors'
 
@@ -89,7 +90,9 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
     }
 
     if (!seed.flowGraph) throw new ApiError('Template is missing its flow graph', 500, 'SEED_INVALID')
-    const graph = rewriteGraphAgentRefs(seed.flowGraph, refToId)
+    const withAgents = rewriteGraphAgentRefs(seed.flowGraph, refToId)
+    const toolCatalog = await loadFlowToolCatalog(organizationId, { userId, takeTools: 200 })
+    const graph = resolveGraphToolConnections(withAgents, toolCatalog)
     const trigger = seed.trigger ? normalizeFlowTrigger(seed.trigger) : triggerFromGraph(graph)
 
     const flow = await prisma.flow.create({

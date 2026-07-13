@@ -15,12 +15,10 @@ export type SeedTemplate = {
 // ── graph node builders (kept local; output is validated by flowGraphSchema in tests) ──
 const trigger = (t: SeedTemplate['trigger'] = { type: 'manual' }) => ({ id: 'trigger', type: 'trigger' as const, data: { trigger: t } })
 const agent = (id: string, ref: string, input: string, label: string) => ({ id, type: 'agent' as const, data: { agentId: ref, input, label } })
-const httpStep = (id: string, label: string, url: string, method: 'GET'|'POST'|'PUT'|'PATCH'|'DELETE', body?: string) =>
-  ({ id, type: 'http' as const, data: { label, method, url, ...(body ? { body, bodyMode: 'json' as const } : {}) } })
 const slackStep = (id: string, channel: string, text: string, label = 'Post to Slack') =>
   ({ id, type: 'tool' as const, data: { label, connectionId: 'native:slack', toolName: 'post_message', args: JSON.stringify({ channel, text }) } })
 const sfCreate = (id: string, sobject: string, fields: Record<string, string>, label = 'Create Salesforce record') =>
-  ({ id, type: 'tool' as const, data: { label, connectionId: 'nango:salesforce', toolName: 'salesforce_create_record', args: JSON.stringify({ sobject, fields }) } })
+  ({ id, type: 'tool' as const, data: { label, connectionId: 'template:salesforce', toolName: 'salesforce_create_record', args: JSON.stringify({ sobject, fields }) } })
 const gmailStep = (id: string, to: string, subject: string, bodyTok: string, label = 'Send email') =>
   ({ id, type: 'tool' as const, data: { label, connectionId: 'nango:gmail', toolName: 'gmail_send_email', args: JSON.stringify({ to, subject, body: bodyTok }) } })
 const edge = (source: string, target: string) => ({ id: `${source}-${target}`, source, target })
@@ -31,24 +29,23 @@ export const SEED_CATALOGUE: SeedTemplate[] = [
   {
     seedKey: 'sales-new-lead-to-sf-opportunity',
     name: 'New Lead → Enrich → Salesforce Opportunity',
-    description: 'Webhook a new lead in, enrich it from a public company API, draft a qualified opportunity, create it in Salesforce, and announce it in Slack.',
-    departments: ['sales'], requiredIntegrations: ['salesforce', 'http'], recommendedIntegrations: ['slack'],
+    description: 'Webhook a new lead in, qualify it against Salesforce context, create the opportunity in Salesforce, and announce it in Slack.',
+    departments: ['sales'], requiredIntegrations: ['salesforce'], recommendedIntegrations: ['slack'],
     kind: 'flow', icon: '🎯',
     trigger: { type: 'manual' },
     agents: [{
       ref: 'lead-qualifier', title: 'Lead Qualifier',
-      instructions: 'You qualify inbound leads. Given a raw lead payload and enrichment JSON, decide fit (segment, ICP match, estimated ACV) and produce a concise Opportunity name, amount, and one-paragraph rationale. Reply as JSON with fields: opportunityName, amount, stage, rationale.',
-      integrations: ['http'],
+      instructions: 'You qualify inbound leads. Given a raw lead payload, use Salesforce account and contact context when available, decide fit (segment, ICP match, estimated ACV), and produce a concise Opportunity name, amount, and one-paragraph rationale. Reply as JSON with fields: opportunityName, amount, stage, rationale.',
+      integrations: ['salesforce'],
     }],
     flowGraph: {
       nodes: [
         trigger(),
-        httpStep('enrich', 'Enrich company', 'https://api.company-enrich.example/v1/lookup', 'POST', '{"domain":"{{trigger.input}}"}'),
-        agent('qualify', 'lead-qualifier', 'Raw lead: {{trigger.input}}\nEnrichment: {{step.enrich.output}}', 'Qualify lead'),
+        agent('qualify', 'lead-qualifier', 'Qualify this raw lead: {{trigger.input}}', 'Qualify lead'),
         sfCreate('opp', 'Opportunity', { Name: '{{step.qualify.output.opportunityName}}', Amount: '{{step.qualify.output.amount}}', StageName: '{{step.qualify.output.stage}}' }),
         slackStep('notify', '#sales', 'New opportunity created: *{{step.qualify.output.opportunityName}}* ({{step.qualify.output.amount}}). {{step.qualify.output.rationale}}'),
       ],
-      edges: [edge('trigger', 'enrich'), edge('enrich', 'qualify'), edge('qualify', 'opp'), edge('opp', 'notify')],
+      edges: [edge('trigger', 'qualify'), edge('qualify', 'opp'), edge('opp', 'notify')],
     },
   },
   {
@@ -189,22 +186,21 @@ export const SEED_CATALOGUE: SeedTemplate[] = [
     seedKey: 'mkt-inbound-mql-router',
     name: 'Inbound MQL Router',
     description: 'On a form-fill webhook, scores the lead against ICP, upserts it to HubSpot with the score, and routes hot MQLs to the right AE in Slack.',
-    departments: ['marketing'], requiredIntegrations: ['hubspot', 'http'], recommendedIntegrations: ['slack'],
+    departments: ['marketing'], requiredIntegrations: ['hubspot'], recommendedIntegrations: ['slack'],
     kind: 'flow', icon: '🧲',
     trigger: { type: 'manual' },
     agents: [{
       ref: 'mql-scorer', title: 'MQL Scorer',
       instructions: 'Score an inbound marketing lead against ICP using the form payload and any enrichment. Return JSON { score (0-100), tier (hot|warm|cold), assignedTeam, reason }. Upsert the contact + score into HubSpot.',
-      integrations: ['hubspot', 'http'],
+      integrations: ['hubspot'],
     }],
     flowGraph: {
       nodes: [
         trigger(),
-        httpStep('enrich', 'Enrich lead', 'https://api.company-enrich.example/v1/lookup', 'POST', '{"email":"{{trigger.input}}"}'),
-        agent('score', 'mql-scorer', 'Lead: {{trigger.input}}\nEnrichment: {{step.enrich.output}}', 'Score MQL'),
+        agent('score', 'mql-scorer', 'Score and route this lead using HubSpot context: {{trigger.input}}', 'Score MQL'),
         slackStep('route', '#mkt-to-sales', ':magnet: New {{step.score.output.tier}} MQL (score {{step.score.output.score}}) → {{step.score.output.assignedTeam}}. {{step.score.output.reason}}'),
       ],
-      edges: [edge('trigger', 'enrich'), edge('enrich', 'score'), edge('score', 'route')],
+      edges: [edge('trigger', 'score'), edge('score', 'route')],
     },
   },
   {
@@ -278,8 +274,8 @@ export const SEED_CATALOGUE: SeedTemplate[] = [
   {
     seedKey: 'fin-new-deal-billing-handoff',
     name: 'New Deal → Billing Handoff',
-    description: 'On a closed-won signal, assembles the billing packet from Salesforce, records it to a Google Sheet, opens the billing system record via API, and notifies finance in Slack.',
-    departments: ['finance'], requiredIntegrations: ['salesforce', 'http', 'google_sheets'], recommendedIntegrations: ['slack'],
+    description: 'On a closed-won signal, assembles the billing packet from Salesforce, records it to a Google Sheet, and notifies finance in Slack.',
+    departments: ['finance'], requiredIntegrations: ['salesforce', 'google_sheets'], recommendedIntegrations: ['slack'],
     kind: 'flow', icon: '🧾',
     trigger: { type: 'manual' },
     agents: [{
@@ -291,10 +287,9 @@ export const SEED_CATALOGUE: SeedTemplate[] = [
       nodes: [
         trigger(),
         agent('assemble', 'billing-packet', 'Assemble the billing packet for opportunity: {{trigger.input}}', 'Assemble packet'),
-        httpStep('billing', 'Create billing record', 'https://api.billing.example/v1/invoices', 'POST', '{"account":"{{step.assemble.output.account}}","amount":"{{step.assemble.output.amount}}","startDate":"{{step.assemble.output.startDate}}"}'),
-        slackStep('notify', '#finance', ':receipt: Billing handoff ready for *{{step.assemble.output.account}}* ({{step.assemble.output.amount}}). Record: {{step.billing.output}}'),
+        slackStep('notify', '#finance', ':receipt: Billing handoff ready for *{{step.assemble.output.account}}* ({{step.assemble.output.amount}}), starting {{step.assemble.output.startDate}}. The packet was added to the billing sheet.'),
       ],
-      edges: [edge('trigger', 'assemble'), edge('assemble', 'billing'), edge('billing', 'notify')],
+      edges: [edge('trigger', 'assemble'), edge('assemble', 'notify')],
     },
   },
   {

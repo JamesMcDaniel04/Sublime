@@ -31,15 +31,30 @@ export default function TemplateDetails() {
   const { id } = useParams<{ id: string }>()
   const router = useRouter()
   const [template, setTemplate] = useState<Template | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState('')
+  const [reloadKey, setReloadKey] = useState(0)
   const [creating, setCreating] = useState(false)
   const [deploying, setDeploying] = useState(false)
   const [connected, setConnected] = useState<Set<string>>(new Set())
 
   useEffect(() => {
+    setLoading(true)
+    setLoadError('')
     fetch('/api/agent-templates', { cache: 'no-store' })
-      .then((response) => response.json())
-      .then((data) => setTemplate((data.templates || []).find((item: Template) => item.id === id) || null))
-  }, [id])
+      .then(async (response) => {
+        const data = await response.json().catch(() => ({}))
+        if (!response.ok) throw new Error(data.error || 'Could not load templates.')
+        const match = (data.templates || []).find((item: Template) => item.id === id)
+        if (!match) throw new Error('This template could not be found.')
+        setTemplate(match)
+      })
+      .catch((error) => {
+        setTemplate(null)
+        setLoadError(error instanceof Error ? error.message : 'Could not load this template.')
+      })
+      .finally(() => setLoading(false))
+  }, [id, reloadKey])
 
   useEffect(() => {
     fetch('/api/integrations/available', { cache: 'no-store' })
@@ -92,11 +107,20 @@ export default function TemplateDetails() {
   return (
     <>
       <div className="mx-auto max-w-3xl space-y-5 p-6">
-        {!template ? (
+        {loading ? (
           <div className="space-y-4">
             <Skeleton className="h-9 w-2/3 rounded-lg" />
             <Skeleton className="h-5 w-full rounded" />
             <Skeleton className="h-64 rounded-lg" />
+          </div>
+        ) : loadError || !template ? (
+          <div className="rounded-lg border bg-card p-6 text-center shadow-1">
+            <h1 className="text-lg font-semibold">Could not open template</h1>
+            <p className="mt-2 text-sm text-muted-foreground">{loadError || 'This template could not be found.'}</p>
+            <div className="mt-4 flex justify-center gap-2">
+              <Button variant="outline" asChild><Link href="/templates">Back to templates</Link></Button>
+              <Button onClick={() => setReloadKey((key) => key + 1)}>Try again</Button>
+            </div>
           </div>
         ) : (
           <>
