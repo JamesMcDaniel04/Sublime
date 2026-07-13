@@ -101,7 +101,7 @@ function runStatusIcon(status: string) {
 export function resultText(activity?: Activity | null) {
   if (!activity) return ''
   if (activity.error) return activity.error
-  const value = activity.output?.summary ?? activity.output?.response ?? activity.output
+  const value = activity.output?.html ?? activity.output?.summary ?? activity.output?.response ?? activity.output
   // A still-running (or output-less) run has no result yet — return '' so
   // callers show a status label instead of the string "null".
   if (value == null) return ''

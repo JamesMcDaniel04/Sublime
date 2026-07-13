@@ -5,6 +5,7 @@ import { AlertTriangle, ChevronRight, Sparkles, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Markdown } from '@/components/ui/markdown'
+import { HtmlPreview, looksLikeHtml } from '@/components/ui/html-preview'
 import { TypewriterStatus } from '@/components/ui/typewriter-status'
 import { buildProcessTimeline, processFeedRows, type ProcessFeedRow } from '@/lib/agents/process-feed'
 import type { StepStatus } from './step-card'
@@ -67,21 +68,37 @@ function preview(value: unknown): string {
   }
 }
 
+function displayValue(value: unknown): unknown {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return value
+  const record = value as Record<string, unknown>
+  return typeof record.html === 'string'
+    ? record.html
+    : typeof record.response === 'string'
+      ? record.response
+      : typeof record.summary === 'string'
+        ? record.summary
+        : value
+}
+
 /** Prose step outputs render as Markdown; structured data stays monospaced. */
 function OutputView({ value }: { value: unknown }) {
+  const displayed = displayValue(value)
+  if (typeof displayed === 'string' && looksLikeHtml(displayed)) {
+    return <HtmlPreview html={displayed} />
+  }
   const isProse =
-    typeof value === 'string' &&
-    value.trim() !== '' &&
-    value.trim()[0] !== '{' &&
-    value.trim()[0] !== '['
+    typeof displayed === 'string' &&
+    displayed.trim() !== '' &&
+    displayed.trim()[0] !== '{' &&
+    displayed.trim()[0] !== '['
   if (isProse) {
     return (
       <div className="max-h-56 overflow-auto rounded border border-border/60 bg-background px-2.5 py-2">
-        <Markdown className="text-xs [&_p]:leading-5">{value as string}</Markdown>
+        <Markdown className="text-xs [&_p]:leading-5">{displayed as string}</Markdown>
       </div>
     )
   }
-  return <pre className="max-h-40 overflow-auto rounded bg-muted px-2 py-1.5 text-xs">{preview(value)}</pre>
+  return <pre className="max-h-40 overflow-auto rounded bg-muted px-2 py-1.5 text-xs">{preview(displayed)}</pre>
 }
 
 /**
@@ -304,6 +321,12 @@ export function RunPanel({
             )}
             {selected.status === 'waiting' && selected.waiting && (
               <WaitingBanner key={selected.id} waiting={selected.waiting} runId={selected.id} onReply={onReply} />
+            )}
+            {selected.output != null && selected.status !== 'waiting' && (
+              <div className="border-b border-border p-3">
+                <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Final output</p>
+                <OutputView value={selected.output} />
+              </div>
             )}
             {selected.steps.length === 0 ? (
               <p className="p-4 text-sm text-muted-foreground">No steps recorded.</p>

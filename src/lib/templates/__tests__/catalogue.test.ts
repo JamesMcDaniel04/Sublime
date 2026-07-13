@@ -63,6 +63,11 @@ test('every template requires Slack or Gmail delivery and exposes an executable 
     assert.match(instructions, /Delivery requirement/, seed.seedKey)
     assert.match(instructions, /Guardrails/, seed.seedKey)
     assert.match(instructions, /Output quality standard/, seed.seedKey)
+    assert.match(instructions, /Final artifact contract \(match the Output Example\)/, seed.seedKey)
+    assert.match(instructions, /<main class="artifact theme-/, seed.seedKey)
+    assert.match(instructions, /Priority findings/, seed.seedKey)
+    assert.match(instructions, /Action plan/, seed.seedKey)
+    assert.match(instructions, /Evidence trail/, seed.seedKey)
   }
 })
 

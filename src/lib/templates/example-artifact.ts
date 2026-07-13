@@ -6,6 +6,40 @@ type ArtifactTemplate = {
   icon?: string
 }
 
+/**
+ * The executable counterpart to the rendered preview. Keeping this beside the
+ * preview generator prevents catalogue instructions and example artifacts from
+ * drifting into two different products.
+ */
+export function artifactOutputContract(template: ArtifactTemplate): string {
+  const department = template.departments?.[0]?.toLowerCase() || 'sales'
+  const data = content[department] ?? content.sales
+  const metricLabels = data.metrics.map(([, , label]) => label).join(', ')
+  return `Final artifact contract (match the Output Example)
+The final response must be the finished artifact—not a description of the work, a setup checklist, or a terse status update. Use current values from connected sources in place of the sample values shown in the catalogue preview.
+
+When the agent response is rendered in Sublime or another HTML-capable destination, return one complete semantic HTML fragment using this exact component structure and class names:
+<main class="artifact theme-${department}">
+  <header class="hero"><div class="hero-icon">[relevant emoji]</div><div><p class="eyebrow">${data.label}</p><h1>${template.name}</h1><p class="subtitle">[one-sentence outcome]</p></div><span class="status">● [decision status]</span></header>
+  <section class="metric-grid">[exactly four <div class="metric"><span>[emoji]</span><strong>[value]</strong><small>[label]</small></div> cards]</section>
+  <section class="panel summary"><h2>✨ Executive summary</h2><p>[substantive synthesis]</p></section>
+  <section class="panel"><div class="section-heading"><div><p class="eyebrow">Evidence-backed analysis</p><h2>🔎 Priority findings</h2></div><span class="count">[n] findings</span></div><div class="table-wrap"><table><thead><tr><th>Priority</th><th>Finding</th><th>What the evidence says</th><th>Source</th></tr></thead><tbody>[one row per material finding]</tbody></table></div></section>
+  <section class="panel"><div class="section-heading"><div><p class="eyebrow">Recommended execution</p><h2>✅ Action plan</h2></div><span class="count">Owner + date assigned</span></div><div class="table-wrap"><table><thead><tr><th>#</th><th>Next action</th><th>Owner</th><th>Due</th></tr></thead><tbody>[prioritized action rows]</tbody></table></div></section>
+  <section class="panel"><h2>🧾 Evidence trail</h2><div class="source-grid">[one <div class="source"><strong>[system]</strong><p>[records used]</p><small>↻ [freshness]</small></div> per source]</div></section>
+  <footer>🎉 [completed actions and delivery state]</footer>
+</main>
+
+Artifact population rules
+- Populate four decision-useful metrics. Prefer these labels where the source data supports them: ${metricLabels}. Replace an unsupported metric with a more relevant sourced metric; never invent a value.
+- Include 3–6 distinct findings, each with priority, a specific evidence statement, and its source system plus record/date/link when available.
+- Include 3–6 ordered actions. Assign an owner and due date only when supported or safely derivable; otherwise write “Owner needed” or “Date needed”.
+- The executive summary must synthesize the decision, why it matters, the principal risk or gap, and the next move in 90–160 words.
+- HTML-escape all tool-provided text. Do not emit scripts, event handlers, iframes, remote styles, forms, or untrusted raw HTML.
+- Do not copy catalogue sample companies, people, amounts, dates, scores, findings, or claims unless the connected records independently contain them.
+- Return the HTML directly without a Markdown code fence, preamble, or postscript. Do not expose internal tool traces.
+- If the destination is Slack, convert the same sections and facts to Slack mrkdwn because Slack does not render arbitrary HTML. If the destination is Gmail, send the semantic HTML artifact as the email body. Preserve every section and the same level of detail in either format.`
+}
+
 function escapeHtml(value: string): string {
   return value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#039;')
 }

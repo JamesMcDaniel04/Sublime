@@ -2,6 +2,7 @@ import type { FlowGraph } from '@/lib/flows/graph'
 import type { Department } from './departments'
 import { MULTI_TOOL_SEEDS } from './catalogue-expansion'
 import { withTemplateOutputStandard } from './output-standard'
+import { artifactOutputContract } from './example-artifact'
 
 export type TemplateAgentSpec = { ref: string; title: string; instructions: string; model?: string; integrations: string[] }
 export type SeedTemplate = {
@@ -495,7 +496,9 @@ Guardrails
 - Flag stale, missing, or contradictory evidence and state what must be verified.
 - Do not overwrite, delete, publish, email, or post anything beyond the workflow's stated actions.
 - Avoid duplicate delivery: one completed artifact per trigger unless the user explicitly requests another copy.
-- Protect secrets and personal data; include only the minimum sensitive detail needed for the business outcome.`)
+- Protect secrets and personal data; include only the minimum sensitive detail needed for the business outcome.
+
+${artifactOutputContract(seed)}`)
 }
 
 export type SerializedTemplate = ReturnType<typeof serializeSeed>
