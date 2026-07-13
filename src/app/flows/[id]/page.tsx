@@ -281,15 +281,15 @@ function FlowBuilder() {
   // Optimistic-concurrency base: the flow's updatedAt as of load/last save.
   const baseUpdatedAtRef = useRef<string | undefined>(undefined)
   // Flow Jam: live presence + graph sync. Remote graphs apply outside the
-  // undo stack and must not echo back out (applyingRemoteRef gates the
-  // broadcast effect below).
-  const applyingRemoteRef = useRef(false)
+  // undo stack and must not echo back out. The exact snapshot gate preserves a
+  // local keystroke that happens between receipt and React's graph effect.
+  const remoteGraphSnapshotRef = useRef<string | null>(null)
   const { peers, connectionState, broadcastGraph, updateCursor } = useFlowJam({
     flowId: id,
     enabled: !loading,
     selectedNodeId: selectedId,
     onRemoteGraph: (remote) => {
-      applyingRemoteRef.current = true
+      remoteGraphSnapshotRef.current = JSON.stringify(remote)
       setGraph(remote)
     },
     onRemoteSaved: (updatedAt) => {
@@ -300,10 +300,12 @@ function FlowBuilder() {
   jamCursorUpdateRef.current = updateCursor
   useEffect(() => {
     if (loading) return
-    if (applyingRemoteRef.current) {
-      applyingRemoteRef.current = false
+    const snapshot = JSON.stringify(graph)
+    if (remoteGraphSnapshotRef.current === snapshot) {
+      remoteGraphSnapshotRef.current = null
       return
     }
+    remoteGraphSnapshotRef.current = null
     broadcastGraph(graph)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [graph, loading])

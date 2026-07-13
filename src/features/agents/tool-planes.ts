@@ -251,8 +251,14 @@ export async function loadMcpConnectionPlaneGroups(
  */
 export async function loadNativePlaneGroups(
   organizationId: string,
-  options: { providers?: string[] } = {},
+  options: { providers?: string[]; userId?: string | null } = {},
 ): Promise<ToolPlaneGroup[]> {
+  const canUseOrgCredentials = options.userId
+    ? Boolean(await prisma.user.findFirst({
+        where: { id: options.userId, organizationId, role: 'ADMIN', isActive: true },
+        select: { id: true },
+      }))
+    : false
   const selected = (descriptor: ConnectorDescriptor) =>
     options.providers ? isSelected(descriptor, options.providers) : true
   const groups: ToolPlaneGroup[] = []
@@ -274,7 +280,7 @@ export async function loadNativePlaneGroups(
 
   // Granola REST API — gated on a per-org key (saved key, then env fallback).
   const granolaConn = BUILTIN_CONNECTORS.find((c) => c.providerId === 'granola')!
-  if (selected(granolaConn)) {
+  if (canUseOrgCredentials && selected(granolaConn)) {
     try {
       const granolaKey = await getGranolaApiKey(organizationId)
       if (granolaKey) {
@@ -291,7 +297,7 @@ export async function loadNativePlaneGroups(
 
   // Slack REST API — gated on SLACK_BOT_TOKEN.
   const slackConn = BUILTIN_CONNECTORS.find((c) => c.kind === 'builtin' && c.providerId === 'slack')!
-  if (slackConn.available() && selected(slackConn)) {
+  if (canUseOrgCredentials && slackConn.available() && selected(slackConn)) {
     try {
       groups.push(group(slackConn, 'https://slack.com/api', new SlackToolClient(), slackTools()))
     } catch (error) {
@@ -311,7 +317,7 @@ export async function loadNativePlaneGroups(
 
   // Email via Resend REST API — gated on RESEND_API_KEY.
   const emailConn = BUILTIN_CONNECTORS.find((c) => c.providerId === 'email')!
-  if (emailConn.available() && selected(emailConn)) {
+  if (canUseOrgCredentials && emailConn.available() && selected(emailConn)) {
     try {
       groups.push(group(emailConn, 'https://api.resend.com', new EmailToolClient(), emailTools()))
     } catch (error) {
@@ -501,13 +507,19 @@ export async function resolveFlowToolExecutor(params: {
   }
 
   if (plane === 'native') {
+    const canUseOrgCredentials = Boolean(await prisma.user.findFirst({
+      where: { id: userId, organizationId, role: 'ADMIN', isActive: true },
+      select: { id: true },
+    }))
     if (ref === 'granola') {
+      if (!canUseOrgCredentials) throw new Error('This workspace-managed connection is not available to your account.')
       const granolaKey = await getGranolaApiKey(organizationId)
       if (!granolaKey) throw new Error('Granola is not configured for this workspace.')
       const client = new GranolaToolClient(granolaKey.apiKey)
       return { provider: 'granola', isWrite: false, execute: (name, args) => client.executeTool('', name, args) }
     }
     if (ref === 'slack' || ref === 'email' || ref === 'http') {
+      if (ref !== 'http' && !canUseOrgCredentials) throw new Error('This workspace-managed connection is not available to your account.')
       const descriptor = BUILTIN_CONNECTORS.find((c) => c.kind === 'builtin' && c.providerId === ref)!
       if (!descriptor.available()) throw new Error(`${descriptor.label} is not configured for this workspace.`)
       const client: McpToolClient =

@@ -15,14 +15,14 @@ function idFrom(request: NextRequest): string {
 export const PATCH = withAuthenticatedApi(async (request, auth) => {
   const id = idFrom(request)
   const existing = await prisma.signalSubscription.findFirst({
-    where: { id, organizationId: auth.organizationId },
+    where: { id, organizationId: auth.organizationId, createdById: auth.dbUser.id },
     select: { id: true },
   })
   if (!existing) throw new ApiError('Subscription not found', 404, 'NOT_FOUND')
 
   const input = updateSchema.parse(await request.json())
   const subscription = await prisma.signalSubscription.update({
-    where: { id, organizationId: auth.organizationId },
+    where: { id, organizationId: auth.organizationId, createdById: auth.dbUser.id },
     data: { ...(input.isActive !== undefined && { isActive: input.isActive }), ...(input.filter !== undefined && { filter: input.filter }) },
   })
   return { success: true, subscription }

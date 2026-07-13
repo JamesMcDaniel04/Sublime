@@ -27,21 +27,20 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
     select: { id: true },
   })
   const inviterName = auth.dbUser.name || auth.dbUser.email || 'A teammate'
+  const invitees = members.filter((member) => member.id !== auth.dbUser.id)
   await Promise.all(
-    members
-      .filter((member) => member.id !== auth.dbUser.id)
-      .map((member) =>
-        notify({
-          organizationId: auth.organizationId,
-          userId: member.id,
-          type: 'flow.jam',
-          level: 'action',
-          title: `${inviterName} invited you to jam on "${flow.name}"`,
-          body: 'Open the flow to build together in real time.',
-          executionId: flow.id, // bell derives flow links from executionId
-          link: `/flows/${flow.id}`,
-        }),
-      ),
+    invitees.map((member) =>
+      notify({
+        organizationId: auth.organizationId,
+        userId: member.id,
+        type: 'flow.jam',
+        level: 'action',
+        title: `${inviterName} invited you to jam on "${flow.name}"`,
+        body: 'Open the flow to build together in real time.',
+        executionId: flow.id, // bell derives flow links from executionId
+        link: `/flows/${flow.id}`,
+      }),
+    ),
   )
-  return { success: true, invited: members.length }
+  return { success: true, invited: invitees.length }
 })

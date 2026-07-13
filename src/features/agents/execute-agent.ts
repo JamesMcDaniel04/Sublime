@@ -286,7 +286,7 @@ async function loadTools(organizationId: string, providers: string[], ownerUserI
 
   // ---- Native built-ins (Granola / Slack / HTTP / Email) --------------------
   // Each gated on its availability AND a matching providers entry.
-  for (const group of await loadNativePlaneGroups(organizationId, { providers })) pushGroup(group)
+  for (const group of await loadNativePlaneGroups(organizationId, { providers, userId: ownerUserId })) pushGroup(group)
 
   // ---- Nango delivery (outbound writes as the acting user) -----------------
   // Slack/Gmail/Salesforce writes through the org's Nango connections,

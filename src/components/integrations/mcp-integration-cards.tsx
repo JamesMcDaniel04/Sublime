@@ -43,9 +43,8 @@ function strataSlug(name: string) {
 }
 
 /**
- * Strata catalogue: every tool behind the org's Klavis Strata connection.
- * They're team-authorized at the Klavis account level and load for every
- * agent via Strata's discovery meta-tools, so each one reports connected.
+ * Strata catalogue: every tool behind this user's Klavis Strata connection.
+ * Credentials and tool execution remain personal to that user.
  */
 function StrataCatalogue({ servers, connectionName }: { servers: StrataServer[]; connectionName?: string }) {
   const [page, setPage] = useState(1)
@@ -63,7 +62,7 @@ function StrataCatalogue({ servers, connectionName }: { servers: StrataServer[];
   return (
     <div className="space-y-4">
       <p className="text-sm text-muted-foreground">
-        {servers.length} tools available to every agent via{' '}
+        {servers.length} tools available to your agents via{' '}
         <span className="font-medium text-foreground">{connectionName || 'Klavis Strata'}</span>.
       </p>
       <IntegrationAiSearch
@@ -117,6 +116,8 @@ export function MCPIntegrationCards() {
   // cache, then revalidates — no flash. The server also caches the Klavis status
   // per org, so the revalidation itself is fast.
   const { data, loading, error: loadError, refresh } = useCachedJson<{ connections?: Connection[] }>('/api/mcp/connections')
+  const { data: profileData } = useCachedJson<{ profile?: { role: string } }>('/api/settings/profile')
+  const isAdmin = profileData?.profile?.role === 'ADMIN'
   const connections = data?.connections ?? []
   const [connecting, setConnecting] = useState<string | null>(null)
   const [expanded, setExpanded] = useState<string | null>(null)
@@ -291,7 +292,7 @@ export function MCPIntegrationCards() {
                     </Button>
                   )}
 
-                  {isActive && connection.id && (
+                  {isAdmin && isActive && connection.id && (
                     <div className="flex items-center justify-between gap-2 border-t pt-3">
                       <span className="text-xs text-gray-500">Learning</span>
                       <Switch

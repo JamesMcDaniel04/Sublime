@@ -25,7 +25,7 @@ export const GET = withAuthenticatedApi(async (_request, auth) => {
   monthStart.setUTCDate(1)
   monthStart.setUTCHours(0, 0, 0, 0)
 
-  const notificationScope = { organizationId: auth.organizationId, OR: [{ userId: auth.dbUser.id }, { userId: null }] }
+  const notificationScope = { organizationId: auth.organizationId, userId: auth.dbUser.id }
 
   const [agents, activities, usageAggregate, organization, notifications, unread] = await Promise.all([
     prisma.agentTask.findMany({

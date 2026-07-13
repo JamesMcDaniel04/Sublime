@@ -13,7 +13,7 @@ export const GET = withAuthenticatedApi(async (request, auth) => {
     where: {
       id,
       organizationId: auth.organizationId,
-      OR: [{ userId: auth.dbUser.id }, { userId: null }],
+      userId: auth.dbUser.id,
     },
   })
   if (!notification) throw new ApiError('Notification not found', 404, 'NOT_FOUND')

@@ -68,17 +68,38 @@ export default function SettingsPage() {
   const isAdmin = profile?.role === 'ADMIN'
 
   async function load() {
-    const [profileResponse, factorResult, memberResponse, orgResponse] = await Promise.all([
+    const [profileResponse, factorResult] = await Promise.all([
       fetch('/api/settings/profile', { cache: 'no-store' }),
       supabase.auth.mfa.listFactors(),
-      fetch('/api/settings/members', { cache: 'no-store' }),
-      fetch('/api/organizations', { cache: 'no-store' }),
     ])
 
     const profileData = await responseData(profileResponse)
     if (profileResponse.ok && profileData.success) {
       setProfile(profileData.profile)
       setEmail(profileData.profile.email || '')
+      if (profileData.profile.role === 'ADMIN') {
+        const [memberResponse, orgResponse] = await Promise.all([
+          fetch('/api/settings/members', { cache: 'no-store' }),
+          fetch('/api/organizations', { cache: 'no-store' }),
+        ])
+        const memberData = await responseData(memberResponse)
+        if (memberResponse.ok && memberData.success) {
+          setMembers(memberData.members || [])
+          setInvitations(memberData.invitations || [])
+        } else {
+          toast.error(memberData.error || 'Could not load workspace members')
+        }
+        const orgData = await responseData(orgResponse)
+        if (orgResponse.ok && orgData.success) {
+          setOrganization(orgData.organizations?.[0] || null)
+        } else {
+          toast.error(orgData.error || 'Could not load workspace settings')
+        }
+      } else {
+        setMembers([])
+        setInvitations([])
+        setOrganization(null)
+      }
     } else {
       toast.error(profileData.error || 'Could not load profile settings')
     }
@@ -86,20 +107,6 @@ export default function SettingsPage() {
     if (factorResult.error) toast.error(factorResult.error.message)
     else setFactors((factorResult.data?.totp || []) as Factor[])
 
-    const memberData = await responseData(memberResponse)
-    if (memberResponse.ok && memberData.success) {
-      setMembers(memberData.members || [])
-      setInvitations(memberData.invitations || [])
-    } else {
-      toast.error(memberData.error || 'Could not load workspace members')
-    }
-
-    const orgData = await responseData(orgResponse)
-    if (orgResponse.ok && orgData.success) {
-      setOrganization(orgData.organizations?.[0] || null)
-    } else {
-      toast.error(orgData.error || 'Could not load workspace settings')
-    }
   }
 
   useEffect(() => {
@@ -338,14 +345,14 @@ export default function SettingsPage() {
       <PageHeader
         eyebrow="Account"
         title="Settings"
-        description="Manage your profile, sign-in security, workspace members, and organization preferences."
+        description={isAdmin ? 'Manage your account and workspace administration.' : 'Manage your personal profile and sign-in security.'}
       />
       <Tabs defaultValue="profile">
         <TabsList>
           <TabsTrigger value="profile">Profile</TabsTrigger>
           <TabsTrigger value="security">Security</TabsTrigger>
-          <TabsTrigger value="members">Members</TabsTrigger>
-          <TabsTrigger value="workspace">Workspace</TabsTrigger>
+          {isAdmin && <TabsTrigger value="members">Members</TabsTrigger>}
+          {isAdmin && <TabsTrigger value="workspace">Workspace</TabsTrigger>}
         </TabsList>
 
         <TabsContent value="profile" className="mt-6 space-y-6">
@@ -434,7 +441,7 @@ export default function SettingsPage() {
           </Card>
         </TabsContent>
 
-        <TabsContent value="members" className="mt-6">
+        {isAdmin && <TabsContent value="members" className="mt-6">
           <Card className="max-w-4xl">
             <CardHeader><CardTitle>Workspace members</CardTitle></CardHeader>
             <CardContent className="space-y-6">
@@ -501,9 +508,9 @@ export default function SettingsPage() {
               </div>
             </CardContent>
           </Card>
-        </TabsContent>
+        </TabsContent>}
 
-        <TabsContent value="workspace" className="mt-6 space-y-6">
+        {isAdmin && <TabsContent value="workspace" className="mt-6 space-y-6">
           {organization && (
             <Card className="max-w-2xl">
               <CardHeader><CardTitle>Workspace details</CardTitle></CardHeader>
@@ -532,7 +539,7 @@ export default function SettingsPage() {
             </CardContent>
           </Card>
           <LearningsPanel />
-        </TabsContent>
+        </TabsContent>}
       </Tabs>
     </div>
   )

@@ -51,7 +51,7 @@ export async function loadFlowToolCatalog(
           includeStrata: true,
         }).catch(() => [] as ToolPlaneGroup[])
       : [],
-    wantPlane('native') ? loadNativePlaneGroups(organizationId).catch(() => [] as ToolPlaneGroup[]) : [],
+    wantPlane('native') ? loadNativePlaneGroups(organizationId, { userId: options.userId }).catch(() => [] as ToolPlaneGroup[]) : [],
     wantPlane('nango') ? loadNangoPlaneGroups(organizationId, options.userId).catch(() => [] as ToolPlaneGroup[]) : [],
   ])
 

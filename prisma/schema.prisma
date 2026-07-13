@@ -125,7 +125,7 @@ model AgentTask {
   schedule       Json      @default("{}")
   status         String    @default("ACTIVE")
   folder         String?
-  visibility     String    @default("shared")
+  visibility     String    @default("private")
   organizationId String    @db.Uuid
   userId         String?
   metadata       Json?
@@ -621,6 +621,7 @@ model McpConnection {
   agentBindings AgentConnector[]
 
   @@index([organizationId, isActive])
+  @@index([organizationId, userId, isActive])
   @@unique([organizationId, userId, provider])
   @@map("mcp_connections")
 }
@@ -644,6 +645,7 @@ model NangoConnection {
 
   @@unique([organizationId, connectionId])
   @@index([organizationId, providerConfigKey])
+  @@index([organizationId, userId, status])
   @@map("nango_connections")
 }
 
@@ -678,7 +680,7 @@ model Flow {
   graph          Json     @default("{}") // working draft: { nodes, edges }
   publishedGraph Json? // the live version scheduled/triggered runs execute
   version        Int      @default(1) // bumped on each publish
-  visibility     String   @default("shared")
+  visibility     String   @default("private")
   organizationId String   @db.Uuid
   userId         String?
   // Freeform per-flow metadata grab-bag (e.g. behavioral-intelligence provenance).

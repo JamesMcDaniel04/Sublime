@@ -75,7 +75,7 @@ export function JamButton({ flowId, peers, connectionState }: { flowId: string; 
         <div className="flex -space-x-1.5" aria-label={`${peers.length} teammates in this jam`}>
           {peers.slice(0, 4).map((peer) => (
             <span
-              key={peer.userId}
+              key={peer.clientId}
               title={peer.name}
               className={cn(
                 'flex h-6 w-6 items-center justify-center rounded-full border-2 border-white text-[10px] font-bold text-white',

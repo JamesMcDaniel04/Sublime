@@ -77,6 +77,7 @@ export const GET = withAuthenticatedApi(async (_request, auth) => {
   // availability is per-org (an API key), the rest come from env via available().
   for (const c of BUILTIN_CONNECTORS) {
     if (c.kind !== 'builtin') continue
+    if (auth.dbUser.role !== 'ADMIN' && c.providerId !== 'http') continue
     // Resend email is redundant with Gmail delivery, so it's retired from the
     // picker. The registry entry stays so the runtime email plane still works
     // for any agent that already has it selected.

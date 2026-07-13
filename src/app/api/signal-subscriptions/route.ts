@@ -3,7 +3,7 @@ import { prisma } from '@/lib/prisma'
 import { ApiError, withAuthenticatedApi } from '@/lib/server/api-handler'
 import { SIGNAL_TYPES } from '@/lib/signals/map'
 
-// Routing rules that turn People.ai signals into agent runs. Org-scoped.
+// Routing rules that turn People.ai signals into the acting user's agent runs.
 
 const createSchema = z.object({
   signalType: z.enum(SIGNAL_TYPES as unknown as [string, ...string[]]),
@@ -14,7 +14,7 @@ const createSchema = z.object({
 
 export const GET = withAuthenticatedApi(async (_request, auth) => {
   const subscriptions = await prisma.signalSubscription.findMany({
-    where: { organizationId: auth.organizationId },
+    where: { organizationId: auth.organizationId, createdById: auth.dbUser.id },
     orderBy: { createdAt: 'desc' },
     include: { agentTask: { select: { id: true, description: true } } },
   })
@@ -26,7 +26,7 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
 
   // The target agent must belong to this workspace.
   const agent = await prisma.agentTask.findFirst({
-    where: { id: input.agentTaskId, organizationId: auth.organizationId },
+    where: { id: input.agentTaskId, organizationId: auth.organizationId, userId: auth.dbUser.id },
     select: { id: true },
   })
   if (!agent) throw new ApiError('Agent not found in this workspace', 404, 'AGENT_NOT_FOUND')

@@ -50,6 +50,7 @@ async function resolveSourceLabel(organizationId: string, sourceRef: string | nu
 
 // GET — list the org's open learnings + suggestions, newest first.
 export const GET = withAuthenticatedApi(async (_request, auth) => {
+  if (auth.dbUser.role !== 'ADMIN') throw new ApiError('Admin access required', 403, 'FORBIDDEN')
   const agentId = await findOrgIntelligenceAgentId(auth.organizationId)
   if (!agentId) return { success: true, learnings: [] }
 
@@ -81,6 +82,7 @@ const deleteBodySchema = z.object({ id: z.string().min(1) })
 // status IN ('open','dismissed'), so a dismissed row keeps the embedding
 // around to stop the same fact/suggestion resurfacing on a later scan.
 export const DELETE = withAuthenticatedApi(async (request, auth) => {
+  if (auth.dbUser.role !== 'ADMIN') throw new ApiError('Admin access required', 403, 'FORBIDDEN')
   const url = new URL(request.url)
   const queryId = url.searchParams.get('id')
   const id = queryId ?? deleteBodySchema.parse(await request.json()).id

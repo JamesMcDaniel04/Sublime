@@ -95,9 +95,14 @@ export function useFlowJam(options: {
     if (!sameGraph(next, pendingLocal)) callbacksRef.current.onRemoteGraph(next)
   }
 
-  const scheduleFlush = () => {
-    if (patchTimerRef.current) clearTimeout(patchTimerRef.current)
-    patchTimerRef.current = setTimeout(() => void flushPatch(), PATCH_DEBOUNCE_MS)
+  const scheduleFlush = (delay = PATCH_DEBOUNCE_MS) => {
+    // Throttle rather than endlessly debounce: a person typing continuously
+    // still sends incremental widget updates to peers every ~160ms.
+    if (patchTimerRef.current) return
+    patchTimerRef.current = setTimeout(() => {
+      patchTimerRef.current = null
+      void flushPatch()
+    }, delay)
   }
 
   const flushPatch = async () => {
@@ -112,6 +117,7 @@ export function useFlowJam(options: {
 
     sendingRef.current = true
     const sentGraph = desired
+    let retryDelay = 0
     try {
       const response = await fetch(`/api/flows/${flowId}/collaboration`, {
         method: 'POST',
@@ -128,6 +134,8 @@ export function useFlowJam(options: {
           updatedAtRef.current = data.updatedAt
           callbacksRef.current.onRemoteSaved(data.updatedAt)
           callbacksRef.current.onRemoteGraph(data.graph)
+        } else {
+          retryDelay = 1500
         }
         callbacksRef.current.onConflict(data.error || 'A collaboration edit could not be merged.')
         return
@@ -161,11 +169,12 @@ export function useFlowJam(options: {
         },
       })
     } catch {
+      retryDelay = 1500
       setConnectionState((current) => current === 'connected' ? 'degraded' : 'offline')
       callbacksRef.current.onConflict('Live sync was interrupted. Your edit is queued and will retry.')
     } finally {
       sendingRef.current = false
-      if (!sameGraph(baselineRef.current, latestLocalRef.current)) scheduleFlush()
+      if (!sameGraph(baselineRef.current, latestLocalRef.current)) scheduleFlush(retryDelay || PATCH_DEBOUNCE_MS)
     }
   }
 

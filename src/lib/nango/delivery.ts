@@ -16,7 +16,9 @@ import { getNangoClient, nangoConfigured } from './client'
 export interface DeliveryConnection {
   connectionId: string
   providerConfigKey: string
-  scope: 'user'
+  // `org` remains in the adapter type for backward-compatible callers/tests;
+  // resolveDeliveryConnection only returns personal connections.
+  scope: 'user' | 'org'
 }
 
 /** Provider config keys we treat as delivery targets, by capability. */
