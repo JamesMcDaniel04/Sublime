@@ -7,9 +7,9 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import Link from 'next/link'
-import { useRouter } from 'next/navigation'
 import { toast } from 'sonner'
 import { safeReturnToPath } from '@/lib/auth/redirect'
+import { ensureWorkspaceReady } from '@/lib/auth/workspace'
 import { createClient } from '@/lib/supabase/client'
 
 export default function LoginPage() {
@@ -20,8 +20,7 @@ export default function LoginPage() {
   const [mfa, setMfa] = useState<{ factorId: string; challengeId: string } | null>(null)
   const [mfaCode, setMfaCode] = useState('')
   
-  const { signIn, user, loading: authLoading } = useSupabase()
-  const router = useRouter()
+  const { signIn, loading: authLoading } = useSupabase()
   const returnTo = typeof window === 'undefined' ? '/dashboard' : safeReturnToPath(new URLSearchParams(window.location.search).get('return_to'))
 
   // Handle Supabase email verification redirected to wrong URL
@@ -48,11 +47,7 @@ export default function LoginPage() {
       }
     }
     
-    // Redirect if already authenticated
-    if (!authLoading && user) {
-      router.push('/dashboard')
-    }
-  }, [user, authLoading, router])
+  }, [])
 
   const handleEmailLogin = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -77,7 +72,9 @@ export default function LoginPage() {
           setMfa({ factorId: factor.id, challengeId: challenge.data.id })
           return
         }
-        // Force page refresh after successful login to ensure auth state is properly updated
+        await ensureWorkspaceReady()
+        // Force a page refresh after provisioning so server components observe
+        // both the new session and its application membership.
         window.location.href = returnTo
       }
     } catch (err: any) {
@@ -93,10 +90,16 @@ export default function LoginPage() {
     e.preventDefault()
     if (!mfa) return
     setLoading(true); setError('')
-    const { error } = await createClient().auth.mfa.verify({ factorId: mfa.factorId, challengeId: mfa.challengeId, code: mfaCode })
-    setLoading(false)
-    if (error) { setError('Invalid or expired verification code.'); return }
-    window.location.href = returnTo
+    try {
+      const { error } = await createClient().auth.mfa.verify({ factorId: mfa.factorId, challengeId: mfa.challengeId, code: mfaCode })
+      if (error) { setError('Invalid or expired verification code.'); return }
+      await ensureWorkspaceReady()
+      window.location.href = returnTo
+    } catch (error) {
+      setError(error instanceof Error ? error.message : 'Could not finish setting up your workspace.')
+    } finally {
+      setLoading(false)
+    }
   }
 
   // Show loading spinner while checking auth state

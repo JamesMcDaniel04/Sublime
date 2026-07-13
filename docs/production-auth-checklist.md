@@ -5,7 +5,10 @@ production release, verify these settings in the Supabase Auth dashboard:
 
 - Disable new-user signup unless self-service tenancy is intended. UI route
   hiding is not an authorization control.
-- Keep `AUTH_ALLOW_JIT_PROVISIONING` unset for invitation/SSO-managed tenants.
+- Verify every successful self-service signup receives its own organization;
+  pending invitations must join the invited organization instead. To run an
+  invitation/SSO-only tenant, disable signup in Supabase and set
+  `AUTH_ALLOW_PASSWORD=false` rather than allowing an org-less identity.
 - Set `SUPABASE_SERVICE_ROLE_KEY` in the production server environment. It is
   required for workspace invitations, member removal, account deletion, and
   global session revocation; never expose it through a `NEXT_PUBLIC_*` value.
