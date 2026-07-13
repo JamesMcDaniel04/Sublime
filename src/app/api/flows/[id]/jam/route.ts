@@ -1,46 +1,17 @@
-import { z } from 'zod'
 import { ApiError, withAuthenticatedApi } from '@/lib/server/api-handler'
 import { prisma } from '@/lib/prisma'
-import { notify } from '@/lib/notifications/service'
 
 export const runtime = 'nodejs'
 
-// POST /api/flows/[id]/jam — invite org members to a Flow Jam. Each invitee
-// gets an in-app notification + web push deep-linking into the builder, where
-// joining is just opening the flow (presence connects automatically).
+// Flows are personal workspace content. Keep the legacy endpoint fail-closed
+// so an older client cannot re-enable cross-user flow access.
 export const POST = withAuthenticatedApi(async (request, auth) => {
   const id = request.nextUrl.pathname.split('/').at(-2)
   if (!id) throw new ApiError('Flow id is required')
   const flow = await prisma.flow.findFirst({
-    where: { id, organizationId: auth.organizationId },
-    select: { id: true, name: true, visibility: true },
-  })
-  if (!flow) throw new ApiError('Flow not found', 404, 'NOT_FOUND')
-  if (flow.visibility !== 'shared') {
-    throw new ApiError('Make this flow shared before inviting teammates to a Jam', 409, 'PRIVATE_FLOW')
-  }
-
-  const { userIds } = z.object({ userIds: z.array(z.string().min(1)).min(1).max(50) }).parse(await request.json())
-  // Only active members of THIS org can be invited — a foreign id is dropped.
-  const members = await prisma.user.findMany({
-    where: { id: { in: userIds }, organizationId: auth.organizationId, isActive: true },
+    where: { id, organizationId: auth.organizationId, userId: auth.dbUser.id },
     select: { id: true },
   })
-  const inviterName = auth.dbUser.name || auth.dbUser.email || 'A teammate'
-  const invitees = members.filter((member) => member.id !== auth.dbUser.id)
-  await Promise.all(
-    invitees.map((member) =>
-      notify({
-        organizationId: auth.organizationId,
-        userId: member.id,
-        type: 'flow.jam',
-        level: 'action',
-        title: `${inviterName} invited you to jam on "${flow.name}"`,
-        body: 'Open the flow to build together in real time.',
-        executionId: flow.id, // bell derives flow links from executionId
-        link: `/flows/${flow.id}`,
-      }),
-    ),
-  )
-  return { success: true, invited: invitees.length }
+  if (!flow) throw new ApiError('Flow not found', 404, 'NOT_FOUND')
+  throw new ApiError('Flow sharing is disabled for personal workspace content', 403, 'PERSONAL_CONTENT')
 })

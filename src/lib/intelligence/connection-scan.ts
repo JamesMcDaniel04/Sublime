@@ -265,6 +265,15 @@ export async function scanConnection(params: {
 }): Promise<{ scanned: boolean; processes: number } | { skipped: string }> {
   const { organizationId, userId, plane, connectionRef, connectionName } = params
   try {
+    // The current intelligence holder is one row per organization. Until that
+    // storage becomes per-user, only the workspace admin's own connections may
+    // feed it; otherwise one member's usage would become another's settings.
+    if (!userId) return { skipped: 'no-user' }
+    const admin = await prisma.user.findFirst({
+      where: { id: userId, organizationId, role: 'ADMIN', isActive: true },
+      select: { id: true },
+    })
+    if (!admin) return { skipped: 'personal-boundary' }
     const org = await prisma.organization.findUnique({ where: { id: organizationId }, select: { settings: true } })
     if (!scanEnabled(org?.settings)) return { skipped: 'disabled' }
     const sourceRef = connectionSourceRef(plane, connectionRef)

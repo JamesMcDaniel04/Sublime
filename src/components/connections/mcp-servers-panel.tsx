@@ -12,6 +12,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { Switch } from '@/components/ui/switch'
 import { useScanExclusions } from '@/lib/client/use-scan-exclusions'
 import { connectionSourceRef } from '@/lib/intelligence/scan-exclusions'
+import { useCachedJson } from '@/lib/client/use-cached-json'
 
 // ── Auth-badge labels ─────────────────────────────────────────────────────────
 
@@ -36,6 +37,8 @@ function McpServersPanelInner() {
   const [deletingId, setDeletingId] = useState<string | null>(null)
   const [togglingLearningId, setTogglingLearningId] = useState<string | null>(null)
   const { isLearningEnabled, setLearningEnabled } = useScanExclusions()
+  const { data: profileData } = useCachedJson<{ profile?: { role: string } }>('/api/settings/profile')
+  const isAdmin = profileData?.profile?.role === 'ADMIN'
 
   const load = useCallback(async () => {
     const response = await fetch('/api/mcp-connections', { cache: 'no-store' })
@@ -243,7 +246,7 @@ function McpServersPanelInner() {
                   {conn.serverUrl}
                 </p>
 
-                <div className="flex items-center justify-between gap-2 border-t pt-3">
+                {isAdmin && <div className="flex items-center justify-between gap-2 border-t pt-3">
                   {conn.provider ? (
                     <>
                       {conn.isActive ? (
@@ -294,7 +297,7 @@ function McpServersPanelInner() {
                       </div>
                     </>
                   )}
-                </div>
+                </div>}
 
                 <div className="flex items-center justify-between gap-2 border-t pt-3">
                   <span className="text-xs text-muted-foreground">Learning</span>

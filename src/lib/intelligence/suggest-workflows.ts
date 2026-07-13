@@ -50,11 +50,12 @@ export function meetsSuggestionGate(counts: ConnectionCounts): boolean {
 }
 
 /** Active connection counts across all three integration planes. */
-export async function countActiveConnections(organizationId: string): Promise<ConnectionCounts> {
+export async function countActiveConnections(organizationId: string, userId?: string): Promise<ConnectionCounts> {
+  const userScope = userId ? { userId } : {}
   const [klavis, nango, mcp] = await Promise.all([
-    prisma.mCPAgent.count({ where: { organizationId, isActive: true } }),
-    prisma.nangoConnection.count({ where: { organizationId, status: NANGO_CONNECTED_STATUS } }),
-    prisma.mcpConnection.count({ where: { organizationId, isActive: true } }),
+    prisma.mCPAgent.count({ where: { organizationId, isActive: true, ...userScope } }),
+    prisma.nangoConnection.count({ where: { organizationId, status: NANGO_CONNECTED_STATUS, ...userScope } }),
+    prisma.mcpConnection.count({ where: { organizationId, isActive: true, ...userScope } }),
   ])
   return { klavis, nango, mcp }
 }
@@ -136,9 +137,9 @@ function truncate(value: string, max: number): string {
 type FlowSummary = { id: string; name: string; description: string; triggerType: string; recentRunStatuses: string[] }
 type AgentSummary = { id: string; title: string; objective: string; recentRunHeadlines: string[] }
 
-async function loadExistingFlows(organizationId: string): Promise<FlowSummary[]> {
+async function loadExistingFlows(organizationId: string, userId: string): Promise<FlowSummary[]> {
   const flows = await prisma.flow.findMany({
-    where: { organizationId },
+    where: { organizationId, userId },
     orderBy: { updatedAt: 'desc' },
     take: 20,
     include: { runs: { orderBy: { startedAt: 'desc' }, take: 3, select: { status: true } } },
@@ -155,16 +156,16 @@ async function loadExistingFlows(organizationId: string): Promise<FlowSummary[]>
   })
 }
 
-async function loadExistingAgents(organizationId: string): Promise<AgentSummary[]> {
+async function loadExistingAgents(organizationId: string, userId: string): Promise<AgentSummary[]> {
   const agents = await prisma.agentTask.findMany({
-    where: { organizationId, status: 'ACTIVE', agentType: { not: 'SYSTEM' } },
+    where: { organizationId, userId, status: 'ACTIVE', agentType: { not: 'SYSTEM' } },
     orderBy: { updatedAt: 'desc' },
     take: 20,
     select: { id: true, description: true, objective: true, metadata: true },
   })
   if (agents.length === 0) return []
   const executions = await prisma.agentExecution.findMany({
-    where: { organizationId, agentTaskId: { in: agents.map((a) => a.id) } },
+    where: { organizationId, userId, agentTaskId: { in: agents.map((a) => a.id) } },
     orderBy: { startedAt: 'desc' },
     take: 60,
     select: { agentTaskId: true, status: true, error: true },
@@ -264,6 +265,13 @@ async function claimSynthesisSlotAtomic(organizationId: string, now: Date): Prom
  */
 async function releaseSynthesisSlot(organizationId: string, previous: Date | null): Promise<void> {
   try {
+    // Behavioral synthesis is an owner/admin feature because its memories are
+    // stored on one hidden workspace holder. Never combine members' personal
+    // flows, agents, runs, or credentials into that shared intelligence row.
+    const owner =
+      (await prisma.user.findFirst({ where: { organizationId, role: 'ADMIN', isActive: true }, orderBy: { createdAt: 'asc' } })) ??
+      (await prisma.user.findFirst({ where: { organizationId, isActive: true }, orderBy: { createdAt: 'asc' } }))
+    if (!owner) return { skipped: 'error' }
     if (previous) {
       const previousIso = previous.toISOString()
       await prisma.$executeRaw`
@@ -310,7 +318,7 @@ export async function synthesizeWorkflowSuggestions(organizationId: string, over
     // Gate and profile checks read-only, and BEFORE any claim is written —
     // an org that's below the gate or has no profiles yet must never burn a
     // day's cooldown slot for nothing.
-    const counts = await countActiveConnections(organizationId)
+    const counts = await countActiveConnections(organizationId, owner.id)
     if (!meetsSuggestionGate(counts)) return { skipped: 'below-gate' }
 
     const agentId = await orgIntelligenceAgentId(organizationId)
@@ -332,7 +340,7 @@ export async function synthesizeWorkflowSuggestions(organizationId: string, over
     if (!claimed) return { skipped: 'throttled' }
 
     try {
-      const [flows, agents] = await Promise.all([loadExistingFlows(organizationId), loadExistingAgents(organizationId)])
+      const [flows, agents] = await Promise.all([loadExistingFlows(organizationId, owner.id), loadExistingAgents(organizationId, owner.id)])
       const { system, user } = buildSynthesisPrompt({ profiles: memories, flows, agents })
 
       const model = process.env.AGENT_REFLECTION_MODEL?.trim() || DEFAULT_SUMMARY_MODEL
@@ -354,10 +362,6 @@ export async function synthesizeWorkflowSuggestions(organizationId: string, over
 
       const suggestions = parsed.suggestions.slice(0, MAX_NEW_SUGGESTIONS)
       if (suggestions.length > 0) {
-        // Resolve a user to attribute the draft's grounding/generation to — the
-        // org's oldest active member, same convention as cron dispatch's
-        // unowned-agent fallback.
-        const owner = await prisma.user.findFirst({ where: { organizationId, isActive: true }, orderBy: { createdAt: 'asc' } })
         for (const suggestion of suggestions) {
           const saved = await saveAgentMemory({
             organizationId,
@@ -367,7 +371,6 @@ export async function synthesizeWorkflowSuggestions(organizationId: string, over
             content: suggestion.description,
           })
           if (!saved || saved.deduped) continue
-          if (!owner) continue
           try {
             const { roster, toolCatalog, contextBlock, graphRules } = await buildCopilotGrounding(organizationId, owner.id)
             const genUser = [`Build a flow that: ${suggestion.flowPrompt}`, '', contextBlock].join('\n')

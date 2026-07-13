@@ -32,7 +32,7 @@ export const GET = withAuthenticatedApi(async (_request, auth) => {
       orderBy: { updatedAt: 'desc' },
       take: 200,
     }),
-    countActiveConnections(auth.organizationId),
+    countActiveConnections(auth.organizationId, auth.dbUser.id),
   ])
   const totalConnections = counts.klavis + counts.nango + counts.mcp
   const ready = meetsSuggestionGate(counts)

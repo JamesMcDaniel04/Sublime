@@ -35,7 +35,7 @@ interface OAuthCookiePayload {
   organizationId: string
   connectionId?: string
   returnTo?: string
-  userId?: string
+  userId: string
 }
 
 function redirect(request: NextRequest, query: string, clearCookie = false) {
@@ -64,7 +64,7 @@ export async function GET(request: NextRequest) {
     }
   }
 
-  if (!code || !state || !payload || payload.state !== state) {
+  if (!code || !state || !payload || !payload.userId || payload.state !== state) {
     return redirect(request, 'error=oauth_state', true)
   }
 
@@ -125,7 +125,7 @@ export async function GET(request: NextRequest) {
     // Fire-and-forget usage scan now that the connection is authorized.
     // `after` (Next 15) keeps this alive past the redirect response.
     const organizationId = payload.organizationId
-    const userId = payload.userId ?? null
+    const userId = payload.userId
     const connectionName = payload.name
     after(() =>
       scanConnection({ organizationId, userId, plane: 'mcp', connectionRef, connectionName }).catch(() => undefined),

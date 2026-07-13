@@ -31,7 +31,7 @@ export const PATCH = withAuthenticatedApi(async (request, auth) => {
 export const DELETE = withAuthenticatedApi(async (request, auth) => {
   const id = idFrom(request)
   const result = await prisma.signalSubscription.deleteMany({
-    where: { id, organizationId: auth.organizationId },
+    where: { id, organizationId: auth.organizationId, createdById: auth.dbUser.id },
   })
   if (result.count === 0) throw new ApiError('Subscription not found', 404, 'NOT_FOUND')
   return { success: true }

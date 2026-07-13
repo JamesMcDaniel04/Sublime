@@ -74,7 +74,7 @@ type Usage = { executions: number; inputTokens: number; outputTokens: number; ex
 // to empty state and flash the default logo + no agents until the refetch
 // resolves. Seeding state from this snapshot makes a remounted sidebar paint the
 // real org logo + agents instantly, then revalidate in the background.
-type SidebarSnapshot = { organizations: Organization[]; activeOrgId: string | null; agents: Agent[]; usage: Usage | null }
+type SidebarSnapshot = { organizations: Organization[]; activeOrgId: string | null; agents: Agent[]; usage: Usage | null; canManageOrganization: boolean }
 let sidebarCache: SidebarSnapshot | null = null
 
 const CREDIT_TOKENS = 1_000_000
@@ -109,6 +109,7 @@ export function Sidebar() {
   const [activeOrgId, setActiveOrgId] = useState<string | null>(() => sidebarCache?.activeOrgId ?? null)
   const [agents, setAgents] = useState<Agent[]>(() => sidebarCache?.agents ?? [])
   const [usage, setUsage] = useState<Usage | null>(() => sidebarCache?.usage ?? null)
+  const [canManageOrganization, setCanManageOrganization] = useState(() => sidebarCache?.canManageOrganization ?? false)
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})
   const [dragOver, setDragOver] = useState<string | null>(null)
   const [runningId, setRunningId] = useState<string | null>(null)
@@ -122,12 +123,14 @@ export function Sidebar() {
       activeOrgId: snapshot.activeOrganizationId || null,
       agents: snapshot.agents || [],
       usage: snapshot.usage || null,
+      canManageOrganization: snapshot.canManageOrganization === true,
     }
     sidebarCache = next
     setAgents(next.agents)
     setUsage(next.usage)
     setOrganizations(next.organizations)
     setActiveOrgId(next.activeOrgId)
+    setCanManageOrganization(next.canManageOrganization)
   }, [])
 
   useEffect(() => {
@@ -359,16 +362,17 @@ export function Sidebar() {
                     {org.id === activeOrg?.id && <Check className="h-4 w-4 text-indigo-600" />}
                   </button>
                 ))}
-                <div className="my-1 border-t" />
-                <button
+                {canManageOrganization && <>
+                  <div className="my-1 border-t" />
+                  <button
                   className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-gray-700 hover:bg-gray-100 disabled:opacity-50"
                   disabled={uploadingLogo}
                   onClick={() => logoInputRef.current?.click()}
                 >
                   {uploadingLogo ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ImagePlus className="h-3.5 w-3.5" />}
                   {activeOrg?.logoUrl ? 'Change workspace logo' : 'Upload workspace logo'}
-                </button>
-                {activeOrg?.logoUrl && (
+                  </button>
+                  {activeOrg?.logoUrl && (
                   <button
                     className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-gray-700 hover:bg-gray-100 disabled:opacity-50"
                     disabled={uploadingLogo}
@@ -376,8 +380,8 @@ export function Sidebar() {
                   >
                     <Trash2 className="h-3.5 w-3.5" /> Remove logo
                   </button>
-                )}
-                <input
+                  )}
+                  <input
                   ref={logoInputRef}
                   type="file"
                   accept="image/png,image/jpeg,image/webp,image/svg+xml"
@@ -387,7 +391,8 @@ export function Sidebar() {
                     event.target.value = ''
                     if (file) uploadOrgLogo(file)
                   }}
-                />
+                  />
+                </>}
                 <div className="my-1 border-t" />
                 <div className="truncate px-2 py-1 text-xs text-gray-400">{user?.emailAddress}</div>
                 <button

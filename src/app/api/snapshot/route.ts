@@ -71,6 +71,7 @@ export const GET = withAuthenticatedApi(async (_request, auth) => {
       exempt: isUsageExemptEmail(auth.dbUser.email),
     },
     activeOrganizationId: auth.organizationId,
+    canManageOrganization: auth.dbUser.role === 'ADMIN',
     organizations: organization ? [organization] : [],
     notifications,
     unread,

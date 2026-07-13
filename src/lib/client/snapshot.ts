@@ -18,6 +18,7 @@ export type Snapshot = {
   activities: Activity[]
   usage: { since: string; executions: number; inputTokens: number; outputTokens: number }
   activeOrganizationId: string | null
+  canManageOrganization: boolean
   organizations: Array<{ id: string; name: string; slug: string; plan: string; logoUrl?: string | null }>
   notifications: Array<Record<string, unknown>>
   unread: number
