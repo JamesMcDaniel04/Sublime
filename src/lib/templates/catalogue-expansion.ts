@@ -98,7 +98,7 @@ function toSeed(department: Exclude<Department, 'general'>, recipe: Recipe): See
       recipe.goal,
       `Use the connected ${integrations.join(', ')} systems as complementary evidence sources rather than isolated lookups.`,
       'Separate observed facts from interpretation, cite the source system for material claims, identify contradictions or missing data, and never invent records.',
-      'Return a concise executive summary, a prioritized findings table, and concrete next actions with owners and dates when the source data supports them.',
+      'Return a decision-ready artifact with an executive summary, a prioritized findings table, supporting evidence, material risks or gaps, and concrete next actions with owners and dates when the source data supports them. Make it complete enough to use without asking for expansion, while keeping it focused and skimmable.',
     ].join(' '),
   }
 }

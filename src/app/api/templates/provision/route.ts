@@ -9,6 +9,7 @@ import { normalizeFlowTrigger, triggerFromGraph } from '@/lib/flows/trigger'
 import { syncAgentConnectors } from '@/lib/connectors/agent-connectors'
 import type { AgentSchedule } from '@/lib/scheduling/due'
 import type { FlowGraph } from '@/lib/flows/graph'
+import { withTemplateOutputStandard } from '@/lib/templates/output-standard'
 
 const bodySchema = z.object({
   seedKey: z.string().min(1),
@@ -74,7 +75,7 @@ async function materializeAgent(
       agentType: 'CUSTOM',
       priority: 'MEDIUM',
       description,
-      objective: spec.instructions,
+      objective: withTemplateOutputStandard(spec.instructions),
       context: {},
       schedule,
       status: 'ACTIVE',

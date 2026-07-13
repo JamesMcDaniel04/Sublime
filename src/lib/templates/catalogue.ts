@@ -1,6 +1,7 @@
 import type { FlowGraph } from '@/lib/flows/graph'
 import type { Department } from './departments'
 import { MULTI_TOOL_SEEDS } from './catalogue-expansion'
+import { withTemplateOutputStandard } from './output-standard'
 
 export type TemplateAgentSpec = { ref: string; title: string; instructions: string; model?: string; integrations: string[] }
 export type SeedTemplate = {
@@ -427,12 +428,17 @@ export function getSeedByKey(seedKey: string): SeedTemplate | undefined {
 export type SerializedTemplate = ReturnType<typeof serializeSeed>
 export function serializeSeed(seed: SeedTemplate) {
   const integrations = Array.from(new Set([...seed.requiredIntegrations, ...seed.recommendedIntegrations]))
+  const baseInstructions = seed.instructions?.trim() || [
+    `Run the ${seed.name} process.`,
+    seed.description,
+    ...(seed.agents ?? []).map((agent) => `${agent.title}: ${agent.instructions}`),
+  ].join('\n\n')
   return {
     id: `seed:${seed.seedKey}`,
     name: seed.name,
     description: seed.description,
     category: seed.departments[0] ?? 'general',
-    instructions: seed.instructions ?? seed.description,
+    instructions: withTemplateOutputStandard(baseInstructions),
     integrations,
     skills: [] as string[],
     tags: seed.departments as string[],

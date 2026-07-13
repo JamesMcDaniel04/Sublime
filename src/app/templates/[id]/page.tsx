@@ -66,6 +66,10 @@ function escapeHtml(value: string): string {
 }
 
 function exampleHtml(template: Template): string {
+  // Seed templates always receive a full, styled example deliverable. Their
+  // older one-line examples are retained in the catalogue for compatibility,
+  // but are not representative enough for this detail-page preview.
+  if (template.seed) return exampleArtifactHtml(template)
   if (template.exampleOutput?.trim()) {
     if (looksLikeHtml(template.exampleOutput)) return template.exampleOutput
     return `<section><h2>Example result</h2><p>${escapeHtml(template.exampleOutput).replace(/\n\n/g, '</p><p>').replace(/\n/g, '<br>')}</p></section>`
