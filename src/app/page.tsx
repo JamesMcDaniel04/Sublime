@@ -124,14 +124,65 @@ function ProductShot() {
   )
 }
 
-const integrationLogos = [
-  ['/logos/salesforce.svg', 'Salesforce'],
-  ['/logos/slack.png', 'Slack'],
-  ['/logos/googledrive.svg', 'Google Drive'],
-  ['/logos/googlesheets.webp', 'Google Sheets'],
-  ['/logos/granola.jpg', 'Granola'],
-  ['/logos/monday.jpg', 'Monday'],
-]
+const integrationTools = [
+  ['Salesforce', 'salesforce.com', '/logos/salesforce.svg'], ['Slack', 'slack.com', '/logos/slack.png'],
+  ['Google Drive', 'drive.google.com', '/logos/googledrive.svg'], ['Google Sheets', 'sheets.google.com', '/logos/googlesheets.webp'],
+  ['Granola', 'granola.ai', '/logos/granola.jpg'], ['Monday', 'monday.com', '/logos/monday.jpg'],
+  ['GitHub', 'github.com'], ['Linear', 'linear.app'], ['Jira', 'atlassian.com'], ['Asana', 'asana.com'],
+  ['Notion', 'notion.so'], ['Zendesk', 'zendesk.com'], ['HubSpot', 'hubspot.com'], ['Gmail', 'gmail.com'],
+  ['Snowflake', 'snowflake.com'], ['Airtable', 'airtable.com'], ['Confluence', 'atlassian.com'], ['Trello', 'trello.com'],
+  ['ClickUp', 'clickup.com'], ['LaunchDarkly', 'launchdarkly.com'], ['Google Calendar', 'calendar.google.com'],
+  ['Google Docs', 'docs.google.com'], ['Google Forms', 'forms.google.com'], ['Google Cloud', 'cloud.google.com'],
+  ['Supabase', 'supabase.com'], ['Intercom', 'intercom.com'], ['Figma', 'figma.com'], ['Dropbox', 'dropbox.com'],
+  ['Microsoft Teams', 'teams.microsoft.com'], ['Outlook', 'outlook.com'], ['OneDrive', 'onedrive.live.com'],
+  ['SharePoint', 'sharepoint.com'], ['Stripe', 'stripe.com'], ['QuickBooks', 'quickbooks.intuit.com'], ['Shopify', 'shopify.com'],
+  ['Mailchimp', 'mailchimp.com'], ['Canva', 'canva.com'], ['Twilio', 'twilio.com'], ['AWS', 'aws.amazon.com'],
+  ['Datadog', 'datadoghq.com'], ['Sentry', 'sentry.io'], ['PagerDuty', 'pagerduty.com'], ['Postgres', 'postgresql.org'],
+  ['MongoDB', 'mongodb.com'], ['MySQL', 'mysql.com'], ['Calendly', 'calendly.com'], ['Typeform', 'typeform.com'],
+  ['Webflow', 'webflow.com'], ['Zoom', 'zoom.us'], ['ServiceNow', 'servicenow.com'],
+] as const
+
+type LandingTool = readonly [name: string, domain: string, localSrc?: string]
+
+const toolIconSlugs: Record<string, string> = {
+  Slack: 'slack', 'Google Sheets': 'googlesheets', Monday: 'mondaydotcom', GitHub: 'github', Linear: 'linear',
+  Jira: 'jira', Asana: 'asana', Notion: 'notion', Zendesk: 'zendesk', HubSpot: 'hubspot', Gmail: 'gmail',
+  Snowflake: 'snowflake', Airtable: 'airtable', Confluence: 'confluence', Trello: 'trello', ClickUp: 'clickup',
+  LaunchDarkly: 'launchdarkly', 'Google Calendar': 'googlecalendar', 'Google Docs': 'googledocs',
+  'Google Forms': 'googleforms', 'Google Cloud': 'googlecloud', Supabase: 'supabase', Intercom: 'intercom',
+  Figma: 'figma', Dropbox: 'dropbox', 'Microsoft Teams': 'microsoftteams', Outlook: 'microsoftoutlook',
+  OneDrive: 'microsoftonedrive', SharePoint: 'sharepoint', Stripe: 'stripe', QuickBooks: 'quickbooks', Shopify: 'shopify',
+  Mailchimp: 'mailchimp', Canva: 'canva', Twilio: 'twilio', AWS: 'amazonwebservices', Datadog: 'datadog',
+  Sentry: 'sentry', PagerDuty: 'pagerduty', Postgres: 'postgresql', MongoDB: 'mongodb', MySQL: 'mysql',
+  Calendly: 'calendly', Typeform: 'typeform', Webflow: 'webflow', Zoom: 'zoom', ServiceNow: 'servicenow',
+}
+
+function landingToolLogo([name, domain, localSrc]: LandingTool): string {
+  // Keep bundled SVGs / trademark-only marks, otherwise use brand vector art.
+  if (localSrc && (name === 'Salesforce' || name === 'Google Drive' || name === 'Granola')) return localSrc
+  const vectorSlug = toolIconSlugs[name]
+  return vectorSlug ? `https://cdn.simpleicons.org/${vectorSlug}` : `https://www.google.com/s2/favicons?domain=${domain}&sz=256`
+}
+
+function ToolCarouselRow({ tools, reverse = false }: { tools: readonly LandingTool[]; reverse?: boolean }) {
+  const repeated = [...tools, ...tools]
+  return (
+    <div className="sl-l-tool-track-clip">
+      <div className={`sl-l-tool-track${reverse ? ' sl-l-tool-track--reverse' : ''}`}>
+        {repeated.map((tool, index) => {
+          const [name] = tool
+          return (
+          <div className="sl-l-tool-chip" key={`${name}-${index}`} aria-hidden={index >= tools.length}>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={landingToolLogo(tool)} alt={index < tools.length ? name : ''} />
+            <span>{name}</span>
+          </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
 
 export default async function Home() {
   // Signed-in visitors go straight to the app; everyone else sees the landing.
@@ -194,17 +245,13 @@ export default async function Home() {
       </section>
 
       <section className="sl-l-logo-cloud" aria-labelledby="tools-heading">
-        <div className="sl-l-wrap">
+        <div className="sl-l-wrap sl-l-logo-cloud-heading">
           <h2 id="tools-heading">All your tools in <em>one place.</em></h2>
           <p>One connected knowledge layer across the systems your team already trusts.</p>
-          <div className="sl-l-logo-row">
-            {integrationLogos.map(([src, label]) => (
-              <div className="sl-l-logo-tile" key={label}>
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={src} alt={label} /><span>{label}</span>
-              </div>
-            ))}
-          </div>
+        </div>
+        <div className="sl-l-tool-carousel" aria-label="50 available integration tools">
+          <ToolCarouselRow tools={integrationTools.slice(0, 25)} />
+          <ToolCarouselRow tools={integrationTools.slice(25)} reverse />
         </div>
       </section>
 
