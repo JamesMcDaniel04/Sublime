@@ -8,6 +8,8 @@ Before release:
 
 - Apply `20260713070000_flow_collaboration_revision` and confirm the `flows`
   table has a non-null `collaborationRevision` integer column.
+- Apply `20260713123000_flow_collaborators` and confirm Jam access is stored in
+  `flow_collaborators`; workspace membership by itself must not expose flows.
 - Keep `ENCRYPTION_KEY` set consistently across all web instances. It signs the
   unguessable per-flow Realtime topic returned by the authenticated API.
 - Confirm Supabase Realtime is enabled and production networks allow secure
@@ -18,7 +20,8 @@ Before release:
   edit the same step and confirm the conflict warning appears.
 - Disconnect one browser from WebSockets, edit in the other, and confirm the
   disconnected browser catches up through polling within a few seconds.
-- Attempt to Jam on a private flow and confirm the invite is rejected until the
-  flow is shared.
+- Invite one member and confirm only that member can open the private flow.
+  Remove them in the Jam picker and confirm access is revoked on their next
+  authenticated API request.
 - Confirm a stale manual Save returns `FLOW_SAVE_CONFLICT` and never overwrites
   the newer collaborative graph.

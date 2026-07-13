@@ -30,7 +30,7 @@ const CONNECTION_LABEL: Record<JamConnectionState, string> = {
   offline: 'Reconnecting',
 }
 
-export function JamButton({ flowId, peers, connectionState }: { flowId: string; peers: JamPeer[]; connectionState: JamConnectionState }) {
+export function JamButton({ flowId, peers, connectionState, canManage = false }: { flowId: string; peers: JamPeer[]; connectionState: JamConnectionState; canManage?: boolean }) {
   const [open, setOpen] = useState(false)
   const [members, setMembers] = useState<Member[]>([])
   const [selected, setSelected] = useState<Set<string>>(new Set())
@@ -40,12 +40,17 @@ export function JamButton({ flowId, peers, connectionState }: { flowId: string; 
   useEffect(() => {
     if (!open) return
     setLoading(true)
-    fetch('/api/organizations/members', { cache: 'no-store' })
-      .then((response) => response.json())
-      .then((data) => setMembers((data.members || []).filter((member: Member) => !member.isSelf)))
+    Promise.all([
+      fetch('/api/organizations/members', { cache: 'no-store' }).then((response) => response.json()),
+      fetch(`/api/flows/${flowId}/jam`, { cache: 'no-store' }).then((response) => response.json()),
+    ])
+      .then(([memberData, accessData]) => {
+        setMembers((memberData.members || []).filter((member: Member) => !member.isSelf))
+        setSelected(new Set(accessData.userIds || []))
+      })
       .catch(() => toast.error('Could not load your team.'))
       .finally(() => setLoading(false))
-  }, [open])
+  }, [flowId, open])
 
   const invite = async () => {
     setSending(true)
@@ -60,7 +65,9 @@ export function JamButton({ flowId, peers, connectionState }: { flowId: string; 
         toast.error(data.error || 'Could not send invites.')
         return
       }
-      toast.success(`Invited ${data.invited} teammate${data.invited === 1 ? '' : 's'} to the jam.`)
+      toast.success(data.invited
+        ? `Invited ${data.invited} teammate${data.invited === 1 ? '' : 's'} to the jam.`
+        : 'Flow Jam access updated.')
       setOpen(false)
       setSelected(new Set())
     } finally {
@@ -88,7 +95,7 @@ export function JamButton({ flowId, peers, connectionState }: { flowId: string; 
           {peers.length > 4 && <span className="flex h-6 w-6 items-center justify-center rounded-full border-2 border-white bg-slate-400 text-[10px] font-bold text-white">+{peers.length - 4}</span>}
         </div>
       )}
-      <Button variant="outline" size="sm" onClick={() => setOpen((value) => !value)}>
+      <Button variant="outline" size="sm" onClick={() => canManage && setOpen((value) => !value)} title={canManage ? 'Manage Flow Jam access' : 'You are collaborating on this flow'}>
         <span
           className={cn(
             'h-2 w-2 rounded-full',
@@ -98,12 +105,12 @@ export function JamButton({ flowId, peers, connectionState }: { flowId: string; 
         />
         <Users className="h-4 w-4" /> Jam
       </Button>
-      {open && (
+      {open && canManage && (
         <>
           <div className="fixed inset-0 z-30" onClick={() => setOpen(false)} />
           <div className="absolute right-0 top-full z-40 mt-2 w-72 rounded-xl border border-slate-200 bg-white p-3 shadow-xl">
             <p className="text-sm font-semibold text-slate-900">Start a Flow Jam</p>
-            <p className="mt-0.5 text-xs text-slate-500">Invite teammates to build this flow with you, live.</p>
+            <p className="mt-0.5 text-xs text-slate-500">Choose exactly who can open and edit this flow with you.</p>
             <p className="mt-2 flex items-center gap-1.5 text-xs text-slate-600">
               <span className={cn('h-2 w-2 rounded-full', connectionState === 'connected' ? 'bg-emerald-500' : 'bg-amber-400')} />
               {CONNECTION_LABEL[connectionState]}
@@ -134,8 +141,8 @@ export function JamButton({ flowId, peers, connectionState }: { flowId: string; 
                 </label>
               ))}
             </div>
-            <Button className="mt-2 w-full" size="sm" disabled={selected.size === 0 || sending} onClick={invite} loading={sending}>
-              Invite {selected.size > 0 ? `(${selected.size})` : ''}
+            <Button className="mt-2 w-full" size="sm" disabled={sending} onClick={invite} loading={sending}>
+              Save access {selected.size > 0 ? `(${selected.size})` : ''}
             </Button>
           </div>
         </>

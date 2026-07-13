@@ -93,6 +93,7 @@ if (TEST_DB) {
     { name: 'GET /api/flows/[id]/versions', run: async () => (await import('../flows/[id]/versions/route')).GET(req(`/api/flows/${flowId}/versions`)) },
     { name: 'GET /api/flows/[id]/suggestions', run: async () => (await import('../flows/[id]/suggestions/route')).GET(req(`/api/flows/${flowId}/suggestions`)) },
     { name: 'GET /api/flows/[id]/collaboration', run: async () => (await import('../flows/[id]/collaboration/route')).GET(req(`/api/flows/${flowId}/collaboration`)) },
+    { name: 'GET /api/flows/[id]/jam', run: async () => (await import('../flows/[id]/jam/route')).GET(req(`/api/flows/${flowId}/jam`)) },
     // Incident regressions: these 500'd under the tenant guard before the sweep.
     { name: 'GET /api/agents/[id]/chat/sessions', run: async () => (await import('../agents/[id]/chat/sessions/route')).GET(req(`/api/agents/${agentId}/chat/sessions`)) },
     { name: 'GET /api/agents/[id]/chat', run: async () => (await import('../agents/[id]/chat/route')).GET(req(`/api/agents/${agentId}/chat`)) },

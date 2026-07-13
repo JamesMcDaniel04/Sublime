@@ -265,13 +265,6 @@ async function claimSynthesisSlotAtomic(organizationId: string, now: Date): Prom
  */
 async function releaseSynthesisSlot(organizationId: string, previous: Date | null): Promise<void> {
   try {
-    // Behavioral synthesis is an owner/admin feature because its memories are
-    // stored on one hidden workspace holder. Never combine members' personal
-    // flows, agents, runs, or credentials into that shared intelligence row.
-    const owner =
-      (await prisma.user.findFirst({ where: { organizationId, role: 'ADMIN', isActive: true }, orderBy: { createdAt: 'asc' } })) ??
-      (await prisma.user.findFirst({ where: { organizationId, isActive: true }, orderBy: { createdAt: 'asc' } }))
-    if (!owner) return { skipped: 'error' }
     if (previous) {
       const previousIso = previous.toISOString()
       await prisma.$executeRaw`
@@ -315,6 +308,13 @@ export async function synthesizeWorkflowSuggestions(organizationId: string, over
   const now = overrides?.now ? overrides.now() : new Date()
 
   try {
+    // Behavioral synthesis is an owner/admin feature because its memories are
+    // stored on one hidden workspace holder. Never combine members' personal
+    // flows, agents, runs, or credentials into that shared intelligence row.
+    const owner =
+      (await prisma.user.findFirst({ where: { organizationId, role: 'ADMIN', isActive: true }, orderBy: { createdAt: 'asc' } })) ??
+      (await prisma.user.findFirst({ where: { organizationId, isActive: true }, orderBy: { createdAt: 'asc' } }))
+    if (!owner) return { skipped: 'error' }
     // Gate and profile checks read-only, and BEFORE any claim is written —
     // an org that's below the gate or has no profiles yet must never burn a
     // day's cooldown slot for nothing.

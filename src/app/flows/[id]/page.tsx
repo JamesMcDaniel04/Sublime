@@ -276,6 +276,7 @@ function FlowBuilder() {
   const [toolCatalog, setToolCatalog] = useState<ToolCatalog>([])
   // Serialized snapshot of the last-saved state, for the unsaved-changes dot.
   const [savedSnapshot, setSavedSnapshot] = useState('')
+  const [canManageJam, setCanManageJam] = useState(false)
   const [improvementSuggestions, setImprovementSuggestions] = useState<{ id: string; title: string; content: string }[]>([])
   const [dismissingSuggestionId, setDismissingSuggestionId] = useState<string | null>(null)
   // Optimistic-concurrency base: the flow's updatedAt as of load/last save.
@@ -332,6 +333,7 @@ function FlowBuilder() {
           setStatus(flow.status)
           setVersion(flow.version ?? 1)
           setPublished(Boolean(flow.published))
+          setCanManageJam(Boolean(flow.canManageJam))
           setSavedSnapshot(JSON.stringify({ name: flow.name, description: flow.description || '', graph: g, status: flow.status }))
           baseUpdatedAtRef.current = flow.updatedAt
         }
@@ -1048,7 +1050,7 @@ function FlowBuilder() {
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
-        <JamButton flowId={id} peers={peers} connectionState={connectionState} />
+        <JamButton flowId={id} peers={peers} connectionState={connectionState} canManage={canManageJam} />
         <Button variant="outline" size="sm" onClick={() => setShowTest((v) => !v)}>
           <FlaskConical className="mr-1.5 h-4 w-4" /> Test
         </Button>

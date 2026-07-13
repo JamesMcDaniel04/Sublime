@@ -72,8 +72,18 @@ export function useFlowJam(options: {
   const cursorTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const cursorRef = useRef<JamCursor | null>(null)
   const mutationCounterRef = useRef(0)
+  const accessDeniedRef = useRef(false)
   const callbacksRef = useRef(options)
   callbacksRef.current = options
+
+  const disconnectRealtime = () => {
+    const channel = channelRef.current
+    const supabase = supabaseRef.current
+    channelRef.current = null
+    supabaseRef.current = null
+    if (channel && supabase) void supabase.removeChannel(channel)
+    setPeers([])
+  }
 
   const acceptServerGraph = (snapshot: CollaborationSnapshot, allowWhileSending = false) => {
     if (!snapshot.graph || snapshot.revision < revisionRef.current) return
@@ -106,7 +116,7 @@ export function useFlowJam(options: {
   }
 
   const flushPatch = async () => {
-    if (!enabled || sendingRef.current) return
+    if (!enabled || sendingRef.current || accessDeniedRef.current) return
     const baseline = baselineRef.current
     const desired = latestLocalRef.current
     if (!baseline || !desired) return
@@ -127,6 +137,11 @@ export function useFlowJam(options: {
       const data = (await response.json().catch(() => ({}))) as CollaborationSnapshot
 
       if (!response.ok) {
+        if (response.status === 403 || response.status === 404) {
+          accessDeniedRef.current = true
+          disconnectRealtime()
+          setConnectionState('offline')
+        }
         if (data.graph && typeof data.revision === 'number') {
           baselineRef.current = data.graph
           latestLocalRef.current = data.graph
@@ -134,7 +149,7 @@ export function useFlowJam(options: {
           updatedAtRef.current = data.updatedAt
           callbacksRef.current.onRemoteSaved(data.updatedAt)
           callbacksRef.current.onRemoteGraph(data.graph)
-        } else {
+        } else if (!accessDeniedRef.current) {
           retryDelay = 1500
         }
         callbacksRef.current.onConflict(data.error || 'A collaboration edit could not be merged.')
@@ -180,6 +195,7 @@ export function useFlowJam(options: {
 
   useEffect(() => {
     if (!enabled || !flowId) return
+    accessDeniedRef.current = false
     let disposed = false
     let retryTimer: ReturnType<typeof setTimeout> | null = null
     let pollTimer: ReturnType<typeof setInterval> | null = null
@@ -188,6 +204,10 @@ export function useFlowJam(options: {
       try {
         const response = await fetch(`/api/flows/${flowId}/collaboration`, { cache: 'no-store' })
         const data = (await response.json().catch(() => ({}))) as CollaborationSnapshot
+        if (response.status === 403 || response.status === 404) {
+          accessDeniedRef.current = true
+          disconnectRealtime()
+        }
         if (!response.ok || !data.success) throw new Error(data.error || 'Collaboration unavailable')
         if (!disposed) acceptServerGraph(data)
         return data
@@ -201,7 +221,7 @@ export function useFlowJam(options: {
       setConnectionState('connecting')
       const snapshot = await loadSnapshot()
       if (disposed || !snapshot) {
-        if (!disposed) retryTimer = setTimeout(() => void connect(), 3000)
+        if (!disposed && !accessDeniedRef.current) retryTimer = setTimeout(() => void connect(), 3000)
         return
       }
 
@@ -280,12 +300,7 @@ export function useFlowJam(options: {
       if (pollTimer) clearInterval(pollTimer)
       if (patchTimerRef.current) clearTimeout(patchTimerRef.current)
       if (cursorTimerRef.current) clearTimeout(cursorTimerRef.current)
-      const channel = channelRef.current
-      const supabase = supabaseRef.current
-      channelRef.current = null
-      supabaseRef.current = null
-      if (channel && supabase) void supabase.removeChannel(channel)
-      setPeers([])
+      disconnectRealtime()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [enabled, flowId])
