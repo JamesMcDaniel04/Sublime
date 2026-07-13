@@ -17,6 +17,7 @@ import { IntegrationLogo } from '@/components/integrations/integration-logo'
 import { KnowledgePanel } from '@/app/dashboard/knowledge-panel'
 import { SuggestedImprovementBanner } from '@/components/intelligence/suggested-improvement-banner'
 import { cn } from '@/lib/utils'
+import { connectedSlugSet, missingIntegrations } from '@/lib/templates/relevance'
 
 /**
  * The agent configuration form, shared by the config dialog and the dashboard's
@@ -84,6 +85,8 @@ export type AgentDraft = {
   model: string
   priority: string
   integrations: string[]
+  /** Template-declared connections that must be live before Run is enabled. */
+  requiredIntegrations: string[]
   skills: string[]
   icon: string
   folder: string
@@ -141,6 +144,7 @@ const emptyDraft: AgentDraft = {
   model: 'claude-sonnet-5',
   priority: 'medium',
   integrations: [],
+  requiredIntegrations: [],
   skills: [],
   icon: '🤖',
   folder: '',
@@ -458,6 +462,7 @@ export function AgentConfigForm({
       ...source,
       instructions: source.instructions || source.objective || '',
       integrations: source.integrations || [],
+      requiredIntegrations: source.requiredIntegrations || [],
       skills: source.skills || [],
       icon: source.icon || emptyDraft.icon,
       folder: source.folder || '',
@@ -492,6 +497,14 @@ export function AgentConfigForm({
   }
 
   const dirty = JSON.stringify(draft) !== baselineRef.current
+  const connectedIntegrationSlugs = connectedSlugSet([
+    ...(availableIntegrations?.tools ?? []),
+    ...(availableIntegrations?.strataTools ?? []),
+  ])
+  const checkingRequiredIntegrations = (draft.requiredIntegrations?.length ?? 0) > 0 && !availableIntegrations
+  const missingRequiredIntegrations = availableIntegrations
+    ? missingIntegrations(draft.requiredIntegrations ?? [], connectedIntegrationSlugs)
+    : []
 
   const submit = async () => {
     setSaving(true)
@@ -508,6 +521,14 @@ export function AgentConfigForm({
   // to "not catch". A failed save aborts the run (onSave throws on error).
   const runNow = async () => {
     if (!onRunAgent || !editingAgent) return
+    if (checkingRequiredIntegrations) {
+      toast('Checking required tool connections. Try again in a moment.')
+      return
+    }
+    if (missingRequiredIntegrations.length) {
+      toast.error(`Connect ${missingRequiredIntegrations.join(', ')} before running this agent.`)
+      return
+    }
     if (dirty) {
       setSaving(true)
       try {
@@ -1190,11 +1211,19 @@ export function AgentConfigForm({
         </div>
       )}
 
+      {editingAgent && missingRequiredIntegrations.length > 0 && (
+        <div role="alert" className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-950">
+          <p className="font-semibold">Connect required tools before running</p>
+          <p className="mt-0.5">Missing: {missingRequiredIntegrations.join(', ')}</p>
+          <Link href="/integrations" className="mt-1 inline-block font-semibold underline underline-offset-2">Open integrations</Link>
+        </div>
+      )}
+
       <div className="flex gap-2">
         {editingAgent && onRunAgent && (
           <Button
             variant="outline"
-            disabled={saving || runningId === editingAgent.id}
+            disabled={saving || runningId === editingAgent.id || checkingRequiredIntegrations || missingRequiredIntegrations.length > 0}
             onClick={runNow}
             className="shrink-0"
           >

@@ -48,6 +48,7 @@ function combinedAgentSpec(seed: NonNullable<ReturnType<typeof getSeedByKey>>) {
     instructions,
     model: seed.model,
     integrations,
+    requiredIntegrations: seed.requiredIntegrations,
   }
 }
 
@@ -59,7 +60,7 @@ function jsonValue(value: unknown) {
 
 /** Create one AgentTask mirroring POST /api/agents' create shape (an ACTIVE, runnable agent). */
 async function materializeAgent(
-  spec: { title: string; instructions: string; model?: string; integrations: string[]; description?: string },
+  spec: { title: string; instructions: string; model?: string; integrations: string[]; requiredIntegrations?: string[]; description?: string },
   organizationId: string,
   userId: string,
   schedule: AgentSchedule = MANUAL_SCHEDULE,
@@ -85,6 +86,7 @@ async function materializeAgent(
         description,
         model: spec.model ?? DEFAULT_AGENT_MODEL,
         integrations: spec.integrations,
+        requiredIntegrations: spec.requiredIntegrations ?? [],
         skills: [],
         icon: '',
         allowSubagents: false,
@@ -133,7 +135,7 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
   const created: Array<{ id: string; integrations: string[] }> = []
   try {
     for (const spec of specs) {
-      const id = await materializeAgent(spec, organizationId, userId, MANUAL_SCHEDULE)
+      const id = await materializeAgent({ ...spec, requiredIntegrations: seed.requiredIntegrations }, organizationId, userId, MANUAL_SCHEDULE)
       refToId[spec.ref] = id
       created.push({ id, integrations: spec.integrations })
     }

@@ -8,6 +8,8 @@ export type AgentMetadata = {
   description?: string
   model?: string
   integrations?: string[]
+  /** Connections that must be live before this agent may run (set by templates). */
+  requiredIntegrations?: string[]
   skills?: string[]
   icon?: string
   maxTurns?: number
