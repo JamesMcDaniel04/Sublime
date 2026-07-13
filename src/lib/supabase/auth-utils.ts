@@ -17,6 +17,12 @@ type DbUserRow = Awaited<ReturnType<typeof findDbUser>>
 const DB_USER_TTL_MS = 60_000
 const dbUserCache = new Map<string, { row: NonNullable<DbUserRow>; ts: number }>()
 
+/** Settings/member writes call this so role, suspension, and deletion changes
+ * take effect immediately instead of waiting for the one-minute auth TTL. */
+export function invalidateDbUserCache(supabaseId: string): void {
+  dbUserCache.delete(supabaseId)
+}
+
 async function findDbUserCached(supabaseId: string): Promise<DbUserRow> {
   const hit = dbUserCache.get(supabaseId)
   if (hit && Date.now() - hit.ts < DB_USER_TTL_MS) return hit.row
@@ -113,7 +119,20 @@ export async function getAuthWithUser() {
     user = data.user
   }
 
-  const dbUser = (await findDbUserCached(user.id)) ?? (await provisionUser(user))
+  let dbUser = (await findDbUserCached(user.id)) ?? (await provisionUser(user))
+
+  // Supabase applies email changes only after its confirmation flow. Once the
+  // confirmed address appears in the authenticated claims, mirror it into the
+  // application row so profile/member reads do not revert to a stale address.
+  const confirmedEmail = user.email?.trim().toLowerCase()
+  if (dbUser?.organizationId && confirmedEmail && dbUser.email?.toLowerCase() !== confirmedEmail) {
+    dbUser = await prisma.user.update({
+      where: { id: dbUser.id, organizationId: dbUser.organizationId },
+      data: { email: confirmedEmail },
+      include: { organization: true },
+    })
+    dbUserCache.set(user.id, { row: dbUser, ts: Date.now() })
+  }
 
   return {
     user,

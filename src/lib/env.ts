@@ -14,6 +14,10 @@ const REQUIRED_IN_PRODUCTION = [
   'DIRECT_URL',
   'NEXT_PUBLIC_SUPABASE_URL',
   'NEXT_PUBLIC_SUPABASE_ANON_KEY',
+  // Required by workspace invitations, member removal, account deletion, and
+  // global session revocation. Without it those settings actions fail at
+  // request time, so production must fail fast instead.
+  'SUPABASE_SERVICE_ROLE_KEY',
   'ENCRYPTION_KEY',
 ] as const
 

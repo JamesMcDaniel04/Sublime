@@ -36,6 +36,7 @@ const settingsPatchSchema = z.object({
 })
 
 const patchSchema = z.object({
+  name: z.string().trim().min(1).max(100).optional(),
   logoUrl: z
     .string()
     .max(LOGO_MAX_LENGTH, 'Image is too large — please use a smaller file.')
@@ -47,7 +48,7 @@ const patchSchema = z.object({
 
 export const PATCH = withAuthenticatedApi(async (request, auth) => {
   if (auth.dbUser.role !== 'ADMIN') throw new ApiError('Admin access required', 403, 'FORBIDDEN')
-  const { logoUrl, settings } = patchSchema.parse(await request.json())
+  const { name, logoUrl, settings } = patchSchema.parse(await request.json())
 
   let mergedSettings: Record<string, unknown> | undefined
   if (settings) {
@@ -65,6 +66,7 @@ export const PATCH = withAuthenticatedApi(async (request, auth) => {
   const organization = await prisma.organization.update({
     where: { id: auth.organizationId },
     data: {
+      ...(name !== undefined && { name }),
       ...(logoUrl !== undefined && { logoUrl }),
       ...(mergedSettings !== undefined && { settings: mergedSettings }),
     },
