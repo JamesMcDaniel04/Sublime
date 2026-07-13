@@ -8,8 +8,8 @@ import type { Activity, Agent } from '@/lib/types'
  * The dashboard (10s), sidebar (30s), and notification bell (15s) all call
  * getSnapshot() on their own cadences; a freshness window (default 8s) +
  * in-flight dedupe collapse those into ~one network request per cycle for the
- * whole shell instead of six. localStorage persistence gives an instant paint
- * after a reload, then the background refresh replaces it.
+ * whole shell instead of six. The in-memory snapshot gives an instant paint
+ * when returning Home during the signed-in browser session.
  */
 
 export type Snapshot = {
@@ -30,42 +30,19 @@ export class SnapshotError extends Error {
   }
 }
 
-const LS_KEY = 'bs:snapshot'
-const MAX_PERSIST_AGE_MS = 24 * 60 * 60 * 1000
 const DEFAULT_FRESH_MS = 8_000
 
 let cached: { data: Snapshot; ts: number } | null = null
 let inflight: Promise<Snapshot> | null = null
-
-function readPersisted(): { data: Snapshot; ts: number } | null {
-  if (typeof window === 'undefined') return null
-  try {
-    const raw = window.localStorage.getItem(LS_KEY)
-    if (!raw) return null
-    const entry = JSON.parse(raw) as { data: Snapshot; ts: number }
-    if (!entry?.data || typeof entry.ts !== 'number' || Date.now() - entry.ts > MAX_PERSIST_AGE_MS) return null
-    return entry
-  } catch {
-    return null
-  }
-}
-
-function persist(entry: { data: Snapshot; ts: number }) {
-  if (typeof window === 'undefined') return
-  try {
-    window.localStorage.setItem(LS_KEY, JSON.stringify(entry))
-  } catch {
-    // quota errors are non-fatal; the in-memory cache still applies
-  }
-}
+let cacheScope: string | null = null
 
 async function fetchSnapshot(): Promise<Snapshot> {
+  const requestScope = cacheScope
   const res = await fetch('/api/snapshot', { cache: 'no-store' })
   const body = (await res.json().catch(() => ({}))) as Partial<Snapshot> & { error?: string; code?: string }
   if (!res.ok) throw new SnapshotError(body.error || `Snapshot failed (${res.status})`, body.code, res.status)
   const entry = { data: body as Snapshot, ts: Date.now() }
-  cached = entry
-  persist(entry)
+  if (cacheScope === requestScope) cached = entry
   return entry.data
 }
 
@@ -75,14 +52,20 @@ async function fetchSnapshot(): Promise<Snapshot> {
  * callers share one request.
  */
 export async function getSnapshot(maxAgeMs: number = DEFAULT_FRESH_MS): Promise<Snapshot> {
-  cached ??= readPersisted()
   if (cached && Date.now() - cached.ts < maxAgeMs) return cached.data
   inflight ??= fetchSnapshot().finally(() => { inflight = null })
   return inflight
 }
 
-/** Last-seen snapshot (memory → localStorage), for instant first paint. */
+/** Last-seen in-memory snapshot, for instant navigation back to Home. */
 export function peekSnapshot(): Snapshot | null {
-  cached ??= readPersisted()
   return cached?.data ?? null
+}
+
+/** Clear tenant-specific shell data when the authenticated user changes. */
+export function scopeSnapshot(userId: string | null): void {
+  if (cacheScope === userId) return
+  cacheScope = userId
+  cached = null
+  inflight = null
 }

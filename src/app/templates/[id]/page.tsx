@@ -12,6 +12,7 @@ import { HtmlPreview, looksLikeHtml } from '@/components/ui/html-preview'
 import { missingIntegrations, connectedSlugSet } from '@/lib/templates/relevance'
 import { findTemplateForRoute } from '@/lib/templates/route-id'
 import { exampleArtifactHtml } from '@/lib/templates/example-artifact'
+import { getCachedJson } from '@/lib/client/use-cached-json'
 
 type Template = {
   id: string
@@ -90,10 +91,8 @@ export default function TemplateDetails() {
   useEffect(() => {
     setLoading(true)
     setLoadError('')
-    fetch('/api/agent-templates', { cache: 'no-store' })
-      .then(async (response) => {
-        const data = await response.json().catch(() => ({}))
-        if (!response.ok) throw new Error(data.error || 'Could not load templates.')
+    getCachedJson<any>('/api/agent-templates')
+      .then((data) => {
         const match = findTemplateForRoute<Template>(data.templates || [], id)
         if (!match) throw new Error('This template could not be found.')
         setTemplate(match)
@@ -106,8 +105,7 @@ export default function TemplateDetails() {
   }, [id, reloadKey])
 
   useEffect(() => {
-    fetch('/api/integrations/available', { cache: 'no-store' })
-      .then((response) => response.json())
+    getCachedJson<any>('/api/integrations/available', 30_000)
       .then((data) => setConnected(connectedSlugSet(data.tools || [])))
       .catch(() => setConnected(new Set()))
   }, [])

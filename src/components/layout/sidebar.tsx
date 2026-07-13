@@ -27,7 +27,8 @@ import { CommandPalette } from '@/components/search/command-palette'
 import { NotificationBell } from '@/components/notifications/notification-bell'
 import { Button } from '@/components/ui/button'
 import { useAuth } from '@/hooks/use-auth'
-import { getSnapshot } from '@/lib/client/snapshot'
+import { getSnapshot, scopeSnapshot } from '@/lib/client/snapshot'
+import { prefetchCachedJson, scopeCachedJson } from '@/lib/client/use-cached-json'
 import { cn } from '@/lib/utils'
 import type { Agent as AgentType } from '@/lib/types'
 
@@ -113,6 +114,28 @@ export function Sidebar() {
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})
   const [dragOver, setDragOver] = useState<string | null>(null)
   const [runningId, setRunningId] = useState<string | null>(null)
+  const userId = user?.id
+
+  // Warm the destinations users most often visit once authentication settles.
+  // This runs after the current page paints and does not delay login rendering.
+  useEffect(() => {
+    scopeCachedJson(userId ?? null)
+    scopeSnapshot(userId ?? null)
+    if (!userId) return
+    const timer = window.setTimeout(() => {
+      prefetchCachedJson([
+        '/api/agent-templates',
+        '/api/skills',
+        '/api/agents',
+        '/api/flows',
+        '/api/integrations/available',
+        '/api/nango/integrations',
+        '/api/nango/status',
+        '/api/mcp-connections',
+      ])
+    }, 250)
+    return () => window.clearTimeout(timer)
+  }, [userId])
 
   const load = useCallback(async (force = false) => {
     // One shared snapshot (deduped across the dashboard + bell within an ~8s

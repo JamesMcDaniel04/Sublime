@@ -23,6 +23,7 @@ import { IntegrationChip } from '@/components/integrations/integration-chip'
 import { cn } from '@/lib/utils'
 import { PRODUCT_DEPARTMENTS, type Department } from '@/lib/templates/departments'
 import { connectedSlugSet, missingIntegrations, sortByReadiness } from '@/lib/templates/relevance'
+import { getCachedJson, invalidateCachedJson } from '@/lib/client/use-cached-json'
 
 /** Cards per page on the Templates and Skills grids. */
 const PAGE_SIZE = 9
@@ -200,6 +201,7 @@ function ExplorePage() {
       const data = await res.json().catch(() => ({}))
       if (!res.ok) throw new Error(data.error || 'Save failed')
       // Refetch so the new/edited card shows immediately.
+      invalidateCachedJson(url)
       if (dialog.kind === 'template') {
         const list = await fetch('/api/agent-templates', { cache: 'no-store' }).then((r) => r.json())
         setTemplates(list.templates || [])
@@ -221,6 +223,7 @@ function ExplorePage() {
     const url = kind === 'template' ? '/api/agent-templates' : '/api/skills'
     const res = await fetch(url, { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id }) })
     if (res.ok) {
+      invalidateCachedJson(url)
       if (kind === 'template') setTemplates((prev) => prev.filter((t) => t.id !== id))
       else setSkills((prev) => prev.filter((s) => s.id !== id))
       toast.success('Removed')
@@ -235,18 +238,11 @@ function ExplorePage() {
     let cancelled = false
     const load = async () => {
       try {
-        const [templatesRes, skillsRes, agentsRes, integrationsRes] = await Promise.all([
-          fetch('/api/agent-templates', { cache: 'no-store' }),
-          fetch('/api/skills', { cache: 'no-store' }),
-          fetch('/api/agents', { cache: 'no-store' }),
-          fetch('/api/integrations/available', { cache: 'no-store' }),
-        ])
-        if (!templatesRes.ok) throw new Error(`Templates fetch failed: status ${templatesRes.status}`)
         const [templatesData, skillsData, agentsData, integrationsData] = await Promise.all([
-          templatesRes.json(),
-          skillsRes.ok ? skillsRes.json() : { success: false, skills: [] },
-          agentsRes.ok ? agentsRes.json() : { success: false, agents: [] },
-          integrationsRes.ok ? integrationsRes.json() : { success: false, tools: [] },
+          getCachedJson<any>('/api/agent-templates'),
+          getCachedJson<any>('/api/skills'),
+          getCachedJson<any>('/api/agents', 30_000),
+          getCachedJson<any>('/api/integrations/available', 30_000),
         ])
         if (cancelled) return
         setTemplates(templatesData.templates || [])

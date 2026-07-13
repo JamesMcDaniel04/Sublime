@@ -13,7 +13,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { AGENTS_CHANGED_EVENT, notifyAgentsChanged } from '@/components/layout/sidebar'
 import { useAuth } from '@/hooks/use-auth'
-import { getSnapshot, SnapshotError } from '@/lib/client/snapshot'
+import { getSnapshot, peekSnapshot, SnapshotError } from '@/lib/client/snapshot'
 import { cn } from '@/lib/utils'
 
 import type { Agent, Activity } from '@/lib/types'
@@ -46,9 +46,10 @@ function AgentHQ() {
   const { user } = useAuth()
   const router = useRouter()
   const searchParams = useSearchParams()
-  const [agents, setAgents] = useState<Agent[]>([])
-  const [activities, setActivities] = useState<Activity[]>([])
-  const [loading, setLoading] = useState(true)
+  const initialSnapshot = useMemo(() => peekSnapshot(), [])
+  const [agents, setAgents] = useState<Agent[]>(() => initialSnapshot?.agents || [])
+  const [activities, setActivities] = useState<Activity[]>(() => initialSnapshot?.activities || [])
+  const [loading, setLoading] = useState(() => !initialSnapshot)
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null)
   const [configureOpen, setConfigureOpen] = useState(false)
   const [focusRunId, setFocusRunId] = useState<string | null>(null)

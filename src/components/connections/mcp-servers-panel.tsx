@@ -12,6 +12,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { Switch } from '@/components/ui/switch'
 import { useScanExclusions } from '@/lib/client/use-scan-exclusions'
 import { connectionSourceRef } from '@/lib/intelligence/scan-exclusions'
+import { getCachedJson, invalidateCachedJson } from '@/lib/client/use-cached-json'
 
 // ── Auth-badge labels ─────────────────────────────────────────────────────────
 
@@ -37,17 +38,16 @@ function McpServersPanelInner() {
   const [togglingLearningId, setTogglingLearningId] = useState<string | null>(null)
   const { isLearningEnabled, setLearningEnabled } = useScanExclusions()
 
-  const load = useCallback(async () => {
-    const response = await fetch('/api/mcp-connections', { cache: 'no-store' })
-    if (response.ok) {
-      const data = await response.json()
+  const load = useCallback(async (force = false) => {
+    if (force) invalidateCachedJson('/api/mcp-connections')
+    try {
+      const data = await getCachedJson<{ connections?: SerializedConnection[] }>('/api/mcp-connections')
       setConnections(data.connections || [])
       setAuthError(null)
       setAuthStatus(null)
-    } else {
-      const data = await response.json().catch(() => ({}))
-      setAuthStatus(response.status)
-      setAuthError(data.error || `Could not load connections (HTTP ${response.status}).`)
+    } catch (error) {
+      setAuthStatus(null)
+      setAuthError(error instanceof Error ? error.message : 'Could not load connections.')
     }
     setLoading(false)
   }, [])
@@ -96,7 +96,7 @@ function McpServersPanelInner() {
 
     setEditingConnection(null)
     toast.success(editingConnection ? 'Server updated.' : 'Server added.')
-    await load()
+    await load(true)
   }
 
   const toggleActive = async (conn: SerializedConnection) => {
@@ -106,7 +106,7 @@ function McpServersPanelInner() {
       body: JSON.stringify({ id: conn.id, isActive: !conn.isActive }),
     })
     if (response.ok) {
-      await load()
+      await load(true)
     } else {
       toast.error('Failed to update status.')
     }
@@ -122,7 +122,7 @@ function McpServersPanelInner() {
       })
       if (response.ok) {
         toast.success(`"${conn.name}" removed.`)
-        await load()
+        await load(true)
       } else {
         toast.error('Failed to delete.')
       }

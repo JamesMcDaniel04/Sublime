@@ -36,6 +36,7 @@ import { JamButton } from '@/components/flows/jam-button'
 import { useAuth } from '@/hooks/use-auth'
 import type { StepStatus } from '@/components/flows/step-card'
 import { SuggestedImprovementBanner } from '@/components/intelligence/suggested-improvement-banner'
+import { getCachedJson, invalidateCachedJson } from '@/lib/client/use-cached-json'
 
 type Agent = { id: string; title: string }
 
@@ -293,8 +294,8 @@ function FlowBuilder() {
   useEffect(() => {
     let cancelled = false
     Promise.all([
-      fetch('/api/flows', { cache: 'no-store' }).then((r) => r.json()),
-      fetch('/api/agents', { cache: 'no-store' }).then((r) => r.json()),
+      getCachedJson<any>('/api/flows'),
+      getCachedJson<any>('/api/agents', 30_000),
     ])
       .then(([flowsData, agentsData]) => {
         if (cancelled) return
@@ -646,6 +647,7 @@ function FlowBuilder() {
         baseUpdatedAtRef.current = data.flow.updatedAt
         broadcastSaved(data.flow.updatedAt)
       }
+      invalidateCachedJson('/api/flows')
       setSavedSnapshot(JSON.stringify({ name, description, graph, status }))
       return true
     } finally {
@@ -884,6 +886,7 @@ function FlowBuilder() {
     })
     const data = await response.json().catch(() => ({}))
     if (response.ok && data.flow?.id) {
+      invalidateCachedJson('/api/flows')
       toast.success('Flow duplicated.')
       router.push(`/flows/${data.flow.id}`)
     } else {
@@ -922,6 +925,7 @@ function FlowBuilder() {
     })
     const data = await response.json().catch(() => ({}))
     if (response.ok) {
+      invalidateCachedJson('/api/flows')
       toast.success('Flow deleted.')
       router.push('/flows')
     } else {
