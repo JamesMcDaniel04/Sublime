@@ -29,7 +29,7 @@ async function findDbUserCached(supabaseId: string): Promise<DbUserRow> {
 // Self-healing bootstrap: every accepted Supabase identity joins the original
 // workspace. The first-ever identity bootstraps that workspace; all later
 // signups are regular members. Pending invitations still win.
-async function provisionUser(user: User, existing?: NonNullable<DbUserRow>) {
+export async function provisionUser(user: User, existing?: NonNullable<DbUserRow>) {
   const normalizedEmail = user.email?.trim().toLowerCase()
   const meta = (user.user_metadata || {}) as Record<string, unknown>
   const emailPrefix = (user.email || 'user').split('@')[0]
@@ -42,6 +42,15 @@ async function provisionUser(user: User, existing?: NonNullable<DbUserRow>) {
       // Serialize first-workspace creation and concurrent first requests from
       // the same new session. This is transaction-scoped and auto-releases.
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(73194521)`
+
+      // Another API request from the same freshly signed-in browser may have
+      // completed provisioning while this one waited for the lock. Honor that
+      // membership (especially an invitation target) instead of moving it.
+      const current = existing ?? await tx.user.findFirst({
+        where: { supabaseId: user.id, isActive: true },
+        include: { organization: true },
+      })
+      if (current && !needsPrimaryWorkspace(current, user.id)) return current
 
       const invitation = normalizedEmail
         ? await tx.organizationInvitation.findFirst({
@@ -66,12 +75,12 @@ async function provisionUser(user: User, existing?: NonNullable<DbUserRow>) {
             data: { name: orgName, slug: `org-${user.id}` },
           })
       const role = invitation?.role
-        ?? (!primary ? 'ADMIN' : existing?.organizationId === organization.id ? existing.role : 'USER')
+        ?? (!primary ? 'ADMIN' : current?.organizationId === organization.id ? current.role : 'USER')
 
-      const member = existing
+      const member = current
         ? await tx.user.update({
-            where: { id: existing.id },
-            data: { organizationId: organization.id, role, email: normalizedEmail ?? existing.email, name },
+            where: { id: current.id },
+            data: { organizationId: organization.id, role, email: normalizedEmail ?? current.email, name },
             include: { organization: true },
           })
         : await tx.user.create({
@@ -98,7 +107,7 @@ function needsPrimaryWorkspace(row: NonNullable<DbUserRow>, supabaseId: string):
   return !row.organizationId || row.organization?.slug === `org-${supabaseId}`
 }
 
-async function ensureWorkspaceMembership(user: User): Promise<DbUserRow> {
+export async function ensureWorkspaceMembership(user: User): Promise<DbUserRow> {
   const existing = await findDbUserCached(user.id)
   if (existing && !needsPrimaryWorkspace(existing, user.id)) return existing
 

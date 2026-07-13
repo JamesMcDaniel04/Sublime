@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { safeReturnToPath } from '@/lib/auth/redirect'
+import { ensureWorkspaceMembership } from '@/lib/supabase/auth-utils'
 
 const OTP_TYPES = new Set(['signup', 'invite', 'magiclink', 'recovery', 'email_change'])
 
@@ -20,5 +21,7 @@ export async function GET(request: NextRequest) {
   if (result.error) {
     return NextResponse.redirect(new URL('/auth/auth-code-error', request.url))
   }
+  const authenticatedUser = 'data' in result ? result.data?.user : null
+  if (authenticatedUser) await ensureWorkspaceMembership(authenticatedUser)
   return NextResponse.redirect(new URL(next, request.url))
 }
