@@ -49,6 +49,8 @@ model Organization {
   peopleAiConnections PeopleAiConnection[]
   signals             Signal[]
   signalSubscriptions SignalSubscription[]
+  activityEvents      ActivityEvent[]
+  activityBackfills   ActivityBackfill[]
   auditEvents         AuditEvent[]
   approvalRequests    ApprovalRequest[]
   agentMemories       AgentMemory[]
@@ -812,6 +814,78 @@ model SlackProcessedEvent {
   @@unique([bindingId, dedupId])
   @@index([createdAt])
   @@map("slack_processed_events")
+}
+
+/// One normalized business activity from any connected tool. Immutable once
+/// written; the durable record beneath the graph projection (Neo4j retention
+/// prunes nodes — this ledger is what makes the graph rebuildable).
+model ActivityEvent {
+  id             String    @id @default(cuid())
+  organizationId String    @db.Uuid
+  source         String // 'slack' | 'salesforce' | 'github' | ...
+  actorRef       String // provider user id
+  actorName      String?
+  action         String // normalized verb: 'posted_message', 'changed_stage', ...
+  entityType     String // 'message' | 'opportunity' | 'pull_request' | ...
+  entityRef      String // provider entity id
+  entityName     String?
+  previousState  Json?
+  newState       Json?
+  participants   Json      @default("[]") // array of actor refs
+  businessContext Json     @default("{}") // related account/opp/channel/repo refs
+  outcome        String?
+  occurredAt     DateTime // provider timestamp
+  ingestedAt     DateTime  @default(now())
+  ingestKind     String // 'backfill' | 'webhook' | 'sync'
+  // Replay guard, unique PER ORG (a provider id from one tenant must never
+  // dedupe-drop another tenant's event) — same rule as Signal.dedupeKey.
+  dedupeKey      String
+  indexedAt      DateTime? // null until graph indexing succeeds; re-index sweeps nulls
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, dedupeKey])
+  @@index([organizationId, occurredAt])
+  @@index([organizationId, source, action])
+  @@index([organizationId, indexedAt])
+  @@map("activity_events")
+}
+
+/// One historical backfill run for a connected source. Cursor-checkpointed so
+/// a crashed/redeployed job resumes instead of re-reading completed pages.
+model ActivityBackfill {
+  id             String    @id @default(cuid())
+  organizationId String    @db.Uuid
+  source         String
+  connectionRef  String // e.g. SlackWorkspaceConnection.id
+  window         String // '90d' | '1y' | 'all'
+  status         String    @default("pending") // pending | running | partial | done | failed
+  cursor         String?
+  eventsIngested Int       @default(0)
+  error          String?
+  startedAt      DateTime?
+  completedAt    DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, source, connectionRef])
+  @@map("activity_backfills")
+}
+
+/// Atomic idempotency ledger for activity→flow dispatch: one row per
+/// (event, flow) claimed. The unique constraint IS the mechanism — a racing
+/// duplicate hits P2002 and loses (same pattern as SlackProcessedEvent).
+model ActivityTriggerClaim {
+  id        String   @id @default(cuid())
+  eventId   String
+  flowId    String
+  createdAt DateTime @default(now())
+
+  @@unique([eventId, flowId])
+  @@index([createdAt])
+  @@map("activity_trigger_claims")
 }
 
 /// A file uploaded as knowledge for an agent. We store the EXTRACTED TEXT (no
