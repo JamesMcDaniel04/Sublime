@@ -1,13 +1,14 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { ChevronRight, X } from 'lucide-react'
+import { AlertTriangle, ChevronRight, Sparkles, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Markdown } from '@/components/ui/markdown'
 import { TypewriterStatus } from '@/components/ui/typewriter-status'
 import { buildProcessTimeline, processFeedRows, type ProcessFeedRow } from '@/lib/agents/process-feed'
 import type { StepStatus } from './step-card'
+import type { FlowFailureRemediation } from '@/lib/flows/failure-remediation'
 
 export type RunStep = {
   nodeId: string
@@ -237,6 +238,8 @@ export function RunPanel({
   onClose,
   labelForNode,
   onReply,
+  remediation,
+  onRemediate,
 }: {
   runs: { id: string; status: string; startedAt?: string }[]
   selected: FlowRunDetail | null
@@ -244,6 +247,8 @@ export function RunPanel({
   onClose: () => void
   labelForNode: (nodeId: string) => string
   onReply?: (flowRunId: string, reply: string) => Promise<void>
+  remediation?: FlowFailureRemediation | null
+  onRemediate?: (remediation: FlowFailureRemediation) => void
 }) {
   return (
     <div className="flex h-full w-full flex-col border-l border-border bg-card">
@@ -279,6 +284,24 @@ export function RunPanel({
               )}
               {selected.error && <p className="mt-1 text-xs text-red-600">{selected.error}</p>}
             </div>
+            {remediation && (
+              <div className="border-b border-border p-3">
+                <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 dark:border-amber-900/40 dark:bg-amber-950/30">
+                  <div className="flex items-start gap-2">
+                    <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-700" />
+                    <div>
+                      <p className="text-sm font-semibold text-amber-950 dark:text-amber-200">{remediation.title}</p>
+                      <p className="mt-1 text-xs leading-relaxed text-amber-900 dark:text-amber-300">{remediation.summary}</p>
+                    </div>
+                  </div>
+                  {onRemediate && (
+                    <Button variant="outline" size="sm" className="mt-3 w-full bg-background" onClick={() => onRemediate(remediation)}>
+                      <Sparkles className="mr-1.5 h-4 w-4" />{remediation.actionLabel}
+                    </Button>
+                  )}
+                </div>
+              </div>
+            )}
             {selected.status === 'waiting' && selected.waiting && (
               <WaitingBanner key={selected.id} waiting={selected.waiting} runId={selected.id} onReply={onReply} />
             )}

@@ -13,6 +13,7 @@ export const DATA_OP_INPUT_PLACEHOLDER: Record<DataOp, string> = {
   join: 'The list to join',
   csvTable: 'The list of records to turn into a table',
   htmlTable: 'The list of records to turn into a table',
+  slackMessage: 'Aggregated records or text to format for Slack',
   filterArray: 'The list to filter',
   select: 'The list to map',
 }
@@ -24,6 +25,7 @@ export const DATA_OP_HELPER: Record<DataOp, string> = {
   join: 'Combines the list into one text value, with the separator between items.',
   csvTable: 'Builds a CSV table from the list — columns come from the record fields.',
   htmlTable: 'Builds an HTML table from the list — columns come from the record fields.',
+  slackMessage: 'Builds Slack mrkdwn fallback text plus Block Kit sections for a downstream Slack action.',
   filterArray: 'Keeps only the items where every condition passes. Conditions check each item.',
   select: 'Maps every item to a new shape — values can reference fields of the current item.',
 }

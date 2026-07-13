@@ -12,6 +12,7 @@ import { emptyGraph, type FlowGraph, type FlowNode, type OutputField } from '@/l
 import { insertNodeAfter, appendToBranch, duplicateNode, updateNode, deleteNode, changeNodeType, addContainerStep, moveNodeAfter, moveContainerStep, pasteNodeAfter } from '@/lib/flows/mutate'
 import { writeFlowClipboard, readFlowClipboard } from '@/lib/flows/clipboard'
 import { applyCopilotOps, type CopilotOp } from '@/lib/flows/copilot-ops'
+import { remediationForFailedRun, type FlowFailureRemediation } from '@/lib/flows/failure-remediation'
 import { buildDataTree } from '@/lib/flows/datatree'
 import { parseFlowInput } from '@/lib/flows/input'
 import { httpOutputFields, outputFieldsFromJsonSchema } from '@/lib/flows/schema-fields'
@@ -24,7 +25,7 @@ import { FlowCanvas, type FlowInsertSeed } from '@/components/flows/flow-canvas'
 import { startCanvasPan } from '@/components/flows/canvas-pan'
 import { CanvasRail } from '@/components/flows/canvas-rail'
 import type { ToolCatalog } from '@/components/flows/tool-catalog-type'
-import { CopilotPanel } from '@/components/flows/copilot-panel'
+import { CopilotPanel, type CopilotRequest } from '@/components/flows/copilot-panel'
 import { RunPanel, type FlowRunDetail } from '@/components/flows/run-panel'
 import { CheckerPanel } from '@/components/flows/checker-panel'
 import { ResizablePanel } from '@/components/flows/resizable-panel'
@@ -248,6 +249,8 @@ function FlowBuilder() {
   const [testInput, setTestInput] = useState('')
   const [runs, setRuns] = useState<{ id: string; status: string; startedAt?: string }[]>([])
   const [selectedRun, setSelectedRun] = useState<FlowRunDetail | null>(null)
+  const [copilotRequest, setCopilotRequest] = useState<CopilotRequest | null>(null)
+  const surfacedFailureRunRef = useRef<string | null>(null)
   const [toolCatalog, setToolCatalog] = useState<ToolCatalog>([])
   // Serialized snapshot of the last-saved state, for the unsaved-changes dot.
   const [savedSnapshot, setSavedSnapshot] = useState('')
@@ -597,6 +600,35 @@ function FlowBuilder() {
     return map
   }, [validation])
 
+  const runtimeRemediation = useMemo(
+    () => remediationForFailedRun(selectedRun),
+    [selectedRun],
+  )
+
+  useEffect(() => {
+    if (!selectedRun || !runtimeRemediation || surfacedFailureRunRef.current === selectedRun.id) return
+    surfacedFailureRunRef.current = selectedRun.id
+    // A failed run should immediately expose a useful diagnosis instead of a
+    // red status with no next step. The user still chooses whether Copilot may
+    // apply a safe fix.
+    setShowChecker(true)
+  }, [selectedRun, runtimeRemediation])
+
+  const remediateFailure = useCallback((remediation: FlowFailureRemediation) => {
+    if (viewingVersion && remediation.kind !== 'user_action') {
+      toast.error('Close the version view before applying a runtime fix.')
+      return
+    }
+    setCopilotRequest({
+      id: `${selectedRun?.id ?? 'failed-run'}-${Date.now()}`,
+      content: remediation.copilotPrompt,
+      applyOps: remediation.kind !== 'user_action',
+    })
+    setShowCopilot(true)
+    setShowRuns(false)
+    setShowChecker(false)
+  }, [selectedRun, viewingVersion])
+
   const save = useCallback(async (): Promise<boolean> => {
     setSaving(true)
     try {
@@ -775,7 +807,10 @@ function FlowBuilder() {
       const data = await response.json().catch(() => ({}))
       if (!response.ok) toast.error(data.error || 'Run failed.')
       else if (data.run?.status === 'waiting') toast('The flow is waiting for your reply.', { action: { label: 'View', onClick: () => setShowRuns(true) } })
-      else if (data.run?.status === 'failed') toast.error('The flow failed — check the step statuses.')
+      else if (data.run?.status === 'failed') {
+        toast.error('The flow failed — Checker is reviewing the failure.')
+        setShowChecker(true)
+      }
       else toast.success('Flow ran.')
       pollRuns()
     } finally {
@@ -1257,6 +1292,7 @@ function FlowBuilder() {
               onNeedsAttention={(issues) => {
                 if (issues.length) setShowChecker(true)
               }}
+              request={copilotRequest}
             />
           </ResizablePanel>
         )}
@@ -1286,6 +1322,8 @@ function FlowBuilder() {
               onClose={() => setShowRuns(false)}
               labelForNode={labelForNode}
               onReply={replyToRun}
+              remediation={runtimeRemediation}
+              onRemediate={remediateFailure}
             />
           </ResizablePanel>
         )}
@@ -1296,6 +1334,8 @@ function FlowBuilder() {
               validation={validation}
               fixing={fixing}
               onFixWithCopilot={fixWithCopilot}
+              runtimeFailure={runtimeRemediation}
+              onRemediateFailure={remediateFailure}
               onClose={() => setShowChecker(false)}
               onJump={jumpToNode}
             />

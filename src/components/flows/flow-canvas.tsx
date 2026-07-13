@@ -202,7 +202,7 @@ export function FlowCanvas({
   onDuplicateNode?: (id: string) => void
   onDeleteNode?: (id: string) => void
   onBackgroundClick?: () => void
-  onPickTrigger?: (triggerType: 'manual' | 'schedule' | 'webhook' | 'signal') => void
+  onPickTrigger?: (triggerType: 'manual' | 'schedule' | 'webhook' | 'signal' | 'slack') => void
   onMoveAfter?: (nodeId: string, afterId: string) => void
   onReorderContainer?: (containerId: string, from: number, to: number, branchIndex?: number) => void
   onChangeNodeType?: (nodeId: string, type: EditableType) => void

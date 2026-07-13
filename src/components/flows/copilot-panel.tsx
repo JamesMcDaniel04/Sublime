@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
+import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from 'react'
 import { Sparkles, Send, AlertTriangle } from 'lucide-react'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
@@ -20,24 +20,29 @@ type ChatMessage = {
 
 const HISTORY_CAP = 20
 
+export type CopilotRequest = { id: string; content: string; applyOps?: boolean }
+
 export function CopilotPanel({
   graph,
   onGraph,
   onOps,
   onJump,
   onNeedsAttention,
+  request,
 }: {
   graph: FlowGraph
   onGraph: (graph: FlowGraph) => void
   onOps: (ops: CopilotOp[]) => { applied: number; skipped: { reason: string }[] }
   onJump: (nodeId: string) => void
   onNeedsAttention?: (issues: NeedsAttentionItem[]) => void
+  request?: CopilotRequest | null
 }) {
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
   const threadRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
+  const handledRequestRef = useRef<string | null>(null)
   // The graph prop (and the page's onOps closure over it) changes on every
   // edit; refs keep the async send handler reading the latest canvas instead
   // of the render it was created in — otherwise a mid-request manual edit
@@ -53,12 +58,12 @@ export function CopilotPanel({
     threadRef.current?.scrollTo({ top: threadRef.current.scrollHeight, behavior: 'smooth' })
   }, [messages, loading])
 
-  const resizeInput = () => {
+  const resizeInput = useCallback(() => {
     const el = inputRef.current
     if (!el) return
     el.style.height = 'auto'
     el.style.height = `${Math.min(el.scrollHeight, 140)}px`
-  }
+  }, [])
 
   // The one-shot generate path: drafts a whole flow from a description and
   // replaces the canvas. Kept as the empty-canvas quick action.
@@ -93,8 +98,8 @@ export function CopilotPanel({
     }
   }
 
-  const send = async () => {
-    const content = input.trim()
+  const send = useCallback(async (requestedContent?: string, applyChanges = true) => {
+    const content = (requestedContent ?? input).trim()
     if (!content || loading) return
     // Error bubbles stay in the thread for the user, but must not replay to
     // the model as genuine assistant turns.
@@ -110,16 +115,25 @@ export function CopilotPanel({
       })
       const data = await response.json()
       if (response.ok && data.success) {
-        const result = onOpsRef.current((data.ops ?? []) as CopilotOp[])
+        // User-action remediations (credentials, permissions, URLs, missing
+        // business values) are instruction-only. Discard any model-proposed
+        // graph edits even if it ignored that boundary.
+        const candidateOps = (data.ops ?? []) as CopilotOp[]
+        const result = applyChanges
+          ? onOpsRef.current(candidateOps)
+          : { applied: 0, skipped: [] as { reason: string }[] }
         const parts: string[] = []
         if (result.applied > 0) parts.push(`Applied ${result.applied} change${result.applied === 1 ? '' : 's'}`)
         if (result.skipped.length > 0) parts.push(`${result.skipped.length} skipped`)
         const needsAttention = (data.needsAttention ?? []) as NeedsAttentionItem[]
+        const assistantContent = !applyChanges && candidateOps.length > 0
+          ? `${data.message || 'Here is what you need to do.'}\n\nNo graph changes were applied because this fix requires your input.`
+          : data.message || 'Done.'
         setMessages((prev) => [
           ...prev,
           {
             role: 'assistant',
-            content: data.message || 'Done.',
+            content: assistantContent,
             resultLine: parts.length ? parts.join(' · ') : undefined,
             needsAttention: needsAttention.length ? needsAttention : undefined,
           },
@@ -134,14 +148,22 @@ export function CopilotPanel({
       setLoading(false)
       requestAnimationFrame(resizeInput)
     }
-  }
+  }, [input, loading, messages, onNeedsAttention, resizeInput])
+
+  // Runtime Checker can hand a classified failed run directly to Copilot.
+  // The request id makes the handoff exactly-once across graph/message renders.
+  useEffect(() => {
+    if (!request || loading || handledRequestRef.current === request.id) return
+    handledRequestRef.current = request.id
+    void send(request.content, request.applyOps !== false)
+  }, [request, loading, send])
 
   const onInputKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     // Enter during IME composition commits the candidate, not the message.
     if (event.nativeEvent.isComposing) return
     if (event.key === 'Enter' && !event.shiftKey) {
       event.preventDefault()
-      send()
+      void send()
     }
   }
 
@@ -232,7 +254,7 @@ export function CopilotPanel({
             className="max-h-[140px] min-h-[38px] w-full flex-1 resize-none rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-indigo-400 focus:ring-1 focus:ring-indigo-300"
             aria-label="Message the copilot"
           />
-          <Button size="icon" onClick={send} loading={loading} disabled={!input.trim()} aria-label="Send message">
+          <Button size="icon" onClick={() => void send()} loading={loading} disabled={!input.trim()} aria-label="Send message">
             {!loading && <Send className="h-4 w-4" />}
           </Button>
         </div>

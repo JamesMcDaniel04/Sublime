@@ -27,3 +27,22 @@ test('SlackToolClient rejects Slack API failures', async () => {
     /channel_not_found/,
   )
 })
+
+test('SlackToolClient forwards blocks and thread delivery options', async () => {
+  let sent: any
+  const fetchImpl = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+    sent = JSON.parse(String(init?.body))
+    return new Response(JSON.stringify({ ok: true, channel: 'C123', ts: '1.2' }))
+  }) as typeof fetch
+  const client = new SlackToolClient('xoxb-workspace-token', fetchImpl)
+  await client.executeTool('', 'post_message', {
+    channel: 'C123',
+    text: 'Fallback',
+    blocks: [{ type: 'section', text: { type: 'mrkdwn', text: '*Hello*' } }],
+    thread_ts: '1.1',
+    reply_broadcast: true,
+  })
+  assert.equal(sent.thread_ts, '1.1')
+  assert.equal(sent.blocks[0].type, 'section')
+  assert.equal(sent.reply_broadcast, true)
+})
