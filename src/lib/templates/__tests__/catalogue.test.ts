@@ -1,19 +1,31 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { SEED_CATALOGUE, getSeedByKey, serializeSeed } from '../catalogue'
+import { MULTI_TOOL_SEEDS } from '../catalogue-expansion'
 import { flowGraphSchema } from '@/lib/flows/graph'
 import { canonicalIntegrationSlug, departmentsForTools, DEPARTMENTS } from '../departments'
 
 const KNOWN = new Set(DEPARTMENTS)
 const STABLE_TOOL_PLANES = new Set(['nango', 'native', 'template']) // template placeholders bind to per-org Klavis ids at provision time
 
-test('exactly 20 seeds, 4 per department bucket, unique seedKeys', () => {
-  assert.equal(SEED_CATALOGUE.length, 20)
+test('70 seeds, 14 per department bucket, unique seedKeys', () => {
+  assert.equal(SEED_CATALOGUE.length, 70)
   const keys = SEED_CATALOGUE.map((s) => s.seedKey)
-  assert.equal(new Set(keys).size, 20, 'seedKeys must be unique')
+  assert.equal(new Set(keys).size, 70, 'seedKeys must be unique')
   for (const dept of DEPARTMENTS.filter((d) => d !== 'general')) {
     const n = SEED_CATALOGUE.filter((s) => s.departments.includes(dept)).length
-    assert.ok(n >= 4, `${dept} needs >= 4 seeds, got ${n}`)
+    assert.equal(n, 14, `${dept} needs exactly 14 seeds, got ${n}`)
+  }
+})
+
+test('expansion adds exactly 10 multi-tool templates per product department', () => {
+  assert.equal(MULTI_TOOL_SEEDS.length, 50)
+  for (const dept of DEPARTMENTS.filter((d) => d !== 'general')) {
+    assert.equal(MULTI_TOOL_SEEDS.filter((seed) => seed.departments.includes(dept)).length, 10)
+  }
+  for (const seed of MULTI_TOOL_SEEDS) {
+    const tools = new Set([...seed.requiredIntegrations, ...seed.recommendedIntegrations])
+    assert.ok(tools.size >= 3, `${seed.seedKey} must combine at least three tools`)
   }
 })
 

@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { departmentsForTools, canonicalIntegrationSlug, DEPARTMENTS } from '../departments'
+import { departmentsForTools, canonicalIntegrationSlug, DEPARTMENTS, PRODUCT_DEPARTMENTS } from '../departments'
 
 test('anchor tools drive their departments; order follows DEPARTMENTS', () => {
   assert.deepEqual(departmentsForTools(['github']), ['engineering'])
@@ -34,4 +34,8 @@ test('canonicalIntegrationSlug normalizes chip keys/labels/aliases', () => {
 
 test('DEPARTMENTS is the canonical order', () => {
   assert.deepEqual([...DEPARTMENTS], ['sales', 'engineering', 'marketing', 'finance', 'csm', 'general'])
+})
+
+test('product department tabs exclude the general fallback bucket', () => {
+  assert.deepEqual([...PRODUCT_DEPARTMENTS], ['sales', 'engineering', 'marketing', 'finance', 'csm'])
 })

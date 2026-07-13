@@ -21,7 +21,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { IntegrationChip } from '@/components/integrations/integration-chip'
 import { cn } from '@/lib/utils'
-import { DEPARTMENTS, type Department } from '@/lib/templates/departments'
+import { PRODUCT_DEPARTMENTS, type Department } from '@/lib/templates/departments'
 import { connectedSlugSet, missingIntegrations, sortByReadiness } from '@/lib/templates/relevance'
 
 /** Cards per page on the Templates and Skills grids. */
@@ -148,6 +148,8 @@ function ExplorePage() {
   const [aiError, setAiError] = useState<string | null>(null)
   // Card grids cap at 9 per page; each tab pages independently.
   const [templatesPage, setTemplatesPage] = useState(1)
+  const [cataloguePage, setCataloguePage] = useState(1)
+  const [myTemplatesPage, setMyTemplatesPage] = useState(1)
   const [skillsPage, setSkillsPage] = useState(1)
   // Track which skill's dropdown is open
   const [openSkillMenu, setOpenSkillMenu] = useState<string | null>(null)
@@ -294,6 +296,8 @@ function ExplorePage() {
     seeds.filter(inDept).map((t) => ({ ...t, requiredIntegrations: t.requiredIntegrations ?? [] })),
     connected,
   )
+  const cataloguePagination = paginate(catalogueSeeds, cataloguePage, PAGE_SIZE)
+  const myTemplatesPagination = paginate(myTemplates, myTemplatesPage, PAGE_SIZE)
 
   const renderTemplateCard = (t: TemplateItem) => {
     const accent = accentFor(t.category)
@@ -398,21 +402,9 @@ function ExplorePage() {
           <div className={cn('absolute inset-x-0 top-0 h-1 bg-gradient-to-r opacity-80 transition-opacity group-hover:opacity-100', accent.bar)} />
           <CardHeader className="space-y-2.5 pt-5">
             <div className="flex flex-wrap items-center gap-1.5">
-              <Badge variant="outline" className={cn('text-[11px] font-medium', accent.badge)}>{t.category}</Badge>
-              {department && (
-                <Badge variant="outline" className="text-[11px] font-medium text-muted-foreground">{deptLabel(department)}</Badge>
-              )}
-              {missing.length > 0 ? (
-                <Link
-                  href="/integrations"
-                  onClick={(e) => e.stopPropagation()}
-                  className="inline-flex items-center gap-1 rounded-full border border-amber-300 bg-amber-50 px-2 py-0.5 text-[11px] font-semibold text-amber-700 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-300"
-                >
-                  Connect to use
-                </Link>
-              ) : (
-                <Badge variant="outline" className="border-emerald-200 bg-emerald-50 text-emerald-700 text-[11px] dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-300">Ready to run</Badge>
-              )}
+              <Badge variant="outline" className={cn('text-[11px] font-medium', accent.badge)}>
+                {department ? deptLabel(department) : t.category}
+              </Badge>
             </div>
             <div className="flex items-start gap-2.5">
               <span className={cn('flex h-9 w-9 shrink-0 items-center justify-center rounded-lg transition-transform group-hover:scale-105', accent.tile)}>
@@ -456,6 +448,8 @@ function ExplorePage() {
   const onSearch = (value: string) => {
     setSearch(value)
     setTemplatesPage(1)
+    setCataloguePage(1)
+    setMyTemplatesPage(1)
     setSkillsPage(1)
   }
 
@@ -683,8 +677,13 @@ function ExplorePage() {
               <section className="space-y-3">
                 <h3 className="text-sm font-semibold text-muted-foreground">Your library</h3>
                 <div className="stagger-children grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                  {myTemplates.map((t) => renderTemplateCard(t))}
+                  {myTemplatesPagination.pageItems.map((t) => renderTemplateCard(t))}
                 </div>
+                <Pagination
+                  page={myTemplatesPagination.page}
+                  pageCount={myTemplatesPagination.pageCount}
+                  onPageChange={setMyTemplatesPage}
+                />
               </section>
             )}
 
@@ -698,7 +697,7 @@ function ExplorePage() {
                   <div className="flex flex-wrap gap-1.5">
                     <button
                       type="button"
-                      onClick={() => setDept('all')}
+                      onClick={() => { setDept('all'); setCataloguePage(1) }}
                       className={cn(
                         'rounded-full border px-2.5 py-1 text-xs font-medium transition-colors',
                         dept === 'all'
@@ -708,11 +707,11 @@ function ExplorePage() {
                     >
                       All
                     </button>
-                    {DEPARTMENTS.map((d) => (
+                    {PRODUCT_DEPARTMENTS.map((d) => (
                       <button
                         key={d}
                         type="button"
-                        onClick={() => setDept(dept === d ? 'all' : d)}
+                        onClick={() => { setDept(dept === d ? 'all' : d); setCataloguePage(1) }}
                         className={cn(
                           'rounded-full border px-2.5 py-1 text-xs font-medium transition-colors',
                           dept === d
@@ -733,9 +732,14 @@ function ExplorePage() {
                   />
                 ) : (
                   <div className="stagger-children grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                    {catalogueSeeds.map((t) => renderCatalogueCard(t))}
+                    {cataloguePagination.pageItems.map((t) => renderCatalogueCard(t))}
                   </div>
                 )}
+                <Pagination
+                  page={cataloguePagination.page}
+                  pageCount={cataloguePagination.pageCount}
+                  onPageChange={setCataloguePage}
+                />
               </section>
             )}
 

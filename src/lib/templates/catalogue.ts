@@ -1,5 +1,6 @@
 import type { FlowGraph } from '@/lib/flows/graph'
 import type { Department } from './departments'
+import { MULTI_TOOL_SEEDS } from './catalogue-expansion'
 
 export type TemplateAgentSpec = { ref: string; title: string; instructions: string; model?: string; integrations: string[] }
 export type SeedTemplate = {
@@ -24,7 +25,7 @@ const gmailStep = (id: string, to: string, subject: string, bodyTok: string, lab
 const edge = (source: string, target: string) => ({ id: `${source}-${target}`, source, target })
 const schedule = (cron: string) => ({ type: 'schedule' as const, cron, timezone: 'UTC' })
 
-export const SEED_CATALOGUE: SeedTemplate[] = [
+const BASE_SEED_CATALOGUE: SeedTemplate[] = [
   // ───────────────────────── SALES ─────────────────────────
   {
     seedKey: 'sales-new-lead-to-sf-opportunity',
@@ -404,6 +405,8 @@ export const SEED_CATALOGUE: SeedTemplate[] = [
     },
   },
 ]
+
+export const SEED_CATALOGUE: SeedTemplate[] = [...BASE_SEED_CATALOGUE, ...MULTI_TOOL_SEEDS]
 
 export function getSeedByKey(seedKey: string): SeedTemplate | undefined {
   return SEED_CATALOGUE.find((s) => s.seedKey === seedKey)
