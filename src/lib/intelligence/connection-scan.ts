@@ -307,7 +307,7 @@ export async function scanConnection(params: {
     const profile = parseUsageProfile(raw)
     if (!profile) return { skipped: 'no-profile' }
 
-    await indexConnectionScan({ organizationId, plane, connectionRef, connectionName, profile })
+    await indexConnectionScan({ organizationId, ownerUserId: userId, plane, connectionRef, connectionName, profile })
 
     const agentId = await orgIntelligenceAgentId(organizationId)
     for (const process of profile.processes.slice(0, 5)) {

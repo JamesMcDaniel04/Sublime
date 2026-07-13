@@ -64,7 +64,7 @@ export async function buildCopilotGrounding(
     }),
     loadFlowToolCatalog(organizationId, { userId, takeConnections: 25, takeTools: 100 }),
     prisma.flow.findMany({
-      where: { organizationId, status: 'ACTIVE' },
+      where: { organizationId, userId, status: 'ACTIVE' },
       select: { id: true, name: true, graph: true, publishedGraph: true, metadata: true },
       take: 50,
     }),

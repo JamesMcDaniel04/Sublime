@@ -52,6 +52,7 @@ export function signalDepthOf(trigger: unknown): number {
  */
 export async function emitFlowSignal(params: {
   organizationId: string
+  userId?: string
   signal: string
   payload: unknown
   sourceFlowId?: string
@@ -68,7 +69,11 @@ export async function emitFlowSignal(params: {
   }
 
   const flows = await prisma.flow.findMany({
-    where: { organizationId: params.organizationId, status: 'ACTIVE' },
+    where: {
+      organizationId: params.organizationId,
+      ...(params.userId ? { userId: params.userId } : {}),
+      status: 'ACTIVE',
+    },
     take: MAX_FLOWS_PER_EMIT,
   })
 

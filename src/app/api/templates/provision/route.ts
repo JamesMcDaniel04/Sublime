@@ -72,7 +72,7 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
       organizationId,
       userId,
     )
-    await syncAgentConnectors(agentId, organizationId, integrations)
+    await syncAgentConnectors(agentId, organizationId, userId, integrations)
     return { success: true, kind: 'agent' as const, agentId }
   }
 
@@ -110,7 +110,7 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
     // Project connector bindings for each materialized agent. Best-effort and
     // post-create, mirroring the agents route's own sync call.
     await Promise.all(
-      created.map((a) => syncAgentConnectors(a.id, organizationId, a.integrations).catch(() => undefined)),
+      created.map((a) => syncAgentConnectors(a.id, organizationId, userId, a.integrations).catch(() => undefined)),
     )
 
     return { success: true, kind: 'flow' as const, flowId: flow.id }

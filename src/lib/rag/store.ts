@@ -21,7 +21,7 @@ export type NodeType =
   | 'run'
   | 'insight'
 
-/** Who may see a node. 'shared' = the whole org; 'private' = only its owner. */
+/** Legacy storage marker. User-facing retrieval is owner-only. */
 export type NodeVisibility = 'shared' | 'private'
 
 export interface GraphNode {
@@ -45,17 +45,15 @@ export interface GraphNode {
 }
 
 /**
- * The single visibility contract, shared by every store implementation so
- * MemoryGraphStore and Neo4jGraphStore scope identically. A node is visible to
- * `viewerUserId` unless it is private and owned by someone else. Mirrors the
- * Prisma `agentVisibilityScope`/`executionVisibilityScope` row-level rules.
+ * The single owner contract shared by every store implementation. A signed-in
+ * viewer sees only their nodes. A null/system viewer sees only unowned system
+ * nodes. Legacy `shared` markers do not grant cross-user visibility.
  */
 export function nodeVisibleTo(
   node: Pick<GraphNode, 'ownerUserId' | 'visibility'>,
   viewerUserId: string | null,
 ): boolean {
-  if ((node.visibility ?? 'shared') !== 'private') return true
-  return node.ownerUserId != null && node.ownerUserId === viewerUserId
+  return (node.ownerUserId ?? null) === viewerUserId
 }
 
 export type EdgeRelation =

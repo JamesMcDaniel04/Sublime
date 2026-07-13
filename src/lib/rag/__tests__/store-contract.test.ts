@@ -69,7 +69,7 @@ function ownedNode(id: string, ownerUserId: string | null, visibility: 'shared' 
   return { id, organizationId: 'org1', type: 'account', text: id, props: {}, embedding, ownerUserId, visibility }
 }
 
-test('search hides private nodes from non-owners, shows shared to everyone', async () => {
+test('search is owner-only even for legacy shared nodes', async () => {
   const store = new MemoryGraphStore()
   await store.upsertNodes([
     ownedNode('shared', null, 'shared'),
@@ -77,13 +77,13 @@ test('search hides private nodes from non-owners, shows shared to everyone', asy
     ownedNode('repB-private', 'repB', 'private'),
   ])
 
-  // Rep A sees shared + their own private, never rep B's.
+  // Rep A sees only their own nodes, never unowned or rep B's.
   const asA = await store.search('org1', 'repA', [1, 0], 10)
-  assert.deepEqual(asA.map((h) => h.node.id).sort(), ['repA-private', 'shared'])
+  assert.deepEqual(asA.map((h) => h.node.id).sort(), ['repA-private'])
 
   // Rep B symmetric.
   const asB = await store.search('org1', 'repB', [1, 0], 10)
-  assert.deepEqual(asB.map((h) => h.node.id).sort(), ['repB-private', 'shared'])
+  assert.deepEqual(asB.map((h) => h.node.id).sort(), ['repB-private'])
 
   // A null viewer (system/no-user) sees only shared.
   const asNull = await store.search('org1', null, [1, 0], 10)

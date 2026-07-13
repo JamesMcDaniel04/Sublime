@@ -3,7 +3,7 @@ import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import { prisma } from '@/lib/prisma'
 import { ApiError, withAuthenticatedApi } from '@/lib/server/api-handler'
-import { agentVisibilityScope } from '@/lib/server/visibility'
+import { flowVisibilityScope } from '@/lib/server/visibility'
 import { flowGraphSchema } from '@/lib/flows/graph'
 import {
   applyFlowCollaborationPatch,
@@ -33,9 +33,10 @@ function channelTopic(flowId: string, organizationId: string): string {
 
 async function collaborationFlow(id: string, organizationId: string, userId: string) {
   const flow = await prisma.flow.findFirst({
-    where: { id, organizationId, ...agentVisibilityScope(userId) },
+    where: { id, organizationId, ...flowVisibilityScope(userId) },
     select: {
       id: true,
+      userId: true,
       graph: true,
       visibility: true,
       collaborationRevision: true,
@@ -62,6 +63,7 @@ export const GET = withAuthenticatedApi(async (request, auth) => {
     graph: flowGraphSchema.parse(flow.graph),
     revision: flow.collaborationRevision,
     updatedAt: flow.updatedAt.toISOString(),
+    canManageJam: flow.userId === auth.dbUser.id,
   }
 })
 
@@ -110,6 +112,7 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
         id,
         organizationId: auth.organizationId,
         collaborationRevision: flow.collaborationRevision,
+        ...flowVisibilityScope(auth.dbUser.id),
       },
       data: {
         graph: JSON.parse(JSON.stringify(applied.graph)),

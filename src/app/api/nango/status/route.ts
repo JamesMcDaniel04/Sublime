@@ -53,7 +53,7 @@ export const GET = withAuthenticatedApi(async (_request, auth) => {
       })
     ).map((row) => [row.connectionId, { status: row.status }]),
   )
-  const newlyConnected: { connectionId: string; providerConfigKey: string; userId: string | null }[] = []
+  const newlyConnected: { connectionId: string; providerConfigKey: string; userId: string }[] = []
 
   for (const connection of userConnections) {
     seen.push(connection.connection_id)
@@ -90,6 +90,10 @@ export const GET = withAuthenticatedApi(async (_request, auth) => {
         },
       },
       update: {
+        // Bind the mirror to the authenticated connector, not a caller field
+        // or an inherited org owner. The Nango end-user filter above is an
+        // additional upstream consistency check.
+        userId: auth.dbUser.id,
         providerConfigKey: key,
         provider: connection.provider,
         status: connected ? 'connected' : 'error',
@@ -98,7 +102,7 @@ export const GET = withAuthenticatedApi(async (_request, auth) => {
       },
       create: {
         organizationId: auth.organizationId,
-        userId: endUser?.id ?? null,
+        userId: auth.dbUser.id,
         connectionId: connection.connection_id,
         providerConfigKey: key,
         provider: connection.provider,
@@ -109,7 +113,7 @@ export const GET = withAuthenticatedApi(async (_request, auth) => {
     })
 
     if (shouldScanNangoConnection(previousByConnectionId.get(connection.connection_id), connected)) {
-      newlyConnected.push({ connectionId: connection.connection_id, providerConfigKey: key, userId: endUser?.id ?? null })
+      newlyConnected.push({ connectionId: connection.connection_id, providerConfigKey: key, userId: auth.dbUser.id })
     }
   }
 

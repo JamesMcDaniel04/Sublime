@@ -1,7 +1,7 @@
 import { z } from 'zod'
 import { prisma } from '@/lib/prisma'
 import { ApiError, withAuthenticatedApi } from '@/lib/server/api-handler'
-import { agentVisibilityScope } from '@/lib/server/visibility'
+import { agentVisibilityScope, flowVisibilityScope } from '@/lib/server/visibility'
 import { flowGraphSchema, emptyGraph } from '@/lib/flows/graph'
 import { serializeFlow } from '@/lib/flows/serialize'
 import { hasSaveConflict } from '@/lib/flows/save-conflict'
@@ -28,7 +28,7 @@ const flowSchema = z.object({
 export const GET = withAuthenticatedApi(async (_request, auth) => {
   const [flows, counts] = await Promise.all([
     prisma.flow.findMany({
-      where: { organizationId: auth.organizationId, ...agentVisibilityScope(auth.dbUser.id) },
+      where: { organizationId: auth.organizationId, ...flowVisibilityScope(auth.dbUser.id) },
       orderBy: { updatedAt: 'desc' },
       take: 200,
     }),
@@ -38,7 +38,10 @@ export const GET = withAuthenticatedApi(async (_request, auth) => {
   const ready = meetsSuggestionGate(counts)
   return {
     success: true,
-    flows: flows.map(serializeFlow),
+    flows: flows.map((flow) => ({
+      ...serializeFlow(flow),
+      canManageJam: flow.userId === auth.dbUser.id,
+    })),
     // Behavioral-intelligence: drives the flows-page "Suggested for you" rail
     // vs. its below-gate progress copy.
     suggestionReadiness: { ready, totalConnections, connectionsNeeded: ready ? 0 : Math.max(0, 3 - totalConnections) },
@@ -70,7 +73,7 @@ export const PUT = withAuthenticatedApi(async (request, auth) => {
     .merge(flowSchema.partial())
     .parse(await request.json())
   const existing = await prisma.flow.findFirst({
-    where: { id: body.id, organizationId: auth.organizationId, ...agentVisibilityScope(auth.dbUser.id) },
+    where: { id: body.id, organizationId: auth.organizationId, ...flowVisibilityScope(auth.dbUser.id) },
   })
   if (!existing) throw new ApiError('Flow not found', 404, 'NOT_FOUND')
   // Optimistic concurrency: reject a save based on a stale copy instead of
@@ -117,7 +120,7 @@ export const PUT = withAuthenticatedApi(async (request, auth) => {
     )
   }
   const flow = await prisma.flow.findFirst({
-    where: { id: body.id, organizationId: auth.organizationId, ...agentVisibilityScope(auth.dbUser.id) },
+    where: { id: body.id, organizationId: auth.organizationId, ...flowVisibilityScope(auth.dbUser.id) },
   })
   if (!flow) throw new ApiError('Flow not found after save', 404, 'NOT_FOUND')
   return { success: true, flow: serializeFlow(flow) }

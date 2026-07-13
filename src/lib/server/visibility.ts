@@ -16,6 +16,20 @@ export function agentVisibilityScope(userId: string) {
 }
 
 /**
+ * Flow rows remain private by default, but an explicit Flow Jam invitation
+ * grants edit access to that one flow. This is deliberately narrower than the
+ * legacy `visibility: shared` organization-wide scope.
+ */
+export function flowVisibilityScope(userId: string) {
+  return {
+    OR: [
+      { userId },
+      { collaborators: { some: { userId } } },
+    ],
+  }
+}
+
+/**
  * Execution rows are personal even when they were started from a template or
  * have no linked agent. Every normal run creation path records the acting (or
  * scheduled owner) user on AgentExecution.userId.

@@ -1261,6 +1261,7 @@ export async function runAgentExecution(
       .then((signals) =>
         signals.emitFlowSignal({
           organizationId,
+          userId,
           signal: 'agent.completed',
           payload: { agentId: agent.id, executionId: execution.id, summary: summary.slice(0, 2000) },
           depth: 1,

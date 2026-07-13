@@ -5,8 +5,8 @@ import { emitFlowSignal } from '@/features/flows/signals'
 export const runtime = 'nodejs'
 export const maxDuration = 1200
 
-// Signal fan-out endpoint: fires `name` to every ACTIVE, published, listening
-// flow in the caller's org. The request body (if JSON) becomes the payload
+// Signal fan-out endpoint: fires `name` only to the caller's ACTIVE, published,
+// listening flows. The request body (if JSON) becomes the payload
 // each matching flow receives as its run input.
 export const POST = withAuthenticatedApi(async (request: NextRequest, auth) => {
   const name = decodeURIComponent(request.nextUrl.pathname.split('/').at(-1) ?? '')
@@ -14,6 +14,6 @@ export const POST = withAuthenticatedApi(async (request: NextRequest, auth) => {
     throw new ApiError('Signal name must be non-blank and at most 100 characters', 400, 'INVALID_SIGNAL_NAME')
   }
   const payload = await request.json().catch(() => ({}))
-  const result = await emitFlowSignal({ organizationId: auth.organizationId, signal: name, payload })
+  const result = await emitFlowSignal({ organizationId: auth.organizationId, userId: auth.dbUser.id, signal: name, payload })
   return { success: true, matched: result.matched }
 })

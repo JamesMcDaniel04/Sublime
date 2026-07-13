@@ -212,7 +212,7 @@ export async function runFlowExecution(
     ).filter((id): id is string => Boolean(id))))
     const [agents, toolCatalog] = await Promise.all([
       prisma.agentTask.findMany({
-        where: { organizationId: job.organizationId, status: 'ACTIVE' },
+        where: { organizationId: job.organizationId, userId: job.userId, status: 'ACTIVE' },
         select: { id: true, description: true },
         take: 500,
       }),
@@ -836,6 +836,7 @@ export async function runFlowExecution(
       .then((signals) =>
         signals.emitFlowSignal({
           organizationId: job.organizationId,
+          userId: job.userId,
           signal: 'flow.completed',
           payload: { flowId: flow.id, flowName: flow.name, output: result.output },
           sourceFlowId: flow.id,

@@ -17,8 +17,7 @@ WHERE "userId" IS NOT NULL;
 -- workspaces). If no active admin exists they remain inaccessible, which is the
 -- safe failure mode.
 UPDATE "mcp_connections" AS connection
-SET "userId" = owner."id"
-FROM LATERAL (
+SET "userId" = (
   SELECT "id"
   FROM "users"
   WHERE "organizationId" = connection."organizationId"
@@ -26,12 +25,17 @@ FROM LATERAL (
     AND "isActive" = true
   ORDER BY "createdAt" ASC
   LIMIT 1
-) AS owner
-WHERE connection."userId" IS NULL;
+)
+WHERE connection."userId" IS NULL
+  AND EXISTS (
+    SELECT 1 FROM "users"
+    WHERE "organizationId" = connection."organizationId"
+      AND "role" = 'ADMIN'
+      AND "isActive" = true
+  );
 
 UPDATE "nango_connections" AS connection
-SET "userId" = owner."id"
-FROM LATERAL (
+SET "userId" = (
   SELECT "id"
   FROM "users"
   WHERE "organizationId" = connection."organizationId"
@@ -39,8 +43,14 @@ FROM LATERAL (
     AND "isActive" = true
   ORDER BY "createdAt" ASC
   LIMIT 1
-) AS owner
-WHERE connection."userId" IS NULL;
+)
+WHERE connection."userId" IS NULL
+  AND EXISTS (
+    SELECT 1 FROM "users"
+    WHERE "organizationId" = connection."organizationId"
+      AND "role" = 'ADMIN'
+      AND "isActive" = true
+  );
 
 CREATE INDEX IF NOT EXISTS "mcp_connections_organizationId_userId_isActive_idx"
   ON "mcp_connections"("organizationId", "userId", "isActive");

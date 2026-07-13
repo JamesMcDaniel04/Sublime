@@ -360,6 +360,7 @@ export async function indexAgentMemory(params: {
  */
 export async function indexConnectionScan(params: {
   organizationId: string
+  ownerUserId: string
   plane: string
   connectionRef: string
   connectionName: string
@@ -377,7 +378,8 @@ export async function indexConnectionScan(params: {
     const nodes: PendingNode[] = [{
       id: nodeId, type: 'insight', text,
       props: { plane: params.plane, connectionRef: params.connectionRef },
-      visibility: 'shared',
+      ownerUserId: params.ownerUserId,
+      visibility: 'private',
     }]
     await commitGraph(params.organizationId, nodes, [])
   } catch (error) {

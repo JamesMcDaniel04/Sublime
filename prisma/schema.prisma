@@ -59,6 +59,7 @@ model Organization {
   knowledgeDocuments  KnowledgeDocument[]
   sharedSkills        SharedSkill[]
   invitations         OrganizationInvitation[]
+  flowCollaborators   FlowCollaborator[]
   slackWorkspaceConnections SlackWorkspaceConnection[]
   slackThreadSessions       SlackThreadSession[]
 
@@ -91,6 +92,8 @@ model User {
   ownedAgents  AgentTask[]
   peopleAiConnections PeopleAiConnection[]
   mcpConnections      McpConnection[]
+  flowCollaborations  FlowCollaborator[] @relation("FlowCollaboratorUser")
+  flowInvitesSent     FlowCollaborator[] @relation("FlowCollaboratorInviter")
 
   @@index([organizationId])
   @@map("users")
@@ -694,9 +697,30 @@ model Flow {
   organization Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   runs         FlowRun[]
   versions     FlowVersion[]
+  collaborators FlowCollaborator[]
 
   @@index([organizationId, updatedAt])
   @@map("flows")
+}
+
+/// Explicit per-flow edit access. Workspace membership alone never exposes a
+/// personal flow; the owner must invite each collaborator through Flow Jam.
+model FlowCollaborator {
+  id             String   @id @default(cuid())
+  flowId         String
+  organizationId String   @db.Uuid
+  userId         String
+  invitedById    String?
+  createdAt      DateTime @default(now()) @db.Timestamptz(6)
+
+  flow         Flow         @relation(fields: [flowId], references: [id], onDelete: Cascade)
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user         User         @relation("FlowCollaboratorUser", fields: [userId], references: [id], onDelete: Cascade)
+  invitedBy    User?        @relation("FlowCollaboratorInviter", fields: [invitedById], references: [id], onDelete: SetNull)
+
+  @@unique([flowId, userId])
+  @@index([organizationId, userId])
+  @@map("flow_collaborators")
 }
 
 model FlowVersion {
