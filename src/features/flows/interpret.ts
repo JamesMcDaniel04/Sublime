@@ -1,5 +1,6 @@
 import type { FlowGraph, FlowNode, FlowEdge, VariableType } from '@/lib/flows/graph'
 import { resolveTemplate, resolveTemplateValue, asStructured, evalCondition, evalClause, type FlowContext } from './context'
+import { stepLabelsOf } from '@/lib/flows/token-text'
 import { shouldRetryAfterTimeout } from './action-reliability'
 import { structuredResponseInstruction, parseStructuredAgentOutput } from './agent-response'
 import { runDataOp } from '@/lib/flows/data-ops'
@@ -78,6 +79,12 @@ type Opts = {
   webhookInput?: unknown
   /** Builder test mode: begin at this node, with upstream mock outputs in completed. */
   startNodeId?: string
+  // Node-id → display-label map (as the builder derives it, agent titles
+  // included). Threaded onto the context so `{{<Node label>.output...}}`
+  // references resolve. When omitted, the interpreter derives labels from the
+  // graph alone (agent nodes without an explicit label fall back to a generic
+  // name); execute-flow passes the agent-title-enriched map.
+  stepLabels?: Record<string, string>
 }
 
 // Result of executing a single node — an output, or a control signal that
@@ -347,6 +354,9 @@ export async function interpretFlow(graph: FlowGraph, input: unknown, opts: Opts
   // while a loop-body node's path-carrying key safely never matches it.
   const resumeKey = opts.resumeKey ?? opts.resumeNodeId
   const byId = new Map(graph.nodes.map((node) => [node.id, node]))
+  // Constant for the whole run: lets templates reference a step by the label
+  // the builder shows on token chips (see readPath's node-label resolution).
+  const stepLabels = opts.stepLabels ?? stepLabelsOf(graph)
   // Declared variable types: each name's initialize node (anywhere in the
   // graph, container bodies included) governs how later set/increment values
   // are coerced.
@@ -766,7 +776,7 @@ export async function interpretFlow(graph: FlowGraph, input: unknown, opts: Opts
         // past the loop (one flow-global symbol table, MS parity).
         const itemCtx: FlowContext = {
           trigger: ctx.trigger, step: { ...ctx.step }, item, loop: { index, count: items.length },
-          variables: ctx.variables, input: ctx.input,
+          variables: ctx.variables, input: ctx.input, stepLabels: ctx.stepLabels,
           iterationPath: [...(ctx.iterationPath ?? []), index],
           withinThreadedLoop: threaded || ctx.withinThreadedLoop === true,
           ...(threaded ? { thread: { key: node.id, iteration: index } } : {}),
@@ -829,7 +839,7 @@ export async function interpretFlow(graph: FlowGraph, input: unknown, opts: Opts
     if (node.type === 'parallel') {
       const results = await Promise.all(
         node.data.branches.map(async (branch) => {
-          const branchCtx: FlowContext = { trigger: ctx.trigger, step: { ...ctx.step }, item: ctx.item, loop: ctx.loop, variables: ctx.variables, input: ctx.input, iterationPath: ctx.iterationPath, withinThreadedLoop: ctx.withinThreadedLoop === true }
+          const branchCtx: FlowContext = { trigger: ctx.trigger, step: { ...ctx.step }, item: ctx.item, loop: ctx.loop, variables: ctx.variables, input: ctx.input, stepLabels: ctx.stepLabels, iterationPath: ctx.iterationPath, withinThreadedLoop: ctx.withinThreadedLoop === true }
           const res = await execBody(branch, branchCtx)
           return { key: branch[0] ?? node.id, res }
         }),
@@ -849,12 +859,12 @@ export async function interpretFlow(graph: FlowGraph, input: unknown, opts: Opts
     }
 
     if (node.type === 'errorShield') {
-      const bodyCtx: FlowContext = { trigger: ctx.trigger, step: { ...ctx.step }, item: ctx.item, loop: ctx.loop, variables: ctx.variables, input: ctx.input, thread: ctx.thread, iterationPath: ctx.iterationPath, withinThreadedLoop: ctx.withinThreadedLoop === true }
+      const bodyCtx: FlowContext = { trigger: ctx.trigger, step: { ...ctx.step }, item: ctx.item, loop: ctx.loop, variables: ctx.variables, input: ctx.input, stepLabels: ctx.stepLabels, thread: ctx.thread, iterationPath: ctx.iterationPath, withinThreadedLoop: ctx.withinThreadedLoop === true }
       const bodyRes = await execBody(node.data.body, bodyCtx)
       const control = bodyRes.control
       // Only a hard failure is shielded → fallback. pause/stop/drop propagate.
       if (control && control.kind === 'fail') {
-        const fbCtx: FlowContext = { trigger: ctx.trigger, step: { ...ctx.step }, item: ctx.item, loop: ctx.loop, variables: ctx.variables, input: ctx.input, thread: ctx.thread, error: control.error, iterationPath: ctx.iterationPath, withinThreadedLoop: ctx.withinThreadedLoop === true }
+        const fbCtx: FlowContext = { trigger: ctx.trigger, step: { ...ctx.step }, item: ctx.item, loop: ctx.loop, variables: ctx.variables, input: ctx.input, stepLabels: ctx.stepLabels, thread: ctx.thread, error: control.error, iterationPath: ctx.iterationPath, withinThreadedLoop: ctx.withinThreadedLoop === true }
         const fbRes = await execBody(node.data.fallback, fbCtx)
         if (fbRes.control && fbRes.control.kind !== 'drop') {
           // The fallback itself failed/paused/stopped — surface that, unshielded.
@@ -944,7 +954,7 @@ export async function interpretFlow(graph: FlowGraph, input: unknown, opts: Opts
     ),
   )
 
-  const ctx: FlowContext = { trigger: { input }, step: {}, variables: {} }
+  const ctx: FlowContext = { trigger: { input }, step: {}, variables: {}, stepLabels }
 
   // Resume: rebuild the symbol table from EVERY completed variable step before
   // walking. A completed loop/parallel short-circuits without entering its

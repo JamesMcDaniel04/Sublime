@@ -16,6 +16,7 @@ import { recordAudit } from '@/lib/audit'
 import { assertPublicUrl } from '@/lib/net/ssrf'
 import { ApiError } from '@/lib/server/api-handler'
 import { triggerFromGraph, triggerInputFieldsFromTrigger } from '@/lib/flows/trigger'
+import { stepLabelsOf } from '@/lib/flows/token-text'
 import { missingRequiredInputFields } from '@/lib/flows/input-validation'
 import { shouldReuseInput, storedRunInput } from '@/lib/flows/reuse-input'
 import { interpretFlow, type RunAgentFn, type RunActionFn, type RunFlowFn, type RouteAiFn } from './interpret'
@@ -203,6 +204,10 @@ export async function runFlowExecution(
   // failures are handled by the existing failure paths (run marked `failed`)
   // — this rollback must not extend into that phase.
   let graph!: ReturnType<typeof flowGraphSchema.parse>
+  // Node-id → display-label map (agent titles resolved from the loaded agents),
+  // threaded into the interpreter so `{{<Node label>.output...}}` references
+  // resolve to the same label the builder shows on token chips.
+  let stepLabels: Record<string, string> = {}
   try {
     if (resuming) {
       existingRun = await prisma.flowRun.findFirst({ where: { id: job.flowRunId, organizationId: job.organizationId } })
@@ -233,6 +238,7 @@ export async function runFlowExecution(
     if (!validation.ok) {
       throw new ApiError(validationErrorMessage(validation), 400, 'FLOW_VALIDATION_ERROR')
     }
+    stepLabels = stepLabelsOf(graph, agents.map((agent) => ({ id: agent.id, title: agent.description })))
   } catch (error) {
     // The `status: 'running'` guard means we only roll back a claim we
     // ourselves hold — never stomp a reaper's terminal `failed` write.
@@ -801,6 +807,7 @@ export async function runFlowExecution(
     runFlow,
     routeAi,
     onStep,
+    stepLabels,
     // resumeKey names the EXACT paused iteration (see resume-scan.ts) — the
     // interpreter's guards match on it, so dropping it here would silently
     // downgrade every loop resume to the bare-id fallback (reply lost).
@@ -940,8 +947,21 @@ export async function runFlowExecution(
  */
 export async function dispatchFlowExecution(
   job: FlowExecutionJob,
+  opts: { background?: boolean } = {},
 ): Promise<{ flowRunId: string; status: string; output: unknown; error?: string; webhookResponse?: { statusCode: number; headers: Record<string, string>; bodyMode: 'json' | 'text' | 'binary' | 'none'; body?: unknown } } | { queued: true; flowRunId: string }> {
-  if (inlineExecution) return runFlowExecution(job)
+  if (inlineExecution) {
+    // `background` decouples a FRESH run from the caller's request even in inline
+    // mode: the manual builder run must survive the user navigating away, so we
+    // pre-create the row and run detached on this process's event loop instead
+    // of awaiting inside the /execute request (which dies with it). Resumes keep
+    // the awaited path — their atomic waiting→running claim can reject
+    // (FLOW_RUN_NOT_WAITING / approval / time), and that must surface to the
+    // reply UI, not vanish into a detached promise. Queue mode already decouples
+    // every run, so `background` is a no-op there.
+    const resuming = Boolean(job.flowRunId && (job.reply !== undefined || job.resumeReason === 'time'))
+    if (opts.background && !resuming) return runFlowExecutionDetached(job)
+    return runFlowExecution(job)
+  }
   if (!workersEnabled) throw new Error('Flow worker is disabled')
 
   const resuming = Boolean(job.flowRunId && (job.reply !== undefined || job.resumeReason === 'time'))
@@ -974,6 +994,44 @@ export async function dispatchFlowExecution(
       .catch(() => undefined)
     throw error
   }
+  return { queued: true, flowRunId: preCreated.id }
+}
+
+/**
+ * Inline-mode background run: pre-create the FlowRun row (so the caller gets an
+ * id to poll and the run is recorded the instant it starts), then run it
+ * detached so it continues on this process's event loop even after the HTTP
+ * response is sent and the browser navigates away. Mirrors the queue-mode
+ * pre-create + `queuedRunId` adoption path, but without a worker/Redis — so a
+ * single `next dev` keeps flows running in the background.
+ *
+ * Unlike the queue path there is no BullMQ dead-letter to terminalize a job
+ * that throws during setup (bad graph, adoption race), so the `.catch` closes
+ * the pre-created row to `failed` itself — otherwise a setup-time throw would
+ * strand it `running` until the 30-minute reaper. The `status: 'running'` guard
+ * means this never stomps a terminal status the run already wrote.
+ */
+async function runFlowExecutionDetached(job: FlowExecutionJob): Promise<{ queued: true; flowRunId: string }> {
+  const preCreated = await prisma.flowRun.create({
+    data: {
+      flowId: job.flowId,
+      status: 'running',
+      input: jsonValue({ prompt: job.input ?? '' }),
+      trigger: jsonValue(job.trigger ?? { type: 'manual' }),
+      organizationId: job.organizationId,
+      userId: job.userId,
+    },
+  })
+  void runFlowExecution({ ...job, queuedRunId: preCreated.id }).catch(async (error) => {
+    const message = error instanceof Error ? error.message : String(error)
+    await prisma.flowRun
+      .updateMany({
+        where: { id: preCreated.id, organizationId: job.organizationId, status: 'running' },
+        data: { status: 'failed', error: (message || 'The flow run failed to start.').slice(0, 300), finishedAt: new Date() },
+      })
+      .catch(() => undefined)
+    apiLogger.error('detached flow run failed', { flowRunId: preCreated.id, error: message })
+  })
   return { queued: true, flowRunId: preCreated.id }
 }
 

@@ -14,3 +14,9 @@ test('does not trip on markdown or prose with stray tags', () => {
   assert.equal(looksLikeHtml('a < b and b > c'), false)
   assert.equal(looksLikeHtml(''), false)
 })
+
+test('detects the advertised artifact by its <main> root, regardless of inner sections', () => {
+  // The rich artifact always begins with `<main class="artifact …">`; detection
+  // must not hinge on which inner sections (section/table/…) are present.
+  assert.equal(looksLikeHtml('<main class="artifact theme-sales"><header class="hero"><span>🎯</span></header></main>'), true)
+})

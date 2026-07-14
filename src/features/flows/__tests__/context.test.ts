@@ -109,3 +109,48 @@ test('safe expressions transform values without executing JavaScript', () => {
   assert.equal(resolveTemplateValue('{{= coalesce(step.missing.output, "fallback") }}', ctx), 'fallback')
   assert.equal(resolveTemplateValue('{{= process.exit() }}', ctx), '')
 })
+
+// A node's friendly label (what the builder shows on token chips) resolves to
+// that node's output, so a hand-typed `{{Previous Agent.output.message}}`
+// works the same as the id-keyed `{{step.<id>.output.message}}` the picker
+// inserts. stepLabels is the run's node-id → display-label map.
+const labelCtx: FlowContext = {
+  trigger: { input: '' },
+  step: { n7: { output: { message: 'Hello from the agent' } }, n8: { output: 'plain text' } },
+  stepLabels: { n7: 'Previous Agent', n8: 'Draft Step' },
+}
+
+test('readPath resolves a node-label root to that step output', () => {
+  assert.equal(readPath(labelCtx, 'Previous Agent.output.message'), 'Hello from the agent')
+  assert.deepEqual(readPath(labelCtx, 'Previous Agent.output'), { message: 'Hello from the agent' })
+  assert.equal(readPath(labelCtx, 'Draft Step.output'), 'plain text')
+})
+
+test('node-label resolution is case-insensitive and trims padding', () => {
+  assert.equal(readPath(labelCtx, 'previous agent.output.message'), 'Hello from the agent')
+  assert.equal(readPath(labelCtx, ' Previous Agent .output.message'), 'Hello from the agent')
+})
+
+test('reserved roots are never shadowed by a node label', () => {
+  const c: FlowContext = {
+    trigger: { input: 'real trigger' },
+    step: { n1: { output: 'step out' } },
+    stepLabels: { n1: 'trigger' }, // a node the user labeled "trigger"
+  }
+  // `{{trigger.input}}` must still read the real trigger, not the node.
+  assert.equal(readPath(c, 'trigger.input'), 'real trigger')
+})
+
+test('an unresolvable label yields empty, id-keyed tokens still work', () => {
+  assert.equal(resolveTemplate('{{Nonexistent Node.output}}', labelCtx), '')
+  // Backward compatibility: the canonical id-keyed form is unaffected.
+  assert.equal(readPath(labelCtx, 'step.n7.output.message'), 'Hello from the agent')
+})
+
+test('the Slack-node JSON arg case: exact label token resolves in-place', () => {
+  // The tool node JSON.parses its args, then resolveTemplateValue walks them.
+  assert.deepEqual(
+    resolveTemplateValue({ query: '{{Previous Agent.output.message}}' }, labelCtx),
+    { query: 'Hello from the agent' },
+  )
+})

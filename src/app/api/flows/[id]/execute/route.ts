@@ -64,8 +64,11 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
       if (waiting?.kind === 'time') throw new ApiError('This run is waiting for its scheduled resume time.', 400, 'FLOW_RUN_AWAITING_TIME')
     }
   }
-  // Inline mode returns the terminal result; queue mode returns immediately
-  // with the (pre-created or resumed) run id and the run panel polls it.
+  // `background: true` decouples a fresh manual run from THIS request so it
+  // keeps running when the user navigates away from the builder (queue mode
+  // already does this; inline mode now pre-creates the row and runs detached).
+  // Both modes then return immediately with the run id and the panel polls it;
+  // a resume (flowRunId + reply) still runs awaited so its claim errors surface.
   const result = await dispatchFlowExecution({
     flowId: id,
     organizationId: auth.organizationId,
@@ -75,7 +78,7 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
     reply: parsed.reply,
     startNodeId: parsed.startNodeId,
     mockOutputs: parsed.mockOutputs,
-  })
+  }, { background: true })
   const run = 'queued' in result ? { flowRunId: result.flowRunId, status: 'queued', output: null } : result
   return { success: true, run }
 })

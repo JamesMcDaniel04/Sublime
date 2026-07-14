@@ -47,7 +47,7 @@ function urlBase64ToUint8Array(base64String: string) {
   return out
 }
 
-export function NotificationBell() {
+export function NotificationBell({ buttonClassName }: { buttonClassName?: string } = {}) {
   const [open, setOpen] = useState(false)
   const [items, setItems] = useState<NotificationItem[]>([])
   const [unread, setUnread] = useState(0)
@@ -147,7 +147,7 @@ export function NotificationBell() {
       <Button
         variant="outline"
         size="icon"
-        className="relative h-9 w-9 shrink-0"
+        className={cn("relative h-9 w-9 shrink-0", buttonClassName)}
         aria-label="Notifications"
         onClick={() => { setOpen((o) => !o); if (!open) markRead() }}
       >

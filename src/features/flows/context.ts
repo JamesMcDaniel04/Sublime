@@ -39,6 +39,12 @@ export type FlowContext = {
   // container inside a threaded loop is never hijacked by an unrelated
   // Slack-continuation run. Absent (falsy) outside any threaded loop.
   withinThreadedLoop?: boolean
+  // Node-id → friendly display label (as `stepLabelsOf` derives it, matching
+  // the builder). Lets a template reference a step by the label the UI shows
+  // on token chips — `{{Previous Agent.output.message}}` — instead of only the
+  // id-keyed `{{step.<id>.output.message}}` the picker inserts. Absent means
+  // label references simply don't resolve (id-keyed tokens are unaffected).
+  stepLabels?: Record<string, string>
 }
 
 /** Read a dot-path off the context (e.g. 'trigger.input', 'step.n1.output.score', 'item'). */
@@ -54,12 +60,42 @@ export function readPath(ctx: FlowContext, path: string): unknown {
     }
     return cursor
   }
+  // Node-label root: the builder shows a step's friendly label on token chips,
+  // so users hand-write `{{Previous Agent.output.message}}` instead of the
+  // id-keyed form the picker inserts. Resolve a leading label to its step when
+  // it isn't already a real context root (reserved roots — trigger/step/item/…
+  // — always win) and the label belongs to a step that has actually run. The
+  // remaining parts then walk the step wrapper exactly like `step.<id>` would,
+  // so `<Label>.output.<field>` mirrors `step.<id>.output.<field>`.
+  const labeled = resolveLabelRoot(ctx, parts[0])
+  if (labeled) {
+    let cursor: unknown = ctx.step[labeled]
+    for (const part of parts.slice(1)) {
+      if (cursor == null || typeof cursor !== 'object') return undefined
+      cursor = (cursor as Record<string, unknown>)[part]
+    }
+    return cursor
+  }
   let cursor: unknown = ctx
   for (const part of parts) {
     if (cursor == null || typeof cursor !== 'object') return undefined
     cursor = (cursor as Record<string, unknown>)[part]
   }
   return cursor
+}
+
+/**
+ * Map a leading path segment that is a step's display label to that step's id,
+ * or undefined when it is a reserved context root, an unknown label, or a step
+ * that hasn't run. Matching trims and lower-cases so chip padding / casing
+ * never breaks a reference. Scoped to `ctx.step` (executed steps) so a label
+ * only resolves to output that exists and collisions favor a real result.
+ */
+function resolveLabelRoot(ctx: FlowContext, root: string): string | undefined {
+  if (!ctx.stepLabels || root in ctx) return undefined
+  const target = root.trim().toLowerCase()
+  if (!target) return undefined
+  return Object.keys(ctx.step).find((nodeId) => (ctx.stepLabels?.[nodeId] ?? '').trim().toLowerCase() === target)
 }
 
 /**

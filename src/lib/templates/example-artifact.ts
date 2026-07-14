@@ -7,6 +7,14 @@ type ArtifactTemplate = {
 }
 
 /**
+ * Stable marker at the head of the artifact contract. The agent system prompt
+ * detects it to know a run should emit the rich HTML artifact (and to suppress
+ * the Markdown-only formatting directive that would otherwise override it).
+ * Sharing one constant keeps the contract text and that detection in lockstep.
+ */
+export const ARTIFACT_CONTRACT_MARKER = 'Final artifact contract'
+
+/**
  * The executable counterpart to the rendered preview. Keeping this beside the
  * preview generator prevents catalogue instructions and example artifacts from
  * drifting into two different products.
@@ -15,7 +23,7 @@ export function artifactOutputContract(template: ArtifactTemplate): string {
   const department = template.departments?.[0]?.toLowerCase() || 'sales'
   const data = content[department] ?? content.sales
   const metricLabels = data.metrics.map(([, , label]) => label).join(', ')
-  return `Final artifact contract (match the Output Example)
+  return `${ARTIFACT_CONTRACT_MARKER} (match the Output Example)
 The final response must be the finished artifact—not a description of the work, a setup checklist, or a terse status update. Use current values from connected sources in place of the sample values shown in the catalogue preview.
 
 When the agent response is rendered in Sublime or another HTML-capable destination, return one complete semantic HTML fragment using this exact component structure and class names:

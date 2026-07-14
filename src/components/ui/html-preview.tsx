@@ -9,7 +9,7 @@ import { cn } from '@/lib/utils'
  * than prose with an occasional inline tag (e.g. a lone `<br>`). Kept
  * conservative on purpose: markdown output must never trip this.
  */
-const STRUCTURAL_TAGS = ['!doctype', 'html', 'table', 'div', 'p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'ul', 'ol', 'section', 'body']
+const STRUCTURAL_TAGS = ['!doctype', 'html', 'table', 'div', 'p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'ul', 'ol', 'section', 'main', 'body']
 const LEADING_TAG_PATTERN = new RegExp(`<(${STRUCTURAL_TAGS.join('|')})\\b`, 'i')
 // `!doctype` has no closing tag, so the paired-tag fallback below excludes it.
 const PAIRABLE_TAGS = STRUCTURAL_TAGS.filter((tag) => tag !== '!doctype')

@@ -309,9 +309,9 @@ export function Sidebar() {
       key={agent.id}
       draggable
       onDragStart={(event) => event.dataTransfer.setData('text/agent-id', agent.id)}
-      className="group flex cursor-grab items-center gap-2 rounded-lg px-2 py-1.5 transition-colors duration-fast hover:bg-gray-100 active:cursor-grabbing"
+      className="group flex cursor-grab items-center gap-2 rounded-lg px-2 py-1.5 text-[#C0D5D5] transition-colors duration-fast hover:bg-white/10 hover:text-white active:cursor-grabbing"
     >
-      <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md bg-graphite-100 text-[11px] font-semibold uppercase leading-none text-graphite-700">
+      <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md bg-white/10 text-[11px] font-semibold uppercase leading-none text-[#FFD6C4]">
         {agent.icon || agent.title.trim().charAt(0) || 'A'}
       </span>
       <button
@@ -322,10 +322,10 @@ export function Sidebar() {
         {agent.title}
       </button>
       <div className="hidden gap-0.5 group-hover:flex">
-        <Button size="icon" variant="ghost" className="h-6 w-6" disabled={runningId === agent.id} onClick={() => runAgent(agent)} aria-label="Run agent">
+        <Button size="icon" variant="ghost" className="h-6 w-6 text-white hover:bg-white/10 hover:text-white" disabled={runningId === agent.id} onClick={() => runAgent(agent)} aria-label="Run agent">
           {runningId === agent.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <Play className="h-3 w-3" />}
         </Button>
-        <Button size="icon" variant="ghost" className="h-6 w-6 text-red-600" onClick={() => deleteAgent(agent)} aria-label="Delete agent">
+        <Button size="icon" variant="ghost" className="h-6 w-6 text-[#FFB08D] hover:bg-white/10 hover:text-[#FFD6C4]" onClick={() => deleteAgent(agent)} aria-label="Delete agent">
           <Trash2 className="h-3 w-3" />
         </Button>
       </div>
@@ -335,11 +335,11 @@ export function Sidebar() {
   return (
     <>
       {mobileOpen && (
-        <div className="fixed inset-0 z-40 bg-black bg-opacity-50 lg:hidden" onClick={() => setMobileOpen(false)} />
+        <div className="fixed inset-0 z-40 bg-[#062F33]/60 backdrop-blur-sm lg:hidden" onClick={() => setMobileOpen(false)} />
       )}
 
       <div className="fixed left-4 top-4 z-50 lg:hidden">
-        <Button variant="outline" size="icon" onClick={() => setMobileOpen(true)} className="bg-white shadow-md" aria-label="Open navigation">
+        <Button variant="outline" size="icon" onClick={() => setMobileOpen(true)} className="border-[#062F33]/10 bg-white text-[#062F33] shadow-brand" aria-label="Open navigation">
           <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
           </svg>
@@ -348,14 +348,14 @@ export function Sidebar() {
 
       <div
         className={cn(
-          'fixed inset-y-0 left-0 z-50 flex w-72 flex-col border-r bg-gray-50 transition-transform duration-200 lg:relative lg:translate-x-0',
+          'fixed inset-y-0 left-0 z-50 flex w-72 flex-col border-r border-white/10 bg-gradient-sublime text-white shadow-[12px_0_40px_rgba(6,47,51,0.08)] transition-transform duration-200 lg:relative lg:translate-x-0',
           mobileOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0',
         )}
       >
         {/* Org switcher */}
-        <div className="relative border-b p-3">
+        <div className="relative border-b border-white/10 p-3">
           <button
-            className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 transition-colors duration-fast hover:bg-gray-100"
+            className="flex w-full items-center gap-2 rounded-xl px-2 py-1.5 transition-colors duration-fast hover:bg-white/10"
             onClick={() => setOrgMenuOpen((open) => !open)}
             aria-label={`Workspace: ${activeOrg?.name || 'Workspace'}`}
           >
@@ -363,15 +363,15 @@ export function Sidebar() {
             <img
               src={activeOrg?.logoUrl || DEFAULT_ORG_LOGO}
               alt=""
-              className="h-8 w-8 rounded-lg object-cover"
+              className="h-8 w-8 rounded-lg bg-white object-cover p-0.5 shadow-2 ring-1 ring-white/20"
             />
             <span className="flex-1 truncate text-left text-sm font-semibold">{activeOrg?.name || 'Workspace'}</span>
-            <ChevronsUpDown className="h-4 w-4 text-gray-400" />
+            <ChevronsUpDown className="h-4 w-4 text-[#9DC9C2]" />
           </button>
           {orgMenuOpen && (
             <>
               <div className="fixed inset-0 z-10" onClick={() => setOrgMenuOpen(false)} />
-              <div className="absolute left-3 right-3 z-20 mt-1 origin-top animate-scale-in rounded-lg border bg-white p-1 shadow-popover">
+              <div className="absolute left-3 right-3 z-20 mt-1 origin-top animate-scale-in rounded-xl border bg-white p-1 text-[#062F33] shadow-popover">
                 {organizations.map((org) => (
                   <button
                     key={org.id}
@@ -428,14 +428,14 @@ export function Sidebar() {
 
           <div className="mt-2 flex items-center gap-2">
             <button
-              className="flex flex-1 items-center gap-2 rounded-lg border bg-white px-2.5 py-1.5 text-sm text-gray-400 transition-colors duration-fast hover:border-graphite-300 hover:text-gray-600"
+              className="flex flex-1 items-center gap-2 rounded-full border border-white/15 bg-white/10 px-3 py-1.5 text-sm text-[#B9D3D2] transition-colors duration-fast hover:border-white/30 hover:bg-white/15 hover:text-white"
               onClick={() => setPaletteOpen(true)}
             >
               <Search className="h-3.5 w-3.5" />
               <span className="flex-1 text-left">Search</span>
-              <kbd className="rounded border bg-gray-50 px-1.5 py-0.5 text-[10px]">⌘K</kbd>
+              <kbd className="rounded border border-white/10 bg-white/10 px-1.5 py-0.5 text-[10px] text-[#9DC9C2]">⌘K</kbd>
             </button>
-            <NotificationBell />
+            <NotificationBell buttonClassName="border-white/15 bg-white/10 text-white hover:border-white/30 hover:bg-white/15 hover:text-white" />
           </div>
         </div>
 
@@ -450,10 +450,10 @@ export function Sidebar() {
                   href={item.href}
                   className={cn(
                     'flex items-center gap-2.5 rounded-lg px-2 py-1.5 text-sm font-medium transition-colors duration-fast',
-                    isActive ? 'bg-indigo-50 text-indigo-700' : 'text-gray-700 hover:bg-gray-100 hover:text-gray-900',
+                    isActive ? 'bg-[#FFF0E8] text-[#062F33] shadow-2' : 'text-[#C0D5D5] hover:bg-white/10 hover:text-white',
                   )}
                 >
-                  <item.icon className={cn('h-4 w-4', isActive ? 'text-indigo-600' : 'text-gray-400')} />
+                  <item.icon className={cn('h-4 w-4', isActive ? 'text-[#E95725]' : 'text-[#7DACA8]')} />
                   {item.name}
                 </Link>
               )
@@ -463,15 +463,15 @@ export function Sidebar() {
           <div
             className={cn(
               'flex items-center justify-between rounded-lg px-2 pb-1 pt-3',
-              dragOver === 'workspace' && 'bg-indigo-50',
+              dragOver === 'workspace' && 'bg-white/10',
             )}
             {...dropProps('workspace', { folder: null, visibility: 'shared' })}
           >
-            <span className="text-xs font-semibold uppercase tracking-wide text-gray-400">Workspace</span>
+            <span className="font-mono text-[11px] font-bold uppercase tracking-wider text-[#7DACA8]">Workspace</span>
             <Button
               size="icon"
               variant="ghost"
-              className="h-5 w-5"
+              className="h-5 w-5 text-[#B9D3D2] hover:bg-white/10 hover:text-white"
               onClick={() => router.push('/dashboard?agent=new')}
               aria-label="New agent"
             >
@@ -486,47 +486,47 @@ export function Sidebar() {
               <div key={key} className="mb-0.5">
                 <button
                   className={cn(
-                    'flex w-full items-center gap-1.5 rounded-lg px-2 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-100',
-                    dragOver === key && 'bg-indigo-50',
+                    'flex w-full items-center gap-1.5 rounded-lg px-2 py-1.5 text-sm font-medium text-[#C0D5D5] hover:bg-white/10 hover:text-white',
+                    dragOver === key && 'bg-white/10',
                   )}
                   onClick={() => setCollapsed((current) => ({ ...current, [key]: !current[key] }))}
                   {...dropProps(key, { folder: isGeneral ? null : folder, visibility: 'shared' })}
                 >
                   {isCollapsed ? <ChevronRight className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
-                  <Folder className="h-3.5 w-3.5 text-gray-400" />
+                  <Folder className="h-3.5 w-3.5 text-[#7DACA8]" />
                   <span className="flex-1 truncate text-left">{folder}</span>
-                  <span className="text-xs text-gray-400">{folderAgents.length}</span>
+                  <span className="text-xs text-[#7DACA8]">{folderAgents.length}</span>
                 </button>
-                {!isCollapsed && <div className="ml-3 border-l pl-1">{folderAgents.map(renderAgent)}</div>}
+                {!isCollapsed && <div className="ml-3 border-l border-white/10 pl-1">{folderAgents.map(renderAgent)}</div>}
               </div>
             )
           })}
 
           <div
             className={cn(
-              'flex items-center gap-1.5 rounded-lg px-2 pb-1 pt-3 text-xs font-semibold uppercase tracking-wide text-gray-400',
-              dragOver === 'private' && 'bg-indigo-50',
+              'flex items-center gap-1.5 rounded-lg px-2 pb-1 pt-3 font-mono text-[11px] font-bold uppercase tracking-wider text-[#7DACA8]',
+              dragOver === 'private' && 'bg-white/10',
             )}
             {...dropProps('private', { folder: null, visibility: 'private' })}
           >
             <Lock className="h-3 w-3" /> Private
           </div>
           {sections.private.length > 0
-            ? <div className="ml-3 border-l pl-1">{sections.private.map(renderAgent)}</div>
-            : <p className="px-2 py-1 text-xs text-gray-400">Drag agents here to make them private.</p>}
+            ? <div className="ml-3 border-l border-white/10 pl-1">{sections.private.map(renderAgent)}</div>
+            : <p className="px-2 py-1 text-xs text-[#7DACA8]">Drag agents here to make them private.</p>}
         </div>
 
         {/* Footer: usage + user */}
-        <div className="border-t p-3">
+        <div className="border-t border-white/10 p-3">
           {usage && (
             <div className="mb-2 px-1">
-              <div className="mb-1 flex justify-between text-xs text-gray-500">
+              <div className="mb-1 flex justify-between text-xs text-[#9DC9C2]">
                 <span>Usage this month</span>
                 <span>{usage.exempt ? 'Unlimited' : `${creditPct}% of credits`}</span>
               </div>
               {!usage.exempt && (
-                <div className="h-1.5 overflow-hidden rounded-full bg-gray-200">
-                  <div className="h-full rounded-full bg-indigo-500 transition-[width] duration-slow ease-out-quart" style={{ width: `${creditPct}%` }} />
+                <div className="h-1.5 overflow-hidden rounded-full bg-white/10">
+                  <div className="h-full rounded-full bg-[#FF6B35] transition-[width] duration-slow ease-out-quart" style={{ width: `${creditPct}%` }} />
                 </div>
               )}
             </div>
@@ -536,19 +536,19 @@ export function Sidebar() {
             href="/settings"
             aria-label="Open settings"
             className={cn(
-              'flex items-center gap-2 rounded-lg px-1 py-1 transition-colors hover:bg-gray-100',
-              pathname.startsWith('/settings') && 'bg-gray-100',
+              'flex items-center gap-2 rounded-xl px-1 py-1 transition-colors hover:bg-white/10',
+              pathname.startsWith('/settings') && 'bg-white/10',
             )}
           >
-            <div className="flex h-8 w-8 items-center justify-center rounded-full bg-gray-200 text-xs font-semibold text-gray-600">
+            <div className="flex h-8 w-8 items-center justify-center rounded-full bg-[#FFF0E8] text-xs font-semibold text-[#BE3F18]">
               {(user?.firstName || 'U').charAt(0).toUpperCase()}
             </div>
             <div className="min-w-0 flex-1">
               <div className="truncate text-sm font-medium">{user?.firstName || 'Account'}</div>
-              <div className="truncate text-xs text-gray-400">{user?.emailAddress}</div>
+              <div className="truncate text-xs text-[#7DACA8]">{user?.emailAddress}</div>
             </div>
             {activeOrg && (
-              <span className="rounded-full bg-gray-200 px-2 py-0.5 text-xs text-gray-600">{planLabel(activeOrg.plan)}</span>
+              <span className="rounded-full bg-white/10 px-2 py-0.5 text-xs text-[#B9D3D2]">{planLabel(activeOrg.plan)}</span>
             )}
           </Link>
         </div>

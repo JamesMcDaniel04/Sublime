@@ -741,6 +741,30 @@ function FlowBuilder() {
     tick()
   }, [id])
 
+  // Re-attach to a background run when the builder (re)mounts. A run started
+  // here keeps executing server-side regardless of this page's lifetime, so
+  // navigating away and back must reconnect the UI to it rather than show an
+  // empty panel: load recent runs so history is visible immediately, and if the
+  // latest run is still in flight, reopen the run panel and resume live polling.
+  // Runs once per mount; a `?run=` deep-link owns selection when present.
+  const reattachedRun = useRef(false)
+  useEffect(() => {
+    if (reattachedRun.current) return
+    reattachedRun.current = true
+    fetch(`/api/flows/${id}/runs?take=20`, { cache: 'no-store' })
+      .then((r) => r.json())
+      .then((data) => {
+        if (!data?.runs) return
+        setRuns((data.runs as FlowRunDetail[]).map((r) => ({ id: r.id, status: r.status, startedAt: r.startedAt })))
+        const latest = data.latest as FlowRunDetail | null
+        if (latest && (latest.status === 'running' || latest.status === 'waiting') && !searchParams.get('run')) {
+          setShowRuns(true)
+          pollRuns()
+        }
+      })
+      .catch(() => undefined)
+  }, [id, searchParams, pollRuns])
+
   const selectRun = useCallback(
     async (runId: string) => {
       pinnedRunId.current = runId
@@ -852,6 +876,10 @@ function FlowBuilder() {
         toast.error('The flow failed — Checker is reviewing the failure.')
         setShowChecker(true)
       }
+      // A fresh run now dispatches in the background and returns before it
+      // finishes (status 'queued'/'running') — the run panel tracks it to
+      // completion, and it keeps going if you navigate away.
+      else if (data.run?.status === 'queued' || data.run?.status === 'running') toast.success('Flow started — running in the background.')
       else toast.success('Flow ran.')
       pollRuns()
     } finally {
