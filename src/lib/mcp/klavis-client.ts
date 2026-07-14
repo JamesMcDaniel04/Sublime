@@ -8,10 +8,19 @@ export type KlavisServer = {
   authNeeded: boolean
 }
 
+export type KlavisCatalogTool = { name: string; description?: string }
+
 export type KlavisCatalogServer = {
   name: string
   description?: string
   toolCount?: number
+  /**
+   * Live tool list for the server, as advertised by the catalog endpoint —
+   * available WITHOUT provisioning an instance. Powers the flow builder's
+   * "browse available connectors" surface (tool names + descriptions shown
+   * before a provider is connected). Absent if the catalog omitted tool detail.
+   */
+  tools?: KlavisCatalogTool[]
 }
 
 type KlavisClientOptions = {
@@ -79,11 +88,27 @@ export class KlavisClient {
       .filter((server: unknown): server is { name: string; description?: string; tools?: unknown[] } =>
         Boolean(server && typeof server === 'object' && typeof (server as { name?: unknown }).name === 'string'),
       )
-      .map((server: { name: string; description?: string; tools?: unknown[] }) => ({
-        name: server.name,
-        description: server.description,
-        toolCount: Array.isArray(server.tools) ? server.tools.length : undefined,
-      }))
+      .map((server: { name: string; description?: string; tools?: unknown[] }) => {
+        // Preserve each tool's name + description (not just the count) so the
+        // flow builder can show what a provider does before it's connected.
+        // Guard every entry — keep only objects with a string `name`.
+        const tools = Array.isArray(server.tools)
+          ? server.tools
+              .filter((tool): tool is { name: string; description?: unknown } =>
+                Boolean(tool && typeof tool === 'object' && typeof (tool as { name?: unknown }).name === 'string'),
+              )
+              .map((tool) => ({
+                name: tool.name,
+                description: typeof tool.description === 'string' ? tool.description : undefined,
+              }))
+          : undefined
+        return {
+          name: server.name,
+          description: server.description,
+          toolCount: tools?.length,
+          tools,
+        }
+      })
   }
 
   async deleteServerInstance(instanceId: string) {

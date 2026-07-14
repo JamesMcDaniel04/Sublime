@@ -12,6 +12,7 @@ import type { IntegrationMatch } from '@/lib/integrations/ai-search'
 import { Switch } from '@/components/ui/switch'
 import { useCachedJson } from '@/lib/client/use-cached-json'
 import { useScanExclusions } from '@/lib/client/use-scan-exclusions'
+import { useConnectProvider } from '@/lib/client/use-connect-provider'
 import { connectionSourceRef } from '@/lib/intelligence/scan-exclusions'
 import { fromKlavisAgentType } from '@/lib/connectors/registry'
 
@@ -126,6 +127,7 @@ export function MCPIntegrationCards() {
   const [query, setQuery] = useState('')
   const [recommendations, setRecommendations] = useState<IntegrationMatch[] | null>(null)
   const { isLearningEnabled, setLearningEnabled } = useScanExclusions()
+  const { connect: connectProvider } = useConnectProvider()
 
   const toggleLearning = async (connection: Connection, enabled: boolean) => {
     if (!connection.id) return
@@ -141,50 +143,15 @@ export function MCPIntegrationCards() {
   const connect = async (provider: string) => {
     setConnecting(provider)
     setActionError('')
-    try {
-      const response = await fetch('/api/mcp/connections', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ providers: [provider] }),
-      })
-      const result = await response.json()
-      if (!response.ok) throw new Error(result.error || 'Connection failed')
-      const res = result.results?.[0]
-      if (res?.oauthUrl) {
-        const popup = window.open(res.oauthUrl, '_blank', 'width=600,height=700')
-        if (!popup) setActionError('Your browser blocked the sign-in popup — allow popups for this site and click Connect again.')
-        else {
-          let attempts = 0
-          const timer = window.setInterval(async () => {
-            attempts += 1
-            try {
-              const statusResponse = await fetch('/api/mcp/connections?fresh=1', { cache: 'no-store' })
-              const statusData = await statusResponse.json()
-              const current = statusData.connections?.find((connection: Connection) => connection.provider === provider)
-              if (current?.status === 'active') {
-                window.clearInterval(timer)
-                popup.close()
-                await refresh()
-                setActionError('')
-              } else if (attempts >= 60 || (popup.closed && attempts >= 3)) {
-                window.clearInterval(timer)
-                await refresh()
-              }
-            } catch {
-              if (attempts >= 60) window.clearInterval(timer)
-            }
-          }, 2_000)
-        }
-      } else if (res?.status !== 'active') {
-        const name = provider.charAt(0).toUpperCase() + provider.slice(1)
-        setActionError(`${name} authenticates in your Klavis dashboard, not via a popup. Once it shows Authorized there, it appears connected here.`)
-      }
-      await refresh() // server cache is busted on connect; pull the fresh status
-    } catch (caught) {
-      setActionError(caught instanceof Error ? caught.message : 'Connection failed')
-    } finally {
-      setConnecting(null)
-    }
+    // Fire the connect handshake (OAuth popup + polling) but don't block the
+    // button on it — refresh optimistically now, and again when it completes,
+    // so the card reflects the pending instance immediately.
+    void connectProvider(provider).then((result) => {
+      if (!result.ok && result.error) setActionError(result.error)
+      return refresh()
+    })
+    await refresh() // server cache is busted on connect; pull the fresh status
+    setConnecting(null)
   }
 
   const disconnect = async (provider: string) => {

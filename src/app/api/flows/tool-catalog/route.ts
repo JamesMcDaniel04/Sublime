@@ -7,6 +7,6 @@ export const runtime = 'nodejs'
 // tools, for the flow builder's deterministic tool-step picker. Discovery is
 // best-effort per connection: one unreachable server doesn't empty the list.
 export const GET = withAuthenticatedApi(async (_request, auth) => {
-  const catalog = await loadFlowToolCatalog(auth.organizationId, { userId: auth.dbUser.id, takeConnections: 25 })
+  const catalog = await loadFlowToolCatalog(auth.organizationId, { userId: auth.dbUser.id, takeConnections: 25, includeAvailable: true })
   return { success: true, connections: catalog }
 })

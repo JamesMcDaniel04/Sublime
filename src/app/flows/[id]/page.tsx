@@ -25,6 +25,8 @@ import { FlowCanvas, type FlowInsertSeed } from '@/components/flows/flow-canvas'
 import { startCanvasPan } from '@/components/flows/canvas-pan'
 import { CanvasRail } from '@/components/flows/canvas-rail'
 import type { ToolCatalog } from '@/components/flows/tool-catalog-type'
+import { FlowConnectProvider } from '@/components/flows/flow-connect-context'
+import { useConnectProvider } from '@/lib/client/use-connect-provider'
 import { CopilotPanel, type CopilotRequest } from '@/components/flows/copilot-panel'
 import { RunPanel, type FlowRunDetail } from '@/components/flows/run-panel'
 import { CheckerPanel } from '@/components/flows/checker-panel'
@@ -319,6 +321,29 @@ function FlowBuilder() {
   const pinnedRunId = useRef<string | null>(null)
   const dirty = savedSnapshot !== '' && JSON.stringify({ name, description, graph, status }) !== savedSnapshot
 
+  const { connect: connectProvider } = useConnectProvider()
+  // Re-pull the flow tool catalog (connected + browsable-available connectors).
+  // Returns the fresh catalog so the connect-first pick can resolve a just-
+  // connected provider's new connection id. Best-effort: keeps the current
+  // catalog on failure.
+  const refreshToolCatalog = useCallback(async (opts?: { cancelledRef?: () => boolean }): Promise<ToolCatalog> => {
+    try {
+      const response = await fetch('/api/flows/tool-catalog', { cache: 'no-store' })
+      const data = await response.json()
+      if (data.success) {
+        if (!opts?.cancelledRef?.()) setToolCatalog(data.connections)
+        return data.connections as ToolCatalog
+      }
+    } catch {
+      // best-effort — one slow/unreachable discovery must not blank the picker
+    }
+    return []
+  }, [])
+  const flowConnectValue = useMemo(
+    () => ({ connectProvider, refreshToolCatalog }),
+    [connectProvider, refreshToolCatalog],
+  )
+
   useEffect(() => {
     let cancelled = false
     Promise.all([
@@ -348,16 +373,11 @@ function FlowBuilder() {
       })
     // The tool catalog loads separately — discovery can be slow and must not
     // block the canvas paint.
-    fetch('/api/flows/tool-catalog', { cache: 'no-store' })
-      .then((r) => r.json())
-      .then((data) => {
-        if (!cancelled && data.success) setToolCatalog(data.connections)
-      })
-      .catch(() => undefined)
+    refreshToolCatalog({ cancelledRef: () => cancelled }).catch(() => undefined)
     return () => {
       cancelled = true
     }
-  }, [id])
+  }, [id, refreshToolCatalog])
 
   useEffect(() => () => { if (pollRef.current) clearInterval(pollRef.current) }, [])
 
@@ -1219,6 +1239,12 @@ function FlowBuilder() {
           style={{
             backgroundImage: 'radial-gradient(circle, rgba(15, 23, 42, 0.22) 1px, transparent 1px)',
             backgroundSize: '28px 28px',
+            // `transform: scale(zoom)` on the inner wrapper doesn't grow this
+            // container's scrollHeight, so a zoomed-in canvas (zoom > 1) renders
+            // taller than it can scroll and its bottom nodes get clipped. Reserve
+            // extra bottom room proportional to the zoom so they stay reachable.
+            // At zoom = 1 this is just the base 2rem — no change to the default view.
+            paddingBottom: `calc(2rem + ${Math.max(0, zoom - 1) * 100}vh)`,
           }}
         >
           <div
@@ -1230,6 +1256,7 @@ function FlowBuilder() {
               marginLeft: `${(1 - 1 / zoom) * 50}%`,
             }}
           >
+            <FlowConnectProvider value={flowConnectValue}>
             <FlowCanvas
               graph={canvasGraph}
               flowId={id}
@@ -1315,6 +1342,7 @@ function FlowBuilder() {
                   : (containerId, from, to, branchIndex) => commitGraph(moveContainerStep(graph, containerId, from, to, branchIndex))
               }
             />
+            </FlowConnectProvider>
           </div>
         </div>
 

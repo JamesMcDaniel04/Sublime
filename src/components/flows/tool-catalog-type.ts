@@ -9,4 +9,13 @@ export type ToolCatalog = {
   name: string
   tools: { name: string; description: string; inputSchema?: unknown; outputSchema?: unknown; schemaHash?: string; risk?: 'read' | 'write' | 'destructive' }[]
   toolsError?: string
+  /**
+   * Whether this connector is already connected/active for the user. Absent is
+   * treated as connected (backward compatible). When `false`, the connector is
+   * browsable-but-not-connected: its tools are advertised for discovery, and
+   * picking one connects first (see `connect`) before inserting the node.
+   */
+  connected?: boolean
+  /** Present on not-yet-connected connectors: how to connect before inserting. */
+  connect?: { plane: 'klavis'; provider: string }
 }[]

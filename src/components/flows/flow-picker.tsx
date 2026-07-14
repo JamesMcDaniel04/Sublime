@@ -27,7 +27,9 @@ import {
   Zap,
   type LucideIcon,
 } from 'lucide-react'
+import { toast } from 'sonner'
 import { IntegrationLogo } from '@/components/integrations/integration-logo'
+import { useFlowConnect } from './flow-connect-context'
 import { cn } from '@/lib/utils'
 import type { StepType } from '@/lib/flows/mutate'
 import {
@@ -207,8 +209,9 @@ export function FlowPicker({
 }) {
   const [query, setQuery] = useState('')
   const [drill, setDrill] = useState<{ kind: 'group'; group: PickerGroup } | { kind: 'connector'; connection: Connection } | null>(null)
-  const [connectorFilter, setConnectorFilter] = useState<'all' | 'builtin' | 'connected'>('all')
+  const [connectorFilter, setConnectorFilter] = useState<'all' | 'builtin' | 'connected' | 'available'>('all')
   const [favorites, setFavorites] = useState<Set<string>>(() => loadFavorites())
+  const flowConnect = useFlowConnect()
 
   const normalizedQuery = query.trim().toLowerCase()
   const searching = normalizedQuery.length > 0
@@ -259,18 +262,62 @@ export function FlowPicker({
     },
   })
 
+  const insertTool = (connection: Connection, tool: ConnectionTool) => {
+    onPick('tool', { connectionId: connection.id, toolName: tool.name, label: tool.name, actionDescription: tool.description, actionInputSchema: tool.inputSchema, actionOutputSchema: tool.outputSchema, actionSchemaHash: tool.schemaHash, risk: tool.risk })
+  }
+
+  // Connect-first: picking a tool from a not-yet-connected provider connects it
+  // (OAuth), refreshes the catalog, then inserts the now-real connection's node.
+  // Closes the picker immediately — connect + insert continue in the background.
+  const connectAndInsert = async (connection: Connection, tool: ConnectionTool) => {
+    onClose()
+    if (!connection.connect || !flowConnect) {
+      toast.error("Connecting isn't available here — open Integrations to connect it.")
+      return
+    }
+    const toastId = toast.loading(`Connecting ${connection.name}…`)
+    const result = await flowConnect.connectProvider(connection.connect.provider)
+    if (!result.ok) {
+      toast.error(result.error || `Couldn't connect ${connection.name}.`, { id: toastId })
+      return
+    }
+    const fresh = await flowConnect.refreshToolCatalog()
+    // Match the just-connected provider back to its new row: same Klavis plane,
+    // same display name (the available entry reuses the connected label).
+    const connected = fresh.find(
+      (candidate) =>
+        candidate.connected !== false &&
+        parseFlowToolConnectionId(candidate.id).plane === 'klavis' &&
+        candidate.name === connection.name,
+    )
+    const freshTool = connected?.tools.find((candidate) => candidate.name === tool.name)
+    if (!connected || !freshTool) {
+      toast.success(`${connection.name} connected — reopen the picker to add its actions.`, { id: toastId })
+      return
+    }
+    insertTool(connected, freshTool)
+    toast.success(`${connection.name} connected — added ${humanizeToolName(freshTool.name, connectionToolKey(connected))}.`, { id: toastId })
+  }
+
   const connectionToolRow = (connection: Connection, tool: ConnectionTool): Row => {
     const favoriteId = `tool:${connection.id}:${tool.name}`
+    const notConnected = connection.connected === false
     return {
       id: favoriteId,
       // Humanized DISPLAY label only — the raw tool.name stays the stored
       // toolName on the inserted node (see onSelect below).
       label: humanizeToolName(tool.name, connectionToolKey(connection)),
-      description: tool.description || 'Run this connected action.',
+      description: tool.description || (notConnected ? `Connect ${connection.name} to use this action.` : 'Run this connected action.'),
       logo: { slug: connectionLogoSlug(connection), name: connection.name },
-      favoriteId,
+      // Not favoritable while un-connected: the browse id is synthetic and would
+      // dangle once the real connection replaces it.
+      favoriteId: notConnected ? undefined : favoriteId,
       onSelect: () => {
-        onPick('tool', { connectionId: connection.id, toolName: tool.name, label: tool.name, actionDescription: tool.description, actionInputSchema: tool.inputSchema, actionOutputSchema: tool.outputSchema, actionSchemaHash: tool.schemaHash, risk: tool.risk })
+        if (notConnected) {
+          void connectAndInsert(connection, tool)
+          return
+        }
+        insertTool(connection, tool)
         onClose()
       },
     }
@@ -286,18 +333,27 @@ export function FlowPicker({
     onSelect: () => setDrill({ kind: 'group', group }),
   })
 
-  const connectionRow = (connection: Connection): Row => ({
-    id: `connection:${connection.id}`,
-    label: connection.name,
-    description: connection.tools.length
-      ? `${connection.tools.length} available action${connection.tools.length === 1 ? '' : 's'}`
-      : connection.toolsError
-        ? connection.toolsError
-        : 'No actions available yet.',
-    logo: { slug: connectionLogoSlug(connection), name: connection.name },
-    chevron: true,
-    onSelect: () => setDrill({ kind: 'connector', connection }),
-  })
+  const connectionRow = (connection: Connection): Row => {
+    const count = connection.tools.length
+    const notConnected = connection.connected === false
+    const description = notConnected
+      ? count
+        ? `Not connected · ${count} action${count === 1 ? '' : 's'} — connect to use`
+        : 'Not connected'
+      : count
+        ? `${count} available action${count === 1 ? '' : 's'}`
+        : connection.toolsError
+          ? connection.toolsError
+          : 'No actions available yet.'
+    return {
+      id: `connection:${connection.id}`,
+      label: connection.name,
+      description,
+      logo: { slug: connectionLogoSlug(connection), name: connection.name },
+      chevron: true,
+      onSelect: () => setDrill({ kind: 'connector', connection }),
+    }
+  }
 
   const resolveFavorite = (id: string): Row | undefined => {
     if (id.startsWith('agent:')) {
@@ -339,7 +395,9 @@ export function FlowPicker({
       : drill?.kind === 'connector'
         ? drill.connection.tools.length === 0 && drill.connection.toolsError
           ? drill.connection.toolsError
-          : `Choose an action from ${drill.connection.name}.`
+          : drill.connection.connected === false
+            ? `Pick an action — connecting ${drill.connection.name} runs when you add it.`
+            : `Choose an action from ${drill.connection.name}.`
         : undefined
 
   let body: React.ReactNode
@@ -381,25 +439,34 @@ export function FlowPicker({
       : BUILTIN_GROUPS.map(groupRow)
 
     const showBuiltInConnectors = connectorFilter === 'all' || connectorFilter === 'builtin'
-    const showRealConnectors = connectorFilter === 'all' || connectorFilter === 'connected'
+    // Real connectors, narrowed by the active filter: connected-only,
+    // available-only (browsable-but-not-connected), or all.
+    const realConnectors =
+      connectorFilter === 'builtin'
+        ? []
+        : toolCatalog.filter((connection) =>
+            connectorFilter === 'connected'
+              ? connection.connected !== false
+              : connectorFilter === 'available'
+                ? connection.connected === false
+                : true,
+          )
 
     const connectorBuiltInRows = showBuiltInConnectors ? builtInRows : []
-    const connectorRealRows = showRealConnectors
-      ? searching
-        ? toolCatalog.flatMap((connection) =>
-            connection.tools
-              // Search what the user READS (the humanized label) as well as the
-              // raw tool name and description.
-              .filter((tool) =>
-                includesQuery(
-                  `${humanizeToolName(tool.name, connectionToolKey(connection))} ${tool.name} ${tool.description}`,
-                  normalizedQuery,
-                ),
-              )
-              .map((tool) => connectionToolRow(connection, tool)),
-          )
-        : toolCatalog.map(connectionRow)
-      : []
+    const connectorRealRows = searching
+      ? realConnectors.flatMap((connection) =>
+          connection.tools
+            // Search what the user READS (the humanized label) as well as the
+            // raw tool name and description.
+            .filter((tool) =>
+              includesQuery(
+                `${humanizeToolName(tool.name, connectionToolKey(connection))} ${tool.name} ${tool.description}`,
+                normalizedQuery,
+              ),
+            )
+            .map((tool) => connectionToolRow(connection, tool)),
+        )
+      : realConnectors.map(connectionRow)
     const connectorRows = [...connectorBuiltInRows, ...connectorRealRows]
 
     const totalRows = favoriteRows.length + aiRows.length + builtInRows.length + connectorRows.length
@@ -412,7 +479,7 @@ export function FlowPicker({
         <section>
           <h4 className="mb-2 text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">By connector</h4>
           <div className="mb-2 flex items-center gap-2">
-            {(['all', 'builtin', 'connected'] as const).map((key) => (
+            {(['all', 'builtin', 'connected', 'available'] as const).map((key) => (
               <button
                 key={key}
                 type="button"
@@ -424,7 +491,7 @@ export function FlowPicker({
                     : 'border-slate-200 bg-white text-slate-500 hover:border-slate-300 hover:text-slate-800',
                 )}
               >
-                {key === 'all' ? 'All' : key === 'builtin' ? 'Built-in' : 'Connected'}
+                {key === 'all' ? 'All' : key === 'builtin' ? 'Built-in' : key === 'connected' ? 'Connected' : 'Available'}
               </button>
             ))}
           </div>
@@ -435,9 +502,11 @@ export function FlowPicker({
               ))}
             </div>
           )}
-          {showRealConnectors && toolCatalog.length === 0 && (
+          {connectorFilter !== 'builtin' && realConnectors.length === 0 && (
             <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 p-4 text-sm text-slate-600">
-              Connected tools will show here after this workspace has integrations available.
+              {connectorFilter === 'connected'
+                ? 'No connected tools yet — switch to Available to browse and connect one.'
+                : 'Connectable tools will show here once this workspace has integrations available.'}
             </div>
           )}
         </section>
