@@ -102,6 +102,85 @@ export function insertAgentAfter(graph: FlowGraph, afterId: string, agentId: str
   return insertNodeAfter(graph, afterId, 'agent', agentId)
 }
 
+// ── Free-form DAG canvas mutations ──────────────────────────────────────────
+
+/**
+ * Would wiring `source → target` close a loop? True iff `source` is ALREADY
+ * reachable from `target` (or they're the same node). The DAG engine rejects
+ * cycles at run time; the canvas uses this to refuse the connection up front,
+ * which is a far better experience than a failed run.
+ */
+export function wouldCreateCycle(graph: FlowGraph, source: string, target: string): boolean {
+  if (source === target) return true
+  const seen = new Set<string>()
+  const stack = [target]
+  while (stack.length) {
+    const id = stack.pop()!
+    if (id === source) return true
+    if (seen.has(id)) continue
+    seen.add(id)
+    for (const edge of graph.edges) if (edge.source === id) stack.push(edge.target)
+  }
+  return false
+}
+
+/**
+ * Wire one node into another (the canvas's drag port→port). Refuses self-links,
+ * duplicates, and anything that would create a cycle. Many→many is the point:
+ * a node may have any number of parents and children.
+ */
+export function connectNodes(
+  graph: FlowGraph,
+  source: string,
+  target: string,
+  branch?: string,
+): { graph: FlowGraph } | { error: string } {
+  if (source === target) return { error: "A step can't connect to itself." }
+  if (!graph.nodes.some((node) => node.id === source) || !graph.nodes.some((node) => node.id === target)) {
+    return { error: 'That step no longer exists.' }
+  }
+  if (graph.edges.some((edge) => edge.source === source && edge.target === target && edge.branch === branch)) {
+    return { error: 'Those steps are already connected.' }
+  }
+  if (wouldCreateCycle(graph, source, target)) {
+    return { error: 'That connection would loop back on itself. Flows run forward — use a Loop step to repeat work.' }
+  }
+  const edge = { id: edgeId(source, target, branch), source, target, ...(branch ? { branch } : {}) }
+  return { graph: { ...graph, edges: [...graph.edges, edge] } }
+}
+
+/** Remove a single wire, leaving both nodes in place. */
+export function disconnectEdge(graph: FlowGraph, id: string): FlowGraph {
+  return { ...graph, edges: graph.edges.filter((edge) => edge.id !== id) }
+}
+
+/** Record a node's canvas position (layout is a view concern — see flowLayoutSchema). */
+export function moveNodeTo(graph: FlowGraph, id: string, position: { x: number; y: number }): FlowGraph {
+  return { ...graph, layout: { ...(graph.layout ?? {}), [id]: { x: Math.round(position.x), y: Math.round(position.y) } } }
+}
+
+/**
+ * Drop a standalone step onto the canvas at `position`. Deliberately creates NO
+ * edges — on a free-form canvas the user wires it themselves, which is the whole
+ * point (contrast `insertNodeAfter`, which splices into a chain).
+ */
+export function addNodeAt(
+  graph: FlowGraph,
+  type: StepType,
+  position: { x: number; y: number },
+  agentId?: string,
+): { graph: FlowGraph; nodeId: string } {
+  const { node, extraNodes } = makeNode(graph, type, agentId)
+  return {
+    graph: {
+      ...graph,
+      nodes: [...graph.nodes, node, ...extraNodes],
+      layout: { ...(graph.layout ?? {}), [node.id]: { x: Math.round(position.x), y: Math.round(position.y) } },
+    },
+    nodeId: node.id,
+  }
+}
+
 /**
  * Append a step to a condition's true/false branch: at the tail of the existing
  * branch chain, or as the branch's first node when the branch is empty.

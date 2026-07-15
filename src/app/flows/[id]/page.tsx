@@ -9,7 +9,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { Badge } from '@/components/ui/badge'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { emptyGraph, type FlowGraph, type FlowNode, type OutputField } from '@/lib/flows/graph'
-import { insertNodeAfter, appendToBranch, duplicateNode, updateNode, deleteNode, changeNodeType, addContainerStep, moveNodeAfter, moveContainerStep, pasteNodeAfter } from '@/lib/flows/mutate'
+import { insertNodeAfter, appendToBranch, duplicateNode, updateNode, deleteNode, changeNodeType, addContainerStep, moveNodeAfter, moveContainerStep, pasteNodeAfter, addNodeAt } from '@/lib/flows/mutate'
 import { writeFlowClipboard, readFlowClipboard } from '@/lib/flows/clipboard'
 import { applyCopilotOps, type CopilotOp } from '@/lib/flows/copilot-ops'
 import { remediationForFailedRun, type FlowFailureRemediation } from '@/lib/flows/failure-remediation'
@@ -22,6 +22,8 @@ import { defaultStepLabel, stepLabelsOf } from '@/lib/flows/token-text'
 import { missingRequiredInputFields } from '@/lib/flows/input-validation'
 import { storedRunInput, prefillTextFromRunInput } from '@/lib/flows/reuse-input'
 import { FlowCanvas, type FlowInsertSeed } from '@/components/flows/flow-canvas'
+import { DagCanvas } from '@/components/flows/dag-canvas'
+import { cn } from '@/lib/utils'
 import { startCanvasPan } from '@/components/flows/canvas-pan'
 import { CanvasRail } from '@/components/flows/canvas-rail'
 import type { ToolCatalog } from '@/components/flows/tool-catalog-type'
@@ -233,6 +235,18 @@ function FlowBuilder() {
   // Session logic lives in canvas-pan.ts (pure, unit-tested); after a real
   // drag the container's click is suppressed so releasing doesn't deselect.
   const [canvasPan, setCanvasPan] = useState({ x: 0, y: 0 })
+  // Canvas view: the classic vertical stack, or the free-form DAG canvas (which
+  // can express fan-in/fan-out the stack cannot). Additive — the stack remains
+  // the default until the DAG canvas reaches parity (insert menus, jam cursors,
+  // container bodies).
+  const [canvasMode, setCanvasModeState] = useState<'stack' | 'dag'>(() => {
+    if (typeof window === 'undefined') return 'stack'
+    return window.localStorage.getItem('flows.canvasMode') === 'dag' ? 'dag' : 'stack'
+  })
+  const setCanvasMode = useCallback((mode: 'stack' | 'dag') => {
+    setCanvasModeState(mode)
+    if (typeof window !== 'undefined') window.localStorage.setItem('flows.canvasMode', mode)
+  }, [])
   const [snapToGrid, setSnapToGrid] = useState(() => {
     if (typeof window === 'undefined') return false
     return window.localStorage.getItem('flows.snapToGrid') === 'true'
@@ -1132,6 +1146,25 @@ function FlowBuilder() {
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
+        {/* Stack ↔ DAG canvas. The DAG view can wire many→many (3 APIs into one
+            agent); the stack view keeps insert menus + jam cursors until the DAG
+            canvas reaches parity. */}
+        <div className="flex items-center rounded-lg border border-slate-200 p-0.5">
+          {(['stack', 'dag'] as const).map((mode) => (
+            <button
+              key={mode}
+              type="button"
+              onClick={() => setCanvasMode(mode)}
+              className={cn(
+                'rounded-md px-2.5 py-1 text-xs font-semibold transition-colors',
+                canvasMode === mode ? 'bg-slate-900 text-white' : 'text-slate-500 hover:text-slate-900',
+              )}
+              title={mode === 'dag' ? 'Free-form canvas — wire multiple steps into one' : 'Classic stack view'}
+            >
+              {mode === 'stack' ? 'Stack' : 'Canvas'}
+            </button>
+          ))}
+        </div>
         <JamButton flowId={id} peers={peers} connectionState={connectionState} canManage={canManageJam} onAccessChanged={broadcastAccessChange} />
         <Button variant="outline" size="sm" onClick={() => setShowTest((v) => !v)}>
           <FlaskConical className="mr-1.5 h-4 w-4" /> Test
@@ -1200,6 +1233,48 @@ function FlowBuilder() {
 
       {/* Body: canvas + optional drawer + optional copilot */}
       <div className="relative flex min-h-0 flex-1">
+        {/* DAG mode owns its own pan/zoom/background (React Flow), so it renders
+            OUTSIDE the stack canvas's scroll + transform wrapper. */}
+        {canvasMode === 'dag' ? (
+          // Reuses the stack canvas's pointer handler so a teammate still sees
+          // this user's Jam cursor here (panRef is null in DAG mode, so its
+          // pan-drag call safely no-ops). JamCursorOverlay is page-level, so
+          // peers' cursors already render over either canvas.
+          <div
+            className="min-w-0 flex-1 bg-white"
+            onPointerMove={onCanvasPointerMove}
+            onPointerLeave={() => jamCursorUpdateRef.current(null)}
+          >
+            <DagCanvas
+              graph={canvasGraph}
+              agents={agents}
+              toolCatalog={toolCatalog}
+              dataFields={dataFields}
+              variableNames={upstreamVariables.map((variable) => variable.name)}
+              statusByNode={viewingVersion ? {} : statusByNode}
+              issuesByNode={viewingVersion ? undefined : issuesByNode}
+              highlightIds={viewingVersion ? [] : highlightIds}
+              jamPeers={peers}
+              selectedId={selectedId}
+              readOnly={Boolean(viewingVersion)}
+              labelOf={(node) => labelCtx.stepLabels[node.id] || defaultStepLabel(node)}
+              onSelect={viewingVersion ? () => {} : setSelectedId}
+              onChangeNode={viewingVersion ? () => {} : (node) => setGraph((g) => updateNode(g, node))}
+              onChangeGraph={viewingVersion ? () => {} : commitGraph}
+              onAddNode={
+                viewingVersion
+                  ? () => {}
+                  : (type, seed, position) => {
+                      // Same seed handling as the stack's insert path, minus the
+                      // chain splice — on the canvas the user wires it up.
+                      const { graph: added, nodeId } = addNodeAt(graph, type, position, type === 'agent' ? seed?.agentId ?? agents[0]?.id ?? '' : undefined)
+                      commitGraph(applyInsertSeed(added, nodeId, seed))
+                      setSelectedId(nodeId)
+                    }
+              }
+            />
+          </div>
+        ) : (
         <div
           ref={canvasScrollRef}
           className="min-w-0 flex-1 cursor-grab overflow-y-auto bg-white p-8"
@@ -1317,7 +1392,10 @@ function FlowBuilder() {
             />
           </div>
         </div>
+        )}
 
+        {/* Zoom/pan rail drives the stack canvas only — React Flow ships its own. */}
+        {canvasMode === 'stack' && (
         <CanvasRail
           zoom={zoom}
           onZoom={setZoom}
@@ -1345,6 +1423,7 @@ function FlowBuilder() {
           nodes={canvasGraph.nodes.filter((n) => n.type !== 'trigger').map((n) => ({ id: n.id, title: labelForNode(n.id) }))}
           onJump={jumpToNode}
         />
+        )}
 
         {/* Step configuration lives entirely inline on the step cards — the
             side drawer was removed once the cards reached full parity. */}
