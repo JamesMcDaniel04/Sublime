@@ -51,6 +51,11 @@ type Opts = {
   routeAi?: RouteAiFn
   maxSteps?: number
   maxLoopIterations?: number
+  /**
+   * Cap on how many independent DAG nodes execute at once. Nodes only run
+   * concurrently when the graph actually branches — a linear flow is unaffected.
+   */
+  maxConcurrency?: number
   onStep?: (outcome: StepOutcome) => void
   // Resume support: `completed` maps node ids already finished on a prior run to
   // their output (they are skipped, not re-run); `resumeNodeId` is the node that
@@ -368,12 +373,66 @@ export async function interpretFlow(graph: FlowGraph, input: unknown, opts: Opts
   const excludeFromContextIds = new Set(
     graph.nodes.filter((node) => (node.data as { excludeFromContext?: boolean }).excludeFromContext === true).map((node) => node.id),
   )
-  // Aggregate every data-bearing step that has run so far, keyed by its builder
-  // label (id-suffixed on collision so no output is silently dropped). Recomputed
-  // per node from ctx.step — bounded by unique node count, so cheap.
-  const buildUpstream = (ctx: FlowContext): Record<string, unknown> => {
+  // ── DAG adjacency ───────────────────────────────────────────────────────────
+  // Edges are already many→many in the schema, so a node's parents are simply
+  // every edge that targets it.
+  const parentsOf = new Map<string, string[]>()
+  for (const edge of graph.edges) {
+    const list = parentsOf.get(edge.target)
+    if (list) list.push(edge.source)
+    else parentsOf.set(edge.target, [edge.source])
+  }
+  // Container bodies are owned by their container (`body`/`branches`/`fallback`)
+  // and carry NO incoming edges, so a body node's lineage is: its container, the
+  // container's own ancestors, and the siblings that precede it *within the same
+  // body list* (a `parallel` branch never sees a sibling branch).
+  const bodyOwner = new Map<string, { containerId: string; priorSiblings: string[] }>()
+  for (const node of graph.nodes) {
+    const bodies: string[][] =
+      node.type === 'loop' || node.type === 'repeatUntil' ? [node.data.body]
+      : node.type === 'parallel' ? node.data.branches
+      : node.type === 'errorShield' ? [node.data.body, node.data.fallback]
+      : []
+    for (const body of bodies) {
+      body.forEach((id, index) => bodyOwner.set(id, { containerId: node.id, priorSiblings: body.slice(0, index) }))
+    }
+  }
+  // Transitive ancestors of a node — the nodes actually wired into it. This is
+  // what makes selective routing real: an agent sees only the sources on its own
+  // paths. In a linear chain a node's ancestors ARE every prior node, so this is
+  // behavior-identical for existing flows. Memoized per run; `seen` also makes it
+  // cycle-safe.
+  const ancestorCache = new Map<string, Set<string>>()
+  const ancestorsOf = (nodeId: string): Set<string> => {
+    const cached = ancestorCache.get(nodeId)
+    if (cached) return cached
+    const seen = new Set<string>()
+    const visit = (id: string) => {
+      if (seen.has(id)) return
+      seen.add(id)
+      lineage(id)
+    }
+    // Walk a node's lineage WITHOUT adding the node itself (so `seen` is strictly
+    // ancestors, never self).
+    function lineage(id: string) {
+      for (const parent of parentsOf.get(id) ?? []) visit(parent)
+      const owner = bodyOwner.get(id)
+      if (!owner) return
+      visit(owner.containerId)
+      for (const sibling of owner.priorSiblings) visit(sibling)
+    }
+    lineage(nodeId)
+    ancestorCache.set(nodeId, seen)
+    return seen
+  }
+
+  // Aggregate the data-bearing steps among THIS node's ancestors, keyed by its
+  // builder label (id-suffixed on collision so no output is silently dropped).
+  const buildUpstream = (ctx: FlowContext, forNodeId: string): Record<string, unknown> => {
+    const ancestors = ancestorsOf(forNodeId)
     const bundle: Record<string, unknown> = {}
     for (const [id, entry] of Object.entries(ctx.step)) {
+      if (!ancestors.has(id)) continue
       const stepNode = byId.get(id)
       if (!stepNode || !DATA_BEARING_NODE_TYPES.has(stepNode.type) || excludeFromContextIds.has(id)) continue
       const label = stepLabels[id] || id
@@ -448,8 +507,9 @@ export async function interpretFlow(graph: FlowGraph, input: unknown, opts: Opts
     if (overBudget()) return { kind: 'fail', error: 'Flow exceeded the maximum number of steps.' }
 
     // Refresh the upstream aggregate before this node resolves its fields, so
-    // `{{upstream}}` and the agent auto-append see every prior data-bearing step.
-    ctx.upstream = buildUpstream(ctx)
+    // `{{upstream}}` and the agent auto-append see the data-bearing steps on
+    // THIS node's own paths (its wired ancestors).
+    ctx.upstream = buildUpstream(ctx, node.id)
 
     if (node.type === 'trigger') return { kind: 'skip' }
 
@@ -1054,70 +1114,204 @@ export async function interpretFlow(graph: FlowGraph, input: unknown, opts: Opts
   // Prefer the explicit output node's bound object when one ran; otherwise the
   // implicit lastOutput (back-compat for flows with no output node).
   const terminalOutput = () => (explicitOutput ? explicitOutput.value : lastOutput)
-  let current: FlowNode | undefined = (opts.startNodeId ? byId.get(opts.startNodeId) : undefined) ?? byId.get('trigger') ?? graph.nodes[0]
 
-  while (current) {
-    if (current.type === 'condition') {
-      if (overBudget()) return { status: 'failed', steps, output: lastOutput, error: 'Flow exceeded the maximum number of steps.' }
-      const branch = evalCondition(current.data, ctx) ? 'true' : 'false'
-      const edge = outgoing(current.id, branch)
-      current = edge ? byId.get(edge.target) : undefined
-      continue
+  // ── DAG scheduler ───────────────────────────────────────────────────────────
+  // Replaces the old single-chain walk. A node becomes runnable once every one
+  // of its parents has settled or been pruned; all runnable nodes execute
+  // concurrently (bounded). A linear graph — every node with ≤1 parent — yields
+  // exactly the old sequential order, so existing flows are unaffected.
+
+  // An edge INTO a container-body node passes through to the first non-contained
+  // node (mirrors the old walk's contained-skip); edges FROM a body node are the
+  // container's business, never the top-level DAG's.
+  const passThrough = (id: string | undefined): string | undefined => {
+    const seen = new Set<string>()
+    let cursor = id
+    while (cursor && contained.has(cursor) && !seen.has(cursor)) {
+      seen.add(cursor)
+      cursor = outgoing(cursor)?.target
     }
+    return cursor
+  }
+  type DagEdge = { source: string; target: string; branch?: string }
+  const outEdges = new Map<string, DagEdge[]>()
+  const inEdges = new Map<string, DagEdge[]>()
+  const pushEdge = (map: Map<string, DagEdge[]>, key: string, edge: DagEdge) => {
+    const list = map.get(key)
+    if (list) list.push(edge)
+    else map.set(key, [edge])
+  }
+  for (const edge of graph.edges) {
+    if (contained.has(edge.source)) continue
+    const target = passThrough(edge.target)
+    if (!target || !byId.has(target)) continue
+    const dagEdge: DagEdge = { source: edge.source, target, branch: edge.branch }
+    pushEdge(outEdges, edge.source, dagEdge)
+    pushEdge(inEdges, target, dagEdge)
+  }
 
-    if (current.type === 'switch') {
-      if (overBudget()) return { status: 'failed', steps, output: lastOutput, error: 'Flow exceeded the maximum number of steps.' }
-      // First matching case wins; otherwise follow the 'default' edge.
-      const hit = current.data.cases.find((c) => evalClause({ left: c.left, op: c.op, right: c.right }, ctx))
-      emit({ nodeId: current.id, status: 'succeeded', output: hit?.id ?? 'default' })
-      const edge = outgoing(current.id, hit ? hit.id : 'default')
-      current = edge ? byId.get(edge.target) : undefined
-      continue
+  const startId = (opts.startNodeId && byId.get(opts.startNodeId)?.id) || byId.get('trigger')?.id || graph.nodes[0]?.id
+  // Only nodes reachable from the entry participate — an orphan subgraph never
+  // ran under the old walk and must not start running now.
+  const reachable = new Set<string>()
+  if (startId) {
+    const stack = [startId]
+    while (stack.length) {
+      const id = stack.pop()!
+      if (reachable.has(id)) continue
+      reachable.add(id)
+      for (const edge of outEdges.get(id) ?? []) stack.push(edge.target)
     }
+  }
 
-    if (current.type === 'router') {
-      if (overBudget()) return { status: 'failed', steps, output: lastOutput, error: 'Flow exceeded the maximum number of steps.' }
-      let chosen: string
+  const remainingParents = new Map<string, number>()
+  for (const id of reachable) {
+    remainingParents.set(id, (inEdges.get(id) ?? []).filter((edge) => reachable.has(edge.source)).length)
+  }
+  const settledNodes = new Set<string>()
+  const prunedNodes = new Set<string>()
+  const liveParent = new Set<string>()
+  const ready: string[] = []
+  for (const id of reachable) if ((remainingParents.get(id) ?? 0) === 0) ready.push(id)
+
+  // Which outgoing edges a settled node activates. A branch node lights only the
+  // edges carrying its chosen label (falling back to unlabelled edges, mirroring
+  // `outgoing`); every other node fans out to all of its edges.
+  const activeEdges = (edges: DagEdge[], branch?: string): Set<DagEdge> => {
+    if (branch === undefined) return new Set(edges)
+    const matching = edges.filter((edge) => edge.branch === branch)
+    return new Set(matching.length ? matching : edges.filter((edge) => edge.branch === undefined))
+  }
+
+  const prune = (id: string) => {
+    if (prunedNodes.has(id) || settledNodes.has(id)) return
+    prunedNodes.add(id)
+    for (const edge of outEdges.get(id) ?? []) release(edge.target, false)
+  }
+  // One parent resolved for `targetId`. `live` = that parent settled AND its edge
+  // to me was activated. When the last parent resolves: run if any parent was
+  // live, else prune (and propagate).
+  function release(targetId: string, live: boolean) {
+    if (!reachable.has(targetId)) return
+    if (live) liveParent.add(targetId)
+    const left = (remainingParents.get(targetId) ?? 0) - 1
+    remainingParents.set(targetId, left)
+    if (left > 0) return
+    if (liveParent.has(targetId)) ready.push(targetId)
+    else prune(targetId)
+  }
+
+  type Disposition =
+    | { kind: 'settled'; branch?: string }
+    | { kind: 'fail'; error: string }
+    | { kind: 'pause'; nodeId: string; question?: string; wakeAt?: string }
+    | { kind: 'stop' }
+
+  // Branch nodes are evaluated here (they never went through execNode); everything
+  // else delegates. Returns the node's disposition plus, for branch nodes, the
+  // chosen label so the scheduler knows which edges to light.
+  const runOne = async (node: FlowNode, nctx: FlowContext): Promise<Disposition> => {
+    if (node.type === 'condition') {
+      if (overBudget()) return { kind: 'fail', error: 'Flow exceeded the maximum number of steps.' }
+      return { kind: 'settled', branch: evalCondition(node.data, nctx) ? 'true' : 'false' }
+    }
+    if (node.type === 'switch') {
+      if (overBudget()) return { kind: 'fail', error: 'Flow exceeded the maximum number of steps.' }
+      // First matching case wins; otherwise the 'default' edge.
+      const hit = node.data.cases.find((c) => evalClause({ left: c.left, op: c.op, right: c.right }, nctx))
+      emit({ nodeId: node.id, status: 'succeeded', output: hit?.id ?? 'default' })
+      return { kind: 'settled', branch: hit ? hit.id : 'default' }
+    }
+    if (node.type === 'router') {
+      if (overBudget()) return { kind: 'fail', error: 'Flow exceeded the maximum number of steps.' }
       // Resume stability: reuse the branch chosen on the first run (the stored
       // output IS the branch id). Re-calling the model could route differently.
-      const prior = opts.completed && Object.prototype.hasOwnProperty.call(opts.completed, current.id) ? opts.completed[current.id] : undefined
+      const prior = opts.completed && Object.prototype.hasOwnProperty.call(opts.completed, node.id) ? opts.completed[node.id] : undefined
       if (typeof prior === 'string' && prior) {
-        chosen = prior
-        emit({ nodeId: current.id, status: 'skipped', output: chosen })
-      } else if (!opts.routeAi) {
-        const error = 'Router steps need an AI runtime and are not supported in this runtime.'
-        emit({ nodeId: current.id, status: 'failed', error })
-        return { status: 'failed', steps, output: lastOutput, error }
-      } else {
-        const input = resolveTemplate(current.data.input ?? '{{trigger.input}}', ctx)
-        const res = await opts.routeAi({ id: current.id, branches: current.data.branches, instructions: current.data.instructions, input })
-        if ('error' in res) {
-          emit({ nodeId: current.id, status: 'failed', error: res.error })
-          return { status: 'failed', steps, output: lastOutput, error: res.error }
-        }
-        chosen = res.branch
-        ctx.step[current.id] = { output: chosen }
-        emit({ nodeId: current.id, status: 'succeeded', output: chosen })
+        emit({ nodeId: node.id, status: 'skipped', output: prior })
+        return { kind: 'settled', branch: prior }
       }
-      const edge = outgoing(current.id, chosen)
-      current = edge ? byId.get(edge.target) : undefined
-      continue
+      if (!opts.routeAi) {
+        const error = 'Router steps need an AI runtime and are not supported in this runtime.'
+        emit({ nodeId: node.id, status: 'failed', error })
+        return { kind: 'fail', error }
+      }
+      const routerInput = resolveTemplate(node.data.input ?? '{{trigger.input}}', nctx)
+      const res = await opts.routeAi({ id: node.id, branches: node.data.branches, instructions: node.data.instructions, input: routerInput })
+      if ('error' in res) {
+        emit({ nodeId: node.id, status: 'failed', error: res.error })
+        return { kind: 'fail', error: res.error }
+      }
+      ctx.step[node.id] = { output: res.branch }
+      emit({ nodeId: node.id, status: 'succeeded', output: res.branch })
+      return { kind: 'settled', branch: res.branch }
     }
-
-    const res = await execNode(current, ctx)
-    if (res.kind === 'fail') return { status: 'failed', steps, output: lastOutput, error: res.error, webhookResponse }
-    if (res.kind === 'pause') return { status: 'waiting', steps, output: lastOutput, waiting: { nodeId: res.nodeId, question: res.question, ...(res.wakeAt ? { wakeAt: res.wakeAt } : {}) }, webhookResponse }
+    const res = await execNode(node, nctx)
+    if (res.kind === 'fail') return { kind: 'fail', error: res.error }
+    if (res.kind === 'pause') return { kind: 'pause', nodeId: res.nodeId, question: res.question, wakeAt: res.wakeAt }
     // A stop node or a main-chain filter that didn't pass ends the flow cleanly.
-    if (res.kind === 'stop' || res.kind === 'drop') return { status: 'succeeded', steps, output: terminalOutput(), webhookResponse }
+    if (res.kind === 'stop' || res.kind === 'drop') return { kind: 'stop' }
     if (res.kind === 'ok' && res.output !== undefined) lastOutput = res.output
+    return { kind: 'settled' }
+  }
 
-    const edge = outgoing(current.id)
-    let next = edge ? byId.get(edge.target) : undefined
-    while (next && contained.has(next.id)) {
-      const skip = outgoing(next.id)
-      next = skip ? byId.get(skip.target) : undefined
+  let halt: InterpretResult | undefined
+  const inflight = new Set<Promise<void>>()
+  const cap = Math.max(1, opts.maxConcurrency ?? 8)
+
+  const runNode = async (id: string) => {
+    const node = byId.get(id)
+    if (!node) return
+    // Per-node context: `upstream` is assigned per node, so concurrent nodes must
+    // not share that field. The spread shares `step`/`variables` BY REFERENCE, so
+    // writes stay globally visible; `input` is the one field a node reassigns
+    // outright, so it is merged back below.
+    const nctx: FlowContext = { ...ctx, upstream: buildUpstream(ctx, id) }
+    const disposition = await runOne(node, nctx)
+    if (nctx.input !== ctx.input) ctx.input = { ...(ctx.input ?? {}), ...(nctx.input ?? {}) }
+
+    if (disposition.kind === 'fail') {
+      halt ??= { status: 'failed', steps, output: lastOutput, error: disposition.error, webhookResponse }
+      return
     }
-    current = next
+    if (disposition.kind === 'pause') {
+      halt ??= {
+        status: 'waiting', steps, output: lastOutput,
+        waiting: { nodeId: disposition.nodeId, question: disposition.question, ...(disposition.wakeAt ? { wakeAt: disposition.wakeAt } : {}) },
+        webhookResponse,
+      }
+      return
+    }
+    if (disposition.kind === 'stop') {
+      halt ??= { status: 'succeeded', steps, output: terminalOutput(), webhookResponse }
+      return
+    }
+    settledNodes.add(id)
+    const edges = outEdges.get(id) ?? []
+    const active = activeEdges(edges, disposition.branch)
+    for (const edge of edges) release(edge.target, active.has(edge))
+  }
+
+  // Drain: launch every runnable node (up to the cap), then wait for the next one
+  // to settle and re-evaluate. On halt we stop admitting work but let in-flight
+  // nodes finish so nothing is lost mid-write.
+  for (;;) {
+    while (!halt && ready.length && inflight.size < cap) {
+      const id = ready.shift()!
+      const promise = runNode(id).finally(() => { inflight.delete(promise) })
+      inflight.add(promise)
+    }
+    if (!inflight.size) break
+    await Promise.race(inflight)
+  }
+  if (halt) return halt
+
+  // A reachable node that never settled or pruned means its parents never all
+  // resolved — i.e. a cycle. Fail loudly rather than silently skipping it.
+  const stalled = [...reachable].filter((id) => !settledNodes.has(id) && !prunedNodes.has(id))
+  if (stalled.length) {
+    const names = stalled.map((id) => stepLabels[id] || id).join(', ')
+    return { status: 'failed', steps, output: terminalOutput(), error: `Flow has a cycle involving: ${names}. Flows must be acyclic.`, webhookResponse }
   }
 
   return { status: 'succeeded', steps, output: terminalOutput(), webhookResponse }

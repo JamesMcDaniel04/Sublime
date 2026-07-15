@@ -92,15 +92,24 @@ plus the one capture edge case above.
 In the interpreter's agent execution path (`interpret.ts` ~692):
 - Compute `ctx.upstream` (§1) before running the agent.
 - Build the effective input = the user's resolved input, and **append**
-  `\n\nUpstream data:\n{{upstream}}` (resolved) **unless**:
-  - the resolved input already contains the upstream bundle (i.e. the user
-    referenced `{{upstream}}` themselves — respect their placement, no
-    duplication), OR
-  - the node opts out: `data.includeUpstream === false`.
-- This is a **runtime** behavior — no stored-graph mutation — so existing agents
-  gain the behavior immediately, and there is no migration.
-- The same treatment applies to inline-prompt agents (the `prompt` field) so a
-  prompt-mode agent also receives the aggregate.
+  `\n\nUpstream data:\n{{upstream}}` (resolved) when the node uses its **DEFAULT
+  input** (blank or `{{trigger.input}}` — the common "saved agent placed after
+  some API steps" shape, where the agent's instructions live in its persona and
+  the node input is just the trigger passthrough). This is the runtime default
+  and needs zero configuration.
+- A **hand-customized** input is left exactly as authored — the user chose what
+  to pass. Such an agent still gets the aggregate on demand via
+  `includeUpstream === true` (explicit opt-in) or by referencing `{{upstream}}`
+  itself.
+- Never appended when: the node opts out (`includeUpstream === false`), or the
+  authored input/prompt already references `{{upstream}}` (respect placement, no
+  duplication).
+- This is a **runtime** behavior — no stored-graph mutation, no migration — so
+  existing default-input agents gain the behavior immediately while customized
+  flows are untouched.
+
+  Semantics table (`includeUpstream`): `false` → never; `true` → always (even
+  customized input); absent (default) → only when the node input is the default.
 
 **Node data additions (`src/lib/flows/graph.ts`):**
 - `agentNode.data.includeUpstream?: boolean` (default true when absent).

@@ -464,11 +464,26 @@ export const flowEdgeSchema = z.object({
   // 'true'/'false' for a condition; a switch case id or 'default' for a switch.
   branch: z.string().optional(),
 })
-export const flowGraphSchema = z.object({ nodes: z.array(flowNodeSchema), edges: z.array(flowEdgeSchema) })
+/**
+ * Free-form canvas node positions, keyed by node id. Layout is a VIEW concern,
+ * not node data — keeping it in one map (rather than on all 22 node variants)
+ * leaves the node union clean and makes the field trivially optional. A graph
+ * without a layout (every flow authored before the DAG canvas) is auto-laid-out
+ * on open via `autoLayout` — nothing is stored until the user moves something.
+ */
+export const flowLayoutSchema = z.record(z.string(), z.object({ x: z.number(), y: z.number() }))
+
+export const flowGraphSchema = z.object({
+  nodes: z.array(flowNodeSchema),
+  edges: z.array(flowEdgeSchema),
+  layout: flowLayoutSchema.optional(),
+})
 
 export type FlowNode = z.infer<typeof flowNodeSchema>
 export type FlowEdge = z.infer<typeof flowEdgeSchema>
 export type FlowGraph = z.infer<typeof flowGraphSchema>
+export type FlowLayout = z.infer<typeof flowLayoutSchema>
+export type NodePosition = { x: number; y: number }
 export type ConditionClause = z.infer<typeof conditionClauseSchema>
 
 /** A fresh graph: one manual trigger, no steps yet. */
