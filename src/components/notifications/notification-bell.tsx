@@ -47,6 +47,7 @@ export function NotificationBell({ buttonClassName }: { buttonClassName?: string
   const [pushState, setPushState] = useState<PushState>('unknown')
   const [detail, setDetail] = useState<NotificationDetail | null>(null)
   const [detailLoading, setDetailLoading] = useState(false)
+  const [detailError, setDetailError] = useState<string | null>(null)
 
   const load = useCallback(async () => {
     // Shared app-shell snapshot (deduped with the dashboard + sidebar) rather
@@ -111,14 +112,33 @@ export function NotificationBell({ buttonClassName }: { buttonClassName?: string
         applicationServerKey: urlBase64ToUint8Array(publicKey),
       })
       const json = sub.toJSON() as { endpoint?: string; keys?: { p256dh: string; auth: string } }
-      await fetch('/api/push/subscribe', {
+      const response = await fetch('/api/push/subscribe', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ endpoint: json.endpoint, keys: json.keys }),
       })
+      if (!response.ok) {
+        await sub.unsubscribe()
+        return
+      }
       setPushState('enabled')
     } catch {
       /* ignore — in-app notifications still work */
+    }
+  }
+
+  const disablePush = async () => {
+    try {
+      const reg = await navigator.serviceWorker.getRegistration()
+      const sub = reg ? await reg.pushManager.getSubscription() : null
+      if (sub) {
+        const response = await fetch(`/api/push/subscribe?endpoint=${encodeURIComponent(sub.endpoint)}`, { method: 'DELETE' })
+        if (!response.ok) return
+        await sub.unsubscribe()
+      }
+      setPushState('available')
+    } catch {
+      // Keep the truthful enabled state when unsubscribe fails.
     }
   }
 
@@ -126,10 +146,17 @@ export function NotificationBell({ buttonClassName }: { buttonClassName?: string
     setOpen(false)
     setDetail({ notification, processes: [] })
     setDetailLoading(true)
+    setDetailError(null)
     try {
       const response = await fetch(`/api/notifications/${encodeURIComponent(notification.id)}`, { cache: 'no-store' })
       const data = await response.json().catch(() => ({}))
-      if (response.ok) setDetail({ notification: data.notification, processes: data.processes ?? [] })
+      if (!response.ok || !data.notification) {
+        setDetailError(data.error || 'Could not load process details.')
+      } else {
+        setDetail({ notification: data.notification, processes: data.processes ?? [] })
+      }
+    } catch {
+      setDetailError('Could not load process details.')
     } finally {
       setDetailLoading(false)
     }
@@ -160,7 +187,7 @@ export function NotificationBell({ buttonClassName }: { buttonClassName?: string
             <div className="flex items-center justify-between border-b px-3 py-2">
               <span className="text-sm font-semibold">Notifications</span>
               {pushState === 'available' && <button className="text-xs font-medium text-indigo-600" onClick={enablePush}>Enable push</button>}
-              {pushState === 'enabled' && <span className="text-xs text-gray-400">Push on</span>}
+              {pushState === 'enabled' && <button className="text-xs font-medium text-gray-500 hover:text-red-600" onClick={disablePush}>Disable push</button>}
             </div>
             <div className="max-h-96 overflow-y-auto">
               {items.length === 0 && <p className="px-3 py-6 text-center text-sm text-gray-400">No notifications yet.</p>}
@@ -191,6 +218,8 @@ export function NotificationBell({ buttonClassName }: { buttonClassName?: string
           </DialogHeader>
           {detailLoading ? (
             <p className="text-sm text-gray-500">Loading process details…</p>
+          ) : detailError ? (
+            <p className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">{detailError}</p>
           ) : detail?.processes.length ? (
             <div className="space-y-3">
               <p className="text-sm text-gray-500">{detail.processes.length} process{detail.processes.length === 1 ? '' : 'es'} understood:</p>

@@ -211,7 +211,7 @@ export function FlowCanvas({
   onMoveAfter?: (nodeId: string, afterId: string) => void
   onReorderContainer?: (containerId: string, from: number, to: number, branchIndex?: number) => void
   onChangeNodeType?: (nodeId: string, type: EditableType) => void
-  onAddContainerStep?: (containerId: string, type: EditableType) => void
+  onAddContainerStep?: (containerId: string, type: EditableType, branchIndex?: number) => void
   /** Flow Jam presence: peers keyed by the node they have selected. */
   jamPeers?: { userId: string; name: string; selectedNodeId: string | null }[]
 }) {
@@ -399,7 +399,7 @@ export function FlowCanvas({
         onDragStartNode={setDragId}
         onDragEndNode={() => setDragId(null)}
         onChangeType={node.type !== 'trigger' && onChangeNodeType ? (type) => onChangeNodeType(node.id, type) : undefined}
-        onAddStep={(node.type === 'loop' || node.type === 'repeatUntil' || node.type === 'parallel' || node.type === 'errorShield') && onAddContainerStep ? (type) => onAddContainerStep(node.id, type) : undefined}
+        onAddStep={(node.type === 'loop' || node.type === 'repeatUntil' || node.type === 'parallel' || node.type === 'errorShield') && onAddContainerStep ? (type, branchIndex) => onAddContainerStep(node.id, type, branchIndex) : undefined}
         jamEditors={jamPeers?.filter((peer) => peer.selectedNodeId === node.id)}
       />
     </div>
@@ -462,15 +462,15 @@ export function FlowCanvas({
             <p className="mb-3 text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Body</p>
             <div className="space-y-3">
               {bodyNodes.map((body, index) => item(body, index + 1))}
-              {/* Fallback-list add is a follow-up affordance — v1 only wires
-                  Body (see mutate.ts's addContainerStep, which always appends
-                  to body). */}
               {onAddContainerStep && <AddNestedStepMenu onPick={(type) => onAddContainerStep(node.id, type)} />}
             </div>
           </div>
           <div className="rounded-2xl border border-dashed border-slate-300 bg-white/75 p-3">
             <p className="mb-3 text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">On error → fallback</p>
-            <div className="space-y-3">{fallbackNodes.map((body, index) => item(body, index + 1))}</div>
+            <div className="space-y-3">
+              {fallbackNodes.map((body, index) => item(body, index + 1))}
+              {onAddContainerStep && <AddNestedStepMenu onPick={(type) => onAddContainerStep(node.id, type, -1)} />}
+            </div>
           </div>
         </div>
       )

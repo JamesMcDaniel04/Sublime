@@ -266,7 +266,7 @@ function NodeConfigPanel({
   onClose: () => void
   onChangeNode: (node: FlowNode) => void
   onReorderContainer?: (containerId: string, from: number, to: number, branchIndex?: number) => void
-  onAddContainerStep?: (containerId: string, type: EditableType) => void
+  onAddContainerStep?: (containerId: string, type: EditableType, branchIndex?: number) => void
 }>) {
   const [dragId, setDragId] = useState<string | null>(null)
   const byId = useMemo(() => new Map(graph.nodes.map((n) => [n.id, n])), [graph.nodes])
@@ -292,6 +292,7 @@ function NodeConfigPanel({
           labelCtx={{} as never}
           onChange={readOnly ? () => {} : onChangeNode}
           onClick={() => {}}
+          onAddStep={!readOnly && node.type === 'errorShield' && onAddContainerStep ? (type, branchIndex) => onAddContainerStep(node.id, type, branchIndex) : undefined}
         />
         {isContainerNode(node) && (
           <div className="space-y-2 rounded-2xl border border-dashed border-slate-300 bg-white/70 p-3">
@@ -340,7 +341,7 @@ function NodeConfigPanel({
                 </div>
               )
             })}
-            {!readOnly && onAddContainerStep && <AddNestedStepMenu onPick={(type) => onAddContainerStep(node.id, type)} />}
+            {!readOnly && onAddContainerStep && node.type !== 'errorShield' && <AddNestedStepMenu onPick={(type) => onAddContainerStep(node.id, type)} />}
           </div>
         )}
       </div>
@@ -387,7 +388,7 @@ export function DagCanvas({
   onChangeGraph: (graph: FlowGraph) => void
   onAddNode: (type: StepType, seed: FlowInsertSeed | undefined, position: { x: number; y: number }) => void
   onReorderContainer?: (containerId: string, from: number, to: number, branchIndex?: number) => void
-  onAddContainerStep?: (containerId: string, type: EditableType) => void
+  onAddContainerStep?: (containerId: string, type: EditableType, branchIndex?: number) => void
 }>) {
   // Positions: stored layout wins, dagre fills the rest. Legacy flows (no layout
   // at all) get a full arrangement without persisting anything.

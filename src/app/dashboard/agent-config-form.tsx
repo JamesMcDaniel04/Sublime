@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { Download, Loader2, Play, ScrollText, Trash2, X } from 'lucide-react'
+import { Copy, Download, Loader2, Play, RotateCcw, ScrollText, Trash2, Webhook, X } from 'lucide-react'
 import { toast } from 'sonner'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -68,6 +68,8 @@ type AgentMemory = {
   createdAt: string
 }
 
+type AgentWebhook = { url: string; hasSecret: boolean; secret: string | null }
+
 const MEMORY_KIND_LABEL: Record<string, string> = {
   user_answer: 'Answer',
   learning: 'Learning',
@@ -85,7 +87,6 @@ export type AgentDraft = {
   description: string
   instructions: string
   model: string
-  priority: string
   integrations: string[]
   /** Template-declared connections that must be live before Run is enabled. */
   requiredIntegrations: string[]
@@ -105,6 +106,8 @@ export type AgentDraft = {
   outputFields?: { name: string; type: 'string' | 'number' | 'boolean' | 'object' | 'array'; description?: string }[]
   /** When true, every run starts with an explicit numbered plan before any tool call. */
   alwaysStrategize?: boolean
+  /** Maximum model/tool turns before a run stops. */
+  maxTurns?: number
   schedule: {
     type: 'manual' | 'hourly' | 'daily' | 'weekly' | 'cron' | 'once'
     time?: string
@@ -144,7 +147,6 @@ const emptyDraft: AgentDraft = {
   description: '',
   instructions: '',
   model: 'claude-sonnet-5',
-  priority: 'medium',
   integrations: [],
   requiredIntegrations: [],
   skills: [],
@@ -157,6 +159,7 @@ const emptyDraft: AgentDraft = {
   autoAnswerFromMemory: true,
   outputFields: [],
   alwaysStrategize: false,
+  maxTurns: 16,
   schedule: { type: 'manual', time: '09:00', timezone: 'UTC', isActive: false },
 }
 
@@ -322,6 +325,8 @@ export function AgentConfigForm({
   const [runsLoading, setRunsLoading] = useState(false)
   const [memories, setMemories] = useState<AgentMemory[]>([])
   const [memoriesLoading, setMemoriesLoading] = useState(false)
+  const [webhook, setWebhook] = useState<AgentWebhook | null>(null)
+  const [webhookBusy, setWebhookBusy] = useState(false)
   const [dismissingSuggestionId, setDismissingSuggestionId] = useState<string | null>(null)
   // Other agents in the workspace, offered as run_agent targets.
   const [orgAgents, setOrgAgents] = useState<{ id: string; title: string }[]>([])
@@ -475,6 +480,7 @@ export function AgentConfigForm({
       autoAnswerFromMemory: source.autoAnswerFromMemory !== false,
       outputFields: Array.isArray(source.outputFields) ? source.outputFields : [],
       alwaysStrategize: source.alwaysStrategize === true,
+      maxTurns: typeof source.maxTurns === 'number' ? source.maxTurns : 16,
       schedule: normalizeSchedule({ ...emptyDraft.schedule, ...(source.schedule || {}) }),
     } : {
       ...emptyDraft,
@@ -483,6 +489,7 @@ export function AgentConfigForm({
       schedule: { ...emptyDraft.schedule, timezone: browserTimezone() },
     }
     setDraft(next)
+    setWebhook(null)
     baselineRef.current = JSON.stringify(next)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editingAgent?.id, template?.id, active])
@@ -546,6 +553,39 @@ export function AgentConfigForm({
   const openRun = (runId: string) => {
     if (onOpenRun) onOpenRun(runId)
     else router.push(`/dashboard?run=${runId}`)
+  }
+
+  const configureWebhook = async (rotate = false) => {
+    if (!editingAgent?.id || webhookBusy) return
+    if (rotate && !window.confirm('Rotate this webhook secret? Calls using the old secret will stop working immediately.')) return
+    setWebhookBusy(true)
+    try {
+      const response = await fetch(`/api/agents/${editingAgent.id}/trigger-secret`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ rotate }),
+      })
+      const data = await response.json().catch(() => ({}))
+      if (!response.ok) {
+        toast.error(data.error || 'Could not configure the webhook trigger.')
+        return
+      }
+      setWebhook({ url: data.url, hasSecret: Boolean(data.hasSecret), secret: typeof data.secret === 'string' ? data.secret : null })
+      if (data.secret) toast.success('Webhook secret created. Copy it now — it is shown only once.')
+    } catch {
+      toast.error('Could not configure the webhook trigger.')
+    } finally {
+      setWebhookBusy(false)
+    }
+  }
+
+  const copyWebhookValue = async (value: string, label: string) => {
+    try {
+      await navigator.clipboard.writeText(value)
+      toast.success(`${label} copied.`)
+    } catch {
+      toast.error(`Could not copy ${label.toLowerCase()}.`)
+    }
   }
 
   /**
@@ -917,6 +957,19 @@ export function AgentConfigForm({
           />
         </div>
       </div>
+      <div className="rounded-lg border p-3">
+        <Label htmlFor="max-turns">Maximum turns per run</Label>
+        <p className="mt-0.5 text-xs text-muted-foreground">Stops runaway tool loops while allowing longer research jobs when needed.</p>
+        <Input
+          id="max-turns"
+          type="number"
+          min={1}
+          max={64}
+          className="mt-2 w-28"
+          value={draft.maxTurns ?? 16}
+          onChange={(event) => setDraft({ ...draft, maxTurns: Math.min(64, Math.max(1, Number(event.target.value) || 1)) })}
+        />
+      </div>
 
       {/* ── Structured output ───────────────────────────────────────── */}
       <div className="rounded-lg border p-3">
@@ -1127,6 +1180,54 @@ export function AgentConfigForm({
           </div>
         )}
       </div>
+
+      {/* ── Webhook trigger ─────────────────────────────────────────── */}
+      {editingAgent?.id && (
+        <div className="space-y-3 rounded-lg border p-3">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <Label className="flex items-center gap-2"><Webhook className="h-4 w-4" /> Webhook trigger</Label>
+              <p className="mt-0.5 text-xs text-muted-foreground">Run this agent from another app with a secret HTTP endpoint.</p>
+            </div>
+            {!webhook && (
+              <Button type="button" variant="outline" size="sm" loading={webhookBusy} onClick={() => configureWebhook(false)}>
+                Set up webhook
+              </Button>
+            )}
+          </div>
+
+          {webhook && (
+            <div className="space-y-3 border-t pt-3">
+              <div>
+                <div className="mb-1 flex items-center justify-between gap-2">
+                  <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">POST endpoint</p>
+                  <button type="button" className="flex items-center gap-1 text-xs font-medium text-primary hover:underline" onClick={() => copyWebhookValue(webhook.url, 'Endpoint')}><Copy className="h-3 w-3" /> Copy</button>
+                </div>
+                <p className="break-all rounded-md bg-muted px-2 py-1.5 font-mono text-xs">{webhook.url}</p>
+              </div>
+
+              {webhook.secret ? (
+                <div>
+                  <div className="mb-1 flex items-center justify-between gap-2">
+                    <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">x-trigger-secret · shown once</p>
+                    <button type="button" className="flex items-center gap-1 text-xs font-medium text-primary hover:underline" onClick={() => copyWebhookValue(webhook.secret!, 'Secret')}><Copy className="h-3 w-3" /> Copy</button>
+                  </div>
+                  <p className="break-all rounded-md border border-amber-200 bg-amber-50 px-2 py-1.5 font-mono text-xs text-amber-950">{webhook.secret}</p>
+                  <Button type="button" variant="outline" size="sm" className="mt-2" onClick={() => copyWebhookValue(`curl -X POST '${webhook.url}' -H 'content-type: application/json' -H 'x-trigger-secret: ${webhook.secret}' --data '{"input":{"account":"Acme"}}'`, 'cURL command')}>
+                    <Copy className="mr-1.5 h-3.5 w-3.5" /> Copy cURL example
+                  </Button>
+                </div>
+              ) : (
+                <p className="text-xs text-muted-foreground">A secret already exists and cannot be shown again. Rotate it to receive a new value.</p>
+              )}
+
+              <Button type="button" variant="ghost" size="sm" loading={webhookBusy} onClick={() => configureWebhook(true)}>
+                <RotateCcw className="mr-1.5 h-3.5 w-3.5" /> Rotate secret
+              </Button>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* ── Compact Skills display ───────────────────────────────────── */}
       <div>

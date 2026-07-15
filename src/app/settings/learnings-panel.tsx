@@ -32,12 +32,20 @@ function formatDate(value: string): string {
 // dismiss server-side, so a removed learning never resurfaces.
 export function LearningsPanel() {
   const [learnings, setLearnings] = useState<Learning[] | null>(null)
+  const [loadError, setLoadError] = useState<string | null>(null)
   const [deletingId, setDeletingId] = useState<string | null>(null)
 
   const load = useCallback(async () => {
-    const response = await fetch('/api/intelligence/learnings', { cache: 'no-store' })
-    const data = await response.json().catch(() => ({}))
-    setLearnings(response.ok && data.success ? data.learnings : [])
+    setLoadError(null)
+    try {
+      const response = await fetch('/api/intelligence/learnings', { cache: 'no-store' })
+      const data = await response.json().catch(() => ({}))
+      if (!response.ok || !data.success) throw new Error(data.error || 'Could not load learnings')
+      setLearnings(data.learnings)
+    } catch (error) {
+      setLearnings(null)
+      setLoadError(error instanceof Error ? error.message : 'Could not load learnings')
+    }
   }, [])
 
   useEffect(() => { void load() }, [load])
@@ -62,13 +70,20 @@ export function LearningsPanel() {
         <p className="text-sm text-muted-foreground">
           Facts and suggestions distilled from your connected tools. Remove anything that shouldn&apos;t be remembered — it won&apos;t resurface.
         </p>
-        {learnings === null && (
+        {learnings === null && !loadError && (
           <div className="space-y-2">
             <Skeleton className="h-16 rounded-md" />
             <Skeleton className="h-16 rounded-md" />
           </div>
         )}
-        {learnings !== null && learnings.length === 0 && (
+        {loadError && (
+          <div className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-800">
+            <p className="font-medium">Learnings could not be loaded</p>
+            <p className="mt-1">{loadError}</p>
+            <Button type="button" variant="outline" size="sm" className="mt-3 bg-white" onClick={() => void load()}>Try again</Button>
+          </div>
+        )}
+        {learnings !== null && !loadError && learnings.length === 0 && (
           <EmptyState
             icon={Sparkles}
             title="Nothing learned yet"

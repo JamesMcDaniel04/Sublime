@@ -613,13 +613,21 @@ function RunRow({
     if (!reply.trim() || replying) return
     setReplying(true)
     try {
-      await fetch(`/api/executions/${activity.id}/reply`, {
+      const response = await fetch(`/api/executions/${activity.id}/reply`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ message: reply }),
       })
+      const data = await response.json().catch(() => ({}))
+      if (!response.ok || data.success === false) {
+        toast.error(data.error || 'Could not send the reply.')
+        return
+      }
       setReply('')
       onChanged()
+      toast.success('Reply sent — resuming the agent.')
+    } catch {
+      toast.error('Could not send the reply. Your answer is still here so you can retry.')
     } finally {
       setReplying(false)
     }

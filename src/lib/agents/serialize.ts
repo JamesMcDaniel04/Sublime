@@ -14,7 +14,6 @@ export function serializeAgent(agent: {
   folder: string | null
   visibility: string
   status: string
-  priority: string
   schedule: unknown
   createdAt: Date
   lastExecutedAt: Date | null
@@ -38,11 +37,11 @@ export function serializeAgent(agent: {
     // safe default unless an agent explicitly opts out.
     autoAnswerFromMemory: metadata.autoAnswerFromMemory !== false,
     alwaysStrategize: metadata.alwaysStrategize === true,
+    maxTurns: typeof metadata.maxTurns === 'number' ? metadata.maxTurns : 16,
     suggestedGoal: metadata.suggestedGoal || null,
     folder: agent.folder || null,
     visibility: agent.visibility || 'shared',
     status: agent.status.toLowerCase(),
-    priority: agent.priority.toLowerCase(),
     schedule: agent.schedule,
     createdAt: agent.createdAt,
     lastExecutedAt: agent.lastExecutedAt,

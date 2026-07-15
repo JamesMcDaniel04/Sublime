@@ -3,7 +3,7 @@
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useParams, useRouter, useSearchParams } from 'next/navigation'
 import { toast } from 'sonner'
-import { ArrowLeft, Play, Save, Sparkles, Loader2, ListChecks, ShieldCheck, Undo2, Redo2, MoreHorizontal, Copy, Download, Trash2, FlaskConical, History, ScrollText } from 'lucide-react'
+import { AlertTriangle, ArrowLeft, Play, Save, Sparkles, Loader2, ListChecks, ShieldCheck, Undo2, Redo2, MoreHorizontal, Copy, Download, Trash2, FlaskConical, History, ScrollText } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Badge } from '@/components/ui/badge'
@@ -202,7 +202,10 @@ function FlowBuilder() {
   const [published, setPublished] = useState(false)
   const [publishing, setPublishing] = useState(false)
   const [agents, setAgents] = useState<Agent[]>([])
+  const [availableFlows, setAvailableFlows] = useState<{ id: string; name: string; published: boolean }[]>([])
   const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState<string | null>(null)
+  const [loadAttempt, setLoadAttempt] = useState(0)
   const [saving, setSaving] = useState(false)
   const [running, setRunning] = useState(false)
   const [fixing, setFixing] = useState(false)
@@ -299,6 +302,7 @@ function FlowBuilder() {
   // Org sharing. `canManageJam` IS the ownership predicate the API returns
   // (flow.userId === me), and only the owner may change sharing.
   const [visibility, setVisibility] = useState<string>('private')
+  const [errorFlowId, setErrorFlowId] = useState('')
   const [improvementSuggestions, setImprovementSuggestions] = useState<{ id: string; title: string; content: string }[]>([])
   const [dismissingSuggestionId, setDismissingSuggestionId] = useState<string | null>(null)
   // Optimistic-concurrency base: the flow's updatedAt as of load/last save.
@@ -308,7 +312,7 @@ function FlowBuilder() {
   const remoteGraphSnapshotRef = useRef<string | null>(null)
   const { peers, connectionState, broadcastGraph, updateCursor, broadcastAccessChange } = useFlowJam({
     flowId: id,
-    enabled: !loading,
+    enabled: !loading && !loadError,
     selectedNodeId: selectedId,
     onRemoteGraph: (remote) => {
       remoteGraphSnapshotRef.current = JSON.stringify(remote)
@@ -321,7 +325,7 @@ function FlowBuilder() {
   })
   jamCursorUpdateRef.current = updateCursor
   useEffect(() => {
-    if (loading) return
+    if (loading || loadError) return
     const snapshot = JSON.stringify(graph)
     if (remoteGraphSnapshotRef.current === snapshot) {
       remoteGraphSnapshotRef.current = null
@@ -330,38 +334,50 @@ function FlowBuilder() {
     remoteGraphSnapshotRef.current = null
     broadcastGraph(graph)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [graph, loading])
+  }, [graph, loading, loadError])
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
   // Run the user explicitly picked (dropdown or ?run= deep-link). While set,
   // the poll tick refreshes that run's details instead of stealing selection.
   const pinnedRunId = useRef<string | null>(null)
-  const dirty = savedSnapshot !== '' && JSON.stringify({ name, description, graph, status }) !== savedSnapshot
+  const dirty = savedSnapshot !== '' && JSON.stringify({ name, description, graph, status, errorFlowId }) !== savedSnapshot
 
   useEffect(() => {
     let cancelled = false
-    Promise.all([
-      getCachedJson<any>('/api/flows'),
-      getCachedJson<any>('/api/agents', 30_000),
-    ])
-      .then(([flowsData, agentsData]) => {
+    setLoading(true)
+    setLoadError(null)
+    getCachedJson<any>('/api/flows')
+      .then(async (flowsData) => {
         if (cancelled) return
+        if (!flowsData?.success || !Array.isArray(flowsData.flows)) throw new Error('The flow list could not be loaded.')
         const flow = (flowsData.flows || []).find((f: { id: string }) => f.id === id)
-        if (flow) {
-          const g = flow.graph && flow.graph.nodes ? flow.graph : emptyGraph()
-          setName(flow.name)
-          setDescription(flow.description || '')
-          setGraph(g)
-          setStatus(flow.status)
-          setVersion(flow.version ?? 1)
-          setPublished(Boolean(flow.published))
-          setCanManageJam(Boolean(flow.canManageJam))
-          setVisibility(typeof flow.visibility === 'string' ? flow.visibility : 'private')
-          setSavedSnapshot(JSON.stringify({ name: flow.name, description: flow.description || '', graph: g, status: flow.status }))
-          baseUpdatedAtRef.current = flow.updatedAt
+        if (!flow) throw new Error('This flow was not found or you no longer have access to it.')
+        if (!flow.graph || !Array.isArray(flow.graph.nodes) || !Array.isArray(flow.graph.edges)) {
+          throw new Error('This flow returned an invalid graph and was not opened to protect its saved version.')
         }
-        setAgents(agentsData.success ? agentsData.agents.map((a: Agent) => ({ id: a.id, title: a.title })) : [])
+        const g = flow.graph as FlowGraph
+        setName(flow.name)
+        setDescription(flow.description || '')
+        setGraph(g)
+        setStatus(flow.status)
+        setVersion(flow.version ?? 1)
+        setPublished(Boolean(flow.published))
+        setCanManageJam(Boolean(flow.canManageJam))
+        setVisibility(typeof flow.visibility === 'string' ? flow.visibility : 'private')
+        const loadedErrorFlowId = typeof flow.errorFlowId === 'string' ? flow.errorFlowId : ''
+        setErrorFlowId(loadedErrorFlowId)
+        setAvailableFlows(flowsData.flows.map((entry: { id: string; name: string; published?: boolean }) => ({ id: entry.id, name: entry.name, published: Boolean(entry.published) })))
+        setSavedSnapshot(JSON.stringify({ name: flow.name, description: flow.description || '', graph: g, status: flow.status, errorFlowId: loadedErrorFlowId }))
+        baseUpdatedAtRef.current = flow.updatedAt
+
+        // Agent choices are useful but not authoritative flow data. A failure
+        // here must not turn a valid graph load into the destructive empty-canvas
+        // path this guard is preventing.
+        const agentsData = await getCachedJson<any>('/api/agents', 30_000).catch(() => null)
+        if (!cancelled) setAgents(agentsData?.success ? agentsData.agents.map((a: Agent) => ({ id: a.id, title: a.title })) : [])
       })
-      .catch(() => undefined)
+      .catch((error) => {
+        if (!cancelled) setLoadError(error instanceof Error ? error.message : 'The flow could not be loaded.')
+      })
       .finally(() => {
         if (!cancelled) setLoading(false)
       })
@@ -376,7 +392,7 @@ function FlowBuilder() {
     return () => {
       cancelled = true
     }
-  }, [id])
+  }, [id, loadAttempt])
 
   useEffect(() => () => { if (pollRef.current) clearInterval(pollRef.current) }, [])
 
@@ -679,12 +695,16 @@ function FlowBuilder() {
   }, [selectedRun, viewingVersion])
 
   const save = useCallback(async (): Promise<boolean> => {
+    if (loadError || savedSnapshot === '') {
+      toast.error('This flow has not loaded successfully, so Save is disabled to protect the existing graph.')
+      return false
+    }
     setSaving(true)
     try {
       const response = await fetch('/api/flows', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id, name, description, graph, status: status.toUpperCase(), baseUpdatedAt: baseUpdatedAtRef.current }),
+        body: JSON.stringify({ id, name, description, graph, status: status.toUpperCase(), errorFlowId: errorFlowId || null, baseUpdatedAt: baseUpdatedAtRef.current }),
       })
       const data = await response.json().catch(() => ({}))
       if (!response.ok) {
@@ -695,12 +715,12 @@ function FlowBuilder() {
         baseUpdatedAtRef.current = data.flow.updatedAt
       }
       invalidateCachedJson('/api/flows')
-      setSavedSnapshot(JSON.stringify({ name, description, graph, status }))
+      setSavedSnapshot(JSON.stringify({ name, description, graph, status, errorFlowId }))
       return true
     } finally {
       setSaving(false)
     }
-  }, [id, name, description, graph, status])
+  }, [id, name, description, graph, status, errorFlowId, loadError, savedSnapshot])
 
   const publish = useCallback(
     async (revert = false) => {
@@ -838,15 +858,16 @@ function FlowBuilder() {
       })
       const data = await response.json().catch(() => ({}))
       if (response.ok && data.flow?.graph) {
+        if (data.flow.updatedAt) baseUpdatedAtRef.current = data.flow.updatedAt
         commitGraph(data.flow.graph)
-        setSavedSnapshot(JSON.stringify({ name, description, graph: data.flow.graph, status }))
+        setSavedSnapshot(JSON.stringify({ name, description, graph: data.flow.graph, status, errorFlowId }))
         setViewingVersion(null)
         toast.success(`Restored v${v} into the draft.`)
       } else {
         toast.error(data.error || 'Could not restore that version.')
       }
     },
-    [id, commitGraph, name, description, status],
+    [id, commitGraph, name, description, status, errorFlowId],
   )
 
   const run = useCallback(async (options?: { startNodeId?: string; mockOutputsText?: string }) => {
@@ -1131,6 +1152,27 @@ function FlowBuilder() {
     )
   }
 
+  if (loadError) {
+    return (
+      <div className="flex h-full items-center justify-center bg-muted/20 p-6">
+        <div className="w-full max-w-lg rounded-xl border border-red-200 bg-card p-6 shadow-sm">
+          <div className="flex items-start gap-3">
+            <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-red-600" />
+            <div>
+              <h1 className="font-semibold">This flow did not load</h1>
+              <p className="mt-1 text-sm text-muted-foreground">{loadError}</p>
+              <p className="mt-2 text-sm text-muted-foreground">The canvas and save actions are locked, so the saved workflow cannot be overwritten with an empty graph.</p>
+            </div>
+          </div>
+          <div className="mt-5 flex gap-2">
+            <Button onClick={() => { invalidateCachedJson('/api/flows'); setLoadAttempt((attempt) => attempt + 1) }}>Try again</Button>
+            <Button variant="outline" onClick={() => router.push('/flows')}>Back to flows</Button>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
   // While viewing a historical snapshot, the canvas renders that version's
   // graph and every mutation path is inert — the live draft (`graph` state)
   // is untouched underneath, so Save/Publish/Run still act on the real draft.
@@ -1172,6 +1214,15 @@ function FlowBuilder() {
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
             <DropdownMenuLabel>Flow settings</DropdownMenuLabel>
+            <div className="space-y-1 px-2 py-1.5" onClick={(event) => event.stopPropagation()}>
+              <label className="text-xs font-medium text-muted-foreground" htmlFor="error-flow">On failure, run</label>
+              <select id="error-flow" value={errorFlowId} onChange={(event) => setErrorFlowId(event.target.value)} className="w-full rounded-md border border-border bg-background px-2 py-1.5 text-xs">
+                <option value="">No error handler</option>
+                {availableFlows.filter((entry) => entry.id !== id && entry.published).map((entry) => <option key={entry.id} value={entry.id}>{entry.name}</option>)}
+              </select>
+              <p className="max-w-56 text-[11px] leading-4 text-muted-foreground">The published handler receives the failed flow, run, error, and original input after Save.</p>
+            </div>
+            <DropdownMenuSeparator />
             <DropdownMenuItem onSelect={duplicateFlow}>
               <Copy className="h-4 w-4" /> Duplicate
             </DropdownMenuItem>
@@ -1369,8 +1420,8 @@ function FlowBuilder() {
               onAddContainerStep={
                 viewingVersion
                   ? undefined
-                  : (containerId, type) => {
-                      const { graph: next, nodeId } = addContainerStep(graph, containerId, type, type === 'agent' ? agents[0]?.id ?? '' : undefined)
+                  : (containerId, type, branchIndex) => {
+                      const { graph: next, nodeId } = addContainerStep(graph, containerId, type, type === 'agent' ? agents[0]?.id ?? '' : undefined, branchIndex)
                       commitGraph(next)
                       setSelectedId(nodeId)
                     }
@@ -1481,8 +1532,8 @@ function FlowBuilder() {
               onAddContainerStep={
                 viewingVersion
                   ? undefined
-                  : (containerId, type) => {
-                      const { graph: next, nodeId } = addContainerStep(graph, containerId, type, type === 'agent' ? agents[0]?.id ?? '' : undefined)
+                  : (containerId, type, branchIndex) => {
+                      const { graph: next, nodeId } = addContainerStep(graph, containerId, type, type === 'agent' ? agents[0]?.id ?? '' : undefined, branchIndex)
                       commitGraph(next)
                       setSelectedId(nodeId)
                     }

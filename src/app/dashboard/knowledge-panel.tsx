@@ -88,13 +88,13 @@ export function KnowledgePanel({ agentId }: { agentId: string }) {
           ref={inputRef}
           type="file"
           multiple
-          accept=".txt,.md,.markdown,.csv,.tsv,.json,.jsonl,.yaml,.yml,.xml,.html,.htm,.log,text/*,application/json"
+          accept=".pdf,.docx,.txt,.md,.markdown,.csv,.tsv,.json,.jsonl,.yaml,.yml,.xml,.html,.htm,.log,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/*,application/json"
           className="hidden"
           onChange={(e) => upload(e.target.files)}
         />
       </div>
       <p className="mb-2 text-xs text-gray-500">
-        Files the agent can draw on at run time. Text, Markdown, CSV, JSON, HTML, and source files are supported (PDF/DOCX coming soon).
+        Files the agent can draw on at run time. PDF, DOCX, text, Markdown, CSV, JSON, HTML, and source files are supported.
       </p>
       {loading ? (
         <p className="text-sm text-gray-500">

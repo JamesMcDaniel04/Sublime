@@ -92,19 +92,16 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
   // emoji (no ASCII letters/digits, short), else fall back to a default mark.
   const rawIcon = draft.icon?.trim() || ''
   const icon = rawIcon && !/[A-Za-z0-9]/.test(rawIcon) && [...rawIcon].length <= 4 ? rawIcon : '🤖'
-  const enrichedDraft = { ...draft, icon, schedule, model: DEFAULT_AGENT_MODEL, priority: 'medium', visibility: 'shared' as const, folder: null }
+  const enrichedDraft = { ...draft, icon, schedule, model: DEFAULT_AGENT_MODEL, visibility: 'shared' as const, folder: null }
   if (!create) {
     return { success: true, draft: enrichedDraft }
   }
 
   const agent = await prisma.agentTask.create({
     data: {
-      type: 'agent',
       agentType: 'CUSTOM',
-      priority: 'MEDIUM',
       description: draft.description || draft.title,
       objective: draft.instructions,
-      context: {},
       schedule,
       status: 'ACTIVE',
       visibility: 'shared',

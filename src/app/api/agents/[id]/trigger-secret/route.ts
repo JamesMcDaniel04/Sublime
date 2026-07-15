@@ -26,7 +26,7 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
     : {}
   const hasSecret = typeof metadata.triggerSecretHash === 'string' || typeof metadata.triggerSecret === 'string'
 
-  const baseUrl = process.env.NEXT_PUBLIC_APP_URL || ''
+  const baseUrl = (process.env.NEXT_PUBLIC_APP_URL || request.nextUrl.origin).replace(/\/$/, '')
   const base = {
     success: true as const,
     url: `${baseUrl}/api/agents/${agent.id}/trigger`,

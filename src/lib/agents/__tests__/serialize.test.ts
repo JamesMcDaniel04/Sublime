@@ -12,11 +12,11 @@ test('preserves template-required integrations in the agent wire shape', () => {
       title: 'Lead agent',
       integrations: ['salesforce', 'slack'],
       requiredIntegrations: ['salesforce'],
+      maxTurns: 24,
     },
     folder: null,
     visibility: 'shared',
     status: 'ACTIVE',
-    priority: 'MEDIUM',
     schedule: {},
     createdAt: new Date('2026-07-12T00:00:00Z'),
     lastExecutedAt: null,
@@ -24,14 +24,16 @@ test('preserves template-required integrations in the agent wire shape', () => {
   })
   assert.deepEqual(agent.requiredIntegrations, ['salesforce'])
   assert.equal(agent.autoAnswerFromMemory, true, 'legacy agents reuse remembered blocking answers by default')
+  assert.equal(agent.maxTurns, 24)
 })
 
 test('preserves an explicit remembered-answer opt-out', () => {
   const agent = serializeAgent({
     id: 'agent-2', description: 'Approval agent', objective: 'Request a fresh approval', goal: null,
     metadata: { title: 'Approval agent', autoAnswerFromMemory: false }, folder: null,
-    visibility: 'shared', status: 'ACTIVE', priority: 'MEDIUM', schedule: {},
+    visibility: 'shared', status: 'ACTIVE', schedule: {},
     createdAt: new Date('2026-07-12T00:00:00Z'), lastExecutedAt: null, executionCount: 0,
   })
   assert.equal(agent.autoAnswerFromMemory, false)
+  assert.equal(agent.maxTurns, 16, 'legacy agents get the runtime default in the editor')
 })

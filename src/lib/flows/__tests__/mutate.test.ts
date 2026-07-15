@@ -80,6 +80,17 @@ test('addContainerStep creates typed parallel branches', () => {
   assert.ok(updatedParallel?.type === 'parallel' && updatedParallel.data.branches.some((branch) => branch[0] === nodeId))
 })
 
+test('addContainerStep can append an Error Shield fallback step', () => {
+  const base = insertNodeAfter(emptyGraph(), 'trigger', 'errorShield').graph
+  const shield = base.nodes.find((node) => node.type === 'errorShield')!
+  const { graph, nodeId } = addContainerStep(base, shield.id, 'http', undefined, -1)
+  const updatedShield = graph.nodes.find((node) => node.id === shield.id)
+  assert.ok(updatedShield?.type === 'errorShield')
+  assert.deepEqual(updatedShield.data.body, shield.data.body)
+  assert.deepEqual(updatedShield.data.fallback, [nodeId])
+  assert.equal(graph.nodes.find((node) => node.id === nodeId)?.type, 'http')
+})
+
 test('deleteNode preserves the branch flag when healing a branch head', () => {
   let g = insertNodeAfter(emptyGraph(), 'trigger', 'condition').graph
   const condId = g.nodes.find((n) => n.type === 'condition')!.id

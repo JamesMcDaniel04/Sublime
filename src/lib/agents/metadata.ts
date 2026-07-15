@@ -12,6 +12,7 @@ export type AgentMetadata = {
   requiredIntegrations?: string[]
   skills?: string[]
   icon?: string
+  /** Maximum model/tool turns in one run (guardrail, configurable per agent). */
   maxTurns?: number
   headline?: string
   triggerSecretHash?: string

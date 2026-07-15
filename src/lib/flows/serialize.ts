@@ -31,6 +31,7 @@ export function serializeFlow(flow: {
     // src/lib/intelligence/suggest-workflows.ts) — drives the "Suggested for
     // you" rail on the flows list page.
     suggested: metadata.suggested === true,
+    errorFlowId: typeof metadata.errorFlowId === 'string' ? metadata.errorFlowId : null,
     stepCount,
     version: flow.version ?? 1,
     published,

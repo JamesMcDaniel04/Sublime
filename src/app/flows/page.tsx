@@ -26,6 +26,7 @@ type FlowItem = {
   stepCount: number
   updatedAt: string
   suggested?: boolean
+  unpublishedChanges?: boolean
 }
 
 type SuggestionReadiness = { ready: boolean; totalConnections: number; connectionsNeeded: number }
@@ -179,7 +180,10 @@ export default function FlowsPage() {
                       <Badge variant="outline" className={cn('text-[11px] font-medium capitalize', STATUS_STYLE[flow.status] || STATUS_STYLE.draft)}>
                         {flow.status}
                       </Badge>
-                      <span className="text-xs text-muted-foreground">{flow.stepCount} step{flow.stepCount === 1 ? '' : 's'}</span>
+                      <div className="flex items-center gap-2">
+                        {flow.unpublishedChanges && <Badge variant="warn" className="text-[10px]">Unpublished changes</Badge>}
+                        <span className="text-xs text-muted-foreground">{flow.stepCount} step{flow.stepCount === 1 ? '' : 's'}</span>
+                      </div>
                     </div>
                     <div className="flex items-start gap-2.5">
                       <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-indigo-100 text-indigo-600 transition-transform group-hover:scale-105 dark:bg-indigo-500/15 dark:text-indigo-300">

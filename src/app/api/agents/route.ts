@@ -50,7 +50,6 @@ const agentSchema = z.object({
   description: z.string().default(''),
   instructions: z.string().min(1),
   model: z.string().default(DEFAULT_AGENT_MODEL),
-  priority: z.string().default('medium'),
   integrations: z.array(z.string()).default([]),
   requiredIntegrations: z.array(z.string()).default([]),
   skills: z.array(z.string()).default([]),
@@ -71,6 +70,7 @@ const agentSchema = z.object({
   autoAnswerFromMemory: z.boolean().optional(),
   // When true, every run starts with an explicit numbered plan before any tool call.
   alwaysStrategize: z.boolean().optional(),
+  maxTurns: z.number().int().min(1).max(64).optional(),
   // Structured output contract: when non-empty, runs must reply with JSON
   // carrying these properties (enforced in execute-agent).
   outputFields: z.array(z.object({ name: z.string().trim().min(1).max(60), type: z.enum(['string', 'number', 'boolean', 'object', 'array']).default('string'), description: z.string().max(300).optional() })).max(20).optional(),
@@ -102,12 +102,9 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
   const data = agentSchema.parse(await request.json())
   const agent = await prisma.agentTask.create({
     data: {
-      type: 'agent',
       agentType: 'CUSTOM',
-      priority: data.priority.toUpperCase(),
       description: data.description || data.title,
       objective: data.instructions,
-      context: {},
       schedule: data.schedule,
       status: 'ACTIVE',
       folder: data.folder || null,
@@ -127,6 +124,7 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
         subagentIds: data.subagentIds ?? [],
         autoAnswerFromMemory: data.autoAnswerFromMemory !== false,
         alwaysStrategize: data.alwaysStrategize === true,
+        maxTurns: data.maxTurns ?? 16,
         ...(data.outputFields?.length ? { outputFields: data.outputFields, responseFormat: 'structured' } : {}),
       },
     },
@@ -156,7 +154,6 @@ export const PUT = withAuthenticatedApi(async (request, auth) => {
     data: {
       ...(body.description !== undefined && { description: body.description || body.title || existing.description }),
       ...(body.instructions !== undefined && { objective: body.instructions }),
-      ...(body.priority !== undefined && { priority: body.priority.toUpperCase() }),
       ...(body.schedule !== undefined && { schedule: body.schedule }),
       ...(body.folder !== undefined && { folder: body.folder || null }),
       ...(body.visibility !== undefined && { visibility: normalizeVisibility(body.visibility) }),
@@ -174,6 +171,7 @@ export const PUT = withAuthenticatedApi(async (request, auth) => {
         ...(body.subagentIds !== undefined && { subagentIds: body.subagentIds }),
         ...(body.autoAnswerFromMemory !== undefined && { autoAnswerFromMemory: body.autoAnswerFromMemory }),
         ...(body.alwaysStrategize !== undefined && { alwaysStrategize: body.alwaysStrategize }),
+        ...(body.maxTurns !== undefined && { maxTurns: body.maxTurns }),
         // Non-empty fields switch the run contract to structured; an explicit
         // empty array clears it back to plain text.
         ...(body.outputFields !== undefined && {

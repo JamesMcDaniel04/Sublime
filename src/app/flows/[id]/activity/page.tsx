@@ -15,7 +15,7 @@ import type { FlowGraph } from '@/lib/flows/graph'
 import { cn } from '@/lib/utils'
 
 type RunStepSummary = { nodeId: string; status: string; order: number; error?: string | null }
-type RunWaiting = { nodeId: string; kind: 'input' | 'approval'; question?: string }
+type RunWaiting = { nodeId: string; kind: 'input' | 'approval' | 'time'; question?: string; wakeAt?: string }
 type RunSummary = {
   id: string
   status: string
@@ -117,6 +117,13 @@ function WaitingBanner({
         <>
           <p className="text-sm font-semibold text-blue-900 dark:text-blue-200">Waiting for an approval decision</p>
           <p className="mt-1 text-xs text-blue-800 dark:text-blue-300">A step needs an approval before this run can continue.</p>
+        </>
+      ) : waiting.kind === 'time' ? (
+        <>
+          <p className="text-sm font-semibold text-blue-900 dark:text-blue-200">Paused until the scheduled time</p>
+          <p className="mt-1 text-xs text-blue-800 dark:text-blue-300">
+            This run will resume automatically{waiting.wakeAt ? ` at ${new Date(waiting.wakeAt).toLocaleString()}` : ''}. No reply is needed.
+          </p>
         </>
       ) : (
         <>
@@ -317,7 +324,9 @@ export default function FlowActivityPage() {
                             {run.steps.map((step, i) => {
                               // The paused step reads as what it needs, never the bare status word.
                               const waitingKind = step.status === 'waiting' && run.waiting?.nodeId === step.nodeId ? run.waiting.kind : undefined
-                              const statusLabel = waitingKind ? (waitingKind === 'input' ? 'Waiting for your reply' : 'Waiting for approval') : step.status
+                              const statusLabel = waitingKind
+                                ? waitingKind === 'input' ? 'Waiting for your reply' : waitingKind === 'approval' ? 'Waiting for approval' : 'Resumes automatically'
+                                : step.status
                               return (
                                 <div key={`${step.nodeId}-${i}`} className="flex items-center gap-2 px-4 py-1.5">
                                   <span className={cn('h-2 w-2 shrink-0 rounded-full', STEP_DOT[step.status] || 'bg-gray-300')} />

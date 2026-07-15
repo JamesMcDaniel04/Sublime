@@ -96,7 +96,7 @@ if (TEST_DB) {
     if (!vectorReady) return
     const vector = dims((i) => (i === 0 ? 1 : 0.01))
     const holderAgent = await prisma.agentTask.create({
-      data: { organizationId: ids.org, type: 'system', agentType: 'SYSTEM', status: 'SYSTEM', priority: 'LOW', visibility: 'private', userId: null, description: 'org intelligence', objective: 'holds org-wide learnings' },
+      data: { organizationId: ids.org, agentType: 'SYSTEM', status: 'SYSTEM', visibility: 'private', userId: null, description: 'org intelligence', objective: 'holds org-wide learnings' },
     })
     const learning = await prisma.agentMemory.create({
       data: { organizationId: ids.org, agentId: holderAgent.id, kind: 'learning', title: 'holder learning', content: 'shared fact', status: 'open' },

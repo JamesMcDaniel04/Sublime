@@ -33,7 +33,7 @@ export type FlowRunDetail = {
   output?: unknown
   error?: string | null
   trigger?: unknown
-  waiting?: { nodeId: string; kind: 'input' | 'approval'; question?: string } | null
+  waiting?: { nodeId: string; kind: 'input' | 'approval' | 'time'; question?: string; wakeAt?: string } | null
   steps: RunStep[]
 }
 
@@ -137,7 +137,7 @@ function useAgentProcessFeed(executionId: string | null | undefined, active: boo
   return rows
 }
 
-function StepRow({ step, label, waitingKind }: { step: RunStep; label: string; waitingKind?: 'input' | 'approval' }) {
+function StepRow({ step, label, waitingKind }: { step: RunStep; label: string; waitingKind?: 'input' | 'approval' | 'time' }) {
   const [open, setOpen] = useState(false)
   // An in-flight agent step with a linked execution shows the agent's REAL
   // process (below) instead of the decorative typewriter word. Steps without
@@ -146,7 +146,9 @@ function StepRow({ step, label, waitingKind }: { step: RunStep; label: string; w
   const live = (step.status === 'running' || step.status === 'waiting') && Boolean(step.agentExecutionId)
   const feed = useAgentProcessFeed(step.agentExecutionId, live, step.status === 'waiting')
   // A paused step reads as what it needs, never the bare status word.
-  const statusLabel = waitingKind ? (waitingKind === 'input' ? 'Waiting for your reply' : 'Waiting for approval') : step.status
+  const statusLabel = waitingKind
+    ? waitingKind === 'input' ? 'Waiting for your reply' : waitingKind === 'approval' ? 'Waiting for approval' : 'Resumes automatically'
+    : step.status
   return (
     <div className="border-b border-border/60 last:border-0">
       <button type="button" onClick={() => setOpen((v) => !v)} className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-muted/50">
@@ -222,6 +224,13 @@ function WaitingBanner({
           <>
             <p className="text-sm font-semibold text-blue-900 dark:text-blue-200">Waiting for an approval decision</p>
             <p className="mt-1 text-xs text-blue-800 dark:text-blue-300">A step needs an approval before this run can continue.</p>
+          </>
+        ) : waiting.kind === 'time' ? (
+          <>
+            <p className="text-sm font-semibold text-blue-900 dark:text-blue-200">Paused until the scheduled time</p>
+            <p className="mt-1 text-xs text-blue-800 dark:text-blue-300">
+              This run will resume automatically{waiting.wakeAt ? ` at ${new Date(waiting.wakeAt).toLocaleString()}` : ''}. No reply is needed.
+            </p>
           </>
         ) : (
           <>

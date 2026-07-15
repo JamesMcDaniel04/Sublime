@@ -36,6 +36,7 @@ const flowSchema = z.object({
   visibility: z.enum(['private', 'org_viewer', 'org_editor', 'shared']).default('private'),
   trigger: triggerSchema.optional(),
   graph: flowGraphSchema.optional(),
+  errorFlowId: z.string().min(1).nullable().optional(),
 })
 
 export const GET = withAuthenticatedApi(async (_request, auth) => {
@@ -89,6 +90,14 @@ export const PUT = withAuthenticatedApi(async (request, auth) => {
     where: { id: body.id, organizationId: auth.organizationId, ...flowWriteScope(auth.dbUser.id) },
   })
   if (!existing) throw new ApiError('Flow not found', 404, 'NOT_FOUND')
+  if (body.errorFlowId === body.id) throw new ApiError('A flow cannot be its own error handler', 400, 'INVALID_ERROR_HANDLER')
+  if (body.errorFlowId) {
+    const handler = await prisma.flow.findFirst({
+      where: { id: body.errorFlowId, organizationId: auth.organizationId, ...flowReadScope(auth.dbUser.id) },
+      select: { id: true, publishedGraph: true },
+    })
+    if (!handler?.publishedGraph) throw new ApiError('Choose a published flow you can access as the error handler', 400, 'INVALID_ERROR_HANDLER')
+  }
   // Editing content is open to editors; changing WHO can see it is the owner's
   // call alone — otherwise an org_editor could re-share someone else's work.
   const sharingChanged = body.visibility !== undefined && normalizeVisibility(body.visibility) !== existing.visibility
@@ -122,6 +131,12 @@ export const PUT = withAuthenticatedApi(async (request, auth) => {
       ...(body.description !== undefined && { description: body.description }),
       ...(body.status !== undefined && { status: body.status }),
       ...(body.visibility !== undefined && { visibility: normalizeVisibility(body.visibility) }),
+      ...(body.errorFlowId !== undefined && {
+        metadata: jsonValue({
+          ...(existing.metadata && typeof existing.metadata === 'object' && !Array.isArray(existing.metadata) ? existing.metadata as Record<string, unknown> : {}),
+          errorFlowId: body.errorFlowId || undefined,
+        }),
+      }),
       // Preserve the webhook secret hash across trigger edits — the client
       // never sees it, so a plain PUT would silently wipe it.
       ...(nextTrigger !== undefined && { trigger: jsonValue(preserveWebhookSecretHash(nextTrigger, existing.trigger)) }),

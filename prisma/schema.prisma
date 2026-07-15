@@ -29,8 +29,6 @@ model Organization {
   entitlementTier      String?
   entitlementStatus    String    @default("unknown")
   entitlementCheckedAt DateTime? @db.Timestamptz(6)
-  trialStartDate   DateTime  @default(now()) @db.Timestamptz(6)
-  trialEndDate     DateTime? @db.Timestamptz(6)
   // Freeform org-level settings grab-bag (e.g. `disableConnectionScans`).
   settings         Json      @default("{}")
   createdAt        DateTime  @default(now()) @db.Timestamptz(6)
@@ -81,7 +79,6 @@ model User {
   organizationId String?   @db.Uuid
   isActive       Boolean   @default(true)
   lastSeenAt     DateTime? @db.Timestamptz(6)
-  timezone       String    @default("UTC")
   metadata       Json?
   createdAt      DateTime  @default(now()) @db.Timestamptz(6)
   updatedAt      DateTime  @updatedAt @db.Timestamptz(6)
@@ -120,13 +117,10 @@ model OrganizationInvitation {
 
 model AgentTask {
   id             String    @id @default(cuid())
-  type           String    @default("agent")
-  priority       String    @default("MEDIUM")
   agentType      String    @default("CUSTOM")
   description    String    @db.Text
   objective      String    @db.Text
   goal           String?   @db.Text
-  context        Json      @default("{}")
   schedule       Json      @default("{}")
   status         String    @default("ACTIVE")
   folder         String?

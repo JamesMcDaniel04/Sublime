@@ -141,6 +141,7 @@ export function OAuthIntegrationsGrid() {
       await refreshStatus()
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Unable to disconnect account')
+    } finally {
       setBusy(null)
     }
   }

@@ -233,8 +233,9 @@ export function changeNodeType(graph: FlowGraph, id: string, type: StepType): Fl
   return { ...graph, nodes: graph.nodes.map((node) => (node.id === id ? ({ id, type, data: defaultData(type) } as FlowNode) : node)) }
 }
 
-/** Append a new typed step to a loop body or a new parallel branch. */
-export function addContainerStep(graph: FlowGraph, containerId: string, type: StepType = 'agent', agentId?: string): { graph: FlowGraph; nodeId: string } {
+/** Append a new typed step to a container. For an Error Shield, branchIndex
+ *  -1 targets the fallback list; the default targets its protected body. */
+export function addContainerStep(graph: FlowGraph, containerId: string, type: StepType = 'agent', agentId?: string, branchIndex?: number): { graph: FlowGraph; nodeId: string } {
   const container = graph.nodes.find((n) => n.id === containerId)
   const isLoop = container?.type === 'loop'
   const { node, extraNodes } = makeNode(graph, type, agentId)
@@ -246,7 +247,11 @@ export function addContainerStep(graph: FlowGraph, containerId: string, type: St
     if (node.id !== containerId) return node
     if (node.type === 'loop') return { ...node, data: { ...node.data, body: [...node.data.body, bodyNode.id] } }
     if (node.type === 'parallel') return { ...node, data: { ...node.data, branches: [...node.data.branches, [bodyNode.id]] } }
-    if (node.type === 'errorShield') return { ...node, data: { ...node.data, body: [...node.data.body, bodyNode.id] } }
+    if (node.type === 'errorShield') {
+      return branchIndex === -1
+        ? { ...node, data: { ...node.data, fallback: [...node.data.fallback, bodyNode.id] } }
+        : { ...node, data: { ...node.data, body: [...node.data.body, bodyNode.id] } }
+    }
     if (node.type === 'repeatUntil') return { ...node, data: { ...node.data, body: [...node.data.body, bodyNode.id] } }
     return node
   })

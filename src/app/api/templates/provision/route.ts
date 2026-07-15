@@ -67,12 +67,9 @@ async function materializeAgent(
   const description = spec.description?.trim() || spec.title
   const agent = await prisma.agentTask.create({
     data: {
-      type: 'agent',
       agentType: 'CUSTOM',
-      priority: 'MEDIUM',
       description,
       objective: withTemplateOutputStandard(spec.instructions),
-      context: {},
       schedule,
       status: 'ACTIVE',
       visibility: 'shared',

@@ -175,8 +175,8 @@ function truncateSample(value: unknown): string {
 /**
  * Get-or-create the single hidden AgentTask that holds org-wide learnings
  * from connection scans. Uses `status: 'SYSTEM'` (not 'ACTIVE') so it never
- * shows up in any ACTIVE-status agent listing, and `agentType: 'SYSTEM'` /
- * `type: 'system'` so it's unambiguously not a user-facing agent.
+ * shows up in any ACTIVE-status agent listing, and `agentType: 'SYSTEM'`
+ * makes it unambiguously not a user-facing agent.
  * `visibility: 'private'` with no `userId` means `agentReadScope`
  * (src/lib/server/visibility.ts) hides it from every user-facing listing
  * that applies that scope — no real user ever matches its (absent) owner.
@@ -197,7 +197,7 @@ function truncateSample(value: unknown): string {
  */
 export async function findOrgIntelligenceAgentId(organizationId: string): Promise<string | null> {
   const existing = await prisma.agentTask.findFirst({
-    where: { organizationId, type: 'system', agentType: 'SYSTEM' },
+    where: { organizationId, agentType: 'SYSTEM' },
     select: { id: true },
   })
   return existing?.id ?? null
@@ -210,10 +210,8 @@ export async function orgIntelligenceAgentId(organizationId: string): Promise<st
     const created = await prisma.agentTask.create({
       data: {
         organizationId,
-        type: 'system',
         agentType: 'SYSTEM',
         status: 'SYSTEM',
-        priority: 'LOW',
         visibility: 'private',
         userId: null,
         description: 'Organization intelligence',
@@ -227,7 +225,7 @@ export async function orgIntelligenceAgentId(organizationId: string): Promise<st
       typeof error === 'object' && error !== null && 'code' in error && (error as { code?: string }).code === 'P2002'
     if (!isUniqueViolation) throw error
     const winner = await prisma.agentTask.findFirst({
-      where: { organizationId, type: 'system', agentType: 'SYSTEM' },
+      where: { organizationId, agentType: 'SYSTEM' },
       select: { id: true },
     })
     if (winner) return winner.id

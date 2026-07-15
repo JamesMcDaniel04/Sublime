@@ -12,9 +12,10 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { toast } from 'sonner'
 import { LearningsPanel } from './learnings-panel'
 
-type Profile = { name: string; email: string; imageUrl: string | null; timezone: string; role: string }
+type Profile = { name: string; email: string; imageUrl: string | null; role: string }
 type Factor = { id: string; friendly_name?: string; status: string }
 type Member = { id: string; email: string | null; name: string | null; role: 'ADMIN' | 'USER'; isActive: boolean }
+type Invitation = { id: string; email: string; role: 'ADMIN' | 'USER'; expiresAt: string; createdAt: string }
 type OrgSettings = { disableConnectionScans?: boolean }
 
 export default function SettingsPage() {
@@ -26,6 +27,7 @@ export default function SettingsPage() {
   const [enrollment, setEnrollment] = useState<{ id: string; qr: string } | null>(null)
   const [code, setCode] = useState('')
   const [members, setMembers] = useState<Member[]>([])
+  const [invitations, setInvitations] = useState<Invitation[]>([])
   const [inviteEmail, setInviteEmail] = useState('')
   const [orgSettings, setOrgSettings] = useState<OrgSettings>({})
   const [savingScanToggle, setSavingScanToggle] = useState(false)
@@ -40,7 +42,7 @@ export default function SettingsPage() {
     const data = await response.json()
     if (data.success) { setProfile(data.profile); setEmail(data.profile.email || '') }
     setFactors((factorResult.data?.totp || []) as Factor[])
-    const memberData = await memberResponse.json(); if (memberData.success) setMembers(memberData.members)
+    const memberData = await memberResponse.json(); if (memberData.success) { setMembers(memberData.members); setInvitations(memberData.invitations || []) }
     const orgData = await orgResponse.json()
     if (orgData.success) setOrgSettings((orgData.organizations?.[0]?.settings || {}) as OrgSettings)
   }
@@ -104,19 +106,25 @@ export default function SettingsPage() {
     event.preventDefault()
     const response = await fetch('/api/settings/members', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: inviteEmail, role: 'USER' }) })
     const data = await response.json(); if (!response.ok) return toast.error(data.error || 'Could not send invitation')
-    setInviteEmail(''); toast.success('Invitation sent')
+    setInviteEmail(''); await load(); toast.success('Invitation sent')
   }
   async function updateMember(member: Member, changes: Partial<Member>) {
     const response = await fetch('/api/settings/members', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ userId: member.id, ...changes }) })
     const data = await response.json(); if (!response.ok) return toast.error(data.error || 'Could not update member')
     await load(); toast.success('Member updated')
   }
+  async function revokeInvitation(invitation: Invitation) {
+    const response = await fetch(`/api/settings/members?invitationId=${encodeURIComponent(invitation.id)}`, { method: 'DELETE' })
+    const data = await response.json().catch(() => ({}))
+    if (!response.ok) return toast.error(data.error || 'Could not revoke invitation')
+    setInvitations((current) => current.filter((entry) => entry.id !== invitation.id))
+    toast.success('Invitation revoked')
+  }
 
   return <div className="space-y-6"><PageHeader eyebrow="Account" title="Settings" description="Manage your profile, sign-in security, and active sessions." />
     <Tabs defaultValue="profile"><TabsList><TabsTrigger value="profile">Profile</TabsTrigger><TabsTrigger value="security">Security</TabsTrigger><TabsTrigger value="members">Members</TabsTrigger><TabsTrigger value="workspace">Workspace</TabsTrigger></TabsList>
       <TabsContent value="profile" className="mt-6">{profile && <Card className="max-w-2xl"><CardHeader><CardTitle>Profile</CardTitle></CardHeader><CardContent><form className="space-y-4" onSubmit={saveProfile}>
         <div className="space-y-2"><Label htmlFor="name">Display name</Label><Input id="name" value={profile.name || ''} onChange={(e) => setProfile({ ...profile, name: e.target.value })} /></div>
-        <div className="space-y-2"><Label htmlFor="timezone">Timezone</Label><Input id="timezone" placeholder="America/Denver" value={profile.timezone} onChange={(e) => setProfile({ ...profile, timezone: e.target.value })} /></div>
         <Button type="submit">Save profile</Button>
       </form></CardContent></Card>}
         <Card className="mt-6 max-w-2xl border-red-200"><CardHeader><CardTitle>Delete account</CardTitle></CardHeader><CardContent><p className="mb-4 text-sm text-muted-foreground">Permanently removes your account. If you are the only member, the workspace and its data are also deleted.</p><Button variant="outline" onClick={async () => { if (window.prompt('Type DELETE to permanently delete your account') !== 'DELETE') return; const response = await fetch('/api/settings/profile', { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ confirmation: 'DELETE' }) }); const data = await response.json(); if (!response.ok) return toast.error(data.error || 'Could not delete account'); await supabase.auth.signOut(); window.location.replace('/') }}>Delete account</Button></CardContent></Card>
@@ -132,6 +140,7 @@ export default function SettingsPage() {
       </TabsContent>
       <TabsContent value="members" className="mt-6"><Card className="max-w-3xl"><CardHeader><CardTitle>Workspace members</CardTitle></CardHeader><CardContent className="space-y-4">
         <form className="flex gap-3" onSubmit={inviteMember}><Input type="email" placeholder="colleague@example.com" value={inviteEmail} onChange={(e) => setInviteEmail(e.target.value)} required /><Button type="submit">Invite</Button></form>
+        {invitations.length > 0 && <div className="space-y-2"><p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Pending invitations</p>{invitations.map((invitation) => <div key={invitation.id} className="flex items-center gap-3 rounded-md border border-dashed p-3"><div className="min-w-0 flex-1"><p className="truncate text-sm font-medium">{invitation.email}</p><p className="text-xs text-muted-foreground">{invitation.role} · expires {new Date(invitation.expiresAt).toLocaleDateString()}</p></div><Button variant="outline" size="sm" onClick={() => revokeInvitation(invitation)}>Revoke</Button></div>)}</div>}
         {members.map((member) => <div key={member.id} className="flex items-center gap-3 rounded-md border p-3"><div className="min-w-0 flex-1"><p className="truncate text-sm font-medium">{member.name || member.email}</p><p className="truncate text-xs text-muted-foreground">{member.email}</p></div><Button variant="outline" onClick={() => updateMember(member, { role: member.role === 'ADMIN' ? 'USER' : 'ADMIN' })}>{member.role}</Button><Button variant="outline" onClick={() => updateMember(member, { isActive: !member.isActive })}>{member.isActive ? 'Suspend' : 'Reactivate'}</Button></div>)}
       </CardContent></Card></TabsContent>
       <TabsContent value="workspace" className="mt-6">

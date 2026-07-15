@@ -409,7 +409,7 @@ export function StepCard({
   onDragStartNode?: (id: string) => void
   onDragEndNode?: () => void
   onChangeType?: (type: EditableType) => void
-  onAddStep?: (type: EditableType) => void
+  onAddStep?: (type: EditableType, branchIndex?: number) => void
   /** Flow Jam: teammates currently editing this node (presence). */
   jamEditors?: { userId: string; name: string }[]
 }) {
@@ -929,7 +929,7 @@ function renderNodeBody({
   showErrors?: boolean
   variableNames?: string[]
   dataFields?: DataField[]
-  onAddStep?: (type: EditableType) => void
+  onAddStep?: (type: EditableType, branchIndex?: number) => void
 }) {
   switch (node.type) {
     case 'trigger':
@@ -2127,7 +2127,7 @@ function LoopBody({
   node: Extract<FlowNode, { type: 'loop' }>
   update: (node: FlowNode) => void
   tokenWiring: TokenEditorWiring
-  onAddStep?: (type: EditableType) => void
+  onAddStep?: (type: EditableType, branchIndex?: number) => void
 }) {
   const { labelCtx, registerEditor, focusEditor } = tokenWiring
   const usesTriggerInput = node.data.over === '{{trigger.input}}'
@@ -2169,7 +2169,7 @@ function ErrorShieldBody({
   onAddStep,
 }: {
   node: Extract<FlowNode, { type: 'errorShield' }>
-  onAddStep?: (type: EditableType) => void
+  onAddStep?: (type: EditableType, branchIndex?: number) => void
 }) {
   return (
     <div className="space-y-3">
@@ -2178,6 +2178,7 @@ function ErrorShieldBody({
         <code className="rounded bg-slate-100 px-1 py-0.5 text-xs">{'{{error}}'}</code> — and this step still succeeds.
       </p>
       {onAddStep && <AddNestedStepMenu label="Add step to body" onPick={onAddStep} />}
+      {onAddStep && <AddNestedStepMenu label="Add fallback step" onPick={(type) => onAddStep(type, -1)} />}
     </div>
   )
 }
