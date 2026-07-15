@@ -36,16 +36,6 @@ if (TEST_DB) {
     })
     ids.flowRunStep = flowRunStep.id
 
-    const customSignal = await prisma.customSignal.create({
-      data: {
-        organizationId: org.id,
-        userId: 'user-1',
-        name: 'cascade-signal',
-        question: 'Is this account healthy?',
-      },
-    })
-    ids.customSignal = customSignal.id
-
     const pushSubscription = await prisma.pushSubscription.create({
       data: {
         userId: 'user-1',
@@ -100,7 +90,6 @@ if (TEST_DB) {
     await prisma.flowRun.deleteMany({ where: { organizationId: ids.org } }).catch(() => {})
     await prisma.flowVersion.deleteMany({ where: { organizationId: ids.org } }).catch(() => {})
     await prisma.flow.deleteMany({ where: { organizationId: ids.org } }).catch(() => {})
-    await prisma.customSignal.deleteMany({ where: { organizationId: ids.org } }).catch(() => {})
     await prisma.pushSubscription.deleteMany({ where: { organizationId: ids.org } }).catch(() => {})
     await prisma.knowledgeChunk.deleteMany({ where: { organizationId: ids.org } }).catch(() => {})
     await prisma.knowledgeDocument.deleteMany({ where: { organizationId: ids.org } }).catch(() => {})
@@ -125,9 +114,6 @@ if (TEST_DB) {
     // FlowRunStep has no organizationId column — it is unguarded; look it up directly.
     const flowRunStep = await prisma.flowRunStep.findUnique({ where: { id: ids.flowRunStep } })
     assert.equal(flowRunStep, null)
-
-    const customSignal = await prisma.customSignal.findUnique({ where: { id: ids.customSignal, organizationId: ids.org } })
-    assert.equal(customSignal, null)
 
     const pushSubscriptionCount = await prisma.pushSubscription.count({
       where: { id: ids.pushSubscription, organizationId: ids.org },

@@ -9,57 +9,42 @@ datasource db {
 }
 
 model Organization {
-  id               String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  name             String
-  slug             String    @unique
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name      String
+  slug      String   @unique
   // Workspace avatar shown in the org switcher — a small data URL (client
   // resizes to 128px before upload) so no external storage is required.
-  logoUrl          String?
-  plan             Plan      @default(TRIAL)
-  // People.ai tenant binding: one Studio workspace per People.ai team. Set on
-  // first People.ai connection; every rep from that team lands in this org.
-  peopleAiTeamId       String?   @unique
-  /// HMAC signing secret for this org's People.ai webhook deliveries.
-  /// Stored encrypted (src/lib/crypto/secrets.ts encryptSecret) — verification
-  /// needs the plaintext, so this is NOT a hash. Null = org falls back to the
-  /// global PEOPLE_AI_WEBHOOK_SECRET during migration.
-  peopleAiWebhookSecret String?
-  // Entitlement snapshot, derived from an active People.ai Sales AI
-  // connection and revalidated on a TTL (see src/lib/entitlement.ts).
-  entitlementTier      String?
-  entitlementStatus    String    @default("unknown")
-  entitlementCheckedAt DateTime? @db.Timestamptz(6)
+  logoUrl   String?
+  plan      Plan     @default(TRIAL)
   // Freeform org-level settings grab-bag (e.g. `disableConnectionScans`).
-  settings         Json      @default("{}")
-  createdAt        DateTime  @default(now()) @db.Timestamptz(6)
-  updatedAt        DateTime  @updatedAt @db.Timestamptz(6)
+  settings  Json     @default("{}")
+  createdAt DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @db.Timestamptz(6)
 
-  users              User[]
-  agents             AgentTask[]
-  executions         AgentExecution[]
-  templates          AgentTemplate[]
-  integrations       Integration[]
-  mcpAgents          MCPAgent[]
-  notifications      Notification[]
-  mcpConnections     McpConnection[]
-  nangoConnections   NangoConnection[]
-  integrationSecrets IntegrationSecret[]
-  peopleAiConnections PeopleAiConnection[]
-  signals             Signal[]
-  signalSubscriptions SignalSubscription[]
-  activityEvents      ActivityEvent[]
-  activityBackfills   ActivityBackfill[]
-  auditEvents         AuditEvent[]
-  approvalRequests    ApprovalRequest[]
-  agentMemories       AgentMemory[]
-  flowVersions        FlowVersion[]
-  flows               Flow[]
-  customSignals       CustomSignal[]
-  pushSubscriptions   PushSubscription[]
-  knowledgeDocuments  KnowledgeDocument[]
-  sharedSkills        SharedSkill[]
-  invitations         OrganizationInvitation[]
-  flowCollaborators   FlowCollaborator[]
+  users                     User[]
+  agents                    AgentTask[]
+  executions                AgentExecution[]
+  templates                 AgentTemplate[]
+  integrations              Integration[]
+  mcpAgents                 MCPAgent[]
+  notifications             Notification[]
+  mcpConnections            McpConnection[]
+  nangoConnections          NangoConnection[]
+  integrationSecrets        IntegrationSecret[]
+  signals                   Signal[]
+  signalSubscriptions       SignalSubscription[]
+  activityEvents            ActivityEvent[]
+  activityBackfills         ActivityBackfill[]
+  auditEvents               AuditEvent[]
+  approvalRequests          ApprovalRequest[]
+  agentMemories             AgentMemory[]
+  flowVersions              FlowVersion[]
+  flows                     Flow[]
+  pushSubscriptions         PushSubscription[]
+  knowledgeDocuments        KnowledgeDocument[]
+  sharedSkills              SharedSkill[]
+  invitations               OrganizationInvitation[]
+  flowCollaborators         FlowCollaborator[]
   slackWorkspaceConnections SlackWorkspaceConnection[]
   slackThreadSessions       SlackThreadSession[]
 
@@ -72,9 +57,6 @@ model User {
   email          String?
   name           String?
   imageUrl       String?
-  // People.ai membership id from the MCP OAuth context — the delegated
-  // identity used for user-scoped People.ai tool calls.
-  peopleAiMembershipId String?
   role           UserRole  @default(USER)
   organizationId String?   @db.Uuid
   isActive       Boolean   @default(true)
@@ -83,31 +65,30 @@ model User {
   createdAt      DateTime  @default(now()) @db.Timestamptz(6)
   updatedAt      DateTime  @updatedAt @db.Timestamptz(6)
 
-  organization Organization?    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  executions   AgentExecution[]
-  templates    AgentTemplate[]
-  integrations Integration[]
-  mcpAgents    MCPAgent[]
-  ownedAgents  AgentTask[]
-  peopleAiConnections PeopleAiConnection[]
-  mcpConnections      McpConnection[]
-  flowCollaborations  FlowCollaborator[] @relation("FlowCollaboratorUser")
-  flowInvitesSent     FlowCollaborator[] @relation("FlowCollaboratorInviter")
+  organization       Organization?      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  executions         AgentExecution[]
+  templates          AgentTemplate[]
+  integrations       Integration[]
+  mcpAgents          MCPAgent[]
+  ownedAgents        AgentTask[]
+  mcpConnections     McpConnection[]
+  flowCollaborations FlowCollaborator[] @relation("FlowCollaboratorUser")
+  flowInvitesSent    FlowCollaborator[] @relation("FlowCollaboratorInviter")
 
   @@index([organizationId])
   @@map("users")
 }
 
 model OrganizationInvitation {
-  id             String    @id @default(cuid())
-  organizationId String    @db.Uuid
+  id             String       @id @default(cuid())
+  organizationId String       @db.Uuid
   email          String
-  role           UserRole  @default(USER)
+  role           UserRole     @default(USER)
   invitedById    String?
-  expiresAt      DateTime  @db.Timestamptz(6)
-  acceptedAt     DateTime? @db.Timestamptz(6)
-  revokedAt      DateTime? @db.Timestamptz(6)
-  createdAt      DateTime  @default(now()) @db.Timestamptz(6)
+  expiresAt      DateTime     @db.Timestamptz(6)
+  acceptedAt     DateTime?    @db.Timestamptz(6)
+  revokedAt      DateTime?    @db.Timestamptz(6)
+  createdAt      DateTime     @default(now()) @db.Timestamptz(6)
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
   @@index([organizationId])
@@ -134,14 +115,14 @@ model AgentTask {
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
 
-  organization Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  owner        User?              @relation(fields: [userId], references: [id], onDelete: SetNull)
-  executions   AgentExecution[]
+  organization        Organization         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  owner               User?                @relation(fields: [userId], references: [id], onDelete: SetNull)
+  executions          AgentExecution[]
   signalSubscriptions SignalSubscription[]
-  chatMessages AgentChatMessage[]
-  chatSessions AgentChatSession[]
-  connectors   AgentConnector[]
-  memories     AgentMemory[]
+  chatMessages        AgentChatMessage[]
+  chatSessions        AgentChatSession[]
+  connectors          AgentConnector[]
+  memories            AgentMemory[]
 
   @@index([organizationId, status])
   @@index([userId])
@@ -179,14 +160,14 @@ model AgentConnector {
 /// distilled from executions, and proactive suggestions. Retrieved by kind +
 /// status to ground future runs without re-asking or re-deriving.
 model AgentMemory {
-  id                String    @id @default(cuid())
-  organizationId    String    @db.Uuid
-  agentId           String
-  kind              String // 'user_answer' | 'learning' | 'suggestion'
-  title             String
-  content           String    @db.Text
-  question          String?   @db.Text
-  embedding         Json?
+  id             String  @id @default(cuid())
+  organizationId String  @db.Uuid
+  agentId        String
+  kind           String // 'user_answer' | 'learning' | 'suggestion'
+  title          String
+  content        String  @db.Text
+  question       String? @db.Text
+  embedding      Json?
 
   /// pgvector copy of `embedding` (WS-R5). Reads/writes go through raw SQL —
   /// Prisma cannot query Unsupported columns. The Json column is legacy,
@@ -262,14 +243,11 @@ model AgentChatSession {
   @@map("agent_chat_sessions")
 }
 
-// Inbound People.ai Sales AI event (webhook or poller). Immutable once
-// written; the router turns matching signals into agent executions.
+// Inbound workspace event. Immutable once written; the router turns matching
+// signals into agent executions.
 model Signal {
   id             String    @id @default(cuid())
   organizationId String    @db.Uuid
-  // One of the documented SalesAI events: deal.score_updated,
-  // deal.risk_detected, deal.stage_changed, forecast.updated,
-  // insight.generated, stakeholder.engagement_changed.
   type           String
   accountId      String?
   opportunityId  String?
@@ -283,7 +261,7 @@ model Signal {
   receivedAt     DateTime  @default(now())
   processedAt    DateTime?
 
-  organization  Organization         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  organization     Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   subscriptionRuns AgentExecution[]
 
   @@unique([organizationId, dedupeKey])
@@ -312,28 +290,6 @@ model SignalSubscription {
 
   @@index([organizationId, signalType, isActive])
   @@map("signal_subscriptions")
-}
-
-// A rep-defined "custom signal": a saved SalesAI question (e.g. "who's talking
-// about this account?", "what's the next best action?") reused here — People.ai
-// exposes no signal catalog, so the definition lives on our side and runs via
-// the ask_sales_ai_about_account/opportunity MCP tools. Per rep (owner), org
-// scoped, matching the graph isolation posture.
-model CustomSignal {
-  id             String   @id @default(cuid())
-  organizationId String   @db.Uuid
-  userId         String
-  name           String
-  question       String   @db.Text
-  // 'account' | 'opportunity' — which ask_sales_ai tool it runs against.
-  scope          String   @default("account")
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
-
-  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-
-  @@index([organizationId, userId, updatedAt])
-  @@map("custom_signals")
 }
 
 model AgentExecution {
@@ -466,7 +422,7 @@ model AuditEvent {
   organizationId String   @db.Uuid
   actorUserId    String?
   actorKind      String   @default("user") // 'user' | 'agent' | 'system'
-  action         String              // e.g. 'tool.write', 'agent.config_changed'
+  action         String // e.g. 'tool.write', 'agent.config_changed'
   resourceType   String?
   resourceId     String?
   tool           String?
@@ -553,48 +509,24 @@ model Integration {
 }
 
 model MCPAgent {
-  id             String  @id @default(cuid())
+  id             String   @id @default(cuid())
   userId         String
-  organizationId String  @db.Uuid
+  organizationId String   @db.Uuid
   name           String
   agentType      String
   description    String?
   mcpServerUrl   String
-  isActive       Boolean      @default(false)
-  configuration  Json         @default("{}")
+  isActive       Boolean  @default(false)
+  configuration  Json     @default("{}")
   metadata       Json?
-  createdAt      DateTime     @default(now())
-  updatedAt      DateTime     @updatedAt
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
 
   user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
   @@unique([userId, organizationId, agentType])
   @@map("mcp_agents")
-}
-
-// Per-user People.ai Sales AI connection: encrypted mcp_* tokens from the
-// mcp.people.ai OAuth flow, plus the team/membership identity they resolve to.
-// One connection per user per workspace; agents read People.ai as this user.
-model PeopleAiConnection {
-  id             String    @id @default(cuid())
-  organizationId String    @db.Uuid
-  userId         String
-  teamId         String?
-  membershipId   String?
-  scope          String?
-  accessToken    String // encrypted (src/lib/crypto/secrets.ts)
-  refreshToken   String? // encrypted
-  status         String    @default("active") // 'active' | 'refresh_failed' | 'revoked'
-  lastVerifiedAt DateTime?
-  createdAt      DateTime  @default(now())
-  updatedAt      DateTime  @updatedAt
-
-  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@unique([organizationId, userId])
-  @@map("people_ai_connections")
 }
 
 model McpConnection {
@@ -608,8 +540,8 @@ model McpConnection {
   name           String
   description    String?
   serverUrl      String
-  authType       String    @default("none")   // 'none' | 'api_key' | 'oauth2'
-  authConfig     Json      @default("{}")     // encrypted secret blob + non-secret fields
+  authType       String    @default("none") // 'none' | 'api_key' | 'oauth2'
+  authConfig     Json      @default("{}") // encrypted secret blob + non-secret fields
   isActive       Boolean   @default(true)
   lastVerifiedAt DateTime?
   createdAt      DateTime  @default(now())
@@ -619,9 +551,9 @@ model McpConnection {
   user          User?            @relation(fields: [userId], references: [id], onDelete: Cascade)
   agentBindings AgentConnector[]
 
+  @@unique([organizationId, userId, provider])
   @@index([organizationId, isActive])
   @@index([organizationId, userId, isActive])
-  @@unique([organizationId, userId, provider])
   @@map("mcp_connections")
 }
 
@@ -671,29 +603,29 @@ model IntegrationSecret {
 /// via runAgentExecution. Distinct from WorkflowStep/WorkflowEvent (those are a
 /// single agent's internal tool-call trace). See docs/superpowers/specs.
 model Flow {
-  id             String   @id @default(cuid())
-  name           String
-  description    String   @default("")
-  status         String   @default("DRAFT") // DRAFT | ACTIVE | DISABLED
-  trigger        Json     @default("{}") // { type: 'manual'|'schedule'|'signal', ... }
-  graph          Json     @default("{}") // working draft: { nodes, edges }
-  publishedGraph Json? // the live version scheduled/triggered runs execute
-  version        Int      @default(1) // bumped on each publish
-  visibility     String   @default("private")
-  organizationId String   @db.Uuid
-  userId         String?
+  id                          String   @id @default(cuid())
+  name                        String
+  description                 String   @default("")
+  status                      String   @default("DRAFT") // DRAFT | ACTIVE | DISABLED
+  trigger                     Json     @default("{}") // { type: 'manual'|'schedule'|'signal', ... }
+  graph                       Json     @default("{}") // working draft: { nodes, edges }
+  publishedGraph              Json? // the live version scheduled/triggered runs execute
+  version                     Int      @default(1) // bumped on each publish
+  visibility                  String   @default("private")
+  organizationId              String   @db.Uuid
+  userId                      String?
   // Freeform per-flow metadata grab-bag (e.g. behavioral-intelligence provenance).
-  metadata       Json?
+  metadata                    Json?
   // Monotonic sequencer for durable Flow Jam graph patches.
-  collaborationRevision Int @default(0)
+  collaborationRevision       Int      @default(0)
   // Rotates the private Realtime topic whenever the collaborator allow-list changes.
-  collaborationAccessRevision Int @default(0)
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  collaborationAccessRevision Int      @default(0)
+  createdAt                   DateTime @default(now())
+  updatedAt                   DateTime @updatedAt
 
-  organization Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  runs         FlowRun[]
-  versions     FlowVersion[]
+  organization  Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  runs          FlowRun[]
+  versions      FlowVersion[]
   collaborators FlowCollaborator[]
 
   @@index([organizationId, updatedAt])
@@ -740,20 +672,20 @@ model FlowVersion {
 }
 
 model FlowRun {
-  id             String    @id @default(cuid())
-  flowId         String
-  status         String    @default("running") // running | succeeded | failed | waiting
-  trigger        Json      @default("{}")
-  input          Json      @default("{}")
-  output         Json?
-  error          String?
-  wakeAt         DateTime?
+  id              String    @id @default(cuid())
+  flowId          String
+  status          String    @default("running") // running | succeeded | failed | waiting
+  trigger         Json      @default("{}")
+  input           Json      @default("{}")
+  output          Json?
+  error           String?
+  wakeAt          DateTime?
   webhookResponse Json?
-  graphSnapshot  Json? // the graph definition this run executed against
-  startedAt      DateTime  @default(now())
-  finishedAt     DateTime?
-  organizationId String    @db.Uuid
-  userId         String?
+  graphSnapshot   Json? // the graph definition this run executed against
+  startedAt       DateTime  @default(now())
+  finishedAt      DateTime?
+  organizationId  String    @db.Uuid
+  userId          String?
 
   flow  Flow          @relation(fields: [flowId], references: [id], onDelete: Cascade)
   steps FlowRunStep[]
@@ -768,8 +700,8 @@ model FlowRunStep {
   flowRunId        String
   nodeId           String
   agentExecutionId String?
-  childFlowRunId   String?   // subflow step: the child FlowRun this step ran
-  iterationPath    String?   // dot-joined 0-based loop indices ("0", "0.2" nested) disambiguating a loop-body step across iterations; null outside any loop body
+  childFlowRunId   String? // subflow step: the child FlowRun this step ran
+  iterationPath    String? // dot-joined 0-based loop indices ("0", "0.2" nested) disambiguating a loop-body step across iterations; null outside any loop body
   order            Int       @default(0)
   status           String    @default("queued") // queued | running | succeeded | failed | skipped | waiting
   input            Json      @default("{}")
@@ -847,27 +779,27 @@ model SlackProcessedEvent {
 /// written; the durable record beneath the graph projection (Neo4j retention
 /// prunes nodes — this ledger is what makes the graph rebuildable).
 model ActivityEvent {
-  id             String    @id @default(cuid())
-  organizationId String    @db.Uuid
-  source         String // 'slack' | 'salesforce' | 'github' | ...
-  actorRef       String // provider user id
-  actorName      String?
-  action         String // normalized verb: 'posted_message', 'changed_stage', ...
-  entityType     String // 'message' | 'opportunity' | 'pull_request' | ...
-  entityRef      String // provider entity id
-  entityName     String?
-  previousState  Json?
-  newState       Json?
-  participants   Json      @default("[]") // array of actor refs
-  businessContext Json     @default("{}") // related account/opp/channel/repo refs
-  outcome        String?
-  occurredAt     DateTime // provider timestamp
-  ingestedAt     DateTime  @default(now())
-  ingestKind     String // 'backfill' | 'webhook' | 'sync'
+  id              String    @id @default(cuid())
+  organizationId  String    @db.Uuid
+  source          String // 'slack' | 'salesforce' | 'github' | ...
+  actorRef        String // provider user id
+  actorName       String?
+  action          String // normalized verb: 'posted_message', 'changed_stage', ...
+  entityType      String // 'message' | 'opportunity' | 'pull_request' | ...
+  entityRef       String // provider entity id
+  entityName      String?
+  previousState   Json?
+  newState        Json?
+  participants    Json      @default("[]") // array of actor refs
+  businessContext Json      @default("{}") // related account/opp/channel/repo refs
+  outcome         String?
+  occurredAt      DateTime // provider timestamp
+  ingestedAt      DateTime  @default(now())
+  ingestKind      String // 'backfill' | 'webhook' | 'sync'
   // Replay guard, unique PER ORG (a provider id from one tenant must never
   // dedupe-drop another tenant's event) — same rule as Signal.dedupeKey.
-  dedupeKey      String
-  indexedAt      DateTime? // null until graph indexing succeeds; re-index sweeps nulls
+  dedupeKey       String
+  indexedAt       DateTime? // null until graph indexing succeeds; re-index sweeps nulls
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 

@@ -5,9 +5,8 @@ export const runtime = 'nodejs'
 export const maxDuration = 300
 
 /**
- * Admin-only, org-scoped graph-RAG backfill: seeds the graph from the org's
- * Sales AI book (top_records, enriched) plus existing agents/runs/signals.
- * Idempotent and re-runnable.
+ * Admin-only, org-scoped graph-RAG backfill from existing agents, runs, and
+ * signals. Idempotent and re-runnable.
  */
 export const POST = withAuthenticatedApi(async (_request, auth) => {
   if (auth.dbUser.role !== 'ADMIN') throw new ApiError('Admin access required', 403, 'FORBIDDEN')

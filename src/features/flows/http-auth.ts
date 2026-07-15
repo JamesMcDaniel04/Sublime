@@ -4,7 +4,7 @@
  *
  * v1 supports McpConnection rows only (raw ids — the same rows the flow tool
  * catalog lists), because ensureFreshConnectionToken operates on McpConnection.
- * Prefixed plane ids (people_ai:/klavis:/native:/nango:) are rejected with the
+ * Prefixed plane ids (klavis:/native:/nango:) are rejected with the
  * same plain-english error as a missing connection.
  *
  * SECRETS DISCIPLINE: the returned token is used to build the outbound request

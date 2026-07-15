@@ -61,19 +61,6 @@ services:
         sync: false
       - key: RESEND_API_KEY
         sync: false
-      # People.ai identity (backend enrichment for Signals + Graph RAG).
-      - key: PEOPLE_AI_MCP_BASE_URL
-        sync: false
-      - key: PEOPLE_AI_SERVICE_CLIENT_ID
-        sync: false
-      - key: PEOPLE_AI_SERVICE_CLIENT_SECRET
-        sync: false
-      - key: PEOPLE_AI_OAUTH_CLIENT_ID
-        sync: false
-      - key: PEOPLE_AI_OAUTH_CLIENT_SECRET
-        sync: false
-      - key: PEOPLE_AI_WEBHOOK_SECRET
-        sync: false
       # Shared cache (Upstash REST — same values as Vercel).
       - key: UPSTASH_REDIS_REST_URL
         sync: false

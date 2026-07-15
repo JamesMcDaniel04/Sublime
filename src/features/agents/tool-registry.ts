@@ -1,8 +1,8 @@
 /**
  * Unified agent tool registry.
  *
- * An agent draws tools from several planes — People.ai (read), Klavis (read/
- * MCP), custom MCP connections, native (Granola), and Nango (delivery/write).
+ * An agent draws tools from several planes — Klavis, custom MCP connections,
+ * native integrations, and Nango delivery/write connectors.
  * This merges them into one deduped list the model sees, tagging each with its
  * provenance so the runtime knows how to execute it and the UI can show origin.
  *
@@ -10,7 +10,7 @@
  * only orders, dedupes, and tags. First writer wins on a name collision.
  */
 
-export type ToolProvenance = 'people_ai' | 'klavis' | 'mcp' | 'native' | 'nango'
+export type ToolProvenance = 'klavis' | 'mcp' | 'native' | 'nango'
 
 export interface RegistryToolInput {
   name: string

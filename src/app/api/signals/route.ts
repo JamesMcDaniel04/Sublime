@@ -1,7 +1,7 @@
 import { prisma } from '@/lib/prisma'
 import { withAuthenticatedApi } from '@/lib/server/api-handler'
 
-// Recent inbound People.ai signals for this workspace, with the runs each one
+// Recent inbound signals for this workspace, with the runs each one
 // triggered (provenance both ways: signal → runs, and the signal's source URL).
 export const GET = withAuthenticatedApi(async (request, auth) => {
   const limit = Math.min(Number(request.nextUrl.searchParams.get('limit')) || 50, 100)

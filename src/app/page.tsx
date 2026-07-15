@@ -54,7 +54,7 @@ function ProductShot() {
       <div className="sl-l-core">
         <div className="sl-l-core-face">
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/sublime-mark-blue.svg" alt="" />
+          <img src="/sublime-icon.png" alt="" />
           <span>Business intelligence</span>
           <strong>Live and learning</strong>
         </div>
@@ -72,7 +72,7 @@ function ProductShot() {
       ))}
       <div className="sl-l-appbar">
         {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src="/sublime-mark-blue.svg" alt="" />
+        <img src="/sublime-icon.png" alt="" />
         Weekly pipeline digest
         <span className="sl-l-nav-spacer" />
         <span className="sl-l-pill sl-l-pill--info">Run #142</span>
@@ -231,7 +231,7 @@ export default async function Home() {
           <div className="sl-l-tagline sl-l-rise sl-l-rise--3">
             <span>see what&apos;s coming</span>
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src="/sublime-mark-blue.svg" alt="" />
+            <img src="/sublime-icon.png" alt="" />
             <span>know what to do</span>
           </div>
         </div>

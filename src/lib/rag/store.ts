@@ -2,8 +2,8 @@
  * Graph-RAG store abstraction.
  *
  * The platform's data is a graph: signals reference accounts/opportunities/
- * stakeholders; agents produce runs; runs reference signals; People.ai account
- * facts hang off accounts. This interface stores those as embedded nodes +
+ * stakeholders; agents produce runs; and runs reference signals. This
+ * interface stores those as embedded nodes +
  * typed edges and supports the two graph-RAG operations: vector `search`
  * (find semantically relevant nodes) and `expand` (walk edges to gather the
  * connected neighborhood). Every operation is organization-scoped.

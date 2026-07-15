@@ -9,7 +9,6 @@ const TEST_DB = process.env.TEST_DATABASE_URL
 if (TEST_DB) {
   process.env.DATABASE_URL = TEST_DB
   process.env.DIRECT_URL = TEST_DB
-  process.env.ENTITLEMENT_GATE = 'off' // seam skips gates anyway; belt-and-suspenders
 
   let prisma: any
   let seeded: any
@@ -70,7 +69,6 @@ if (TEST_DB) {
     // skip category, not a guard/logic bug.
     { name: 'GET /api/organizations', run: async () => (await import('../organizations/route')).GET(req('/api/organizations')) },
     { name: 'GET /api/organizations/members', run: async () => (await import('../organizations/members/route')).GET(req('/api/organizations/members')) },
-    { name: 'GET /api/peopleai/webhook-secret', run: async () => (await import('../peopleai/webhook-secret/route')).GET(req('/api/peopleai/webhook-secret')) },
     { name: 'GET /api/push/key', run: async () => (await import('../push/key/route')).GET(req('/api/push/key')) },
     { name: 'GET /api/search', run: async () => (await import('../search/route')).GET(req('/api/search?q=smoke')) },
     { name: 'GET /api/settings/members', run: async () => (await import('../settings/members/route')).GET(req('/api/settings/members')) },
@@ -78,7 +76,6 @@ if (TEST_DB) {
     { name: 'GET /api/signal-subscriptions', run: async () => (await import('../signal-subscriptions/route')).GET(req('/api/signal-subscriptions')) },
     { name: 'GET /api/slack/connections', run: async () => (await import('../slack/connections/route')).GET(req('/api/slack/connections')) },
     { name: 'GET /api/signals', run: async () => (await import('../signals/route')).GET(req('/api/signals')) },
-    { name: 'GET /api/signals/custom', run: async () => (await import('../signals/custom/route')).GET(req('/api/signals/custom')) },
     { name: 'GET /api/skills', run: async () => (await import('../skills/route')).GET(req('/api/skills')) },
     { name: 'GET /api/usage', run: async () => (await import('../usage/route')).GET(req('/api/usage')) },
     { name: 'GET /api/workflows/executions', run: async () => (await import('../workflows/executions/route')).GET(req('/api/workflows/executions')) },

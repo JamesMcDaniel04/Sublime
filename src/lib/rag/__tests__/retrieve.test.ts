@@ -80,7 +80,7 @@ test('renderContext produces empty string for an empty pack, markdown otherwise'
 
 test('renderContext carries the citation/grounding instruction when context exists', async () => {
   const rendered = renderContext({
-    hits: [{ id: 'account:a1', type: 'account', text: 'Account a1 — Sales AI status: healthy', score: 0.9, props: {} }],
+    hits: [{ id: 'account:a1', type: 'account', text: 'Account a1 — healthy', score: 0.9, props: {} }],
     related: [],
   })
   assert.match(rendered, /attribute it inline/)

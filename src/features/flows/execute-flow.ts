@@ -593,7 +593,7 @@ export async function runFlowExecution(
     try {
       if (node.kind === 'tool') {
         // Tool steps route by connection-id prefix to the right tool plane
-        // (People.ai / Klavis / MCP / native / Nango) — the same planes and
+        // (Klavis / MCP / native / Nango) — the same planes and
         // executors the agent runtime uses. See @/lib/flows/tool-connection-id.
         const connectionId = String(node.config.connectionId || '')
         const { plane, ref } = parseFlowToolConnectionId(connectionId)

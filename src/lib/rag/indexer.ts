@@ -3,7 +3,7 @@
  *
  * Turns platform data into embedded nodes + typed edges so retrieval can
  * correlate across sources:
- *   - Signals (Sales AI events)          → signal nodes + account/opp/stakeholder nodes + edges
+ *   - Signals (workspace events)         → signal nodes + account/opp/stakeholder nodes + edges
  *   - Executions (runs + tool outputs)   → run nodes carrying MCP/integration results + edges
  *   - Agents                             → agent nodes
  *
@@ -15,8 +15,6 @@
 
 import { prisma } from '@/lib/prisma'
 import { apiLogger } from '@/lib/logger'
-import { getPeopleAiReadClient } from '@/lib/peopleai/client'
-import { enrichAccount, enrichOpportunity } from '@/lib/peopleai/salesai-facts'
 import { embedTexts } from './embeddings'
 import { getGraphRagStore, graphRagPersistent, ragEnabled } from './get-store'
 import type { EdgeRelation, GraphEdge, GraphNode, NodeType, NodeVisibility } from './store'
@@ -53,30 +51,28 @@ export async function commitGraph(organizationId: string, nodes: PendingNode[], 
 
 /** Embed pending nodes in one batch and persist nodes + edges. */
 async function commit(organizationId: string, nodes: PendingNode[], edges: GraphEdge[]): Promise<void> {
-  if (!ragEnabled() || nodes.length === 0) return
+  if (!ragEnabled() || (nodes.length === 0 && edges.length === 0)) return
   const store = getGraphRagStore()
-  const embeddings = await embedTexts(nodes.map((n) => n.text), { inputType: 'document' })
-  const graphNodes: GraphNode[] = nodes.map((n, i) => ({
-    id: n.id,
-    organizationId,
-    type: n.type,
-    text: n.text,
-    props: n.props,
-    embedding: embeddings[i] ?? [],
-    ownerUserId: n.ownerUserId ?? null,
-    visibility: n.visibility ?? 'shared',
-    updatedAt: new Date().toISOString(),
-  }))
-  await store.upsertNodes(graphNodes)
+  if (nodes.length) {
+    const embeddings = await embedTexts(nodes.map((n) => n.text), { inputType: 'document' })
+    const graphNodes: GraphNode[] = nodes.map((n, i) => ({
+      id: n.id,
+      organizationId,
+      type: n.type,
+      text: n.text,
+      props: n.props,
+      embedding: embeddings[i] ?? [],
+      ownerUserId: n.ownerUserId ?? null,
+      visibility: n.visibility ?? 'shared',
+      updatedAt: new Date().toISOString(),
+    }))
+    await store.upsertNodes(graphNodes)
+  }
   if (edges.length) await store.upsertEdges(edges)
 }
 
-// Entity nodes referenced by a signal/run. Account/opportunity text is
-// enriched with Sales AI facts by enrichEntities below; bare nodes that fail
-// enrichment are dropped before commit (dropClobberingBareNodes) so a
-// full-replace upsert can't downgrade a previously enriched shared node.
-// SEAM: stakeholder text is still bare — no SalesAI per-person read tool is
-// wired yet (enrichAccount/enrichOpportunity have no stakeholder sibling).
+// Entity nodes referenced by a signal/run. These generic join nodes let graph
+// retrieval correlate events and executions without depending on a provider.
 function entityNodesFor(
   refs: { accountId?: string | null; opportunityId?: string | null; stakeholderId?: string | null },
 ): { nodes: PendingNode[]; edgesFromSignal: Array<{ to: string; rel: EdgeRelation }>; belongsTo: GraphEdge[] } {
@@ -117,7 +113,7 @@ export async function indexSignal(signal: SignalRecord): Promise<void> {
     const nodes: PendingNode[] = [
       {
         id: nid.signal(signal.id), type: 'signal',
-        text: `Sales AI signal: ${signal.type}. ${payloadText}`,
+        text: `Workspace signal: ${signal.type}. ${payloadText}`,
         props: { signalType: signal.type, accountId: signal.accountId, opportunityId: signal.opportunityId },
       },
     ]
@@ -128,74 +124,10 @@ export async function indexSignal(signal: SignalRecord): Promise<void> {
     if (signal.accountId && signal.opportunityId) {
       edges.push({ organizationId: org, from: nid.opportunity(signal.opportunityId), to: nid.account(signal.accountId), rel: 'belongs_to' })
     }
-    // Enrich account/opportunity nodes with live Sales AI intelligence (status,
-    // risks, next steps) so the graph carries substance, not just ids. Native
-    // service client; best-effort — a failure leaves the basic node.
-    const enrichment = await enrichEntities(org, signal.accountId, signal.opportunityId, nodes)
-    await commit(org, dropClobberingBareNodes(nodes, enrichment), edges)
+    await commit(org, nodes, edges)
   } catch (error) {
     warn('indexSignal', error)
   }
-}
-
-/**
- * Replace basic account/opp node text with Sales AI facts, in place. Returns
- * which nodes were actually enriched (and whether a read client existed) so
- * the caller can drop bare nodes that would clobber richer shared ones.
- */
-async function enrichEntities(
-  organizationId: string,
-  accountId: string | null,
-  opportunityId: string | null,
-  nodes: PendingNode[],
-): Promise<{ clientAvailable: boolean; enrichedIds: Set<string> }> {
-  const enrichedIds = new Set<string>()
-  if (!accountId && !opportunityId) return { clientAvailable: false, enrichedIds }
-  const client = await getPeopleAiReadClient(null, organizationId)
-  if (!client) return { clientAvailable: false, enrichedIds }
-  // Cache scope = the identity the read client uses. getPeopleAiReadClient(null,
-  // org) resolves to the org-wide service client, so account/opp facts are the
-  // shared org view — safe to cache per org (matches the isolation posture).
-  const cacheScope = `org:${organizationId}`
-  try {
-    if (accountId) {
-      const facts = await enrichAccount(client, accountId, { cacheScope })
-      const node = nodes.find((n) => n.id === nid.account(accountId))
-      if (facts && node) {
-        node.text = `Account ${accountId} — Sales AI status: ${facts.text}`
-        node.props = { ...node.props, peopleaiAccountId: facts.peopleaiId }
-        enrichedIds.add(node.id)
-      }
-    }
-    if (opportunityId) {
-      const facts = await enrichOpportunity(client, opportunityId, { cacheScope })
-      const node = nodes.find((n) => n.id === nid.opportunity(opportunityId))
-      if (facts && node) {
-        node.text = `Opportunity ${opportunityId} — Sales AI status: ${facts.text}`
-        node.props = { ...node.props, peopleaiOpportunityId: facts.peopleaiId }
-        enrichedIds.add(node.id)
-      }
-    }
-  } catch (error) {
-    warn('enrichEntities', error)
-  }
-  return { clientAvailable: true, enrichedIds }
-}
-
-/**
- * Pure: which entity nodes survive the commit. When a read client exists but
- * an account/opportunity failed to enrich (transient timeout), its bare node
- * is dropped — upsertNodes is full-replace, so committing it would clobber
- * the richer shared node a previous index wrote. With no client at all,
- * bare nodes stay: they're useful join points and nothing enriched exists to
- * clobber. Stakeholders (never enrichable today) always stay.
- */
-export function dropClobberingBareNodes(
-  nodes: PendingNode[],
-  opts: { clientAvailable: boolean; enrichedIds: Set<string> },
-): PendingNode[] {
-  if (!opts.clientAvailable) return nodes
-  return nodes.filter((node) => (node.type !== 'account' && node.type !== 'opportunity') || opts.enrichedIds.has(node.id))
 }
 
 export interface ExecutionRecord {
@@ -274,50 +206,6 @@ export async function indexAgent(agent: AgentRecord): Promise<void> {
     )
   } catch (error) {
     warn('indexAgent', error)
-  }
-}
-
-/**
- * Index a custom-signal run (a rep's saved SalesAI question + its answer) as a
- * private insight node linked to the account/opportunity, so agents and the
- * assistant can correlate on it. Best-effort; gated on embeddings.
- */
-export async function indexCustomSignalResult(params: {
-  organizationId: string
-  ownerUserId: string
-  signalId: string
-  name: string
-  question: string
-  answer: string
-  accountId?: string | null
-  opportunityId?: string | null
-}): Promise<void> {
-  if (!ragEnabled()) return
-  try {
-    const target = params.accountId ?? params.opportunityId ?? 'x'
-    const nodeId = `insight:sig:${params.signalId}:${target}`
-    const text = `Custom signal "${params.name}" — Q: ${params.question} — A: ${params.answer}`.slice(0, 1800)
-    // Only the private insight node is written. We deliberately do NOT push
-    // bare account/opportunity nodes here: upsertNodes is a full-replace, so a
-    // bare node would clobber the richer SHARED entity node written by
-    // enrichEntities (Sales AI status) for the whole org. The edge links to the
-    // existing entity when present (a no-op if it isn't yet indexed).
-    const nodes: PendingNode[] = [{
-      id: nodeId, type: 'insight', text,
-      props: { signalId: params.signalId, name: params.name },
-      // The rep's own signal result — private to them (matches isolation posture).
-      ownerUserId: params.ownerUserId, visibility: 'private',
-    }]
-    const edges: GraphEdge[] = []
-    if (params.accountId) {
-      edges.push({ organizationId: params.organizationId, from: nodeId, to: nid.account(params.accountId), rel: 'about_account' })
-    }
-    if (params.opportunityId) {
-      edges.push({ organizationId: params.organizationId, from: nodeId, to: nid.opportunity(params.opportunityId), rel: 'about_opportunity' })
-    }
-    await commitGraph(params.organizationId, nodes, edges)
-  } catch (error) {
-    warn('indexCustomSignalResult', error)
   }
 }
 

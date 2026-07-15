@@ -4,11 +4,11 @@ import { buildToolRegistry } from '../tool-registry'
 
 test('merges groups and tags provenance', () => {
   const { tools } = buildToolRegistry([
-    [{ name: 'find_account', provenance: 'people_ai', description: 'read' }],
+    [{ name: 'find_account', provenance: 'mcp', description: 'read' }],
     [{ name: 'slack_post_message', provenance: 'nango', description: 'send' }],
   ])
   assert.equal(tools.length, 2)
-  assert.equal(tools.find((t) => t.name === 'find_account')!.provenance, 'people_ai')
+  assert.equal(tools.find((t) => t.name === 'find_account')!.provenance, 'mcp')
   assert.equal(tools.find((t) => t.name === 'slack_post_message')!.provenance, 'nango')
 })
 

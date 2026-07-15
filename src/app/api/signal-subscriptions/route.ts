@@ -1,9 +1,9 @@
 import { z } from 'zod'
 import { prisma } from '@/lib/prisma'
 import { ApiError, withAuthenticatedApi } from '@/lib/server/api-handler'
-import { SIGNAL_TYPES } from '@/lib/signals/map'
+import { SIGNAL_TYPES } from '@/lib/signals/events'
 
-// Routing rules that turn People.ai signals into agent runs. Org-scoped.
+// Routing rules that turn workspace signals into agent runs. Org-scoped.
 
 const createSchema = z.object({
   signalType: z.enum(SIGNAL_TYPES as unknown as [string, ...string[]]),

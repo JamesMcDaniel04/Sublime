@@ -35,7 +35,7 @@ test('never strips a single-word name down to nothing', () => {
 })
 
 test('connector matching ignores case and separators', () => {
-  assert.equal(humanizeToolName('People_AI_search_accounts', 'people_ai'), 'Search accounts')
+  assert.equal(humanizeToolName('Google_Drive_search_files', 'google_drive'), 'Search files')
 })
 
 test('degenerate input falls back to the raw name', () => {

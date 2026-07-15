@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { Copy, KeyRound, RotateCw, TestTube2, Trash2 } from 'lucide-react'
+import { KeyRound, TestTube2, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -65,52 +65,6 @@ function GranolaCard() {
   )
 }
 
-function PeopleAiWebhookCard() {
-  const [secret, setSecret] = useState('')
-  const [configured, setConfigured] = useState(false)
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState('')
-  const endpoint = typeof window === 'undefined' ? '/api/signals/people-ai' : `${window.location.origin}/api/signals/people-ai`
-
-  const load = async () => {
-    setError('')
-    try {
-      const data = await jsonResponse(await fetch('/api/peopleai/webhook-secret', { cache: 'no-store' }))
-      setSecret(data.secret ?? '')
-      setConfigured(Boolean(data.configured))
-    } catch (cause) { setError(cause instanceof Error ? cause.message : 'Could not load webhook configuration.') }
-  }
-  useEffect(() => { void load() }, [])
-
-  const rotate = async () => {
-    if (configured && !window.confirm('Rotate the People.ai webhook secret? The previous secret will stop working immediately.')) return
-    setBusy(true)
-    try {
-      const data = await jsonResponse(await fetch('/api/peopleai/webhook-secret', { method: 'POST' }))
-      setSecret(data.secret)
-      setConfigured(true)
-      toast.success(configured ? 'Webhook secret rotated.' : 'Webhook secret created.')
-    } catch (cause) { toast.error(cause instanceof Error ? cause.message : 'Could not configure the webhook.') }
-    finally { setBusy(false) }
-  }
-  const copy = async (value: string, label: string) => {
-    try { await navigator.clipboard.writeText(value); toast.success(`${label} copied.`) }
-    catch { toast.error(`Could not copy ${label.toLowerCase()}.`) }
-  }
-
-  return (
-    <Card>
-      <CardHeader><CardTitle>People.ai signal webhook</CardTitle><CardDescription>Register this endpoint and signing secret in People.ai to receive Sales AI signals.</CardDescription></CardHeader>
-      <CardContent className="space-y-3">
-        {error && <p className="rounded-md border border-red-200 bg-red-50 p-2 text-sm text-red-700">{error} <button className="font-medium underline" onClick={() => void load()}>Retry</button></p>}
-        <div className="space-y-1.5"><Label>Endpoint</Label><div className="flex gap-2"><Input readOnly value={endpoint} /><Button variant="outline" size="icon" aria-label="Copy People.ai webhook endpoint" onClick={() => void copy(endpoint, 'Endpoint')}><Copy className="h-4 w-4" /></Button></div></div>
-        {secret && <div className="space-y-1.5"><Label>Signing secret</Label><div className="flex gap-2"><Input readOnly type="password" value={secret} /><Button variant="outline" size="icon" aria-label="Copy People.ai signing secret" onClick={() => void copy(secret, 'Secret')}><Copy className="h-4 w-4" /></Button></div></div>}
-        <Button variant={configured ? 'outline' : 'default'} onClick={() => void rotate()} loading={busy}><RotateCw className="mr-1.5 h-4 w-4" />{configured ? 'Rotate secret' : 'Create secret'}</Button>
-      </CardContent>
-    </Card>
-  )
-}
-
 export function ServiceConfigurationCards() {
-  return <div className="grid gap-6 lg:grid-cols-2"><GranolaCard /><PeopleAiWebhookCard /></div>
+  return <div className="grid gap-6 lg:grid-cols-2"><GranolaCard /></div>
 }

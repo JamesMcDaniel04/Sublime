@@ -1,8 +1,7 @@
 /**
  * Minimal MCP StreamableHTTP client transport (JSON-RPC over POST, tolerating
  * SSE-framed responses). Auth is injected as a header provider so the same
- * transport serves the legacy Sublime service client, the per-user People.ai
- * client, and tests.
+ * transport serves the platform's MCP clients and tests.
  */
 
 export interface McpToolDescriptor {

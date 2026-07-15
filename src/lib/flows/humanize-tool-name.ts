@@ -18,7 +18,7 @@ export function humanizeToolName(name: string, connectorKey?: string): string {
     .filter(Boolean)
   if (!words.length) return name
   // Drop leading words that spell out the connector key (which may itself be
-  // multi-segment, e.g. people_ai) — but never strip the name to nothing.
+  // multi-segment, e.g. google_drive) — but never strip the name to nothing.
   const key = connectorKey ? normalizeSegment(connectorKey) : ''
   if (key) {
     let joined = ''

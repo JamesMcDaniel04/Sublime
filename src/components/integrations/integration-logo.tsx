@@ -74,7 +74,7 @@ const LOCAL_LOGOS: Record<string, string> = {
   figma: '/logos/figma.svg',
   // Salesforce was removed from the Simple Icons CDN (trademark), so bundle it.
   salesforce: '/logos/salesforce.svg',
-  sublime: '/sublime-mark-blue.svg',
+  sublime: '/sublime-icon.png',
   googledrive: '/logos/googledrive.svg',
   googlesheets: '/logos/googlesheets.webp',
   monday: '/logos/monday.jpg',

@@ -2,7 +2,7 @@
  * Flow tool catalog — the connections a flow's tool step can call.
  *
  * Flows draw from the SAME five tool planes as agents (see
- * @/features/agents/tool-planes): People.ai (Sales AI), Klavis-managed MCP
+ * @/features/agents/tool-planes): Klavis-managed MCP
  * servers, per-org MCP connections, native built-ins (Granola/Slack/HTTP/
  * Email), and Nango delivery (outbound writes).
  *

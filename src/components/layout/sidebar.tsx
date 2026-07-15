@@ -40,7 +40,7 @@ type Agent = Pick<AgentType, 'id' | 'title' | 'description' | 'instructions' | '
 type Organization = { id: string; name: string; slug: string; plan: string; logoUrl?: string | null }
 
 /** Default workspace avatar — the Sublime mark, until an org uploads its own. */
-const DEFAULT_ORG_LOGO = '/sublime-mark-blue.svg'
+const DEFAULT_ORG_LOGO = '/sublime-icon.png'
 
 /**
  * Downscale an uploaded image to a small square PNG data URL so the logo can

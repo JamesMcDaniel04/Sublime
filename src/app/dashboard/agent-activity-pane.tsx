@@ -134,7 +134,7 @@ const PROVIDER_NAMES: Record<string, string> = {
   monday: 'Monday', airtable: 'Airtable',
 }
 // Where the logo slug differs from the provider key (Simple Icons has no
-// "email"/"people.ai" mark; use Resend / fall through to an initial tile).
+// "email" mark; use Resend / fall through to an initial tile).
 const PROVIDER_LOGO_SLUGS: Record<string, string> = {
   email: 'resend',
   google_drive: 'googledrive',
@@ -163,7 +163,7 @@ const PROVIDER_ALIASES: Array<{ key: string; aliases: string[] }> = [
   { key: 'monday', aliases: ['monday', 'mondaydotcom'] },
   { key: 'airtable', aliases: ['airtable'] },
   { key: 'granola', aliases: ['granola'] },
-  { key: 'sublime', aliases: ['sublime', 'sublimemcp', 'peopleai', 'people'] },
+  { key: 'sublime', aliases: ['sublime', 'sublimemcp'] },
 ]
 
 const STRATA_TARGET_KEYS = new Set([
