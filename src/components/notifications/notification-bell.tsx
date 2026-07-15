@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { AlertCircle, Bell, CheckCircle2, HelpCircle, Info } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { getSnapshot } from '@/lib/client/snapshot'
+import { notificationHref } from '@/lib/notifications/notification-href'
 import { cn } from '@/lib/utils'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 
@@ -28,14 +29,6 @@ function levelIcon(level: string) {
     case 'action': return <HelpCircle className="h-4 w-4 shrink-0 text-amber-500" />
     default: return <Info className="h-4 w-4 shrink-0 text-blue-500" />
   }
-}
-
-// Flow notifications carry the FLOW id in executionId and deep-link to that
-// flow's activity page — a flow run id is not resolvable by the dashboard.
-function notificationHref(n: NotificationItem): string {
-  if (n.type === 'flow.jam' && n.executionId) return `/flows/${n.executionId}` // straight into the jam
-  if (n.type.startsWith('flow.') && n.executionId) return `/flows/${n.executionId}/activity`
-  return n.executionId ? `/dashboard?run=${n.executionId}` : '/dashboard'
 }
 
 function urlBase64ToUint8Array(base64String: string) {
