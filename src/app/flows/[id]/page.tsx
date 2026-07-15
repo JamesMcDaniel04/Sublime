@@ -1272,6 +1272,22 @@ function FlowBuilder() {
                       setSelectedId(nodeId)
                     }
               }
+              // Container editing happens in the node's config panel (the widget
+              // itself stays small) — same mutations the stack view uses.
+              onReorderContainer={
+                viewingVersion
+                  ? undefined
+                  : (containerId, from, to, branchIndex) => commitGraph(moveContainerStep(graph, containerId, from, to, branchIndex))
+              }
+              onAddContainerStep={
+                viewingVersion
+                  ? undefined
+                  : (containerId, type) => {
+                      const { graph: next, nodeId } = addContainerStep(graph, containerId, type, type === 'agent' ? agents[0]?.id ?? '' : undefined)
+                      commitGraph(next)
+                      setSelectedId(nodeId)
+                    }
+              }
             />
           </div>
         ) : (

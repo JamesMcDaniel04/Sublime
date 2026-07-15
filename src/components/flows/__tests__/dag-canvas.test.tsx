@@ -52,6 +52,8 @@ const props = {
   onChangeNode: () => {},
   onChangeGraph: () => {},
   onAddNode: () => {},
+  onReorderContainer: () => {},
+  onAddContainerStep: () => {},
 }
 
 test('mounts a fan-in graph and renders a card per top-level node', () => {
@@ -77,16 +79,56 @@ test('a node with two parents (fan-in) mounts once, not once per parent', () => 
   assert.equal(agentCards.length, 1, 'the join renders as a single card despite two incoming wires')
 })
 
-test('container children are not top-level cards (their container owns them)', () => {
-  const withLoop: FlowGraph = {
-    nodes: [
-      { id: 'trigger', type: 'trigger', data: {} },
-      { id: 'loop', type: 'loop', data: { over: '{{trigger.input}}', body: ['inner'] } },
-      { id: 'inner', type: 'agent', data: { agentId: 'a' } },
-    ],
-    edges: [{ id: 'e0', source: 'trigger', target: 'loop' }],
-  }
+const withLoop: FlowGraph = {
+  nodes: [
+    { id: 'trigger', type: 'trigger', data: {} },
+    { id: 'loop', type: 'loop', data: { over: '{{trigger.input}}', body: ['inner'] } },
+    { id: 'inner', type: 'agent', data: { agentId: 'a' } },
+  ],
+  edges: [{ id: 'e0', source: 'trigger', target: 'loop' }],
+}
+
+test('container children are not top-level widgets (their container owns them)', () => {
   const { container } = render(React.createElement(DagCanvas, { ...props, graph: withLoop } as never))
-  // trigger + loop only — `inner` renders nested INSIDE the loop card.
+  // trigger + loop only — `inner` is edited inside the loop's config panel.
   assert.equal(container.querySelectorAll('.react-flow__node').length, 2)
+})
+
+test('clicking a widget asks to open that node (n8n: config lives in a panel)', () => {
+  const opened: (string | null)[] = []
+  const { container } = render(
+    React.createElement(DagCanvas, { ...props, onSelect: (id: string | null) => opened.push(id) } as never),
+  )
+  const widget = [...container.querySelectorAll('.react-flow__node')]
+    .find((el) => el.getAttribute('data-id') === 'agent')
+    ?.querySelector('button') as HTMLButtonElement
+  assert.ok(widget, 'the agent widget renders a clickable card')
+  act(() => widget.click())
+  assert.deepEqual(opened, ['agent'], 'clicking opens that node rather than editing inline')
+})
+
+test('the config panel opens for the selected node and is NOT rendered otherwise', () => {
+  const closed = render(React.createElement(DagCanvas, props as never))
+  assert.equal(closed.container.querySelector('aside'), null, 'no panel with nothing selected')
+  cleanup()
+  const open = render(React.createElement(DagCanvas, { ...props, selectedId: 'agent' } as never))
+  assert.ok(open.container.querySelector('aside'), 'panel opens for the selected node')
+})
+
+test("a container's panel lists its children and offers add-a-step", () => {
+  const { container } = render(
+    React.createElement(DagCanvas, { ...props, graph: withLoop, selectedId: 'loop' } as never),
+  )
+  const panel = container.querySelector('aside')
+  assert.ok(panel, 'the loop opens a config panel')
+  assert.match(panel!.textContent ?? '', /Steps inside/, 'children are edited here, not on the canvas')
+  assert.match(panel!.textContent ?? '', /Add a step/, 'nested steps can be added from the panel')
+})
+
+test('a container child selected on its own does not open a stray top-level panel', () => {
+  const { container } = render(
+    React.createElement(DagCanvas, { ...props, graph: withLoop, selectedId: 'inner' } as never),
+  )
+  // `inner` is contained — it is edited via the loop's panel, never its own.
+  assert.equal(container.querySelector('aside'), null)
 })
