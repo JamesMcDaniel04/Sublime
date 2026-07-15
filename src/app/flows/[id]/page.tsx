@@ -980,6 +980,39 @@ function FlowBuilder() {
     }
   }, [name, description, graph, router])
 
+  /**
+   * Export this workflow for another platform. The server does the conversion
+   * (and the redaction — credentials never leave), and streams a file back, so
+   * this just follows the download.
+   */
+  const exportFlow = useCallback(
+    async (target: 'portable' | 'n8n' | 'workato' | 'power-automate' | 'instructions') => {
+      try {
+        const response = await fetch(`/api/flows/${id}/export?target=${target}`, { cache: 'no-store' })
+        if (!response.ok) {
+          const data = await response.json().catch(() => ({}))
+          throw new Error(data.error || 'Export failed')
+        }
+        const blob = await response.blob()
+        const url = URL.createObjectURL(blob)
+        const link = document.createElement('a')
+        link.href = url
+        // Honour the filename the server chose (slugified flow name + target).
+        link.download = /filename="([^"]+)"/.exec(response.headers.get('Content-Disposition') ?? '')?.[1] ?? 'workflow'
+        link.click()
+        URL.revokeObjectURL(url)
+        toast.success(
+          target === 'instructions'
+            ? 'Rebuild instructions downloaded — paste them into any builder.'
+            : 'Exported. Credentials were not included — the file lists what to reconnect.',
+        )
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : 'Export failed')
+      }
+    },
+    [id],
+  )
+
   const downloadFlow = useCallback(() => {
     const flowName = name.trim() || 'Untitled flow'
     const payload = {
@@ -1144,6 +1177,25 @@ function FlowBuilder() {
             </DropdownMenuItem>
             <DropdownMenuItem onSelect={downloadFlow}>
               <Download className="h-4 w-4" /> Download JSON
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            {/* Take this workflow elsewhere. Credentials are never included —
+                the export states what has to be reconnected on the other side. */}
+            <DropdownMenuLabel>Export to another platform</DropdownMenuLabel>
+            <DropdownMenuItem onSelect={() => exportFlow('portable')}>
+              <Download className="h-4 w-4" /> Portable JSON (any platform)
+            </DropdownMenuItem>
+            <DropdownMenuItem onSelect={() => exportFlow('n8n')}>
+              <Download className="h-4 w-4" /> n8n workflow (import-ready)
+            </DropdownMenuItem>
+            <DropdownMenuItem onSelect={() => exportFlow('workato')}>
+              <Download className="h-4 w-4" /> Workato recipe (linear — merges noted)
+            </DropdownMenuItem>
+            <DropdownMenuItem onSelect={() => exportFlow('power-automate')}>
+              <Download className="h-4 w-4" /> Power Automate flow (import-ready)
+            </DropdownMenuItem>
+            <DropdownMenuItem onSelect={() => exportFlow('instructions')}>
+              <ScrollText className="h-4 w-4" /> Rebuild instructions (Zapier &amp; anything else)
             </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem onSelect={deleteFlow} className="text-red-600 focus:text-red-700">
