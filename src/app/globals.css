@@ -1,4 +1,8 @@
 @import './sublime-design.css';
+/* React Flow (free-form DAG canvas) base styles. Imported once here rather than
+   inside dag-canvas.tsx: a CSS import in a component makes that component
+   unimportable outside the Next bundler (e.g. unit tests). */
+@import '@xyflow/react/dist/style.css';
 
 @tailwind base;
 @tailwind components;

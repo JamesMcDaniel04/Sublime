@@ -32,7 +32,8 @@ import {
   type Node,
   type NodeProps,
 } from '@xyflow/react'
-import '@xyflow/react/dist/style.css'
+// React Flow's stylesheet is imported once in app/globals.css — importing CSS
+// here would make this component unimportable outside the Next bundler.
 import { Plus } from 'lucide-react'
 import { toast } from 'sonner'
 import { StepCard, type StepStatus } from './step-card'

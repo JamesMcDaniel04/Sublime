@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { connectNodes, disconnectEdge, moveNodeTo, wouldCreateCycle } from '../mutate'
+import { addNodeAt, connectNodes, disconnectEdge, moveNodeTo, wouldCreateCycle } from '../mutate'
 import type { FlowGraph } from '../graph'
 
 const agent = (id: string) => ({ id, type: 'agent' as const, data: { agentId: id } })
@@ -61,6 +61,24 @@ test('disconnectEdge removes only that wire', () => {
   const graph = disconnectEdge(base(), 'a->b')
   assert.equal(graph.edges.length, 1)
   assert.ok(graph.nodes.some((n) => n.id === 'b'), 'the node stays')
+})
+
+test('addNodeAt drops a standalone node at a position with NO edges (the user wires it)', () => {
+  const before = base()
+  const { graph, nodeId } = addNodeAt(before, 'http', { x: 40.6, y: 80.2 })
+  assert.equal(graph.nodes.length, before.nodes.length + 1)
+  assert.deepEqual(graph.layout?.[nodeId], { x: 41, y: 80 })
+  assert.equal(
+    graph.edges.length,
+    before.edges.length,
+    'no edges are invented — free-form wiring is the point (contrast insertNodeAfter)',
+  )
+  assert.ok(graph.nodes.some((n) => n.id === nodeId && n.type === 'http'))
+})
+
+test('addNodeAt preserves existing layout entries', () => {
+  const { graph } = addNodeAt({ ...base(), layout: { a: { x: 5, y: 6 } } }, 'agent', { x: 0, y: 0 }, 'agt_1')
+  assert.deepEqual(graph.layout?.a, { x: 5, y: 6 })
 })
 
 test('moveNodeTo records a rounded position without touching other layout', () => {
