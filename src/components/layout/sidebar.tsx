@@ -27,6 +27,7 @@ import { CommandPalette } from '@/components/search/command-palette'
 import { NotificationBell } from '@/components/notifications/notification-bell'
 import { Button } from '@/components/ui/button'
 import { useAuth } from '@/hooks/use-auth'
+import { normalizeShareValue } from '@/components/share-control'
 import { getSnapshot, scopeSnapshot } from '@/lib/client/snapshot'
 import { prefetchCachedJson, scopeCachedJson } from '@/lib/client/use-cached-json'
 import { cn } from '@/lib/utils'
@@ -228,7 +229,11 @@ export function Sidebar() {
   }
 
   const sections = useMemo(() => {
-    const shared = agents.filter((agent) => agent.visibility !== 'private')
+    // Bucket by the rule the ACCESS LAYER actually applies (agentReadScope): only
+    // an explicit org_viewer/org_editor is shared. The legacy `'shared'` value —
+    // once the default — grants nothing, so listing it under Workspace would tell
+    // the user their work is shared when it is not.
+    const shared = agents.filter((agent) => normalizeShareValue(agent.visibility) !== 'private')
     const folders = new Map<string, Agent[]>()
     for (const agent of shared) {
       const key = agent.folder?.trim() || 'General'
@@ -244,15 +249,41 @@ export function Sidebar() {
 
   const creditPct = usage ? Math.min(100, Math.round(((usage.inputTokens + usage.outputTokens) / CREDIT_TOKENS) * 100)) : 0
 
-  const moveAgent = async (agentId: string, target: { folder: string | null; visibility: 'shared' | 'private' }) => {
+  /**
+   * Move an agent between folders, and — only when the drop actually crosses the
+   * Workspace/Private divide — change its sharing.
+   *
+   * `share` is deliberately separate from `folder`: sending a visibility on every
+   * folder move used to silently REVOKE an org-shared agent's access (the sidebar
+   * spoke the legacy `'shared'` vocabulary, which the server normalizes to
+   * private). Re-filing an agent must never change who can see it.
+   */
+  const moveAgent = async (agentId: string, target: { folder: string | null; share: 'org' | 'private' }) => {
     const agent = agents.find((candidate) => candidate.id === agentId)
     if (!agent) return
-    if ((agent.folder || null) === target.folder && agent.visibility === target.visibility) return
-    await fetch('/api/agents', {
+    const current = normalizeShareValue(agent.visibility)
+    const isShared = current !== 'private'
+    const sharingChanges = (target.share === 'org') !== isShared
+    if ((agent.folder || null) === target.folder && !sharingChanges) return
+
+    // Dropping onto Workspace shares at the safest role (view). Promoting to
+    // editor is a deliberate choice, made on the agent itself — not by a drag.
+    const visibility = sharingChanges ? (target.share === 'org' ? 'org_viewer' : 'private') : undefined
+    const response = await fetch('/api/agents', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id: agentId, folder: target.folder, visibility: target.visibility }),
+      body: JSON.stringify({ id: agentId, folder: target.folder, ...(visibility ? { visibility } : {}) }),
     })
+    if (!response.ok) {
+      // Sharing is owner-only, so a non-owner gets a 403 here. Swallowing it left
+      // the UI looking like the move worked when nothing happened.
+      const data = await response.json().catch(() => ({}))
+      toast.error(data.error || 'Could not move this agent.')
+      notifyAgentsChanged() // re-sync so the card snaps back to the truth
+      return
+    }
+    if (visibility === 'org_viewer') toast.success('Shared — anyone in your workspace can view and run this agent.')
+    if (visibility === 'private') toast.success('Made private — only you can see this agent.')
     notifyAgentsChanged()
   }
 
@@ -282,15 +313,21 @@ export function Sidebar() {
   }
 
   const deleteAgent = async (agent: Agent) => {
-    await fetch('/api/agents', {
+    const response = await fetch('/api/agents', {
       method: 'DELETE',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ id: agent.id }),
     })
+    // Delete is owner-only, so a shared agent you don't own returns 404. Reporting
+    // nothing made the UI look like it worked.
+    if (!response.ok) {
+      const data = await response.json().catch(() => ({}))
+      toast.error(data.error || 'Could not delete this agent — only its owner can.')
+    }
     notifyAgentsChanged()
   }
 
-  const dropProps = (key: string, target: { folder: string | null; visibility: 'shared' | 'private' }) => ({
+  const dropProps = (key: string, target: { folder: string | null; share: 'org' | 'private' }) => ({
     onDragOver: (event: React.DragEvent) => {
       event.preventDefault()
       setDragOver(key)
@@ -465,7 +502,7 @@ export function Sidebar() {
               'flex items-center justify-between rounded-lg px-2 pb-1 pt-3',
               dragOver === 'workspace' && 'bg-white/10',
             )}
-            {...dropProps('workspace', { folder: null, visibility: 'shared' })}
+            {...dropProps('workspace', { folder: null, share: 'org' })}
           >
             <span className="font-mono text-[11px] font-bold uppercase tracking-wider text-[#7DACA8]">Workspace</span>
             <Button
@@ -490,7 +527,7 @@ export function Sidebar() {
                     dragOver === key && 'bg-white/10',
                   )}
                   onClick={() => setCollapsed((current) => ({ ...current, [key]: !current[key] }))}
-                  {...dropProps(key, { folder: isGeneral ? null : folder, visibility: 'shared' })}
+                  {...dropProps(key, { folder: isGeneral ? null : folder, share: 'org' })}
                 >
                   {isCollapsed ? <ChevronRight className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
                   <Folder className="h-3.5 w-3.5 text-[#7DACA8]" />
@@ -507,7 +544,7 @@ export function Sidebar() {
               'flex items-center gap-1.5 rounded-lg px-2 pb-1 pt-3 font-mono text-[11px] font-bold uppercase tracking-wider text-[#7DACA8]',
               dragOver === 'private' && 'bg-white/10',
             )}
-            {...dropProps('private', { folder: null, visibility: 'private' })}
+            {...dropProps('private', { folder: null, share: 'private' })}
           >
             <Lock className="h-3 w-3" /> Private
           </div>

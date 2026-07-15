@@ -366,7 +366,10 @@ function ExplorePage() {
       const data = await res.json().catch(() => ({}))
       if (!res.ok) throw new Error(data.error || 'Could not set up this template')
       if (data.kind === 'flow' && data.flowId) router.push(`/flows/${data.flowId}`)
-      else if (data.kind === 'agent' && data.agentId) router.push(`/agents/${data.agentId}`)
+      // There is no /agents/<id> route — agents open on the dashboard via ?agent=<id>.
+      // This used to push /agents/<id>, which 404'd AFTER the agent was created, so
+      // users assumed it failed and clicked again, creating duplicate active agents.
+      else if (data.kind === 'agent' && data.agentId) router.push(`/dashboard?agent=${data.agentId}`)
     } catch (e: any) {
       toast.error(e?.message || 'Could not set up this template')
     } finally {
