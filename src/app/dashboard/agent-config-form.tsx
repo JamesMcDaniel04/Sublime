@@ -3,10 +3,11 @@
 import { useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { Loader2, Play, Trash2, X } from 'lucide-react'
+import { Download, Loader2, Play, ScrollText, Trash2, X } from 'lucide-react'
 import { toast } from 'sonner'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
@@ -545,6 +546,37 @@ export function AgentConfigForm({
   const openRun = (runId: string) => {
     if (onOpenRun) onOpenRun(runId)
     else router.push(`/dashboard?run=${runId}`)
+  }
+
+  /**
+   * Export this agent for another platform. The server does the conversion (and
+   * the redaction — an agent's tool credentials never leave), and streams a file
+   * back, so this just follows the download.
+   */
+  const exportAgent = async (target: 'portable' | 'instructions') => {
+    if (!editingAgent?.id) return
+    try {
+      const response = await fetch(`/api/agents/${editingAgent.id}/export?target=${target}`, { cache: 'no-store' })
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}))
+        throw new Error(data.error || 'Export failed')
+      }
+      const blob = await response.blob()
+      const url = URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = url
+      // Honour the filename the server chose (slugified agent name + target).
+      link.download = /filename="([^"]+)"/.exec(response.headers.get('Content-Disposition') ?? '')?.[1] ?? 'agent'
+      link.click()
+      URL.revokeObjectURL(url)
+      toast.success(
+        target === 'instructions'
+          ? 'System prompt downloaded — paste it into any agent builder.'
+          : 'Exported. Tool connections were not included — the file lists what to reconnect.',
+      )
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Export failed')
+    }
   }
 
   const publishTemplate = async () => {
@@ -1251,6 +1283,27 @@ export function AgentConfigForm({
           >
             Add to templates
           </Button>
+        )}
+        {/* Take this agent elsewhere. Only meaningful once it is saved (export
+            reads the stored agent), and credentials never travel — the file
+            lists the tools to reconnect. */}
+        {editingAgent && (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" className="shrink-0" disabled={saving}>
+                <Download className="mr-1.5 h-4 w-4" /> Export
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuLabel>Take this agent elsewhere</DropdownMenuLabel>
+              <DropdownMenuItem onSelect={() => exportAgent('instructions')}>
+                <ScrollText className="h-4 w-4" /> System prompt (paste anywhere)
+              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => exportAgent('portable')}>
+                <Download className="h-4 w-4" /> Portable JSON
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         )}
         <Button className="flex-1" disabled={saving || !draft.title || !draft.instructions} onClick={submit}>
           {saving ? 'Saving...' : saveLabel || (editingAgent ? 'Save agent' : 'Create agent')}
