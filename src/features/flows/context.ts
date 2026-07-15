@@ -7,6 +7,11 @@ import type { ConditionOp } from '@/lib/flows/graph'
 export type FlowContext = {
   trigger: { input: unknown }
   step: Record<string, { output: unknown }>
+  // Aggregated outputs of the data-bearing nodes that have executed so far,
+  // keyed by builder label. Maintained by the interpreter (which knows node
+  // types); read via `{{upstream}}` (whole, size-capped) and auto-appended to
+  // agent inputs. Absent until the first data-bearing node completes.
+  upstream?: Record<string, unknown>
   item?: unknown
   // Present inside a loop body: `{{loop.index}}` (0-based) + total count.
   loop?: { index: number; count: number }
@@ -47,6 +52,39 @@ export type FlowContext = {
   stepLabels?: Record<string, string>
 }
 
+/** Default character budget for the serialized `{{upstream}}` bundle. */
+export const MAX_UPSTREAM_CHARS = 20_000
+
+/**
+ * Serialize the upstream aggregate for injection into an agent's context,
+ * bounding both the total size and each node's share so one large API response
+ * can't crowd out the rest or blow the model's window.
+ */
+export function serializeUpstream(upstream: Record<string, unknown>, maxChars: number = MAX_UPSTREAM_CHARS): string {
+  const entries = Object.entries(upstream)
+  if (!entries.length) return '{}'
+  const perNode = Math.max(500, Math.floor(maxChars / entries.length))
+  const capped: Record<string, unknown> = {}
+  for (const [label, value] of entries) {
+    let text: string
+    try {
+      text = typeof value === 'string' ? value : JSON.stringify(value) ?? String(value)
+    } catch {
+      text = String(value)
+    }
+    // Truncated entries become a marked string; untouched entries keep their
+    // structure so `{{upstream}}` stays valid JSON where it fits.
+    capped[label] = text.length > perNode ? `${text.slice(0, perNode)}…[truncated]` : value
+  }
+  let out: string
+  try {
+    out = JSON.stringify(capped)
+  } catch {
+    out = '{}'
+  }
+  return out.length > maxChars ? `${out.slice(0, maxChars)}…[truncated]` : out
+}
+
 /** Read a dot-path off the context (e.g. 'trigger.input', 'step.n1.output.score', 'item'). */
 export function readPath(ctx: FlowContext, path: string): unknown {
   const parts = path.trim().split('.')
@@ -59,6 +97,12 @@ export function readPath(ctx: FlowContext, path: string): unknown {
       cursor = (cursor as Record<string, unknown>)[part]
     }
     return cursor
+  }
+  // `{{upstream}}` (whole) resolves to a size-capped serialization of every
+  // data-bearing node's output captured so far. Deeper `upstream.<label>` paths
+  // fall through to the generic walk below and read the raw aggregate map.
+  if (parts[0] === 'upstream' && parts.length === 1) {
+    return serializeUpstream(ctx.upstream ?? {})
   }
   // Node-label root: the builder shows a step's friendly label on token chips,
   // so users hand-write `{{Previous Agent.output.message}}` instead of the

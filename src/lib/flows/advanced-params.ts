@@ -18,11 +18,15 @@ export type AdvancedParamKey =
   | 'retryDelayMs'
   | 'followRedirects'
   | 'maxRedirects'
+  // Auto-aggregation controls: agents pull upstream context by default;
+  // source nodes are included in that aggregate by default.
+  | 'includeUpstream'
+  | 'excludeFromContext'
 
 const BY_TYPE: Partial<Record<FlowNode['type'], AdvancedParamKey[]>> = {
-  agent: ['onError', 'retries', 'timeoutMs', 'disabled', 'mockOutput'],
-  tool: ['onError', 'retries', 'timeoutMs', 'disabled', 'mockOutput'],
-  http: ['bodyMode', 'responseType', 'failOnHttpError', 'onError', 'retries', 'retryDelayMs', 'timeoutMs', 'followRedirects', 'maxRedirects', 'disabled', 'mockOutput'],
+  agent: ['includeUpstream', 'onError', 'retries', 'timeoutMs', 'disabled', 'mockOutput'],
+  tool: ['excludeFromContext', 'onError', 'retries', 'timeoutMs', 'disabled', 'mockOutput'],
+  http: ['excludeFromContext', 'bodyMode', 'responseType', 'failOnHttpError', 'onError', 'retries', 'retryDelayMs', 'timeoutMs', 'followRedirects', 'maxRedirects', 'disabled', 'mockOutput'],
   loop: ['concurrency'],
 }
 

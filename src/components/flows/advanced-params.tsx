@@ -36,6 +36,30 @@ export function AdvancedParamsSection({
   const maxTimeoutSeconds = node.type === 'agent' ? AGENT_RUN_MAX_DURATION_SECONDS : 120
 
   const control = (key: AdvancedParamKey) => {
+    if (key === 'includeUpstream') {
+      return (
+        <select
+          className={controlClass}
+          value={data.includeUpstream === false ? 'false' : 'true'}
+          onChange={(event) => patch({ includeUpstream: event.target.value === 'false' ? false : undefined })}
+        >
+          <option value="true">Auto-include upstream data</option>
+          <option value="false">Use only this step&apos;s input</option>
+        </select>
+      )
+    }
+    if (key === 'excludeFromContext') {
+      return (
+        <select
+          className={controlClass}
+          value={data.excludeFromContext === true ? 'true' : 'false'}
+          onChange={(event) => patch({ excludeFromContext: event.target.value === 'true' ? true : undefined })}
+        >
+          <option value="false">Included in agent context</option>
+          <option value="true">Excluded from agent context</option>
+        </select>
+      )
+    }
     if (key === 'onError') {
       return (
         <select
@@ -131,6 +155,8 @@ export function AdvancedParamsSection({
   }
 
   const LABELS: Record<AdvancedParamKey, string> = {
+    includeUpstream: 'Upstream data',
+    excludeFromContext: 'Agent context',
     onError: 'On error',
     retries: 'Retries',
     timeoutMs: 'Timeout (seconds)',

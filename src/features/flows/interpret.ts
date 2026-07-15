@@ -1,5 +1,5 @@
 import type { FlowGraph, FlowNode, FlowEdge, VariableType } from '@/lib/flows/graph'
-import { resolveTemplate, resolveTemplateValue, asStructured, evalCondition, evalClause, type FlowContext } from './context'
+import { resolveTemplate, resolveTemplateValue, asStructured, evalCondition, evalClause, serializeUpstream, type FlowContext } from './context'
 import { stepLabelsOf } from '@/lib/flows/token-text'
 import { shouldRetryAfterTimeout } from './action-reliability'
 import { structuredResponseInstruction, parseStructuredAgentOutput } from './agent-response'
@@ -340,6 +340,13 @@ function agentInput(nodeInput: string | undefined, ctx: FlowContext): string {
   return resolveTemplate(nodeInput ?? '{{trigger.input}}', ctx)
 }
 
+// Node types whose output is meaningful context for a downstream agent. Control
+// / structural nodes (condition, loop, trigger, …) carry no payload; variables
+// have their own `{{var.*}}` channel. Feeds the `{{upstream}}` aggregate.
+const DATA_BEARING_NODE_TYPES: ReadonlySet<FlowNode['type']> = new Set([
+  'http', 'tool', 'data', 'transform', 'agent', 'subflow',
+])
+
 /**
  * Deterministically interpret a flow graph. Pure: agent execution is delegated
  * to `opts.runAgent`. Supports nested control flow (loops/parallels containing
@@ -357,6 +364,25 @@ export async function interpretFlow(graph: FlowGraph, input: unknown, opts: Opts
   // Constant for the whole run: lets templates reference a step by the label
   // the builder shows on token chips (see readPath's node-label resolution).
   const stepLabels = opts.stepLabels ?? stepLabelsOf(graph)
+  // Nodes the author excluded from the {{upstream}} aggregate (noisy payloads).
+  const excludeFromContextIds = new Set(
+    graph.nodes.filter((node) => (node.data as { excludeFromContext?: boolean }).excludeFromContext === true).map((node) => node.id),
+  )
+  // Aggregate every data-bearing step that has run so far, keyed by its builder
+  // label (id-suffixed on collision so no output is silently dropped). Recomputed
+  // per node from ctx.step — bounded by unique node count, so cheap.
+  const buildUpstream = (ctx: FlowContext): Record<string, unknown> => {
+    const bundle: Record<string, unknown> = {}
+    for (const [id, entry] of Object.entries(ctx.step)) {
+      const stepNode = byId.get(id)
+      if (!stepNode || !DATA_BEARING_NODE_TYPES.has(stepNode.type) || excludeFromContextIds.has(id)) continue
+      const label = stepLabels[id] || id
+      let key = label
+      for (let n = 2; Object.prototype.hasOwnProperty.call(bundle, key); n += 1) key = `${label} (${n})`
+      bundle[key] = entry.output
+    }
+    return bundle
+  }
   // Declared variable types: each name's initialize node (anywhere in the
   // graph, container bodies included) governs how later set/increment values
   // are coerced.
@@ -420,6 +446,10 @@ export async function interpretFlow(graph: FlowGraph, input: unknown, opts: Opts
   // and container bodies drive traversal); returns an output or control signal.
   const execNode = async (node: FlowNode, ctx: FlowContext): Promise<NodeResult> => {
     if (overBudget()) return { kind: 'fail', error: 'Flow exceeded the maximum number of steps.' }
+
+    // Refresh the upstream aggregate before this node resolves its fields, so
+    // `{{upstream}}` and the agent auto-append see every prior data-bearing step.
+    ctx.upstream = buildUpstream(ctx)
 
     if (node.type === 'trigger') return { kind: 'skip' }
 
@@ -649,7 +679,13 @@ export async function interpretFlow(graph: FlowGraph, input: unknown, opts: Opts
       }
       if (res.error) {
         emit({ nodeId: node.id, status: 'failed', error: res.error })
-        if ((node.data.onError ?? 'stop') === 'continue') return { kind: 'ok', output: undefined }
+        if ((node.data.onError ?? 'stop') === 'continue') {
+          // Record a structured failure so downstream refs + the {{upstream}}
+          // aggregate see "this call failed" instead of a silent blank.
+          const failure = { ok: false, error: res.error }
+          ctx.step[node.id] = { output: failure }
+          return { kind: 'ok', output: failure }
+        }
         return { kind: 'fail', error: res.error }
       }
       const output = asStructured(res.output)
@@ -693,6 +729,22 @@ export async function interpretFlow(graph: FlowGraph, input: unknown, opts: Opts
       const outputFields = node.data.outputFields ?? []
       const structured = node.data.responseFormat === 'structured' && outputFields.some((field) => field.name.trim())
       let resolved = agentInput(node.data.input, ctx)
+      // Auto-aggregation: feed the agent every prior data-bearing node's captured
+      // output so it works from the whole flow's context. This fires for a node
+      // using its DEFAULT input (the common "saved agent after some API steps"
+      // shape — the agent's instructions live in its persona, the node input is
+      // just {{trigger.input}}). A hand-customized input is left exactly as
+      // authored unless it opts in (includeUpstream === true) or references
+      // {{upstream}} itself. Opt out entirely with includeUpstream === false.
+      if (node.data.includeUpstream !== false) {
+        const authoredInput = node.data.input?.trim() ?? ''
+        const usesDefaultInput = authoredInput === '' || DEFAULT_AGENT_INPUTS.has(authoredInput)
+        const referencesUpstream = /\{\{\s*upstream\b/.test(`${node.data.input ?? ''} ${node.data.prompt ?? ''}`)
+        const bundle = ctx.upstream ?? {}
+        if ((node.data.includeUpstream === true || usesDefaultInput) && !referencesUpstream && Object.keys(bundle).length > 0) {
+          resolved = `${resolved}\n\nUpstream data:\n${serializeUpstream(bundle)}`
+        }
+      }
       if (structured) resolved = `${resolved}\n\n${structuredResponseInstruction(outputFields)}`
       const inline = !node.data.agentId?.trim()
       const prompt = inline ? resolveTemplate(node.data.prompt ?? '', ctx) : undefined

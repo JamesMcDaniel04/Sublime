@@ -59,6 +59,11 @@ const agentNode = z.object({
     label: z.string().optional(),
     note: z.string().optional(),
     input: z.string().optional(),
+    // Auto-aggregation: when not false, the agent's runtime input is appended
+    // with `{{upstream}}` (every prior data-bearing node's captured output) so
+    // the agent works from the whole flow's context, not just its own input.
+    // Set false to run the agent on its explicit input alone.
+    includeUpstream: z.boolean().optional(),
     onError: z.enum(['stop', 'continue']).optional(),
     // Per-step reliability: retry the agent up to `retries` times with backoff,
     // and abort a single attempt after `timeoutMs`.
@@ -119,6 +124,9 @@ const toolNode = z.object({
     retries: z.number().int().min(0).max(5).optional(),
     timeoutMs: z.number().int().min(1000).max(120000).optional(),
     onError: z.enum(['stop', 'continue']).optional(),
+    // Keep this node's output OUT of the `{{upstream}}` aggregate fed to
+    // downstream agents (for noisy/irrelevant payloads). Default: included.
+    excludeFromContext: z.boolean().optional(),
     outputFields: z.array(outputFieldSchema).optional(),
     // Snapshot the discovered MCP action contract at authoring/publish time.
     // Runtime still calls the live tool name, while these fields keep the node
@@ -155,6 +163,9 @@ const httpNode = z.object({
     retries: z.number().int().min(0).max(5).optional(),
     timeoutMs: z.number().int().min(1000).max(120000).optional(),
     onError: z.enum(['stop', 'continue']).optional(),
+    // Keep this API response OUT of the `{{upstream}}` aggregate fed to
+    // downstream agents (for noisy/irrelevant payloads). Default: included.
+    excludeFromContext: z.boolean().optional(),
     outputFields: z.array(outputFieldSchema).optional(),
     retryDelayMs: z.number().int().min(0).max(60000).optional(),
     retryStatusCodes: z.array(z.number().int().min(100).max(599)).optional(),
@@ -215,6 +226,8 @@ const transformNode = z.object({
     // `value` templates are resolved; JSON-looking results are parsed.
     fields: z.array(z.object({ name: z.string(), value: z.string() })).default([]),
     outputFields: z.array(outputFieldSchema).optional(),
+    // Keep this node's output OUT of the `{{upstream}}` aggregate. Default: included.
+    excludeFromContext: z.boolean().optional(),
   }),
 })
 // Gate: continues only when the condition passes, else stops the flow (or, in a
@@ -303,6 +316,8 @@ const dataNode = z.object({
     schema: z.string().optional(),
     clauses: z.array(conditionClauseSchema).optional(),
     fields: z.array(z.object({ name: z.string(), value: z.string() })).optional(),
+    // Keep this node's output OUT of the `{{upstream}}` aggregate. Default: included.
+    excludeFromContext: z.boolean().optional(),
   }),
 })
 
