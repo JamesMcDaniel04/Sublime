@@ -91,6 +91,10 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
     level: 'action',
     title: `${auth.dbUser.name || auth.dbUser.email || 'A teammate'} invited you to a Flow Jam`,
     body: `Build “${flow.name}” together in real time.`,
+    // The in-app row deep-links off executionId (flow notifications overload it
+    // to carry the flow id); `link` only drives the web-push URL. Set both so
+    // clicking the notification — in-app or push — lands in the live jam.
+    executionId: flow.id,
     link: `/flows/${flow.id}`,
   })))
 
