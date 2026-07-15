@@ -23,6 +23,7 @@ import { missingRequiredInputFields } from '@/lib/flows/input-validation'
 import { storedRunInput, prefillTextFromRunInput } from '@/lib/flows/reuse-input'
 import { FlowCanvas, type FlowInsertSeed } from '@/components/flows/flow-canvas'
 import { DagCanvas } from '@/components/flows/dag-canvas'
+import { ShareControl } from '@/components/share-control'
 import { cn } from '@/lib/utils'
 import { startCanvasPan } from '@/components/flows/canvas-pan'
 import { CanvasRail } from '@/components/flows/canvas-rail'
@@ -295,6 +296,9 @@ function FlowBuilder() {
   // Serialized snapshot of the last-saved state, for the unsaved-changes dot.
   const [savedSnapshot, setSavedSnapshot] = useState('')
   const [canManageJam, setCanManageJam] = useState(false)
+  // Org sharing. `canManageJam` IS the ownership predicate the API returns
+  // (flow.userId === me), and only the owner may change sharing.
+  const [visibility, setVisibility] = useState<string>('private')
   const [improvementSuggestions, setImprovementSuggestions] = useState<{ id: string; title: string; content: string }[]>([])
   const [dismissingSuggestionId, setDismissingSuggestionId] = useState<string | null>(null)
   // Optimistic-concurrency base: the flow's updatedAt as of load/last save.
@@ -351,6 +355,7 @@ function FlowBuilder() {
           setVersion(flow.version ?? 1)
           setPublished(Boolean(flow.published))
           setCanManageJam(Boolean(flow.canManageJam))
+          setVisibility(typeof flow.visibility === 'string' ? flow.visibility : 'private')
           setSavedSnapshot(JSON.stringify({ name: flow.name, description: flow.description || '', graph: g, status: flow.status }))
           baseUpdatedAtRef.current = flow.updatedAt
         }
@@ -1146,6 +1151,36 @@ function FlowBuilder() {
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
+        {/* Sharing is a deliberate act, so it saves immediately rather than
+            riding along with the draft — and it is owner-only (the API rejects
+            anyone else, so non-owners see a read-only badge). */}
+        <ShareControl
+          value={visibility}
+          canShare={canManageJam && !viewingVersion}
+          onChange={async (next) => {
+            const previous = visibility
+            setVisibility(next) // optimistic — revert below if the save is rejected
+            try {
+              const response = await fetch('/api/flows', {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ id, visibility: next }),
+              })
+              const data = await response.json().catch(() => ({}))
+              if (!response.ok) throw new Error(data.error || 'Could not update sharing')
+              toast.success(
+                next === 'private'
+                  ? 'Only you can see this flow now.'
+                  : next === 'org_viewer'
+                    ? 'Anyone in your workspace can now view and run this flow.'
+                    : 'Anyone in your workspace can now build on this flow with you.',
+              )
+            } catch (error) {
+              setVisibility(previous)
+              toast.error(error instanceof Error ? error.message : 'Could not update sharing')
+            }
+          }}
+        />
         {/* Stack ↔ DAG canvas. The DAG view can wire many→many (3 APIs into one
             agent); the stack view keeps insert menus + jam cursors until the DAG
             canvas reaches parity. */}

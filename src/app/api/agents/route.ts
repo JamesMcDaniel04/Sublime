@@ -94,7 +94,8 @@ export const GET = withAuthenticatedApi(async (_request, auth) => {
     // runaway number of agents must not turn every poll into a full scan.
     take: 300,
   })
-  return { success: true, agents: agents.map(serializeAgent) }
+  // `isOwner` mirrors the flows route: only the owner may change sharing.
+  return { success: true, agents: agents.map((agent) => ({ ...serializeAgent(agent), isOwner: agent.userId === auth.dbUser.id })) }
 })
 
 export const POST = withAuthenticatedApi(async (request, auth) => {
@@ -134,7 +135,7 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
   // has no rows yet, so the very next run must see them, not the fallback).
   await syncAgentConnectors(agent.id, auth.organizationId, data.integrations)
   void indexAgentRow(agent)
-  return { success: true, agent: serializeAgent(agent) }
+  return { success: true, agent: { ...serializeAgent(agent), isOwner: agent.userId === auth.dbUser.id } }
 })
 
 export const PUT = withAuthenticatedApi(async (request, auth) => {
@@ -191,7 +192,7 @@ export const PUT = withAuthenticatedApi(async (request, auth) => {
     await syncAgentConnectors(agent.id, auth.organizationId, body.integrations)
   }
   void indexAgentRow(agent)
-  return { success: true, agent: serializeAgent(agent) }
+  return { success: true, agent: { ...serializeAgent(agent), isOwner: agent.userId === auth.dbUser.id } }
 })
 
 export const DELETE = withAuthenticatedApi(async (request, auth) => {

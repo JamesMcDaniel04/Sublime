@@ -4,12 +4,10 @@ import {
   VISIBILITY,
   agentOwnerScope,
   agentReadScope,
-  agentVisibilityScope,
   agentWriteScope,
   executionVisibilityScope,
   flowOwnerScope,
   flowReadScope,
-  flowVisibilityScope,
   flowWriteScope,
   isVisibility,
 } from '../visibility'
@@ -72,14 +70,13 @@ test('run history is NEVER shared by sharing a flow — it can hold other people
 
 // ── Deprecated aliases ──────────────────────────────────────────────────────
 
-test('deprecated aliases stay pinned to pre-sharing behavior (no accidental widening)', () => {
-  // Any call site not yet migrated must keep its old, restrictive rule.
-  assert.deepEqual(agentVisibilityScope('user-a'), { userId: 'user-a' })
-  assert.deepEqual(flowVisibilityScope('user-a'), {
-    OR: [{ userId: 'user-a' }, { collaborators: { some: { userId: 'user-a' } } }],
-  })
-  assert.equal(JSON.stringify(agentVisibilityScope('user-a')).includes('visibility'), false)
-  assert.equal(JSON.stringify(flowVisibilityScope('user-a')).includes('visibility'), false)
+test('legacy "shared" never grants org access — it must not appear in any scope', () => {
+  // Agents used to DEFAULT to visibility:'shared' while the rules ignored it, so
+  // treating that value as an org share would expose every pre-existing agent at
+  // once. Only the explicit org_* roles may ever widen access.
+  for (const scope of [flowReadScope('u'), flowWriteScope('u'), agentReadScope('u'), agentWriteScope('u')]) {
+    assert.equal(JSON.stringify(scope).includes('"shared"'), false)
+  }
 })
 
 test('isVisibility accepts only the three known values', () => {

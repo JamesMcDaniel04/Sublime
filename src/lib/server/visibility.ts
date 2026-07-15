@@ -92,17 +92,8 @@ export function executionVisibilityScope(userId: string) {
   return { userId }
 }
 
-// ── Deprecated aliases ──────────────────────────────────────────────────────
-// Pinned to the PRE-sharing behavior on purpose: a call site that hasn't been
-// reviewed keeps its old, restrictive rule rather than silently widening the
-// moment sharing shipped. Migrate call sites to an explicit scope above.
-
-/** @deprecated Owner-only. Use agentOwnerScope / agentReadScope / agentWriteScope. */
-export function agentVisibilityScope(userId: string) {
-  return { userId }
-}
-
-/** @deprecated Owner + invited collaborators. Use flowRead/Write/OwnerScope. */
-export function flowVisibilityScope(userId: string) {
-  return { OR: [{ userId }, { collaborators: { some: { userId } } }] }
-}
+// NOTE: the old `agentVisibilityScope` / `flowVisibilityScope` helpers are gone.
+// They were ambiguous — `agentVisibilityScope` was even used as the owner guard
+// on flow publish/delete/trigger-secret — and a single "visibility" rule cannot
+// safely answer both "who can see this?" and "who can change it?". Every call
+// site now picks an explicit read/write/owner scope above.

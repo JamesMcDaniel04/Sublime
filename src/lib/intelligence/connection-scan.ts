@@ -177,7 +177,7 @@ function truncateSample(value: unknown): string {
  * from connection scans. Uses `status: 'SYSTEM'` (not 'ACTIVE') so it never
  * shows up in any ACTIVE-status agent listing, and `agentType: 'SYSTEM'` /
  * `type: 'system'` so it's unambiguously not a user-facing agent.
- * `visibility: 'private'` with no `userId` means `agentVisibilityScope`
+ * `visibility: 'private'` with no `userId` means `agentReadScope`
  * (src/lib/server/visibility.ts) hides it from every user-facing listing
  * that applies that scope — no real user ever matches its (absent) owner.
  * Memories saved under this agent's id are org-wide, shared learnings — not

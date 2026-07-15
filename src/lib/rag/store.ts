@@ -51,7 +51,7 @@ export interface GraphNode {
  * The single visibility contract, shared by every store implementation so
  * MemoryGraphStore and Neo4jGraphStore scope identically. A node is visible to
  * `viewerUserId` unless it is private and owned by someone else. Mirrors the
- * Prisma `agentVisibilityScope`/`executionVisibilityScope` row-level rules.
+ * Prisma `agentReadScope`/`executionVisibilityScope` row-level rules.
  */
 export function nodeVisibleTo(
   node: Pick<GraphNode, 'ownerUserId' | 'visibility'>,

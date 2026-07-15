@@ -16,6 +16,7 @@ import { MiniCalendar } from '@/components/ui/mini-calendar'
 import { IntegrationLogo } from '@/components/integrations/integration-logo'
 import { KnowledgePanel } from '@/app/dashboard/knowledge-panel'
 import { SuggestedImprovementBanner } from '@/components/intelligence/suggested-improvement-banner'
+import { normalizeShareValue } from '@/components/share-control'
 import { cn } from '@/lib/utils'
 import { connectedSlugSet, missingIntegrations } from '@/lib/templates/relevance'
 
@@ -90,7 +91,7 @@ export type AgentDraft = {
   skills: string[]
   icon: string
   folder: string
-  visibility: 'shared' | 'private'
+  visibility: string
   /** Lets this agent delegate to other agents via the run_agent tool. */
   allowSubagents?: boolean
   /** Restrict which agents it may run. Empty = any of the user's agents. */
@@ -148,7 +149,7 @@ const emptyDraft: AgentDraft = {
   skills: [],
   icon: '🤖',
   folder: '',
-  visibility: 'shared',
+  visibility: 'private',
   allowSubagents: false,
   subagentIds: [],
   goal: '',
@@ -466,7 +467,7 @@ export function AgentConfigForm({
       skills: source.skills || [],
       icon: source.icon || emptyDraft.icon,
       folder: source.folder || '',
-      visibility: source.visibility || 'shared',
+      visibility: normalizeShareValue(source.visibility),
       allowSubagents: source.allowSubagents === true,
       subagentIds: Array.isArray(source.subagentIds) ? source.subagentIds : [],
       goal: source.goal || '',
@@ -681,12 +682,19 @@ export function AgentConfigForm({
           />
         </div>
         <div>
-          <Label>Visibility</Label>
-          <Select value={draft.visibility} onValueChange={(visibility: AgentDraft['visibility']) => setDraft({ ...draft, visibility })}>
+          <Label>Sharing</Label>
+          {/* Only the owner may change sharing — the API rejects anyone else, so
+              don't offer a control that would fail on save. */}
+          <Select
+            value={normalizeShareValue(draft.visibility)}
+            disabled={Boolean(editingAgent) && editingAgent?.isOwner === false}
+            onValueChange={(visibility: string) => setDraft({ ...draft, visibility })}
+          >
             <SelectTrigger><SelectValue /></SelectTrigger>
             <SelectContent>
-              <SelectItem value="shared">Workspace</SelectItem>
-              <SelectItem value="private">Private</SelectItem>
+              <SelectItem value="private">Private — only you</SelectItem>
+              <SelectItem value="org_viewer">Org can view &amp; run</SelectItem>
+              <SelectItem value="org_editor">Org can edit</SelectItem>
             </SelectContent>
           </Select>
         </div>
