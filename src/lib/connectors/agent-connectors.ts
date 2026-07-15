@@ -39,12 +39,17 @@ export function classifyConnector(
 export async function syncAgentConnectors(
   agentTaskId: string,
   organizationId: string,
+  userId: string,
   integrations: string[],
 ): Promise<void> {
   try {
     const keys = Array.from(new Set(integrations.map((s) => s.trim()).filter(Boolean)))
     const connections = await prisma.mcpConnection.findMany({
-      where: { organizationId, isActive: true },
+      where: {
+        organizationId,
+        isActive: true,
+        OR: [{ userId }, { userId: null, provider: { not: null } }],
+      },
       select: { id: true, name: true },
     })
     const idByName = new Map(connections.map((c) => [c.name.toLowerCase(), c.id]))

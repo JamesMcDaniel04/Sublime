@@ -32,7 +32,11 @@ export const GET = withAuthenticatedApi(async (_request, auth) => {
   const organizationId = auth.organizationId
   const [connectionsRaw, hasGranola, nango, klavis, strataConnection] = await Promise.all([
     prisma.mcpConnection.findMany({
-      where: { organizationId, isActive: true },
+      where: {
+        organizationId,
+        isActive: true,
+        OR: [{ userId: auth.dbUser.id }, { userId: null, provider: { not: null } }],
+      },
       select: { id: true, name: true, serverUrl: true },
       orderBy: { createdAt: 'desc' },
     }),

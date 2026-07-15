@@ -5,6 +5,7 @@ import { apiLogger } from '@/lib/logger'
 import { decideApproval } from '@/lib/agents/approval'
 import { resumeAgentExecution } from '@/features/agents/execute-agent'
 import { dispatchFlowExecution } from '@/features/flows/execute-flow'
+import { prisma } from '@/lib/prisma'
 
 const schema = z.object({ decision: z.enum(['approve', 'reject']) })
 
@@ -14,6 +15,14 @@ export const maxDuration = 1200
 export const POST = withAuthenticatedApi(async (request: NextRequest, auth) => {
   const id = request.nextUrl.pathname.split('/').pop() || ''
   const { decision } = schema.parse(await request.json())
+  const owned = await prisma.approvalRequest.findFirst({
+    where: { id, organizationId: auth.organizationId },
+    select: { payload: true },
+  })
+  const requesterUserId = (owned?.payload as { userId?: string } | null)?.userId
+  if (!owned || requesterUserId !== auth.dbUser.id) {
+    throw new ApiError('Approval not found', 404, 'NOT_FOUND')
+  }
   try {
     const { resume, resumeFlow, ...result } = await decideApproval({
       approvalId: id,

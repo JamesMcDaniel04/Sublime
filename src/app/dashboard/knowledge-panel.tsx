@@ -25,24 +25,32 @@ function formatSize(bytes: number): string {
 export function KnowledgePanel({ agentId }: { agentId: string }) {
   const [docs, setDocs] = useState<KnowledgeDoc[]>([])
   const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState('')
+  const [loadAttempt, setLoadAttempt] = useState(0)
   const [uploading, setUploading] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     let cancelled = false
+    setLoading(true)
+    setLoadError('')
     fetch(`/api/agents/${agentId}/knowledge`, { cache: 'no-store' })
-      .then((r) => r.json())
-      .then((data) => {
-        if (!cancelled) setDocs(data.success ? data.documents : [])
+      .then(async (r) => {
+        const data = await r.json().catch(() => ({}))
+        if (!r.ok || !data.success) throw new Error(data.error || 'Could not load knowledge files.')
+        return data
       })
-      .catch(() => undefined)
+      .then((data) => {
+        if (!cancelled) setDocs(data.documents ?? [])
+      })
+      .catch((cause) => { if (!cancelled) setLoadError(cause instanceof Error ? cause.message : 'Could not load knowledge files.') })
       .finally(() => {
         if (!cancelled) setLoading(false)
       })
     return () => {
       cancelled = true
     }
-  }, [agentId])
+  }, [agentId, loadAttempt])
 
   const upload = async (files: FileList | null) => {
     if (!files || files.length === 0) return
@@ -67,13 +75,17 @@ export function KnowledgePanel({ agentId }: { agentId: string }) {
   }
 
   const remove = async (doc: KnowledgeDoc) => {
+    const previous = docs
     setDocs((prev) => prev.filter((d) => d.id !== doc.id))
-    const response = await fetch(`/api/agents/${agentId}/knowledge`, {
-      method: 'DELETE',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ documentId: doc.id }),
-    })
-    if (!response.ok) toast.error(`Could not remove "${doc.filename}".`)
+    try {
+      const response = await fetch(`/api/agents/${agentId}/knowledge`, {
+        method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ documentId: doc.id }),
+      })
+      if (!response.ok) throw new Error()
+    } catch {
+      setDocs(previous)
+      toast.error(`Could not remove "${doc.filename}".`)
+    }
   }
 
   return (
@@ -100,6 +112,8 @@ export function KnowledgePanel({ agentId }: { agentId: string }) {
         <p className="text-sm text-gray-500">
           <Loader2 className="inline h-3.5 w-3.5 animate-spin" /> Loading…
         </p>
+      ) : loadError ? (
+        <p className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">{loadError} <button className="font-medium underline" onClick={() => setLoadAttempt((value) => value + 1)}>Try again</button></p>
       ) : docs.length === 0 ? (
         <p className="rounded-lg border border-dashed p-3 text-sm text-gray-500">No files yet — upload documents to give this agent reference knowledge.</p>
       ) : (

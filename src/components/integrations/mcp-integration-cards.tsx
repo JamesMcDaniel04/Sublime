@@ -14,6 +14,7 @@ import { useCachedJson } from '@/lib/client/use-cached-json'
 import { useScanExclusions } from '@/lib/client/use-scan-exclusions'
 import { connectionSourceRef } from '@/lib/intelligence/scan-exclusions'
 import { fromKlavisAgentType } from '@/lib/connectors/registry'
+import { toast } from 'sonner'
 
 type Tool = { name: string; description?: string }
 
@@ -122,6 +123,7 @@ export function MCPIntegrationCards() {
   const [expanded, setExpanded] = useState<string | null>(null)
   const [actionError, setActionError] = useState('')
   const [togglingLearning, setTogglingLearning] = useState<string | null>(null)
+  const [rescanning, setRescanning] = useState<string | null>(null)
   const [page, setPage] = useState(1)
   const [query, setQuery] = useState('')
   const [recommendations, setRecommendations] = useState<IntegrationMatch[] | null>(null)
@@ -136,6 +138,21 @@ export function MCPIntegrationCards() {
     } finally {
       setTogglingLearning(null)
     }
+  }
+
+  const rescan = async (connection: Connection) => {
+    if (!connection.id) return
+    setRescanning(connection.provider)
+    try {
+      const response = await fetch('/api/intelligence/rescan', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ plane: 'klavis', connectionRef: connection.id, connectionName: connection.provider }),
+      })
+      const data = await response.json().catch(() => ({}))
+      if (!response.ok) throw new Error(data.error || 'Could not rescan this connection.')
+      toast.success('Connection scan complete.')
+    } catch (error) { setActionError(error instanceof Error ? error.message : 'Could not rescan this connection.') }
+    finally { setRescanning(null) }
   }
 
   const connect = async (provider: string) => {
@@ -293,13 +310,8 @@ export function MCPIntegrationCards() {
 
                   {isActive && connection.id && (
                     <div className="flex items-center justify-between gap-2 border-t pt-3">
-                      <span className="text-xs text-gray-500">Learning</span>
-                      <Switch
-                        checked={isLearningEnabled(connectionSourceRef('klavis', connection.id))}
-                        disabled={togglingLearning === connection.provider}
-                        onCheckedChange={(enabled) => toggleLearning(connection, enabled)}
-                        aria-label={isLearningEnabled(connectionSourceRef('klavis', connection.id)) ? 'Disable learning from this connection' : 'Enable learning from this connection'}
-                      />
+                      <Button size="sm" variant="ghost" loading={rescanning === connection.provider} disabled={rescanning !== null} onClick={() => void rescan(connection)}>Rescan</Button>
+                      <div className="flex items-center gap-2"><span className="text-xs text-gray-500">Learning</span><Switch checked={isLearningEnabled(connectionSourceRef('klavis', connection.id))} disabled={togglingLearning === connection.provider} onCheckedChange={(enabled) => toggleLearning(connection, enabled)} aria-label={isLearningEnabled(connectionSourceRef('klavis', connection.id)) ? 'Disable learning from this connection' : 'Enable learning from this connection'} /></div>
                     </div>
                   )}
                 </div>

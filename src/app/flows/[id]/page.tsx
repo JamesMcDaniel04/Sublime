@@ -1181,14 +1181,14 @@ function FlowBuilder() {
   return (
     <div className="flex h-full flex-col">
       {/* Top bar */}
-      <div className="flex items-center gap-3 border-b border-border bg-card px-4 py-2.5">
+      <div className="flex shrink-0 items-center gap-3 overflow-x-auto border-b border-border bg-card px-3 py-2.5 sm:px-4 [&_button]:shrink-0 [&_select]:shrink-0">
         <Button variant="ghost" size="icon" onClick={() => router.push('/flows')} aria-label="Back to flows">
           <ArrowLeft className="h-4 w-4" />
         </Button>
         <input
           value={name}
           onChange={(e) => setName(e.target.value)}
-          className="min-w-0 flex-1 rounded-lg bg-transparent px-2 py-1 text-base font-semibold outline-none hover:bg-muted focus:bg-muted"
+          className="min-w-40 flex-1 rounded-lg bg-transparent px-2 py-1 text-base font-semibold outline-none hover:bg-muted focus:bg-muted"
           placeholder="Untitled flow"
         />
         <Button variant="ghost" size="icon" onClick={undo} aria-label="Undo" title="Undo (⌘Z)">

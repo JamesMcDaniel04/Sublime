@@ -32,15 +32,27 @@ export function SupabaseProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    supabase.auth.getUser().then(({ data }) => {
-      setUser(data.user)
-      setLoading(false)
+    let active = true
+    let timeoutId: ReturnType<typeof setTimeout> | undefined
+    const timeout = new Promise<never>((_resolve, reject) => {
+      timeoutId = setTimeout(() => reject(new Error('Authentication check timed out')), 8_000)
     })
+    void Promise.race([supabase.auth.getUser(), timeout])
+      .then(({ data }) => { if (active) setUser(data.user) })
+      .catch(() => { if (active) setUser(null) })
+      .finally(() => {
+        if (timeoutId) clearTimeout(timeoutId)
+        if (active) setLoading(false)
+      })
     const { data } = supabase.auth.onAuthStateChange((_event, session) => {
       setUser(session?.user ?? null)
       setLoading(false)
     })
-    return () => data.subscription.unsubscribe()
+    return () => {
+      active = false
+      if (timeoutId) clearTimeout(timeoutId)
+      data.subscription.unsubscribe()
+    }
   }, [])
 
   // Back-forward cache guard. Pressing "Back" after sign-out can restore an

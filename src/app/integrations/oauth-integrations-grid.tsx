@@ -42,9 +42,9 @@ export function OAuthIntegrationsGrid() {
   // Cached (stale-while-revalidate): the integration catalog is static (also
   // server-cached), connections revalidate in the background. A revisit paints
   // the last-seen grid instantly instead of the loading skeleton.
-  const { data: integrationsData, loading: loadingIntegrations, refresh: refreshIntegrations } =
+  const { data: integrationsData, loading: loadingIntegrations, error: integrationsError, refresh: refreshIntegrations } =
     useCachedJson<{ integrations?: Integration[] }>('/api/nango/integrations')
-  const { data: statusData, loading: loadingStatus, refresh: refreshStatus } =
+  const { data: statusData, loading: loadingStatus, error: statusError, refresh: refreshStatus } =
     useCachedJson<{ connections?: Record<string, Connection> }>('/api/nango/status')
   const { data: profileData } = useCachedJson<{ profile?: { role: string } }>('/api/settings/profile')
   const isAdmin = profileData?.profile?.role === 'ADMIN'
@@ -53,6 +53,7 @@ export function OAuthIntegrationsGrid() {
   const loading = loadingIntegrations || loadingStatus
   const [busy, setBusy] = useState<string | null>(null)
   const [togglingLearningId, setTogglingLearningId] = useState<string | null>(null)
+  const [rescanningId, setRescanningId] = useState<string | null>(null)
   const [page, setPage] = useState(1)
   const [query, setQuery] = useState('')
   const [recommendations, setRecommendations] = useState<IntegrationMatch[] | null>(null)
@@ -68,6 +69,21 @@ export function OAuthIntegrationsGrid() {
     } finally {
       setTogglingLearningId(null)
     }
+  }
+
+  const rescan = async (integration: Integration) => {
+    if (!integration.capability) return
+    setRescanningId(integration.id)
+    try {
+      const response = await fetch('/api/intelligence/rescan', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ plane: 'nango', connectionRef: integration.capability, connectionName: integration.name }),
+      })
+      const data = await response.json().catch(() => ({}))
+      if (!response.ok) throw new Error(data.error || 'Could not rescan this account.')
+      toast.success('Connection scan complete.')
+    } catch (error) { toast.error(error instanceof Error ? error.message : 'Could not rescan this account.') }
+    finally { setRescanningId(null) }
   }
 
   const refreshAll = useCallback(() => {
@@ -149,10 +165,14 @@ export function OAuthIntegrationsGrid() {
   return (
     <div className="space-y-4">
       <div className="flex justify-end">
-        <Button variant="outline" size="icon" onClick={refreshAll} disabled={loading}>
+        <Button variant="outline" size="icon" onClick={refreshAll} disabled={loading} aria-label="Refresh connected accounts" title="Refresh connected accounts">
           <RefreshCw className={loading ? 'h-4 w-4 animate-spin' : 'h-4 w-4'} />
         </Button>
       </div>
+
+      {Boolean(integrationsError || statusError) && (
+        <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700"><p>Connected accounts could not be loaded. Existing connections may still be active.</p><Button className="mt-2" variant="outline" size="sm" onClick={refreshAll}>Try again</Button></div>
+      )}
 
       <IntegrationAiSearch
         items={integrations.map((integration) => ({ id: integration.id, name: integration.name, description: `Connect ${integration.name} so agents can act on the user's behalf.` }))}
@@ -161,7 +181,7 @@ export function OAuthIntegrationsGrid() {
         onRecommendations={(matches) => { setRecommendations(matches); setPage(1) }}
       />
 
-      {!visibleIntegrations.length && busy !== 'loading' && (
+      {!integrationsError && !statusError && !loading && !visibleIntegrations.length && busy !== 'loading' && (
         <EmptyState
           title="No integrations are enabled yet"
           description="Enable integrations in your Nango dashboard and they appear here."
@@ -198,17 +218,8 @@ export function OAuthIntegrationsGrid() {
                     </Button>}
                 {connection?.connected && integration.capability && (
                   <div className="flex items-center justify-between gap-2 border-t pt-3">
-                    <span className="text-xs text-muted-foreground">Learning</span>
-                    <Switch
-                      checked={isLearningEnabled(connectionSourceRef('nango', integration.capability))}
-                      disabled={togglingLearningId === integration.id || !isAdmin}
-                      onCheckedChange={(enabled) => toggleLearning(integration, enabled)}
-                      aria-label={
-                        isLearningEnabled(connectionSourceRef('nango', integration.capability))
-                          ? 'Disable learning from this connection'
-                          : 'Enable learning from this connection'
-                      }
-                    />
+                    <Button size="sm" variant="ghost" loading={rescanningId === integration.id} disabled={rescanningId !== null} onClick={() => void rescan(integration)}>Rescan</Button>
+                    <div className="flex items-center gap-2"><span className="text-xs text-muted-foreground">Learning</span><Switch checked={isLearningEnabled(connectionSourceRef('nango', integration.capability))} disabled={togglingLearningId === integration.id || !isAdmin} onCheckedChange={(enabled) => toggleLearning(integration, enabled)} aria-label={isLearningEnabled(connectionSourceRef('nango', integration.capability)) ? 'Disable learning from this connection' : 'Enable learning from this connection'} /></div>
                   </div>
                 )}
               </CardContent>

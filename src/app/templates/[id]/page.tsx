@@ -25,6 +25,13 @@ type Template = {
   exampleOutput?: string
   icon?: string
   allowSubagents?: boolean
+  subagentIds?: string[]
+  goal?: string
+  autoAnswerFromMemory?: boolean
+  alwaysStrategize?: boolean
+  maxTurns?: number
+  outputFields?: Array<{ name: string; type: 'string' | 'number' | 'boolean' | 'object' | 'array'; description?: string }>
+  schedule?: typeof MANUAL_SCHEDULE
   // Seed-catalogue metadata (additive; absent on legacy DB-authored templates).
   kind?: 'agent' | 'flow'
   seed?: boolean
@@ -51,7 +58,7 @@ function templateSchedule(template: Template) {
         timezone: schedule.timezone || 'UTC',
         isActive: schedule.isActive !== false,
       }
-    : MANUAL_SCHEDULE
+    : template.schedule ?? MANUAL_SCHEDULE
 }
 
 function scheduleLabel(template: Template): string {
@@ -126,6 +133,12 @@ export default function TemplateDetails() {
         model: template.model,
         icon: template.icon || '',
         allowSubagents: template.allowSubagents === true,
+        subagentIds: template.subagentIds ?? [],
+        goal: template.goal ?? '',
+        autoAnswerFromMemory: template.autoAnswerFromMemory !== false,
+        alwaysStrategize: template.alwaysStrategize === true,
+        maxTurns: template.maxTurns ?? 16,
+        outputFields: template.outputFields ?? [],
         schedule: templateSchedule(template),
       }),
     })
@@ -137,6 +150,7 @@ export default function TemplateDetails() {
   const connect = async (targetKind: ProvisionKind) => {
     if (!template || deploying) return
     setDeploying(targetKind)
+    let createdAgentId: string | null = null
     try {
       if (template.seed) {
         const response = await fetch('/api/templates/provision', {
@@ -147,7 +161,7 @@ export default function TemplateDetails() {
         const data = await response.json().catch(() => ({}))
         if (!response.ok) throw new Error(data.error || `Could not connect this template to a ${targetKind}.`)
         if (targetKind === 'flow' && data.flowId) router.push(`/flows/${data.flowId}`)
-        else if (targetKind === 'agent' && data.agentId) router.push('/dashboard')
+        else if (targetKind === 'agent' && data.agentId) router.push(`/dashboard?agent=${data.agentId}`)
         return
       }
 
@@ -155,8 +169,9 @@ export default function TemplateDetails() {
       // their agent first, then wrap it in the same trigger -> agent graph when
       // the user selects the Flow path.
       const agentId = await createLegacyAgent()
+      createdAgentId = agentId
       if (targetKind === 'agent') {
-        router.push('/dashboard')
+        router.push(`/dashboard?agent=${agentId}`)
         return
       }
       const trigger = template.trigger ?? { type: 'manual' }
@@ -181,6 +196,11 @@ export default function TemplateDetails() {
       if (!response.ok || !data.flow?.id) throw new Error(data.error || 'Could not create the flow.')
       router.push(`/flows/${data.flow.id}`)
     } catch (error) {
+      if (targetKind === 'flow' && createdAgentId) {
+        await fetch('/api/agents', {
+          method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: createdAgentId }),
+        }).catch(() => undefined)
+      }
       toast.error(error instanceof Error ? error.message : 'Could not connect this template.')
     } finally {
       setDeploying(null)

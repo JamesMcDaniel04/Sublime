@@ -7,6 +7,7 @@ import { getSnapshot } from '@/lib/client/snapshot'
 import { notificationHref } from '@/lib/notifications/notification-href'
 import { cn } from '@/lib/utils'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { toast } from 'sonner'
 
 type NotificationItem = {
   id: string
@@ -92,21 +93,28 @@ export function NotificationBell({ buttonClassName }: { buttonClassName?: string
 
   const markRead = async () => {
     if (!unread) return
+    const previousUnread = unread
+    const previousItems = items
     setUnread(0)
     setItems((prev) => prev.map((n) => ({ ...n, readAt: n.readAt || new Date().toISOString() })))
-    await fetch('/api/notifications/read', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: '{}',
-    }).catch(() => {})
+    try {
+      const response = await fetch('/api/notifications/read', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}',
+      })
+      if (!response.ok) throw new Error()
+    } catch {
+      setUnread(previousUnread)
+      setItems(previousItems)
+      toast.error('Could not mark notifications as read.')
+    }
   }
 
   const enablePush = async () => {
     try {
       const { publicKey } = await (await fetch('/api/push/key', { cache: 'no-store' })).json()
-      if (!publicKey) return
+      if (!publicKey) return toast.error('Push notifications are not configured for this workspace.')
       const reg = await navigator.serviceWorker.register('/sw.js')
-      if ((await Notification.requestPermission()) !== 'granted') return
+      if ((await Notification.requestPermission()) !== 'granted') return toast.error('Browser notification permission was not granted.')
       const sub = await reg.pushManager.subscribe({
         userVisibleOnly: true,
         applicationServerKey: urlBase64ToUint8Array(publicKey),
@@ -119,11 +127,12 @@ export function NotificationBell({ buttonClassName }: { buttonClassName?: string
       })
       if (!response.ok) {
         await sub.unsubscribe()
-        return
+        return toast.error('Could not enable push notifications.')
       }
       setPushState('enabled')
+      toast.success('Push notifications enabled.')
     } catch {
-      /* ignore — in-app notifications still work */
+      toast.error('Could not enable push notifications.')
     }
   }
 
@@ -133,12 +142,14 @@ export function NotificationBell({ buttonClassName }: { buttonClassName?: string
       const sub = reg ? await reg.pushManager.getSubscription() : null
       if (sub) {
         const response = await fetch(`/api/push/subscribe?endpoint=${encodeURIComponent(sub.endpoint)}`, { method: 'DELETE' })
-        if (!response.ok) return
+        if (!response.ok) return toast.error('Could not disable push notifications.')
         await sub.unsubscribe()
       }
       setPushState('available')
+      toast.success('Push notifications disabled.')
     } catch {
       // Keep the truthful enabled state when unsubscribe fails.
+      toast.error('Could not disable push notifications.')
     }
   }
 

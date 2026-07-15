@@ -24,6 +24,7 @@ export const GET = withAuthenticatedApi(async (_request, auth) => {
 // ── POST — validate and save the org's Granola API key (encrypted) ────────
 
 export const POST = withAuthenticatedApi(async (request, auth) => {
+  if (auth.dbUser.role !== 'ADMIN') throw new ApiError('Admin access required', 403, 'FORBIDDEN')
   const { apiKey } = z
     .object({ apiKey: z.string().trim().min(1) })
     .parse(await request.json())
@@ -58,6 +59,7 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
 // ── DELETE — remove the org key (env fallback still applies, if set) ──────
 
 export const DELETE = withAuthenticatedApi(async (_request, auth) => {
+  if (auth.dbUser.role !== 'ADMIN') throw new ApiError('Admin access required', 403, 'FORBIDDEN')
   await prisma.integrationSecret.deleteMany({
     where: { organizationId: auth.organizationId, provider: 'granola' },
   })

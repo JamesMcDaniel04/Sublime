@@ -5,9 +5,12 @@ Sublime is a focused AI-agent workspace: create agents, connect tools, run tasks
 ## Product Surface
 
 - `/dashboard`: agent list, grouped run activity, output, tool calls, errors, per-agent run history, and follow-up chat
-- `/integrations`: Klavis MCP tool connections and Pipedream embedded integrations
-- `/connections`: custom per-org MCP server connections
+- `/integrations`: Klavis tools, Nango accounts, Slack, Granola, and service configuration
+- `/connections`: custom per-user MCP server connections
 - `/templates`: reusable agent templates and skills
+- `/flows`: visual workflows, triggers, run activity, and version history
+- `/approvals`: pending external-write decisions
+- `/settings`: profile, security, members, and workspace configuration
 
 ## Architecture
 
@@ -16,8 +19,8 @@ Sublime is a focused AI-agent workspace: create agents, connect tools, run tasks
 - Prisma/PostgreSQL stores tenants, agents, executions, tool events, templates, and connection state.
 - One Fastify/BullMQ worker runtime executes manual and scheduled agents.
 - Klavis provides MCP tool servers called by agents.
-- Pipedream provides embedded integration account connections.
-- OpenAI (default) or Anthropic plans tool calls and answers follow-up questions about completed runs.
+- Nango provides embedded integration account connections.
+- Anthropic Claude is the default model provider; Qwen is available through its Anthropic-compatible endpoint.
 
 ## Local Setup
 

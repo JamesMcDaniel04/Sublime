@@ -48,15 +48,16 @@ export function SlackBotCard() {
   const [saving, setSaving] = useState(false)
   const [backfills, setBackfills] = useState<ActivityBackfill[]>([])
   const [startingBackfill, setStartingBackfill] = useState<string | null>(null)
+  const [loadError, setLoadError] = useState('')
 
   const load = useCallback(async () => {
     try {
       const res = await fetch('/api/slack/connections')
-      const data = await res.json()
-      if (res.ok) setConnections(data.connections ?? [])
-    } catch {
-      // listing failure is non-fatal; the card just shows the connect form
-    }
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data.error || 'Could not load Slack connections.')
+      setConnections(data.connections ?? [])
+      setLoadError('')
+    } catch (error) { setLoadError(error instanceof Error ? error.message : 'Could not load Slack connections.') }
   }, [])
 
   const loadBackfills = useCallback(async () => {
@@ -98,17 +99,20 @@ export function SlackBotCard() {
       setBotToken('')
       setSigningSecret('')
       await load()
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Could not connect Slack.')
     } finally {
       setSaving(false)
     }
   }
 
   const disconnect = async (id: string) => {
-    const res = await fetch(`/api/slack/connections?id=${id}`, { method: 'DELETE' })
-    if (res.ok) {
+    try {
+      const res = await fetch(`/api/slack/connections?id=${id}`, { method: 'DELETE' })
+      if (!res.ok) throw new Error()
       toast.success('Slack bot disconnected.')
       await load()
-    } else toast.error('Could not disconnect.')
+    } catch { toast.error('Could not disconnect.') }
   }
 
   const copyUrl = async (url: string) => {
@@ -181,6 +185,7 @@ export function SlackBotCard() {
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
+        {loadError && <p className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">{loadError} <button className="font-medium underline" onClick={() => void load()}>Try again</button></p>}
         {connections.map((connection) => {
           const backfill = backfills.find((row) => row.source === 'slack' && row.connectionRef === connection.id)
           const active = backfill?.status === 'pending' || backfill?.status === 'running'

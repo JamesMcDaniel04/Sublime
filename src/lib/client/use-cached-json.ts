@@ -28,10 +28,17 @@ function write(url: string, data: unknown): void {
   mem.set(url, entry)
 }
 
+export class CachedJsonError extends Error {
+  constructor(message: string, readonly status: number) {
+    super(message)
+    this.name = 'CachedJsonError'
+  }
+}
+
 async function fetchJson(url: string): Promise<unknown> {
   const res = await fetch(url, { cache: 'no-store' })
   const body = await res.json().catch(() => ({}))
-  if (!res.ok) throw new Error((body as { error?: string })?.error || `Request failed (${res.status})`)
+  if (!res.ok) throw new CachedJsonError((body as { error?: string })?.error || `Request failed (${res.status})`, res.status)
   return body
 }
 

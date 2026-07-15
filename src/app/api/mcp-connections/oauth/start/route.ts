@@ -42,11 +42,10 @@ export const GET = withAuthenticatedApi(async (request, auth) => {
   let effectiveName = name
   if (connectionId) {
     const row = await prisma.mcpConnection.findFirst({
-      where: { id: connectionId, organizationId: auth.organizationId },
+      where: { id: connectionId, organizationId: auth.organizationId, userId: auth.dbUser.id },
       select: { id: true, serverUrl: true, name: true, userId: true },
     })
-    // Personal rows may only be re-authorized by their owner.
-    if (!row || (row.userId && row.userId !== auth.dbUser.id)) {
+    if (!row) {
       return NextResponse.redirect(new URL('/connections?error=oauth_params', request.nextUrl.origin))
     }
     effectiveServerUrl = row.serverUrl

@@ -52,7 +52,7 @@ test('two-agent-node flow: seeds ONLY the first node, second node starts fresh',
 })
 
 test('a loop-thread agent (node.thread set) is NEVER hijacked by the Slack seed, even as the first node reached', () => {
-  let slackSeedRemaining = true
+  const slackSeedRemaining = true
   const slackContinueExecutionId = 'exec-seed'
 
   // Iteration 0 of a threaded loop — no threadContinueExecutionId yet (no

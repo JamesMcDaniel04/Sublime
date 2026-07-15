@@ -42,26 +42,31 @@ export default function FlowsPage() {
   const [flows, setFlows] = useState<FlowItem[]>([])
   const [readiness, setReadiness] = useState<SuggestionReadiness | null>(null)
   const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState('')
+  const [loadAttempt, setLoadAttempt] = useState(0)
   const [page, setPage] = useState(1)
   const [creating, setCreating] = useState(false)
   const [dismissingId, setDismissingId] = useState<string | null>(null)
 
   useEffect(() => {
     let cancelled = false
+    setLoading(true)
+    setLoadError('')
     getCachedJson<any>('/api/flows')
       .then((data) => {
         if (cancelled) return
-        setFlows(data.success ? data.flows : [])
-        setReadiness(data.success ? data.suggestionReadiness ?? null : null)
+        if (!data.success) throw new Error(data.error || 'Could not load flows.')
+        setFlows(data.flows ?? [])
+        setReadiness(data.suggestionReadiness ?? null)
       })
-      .catch(() => undefined)
+      .catch((cause) => { if (!cancelled) setLoadError(cause instanceof Error ? cause.message : 'Could not load flows.') })
       .finally(() => {
         if (!cancelled) setLoading(false)
       })
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [loadAttempt])
 
   const suggestedFlows = useMemo(() => flows.filter((flow) => flow.suggested && flow.status === 'draft'), [flows])
   const otherFlows = useMemo(() => flows.filter((flow) => !(flow.suggested && flow.status === 'draft')), [flows])
@@ -78,6 +83,9 @@ export default function FlowsPage() {
       } else {
         invalidateCachedJson('/api/flows')
       }
+    } catch {
+      setFlows(previous)
+      toast.error('Could not dismiss that suggestion.')
     } finally {
       setDismissingId(null)
     }
@@ -91,12 +99,14 @@ export default function FlowsPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name: 'Untitled flow' }),
       })
-      const data = await response.json()
+      const data = await response.json().catch(() => ({}))
       if (response.ok && data.flow) {
         invalidateCachedJson('/api/flows')
         router.push(`/flows/${data.flow.id}`)
       }
       else toast.error(data.error || 'Could not create the flow.')
+    } catch {
+      toast.error('Could not create the flow.')
     } finally {
       setCreating(false)
     }
@@ -155,6 +165,8 @@ export default function FlowsPage() {
             <Skeleton key={`flow-skeleton-${i}`} className="h-40 rounded-xl" />
           ))}
         </div>
+      ) : loadError ? (
+        <div className="rounded-xl border border-red-200 bg-red-50 p-5 text-sm text-red-800"><p className="font-medium">Your flows could not be loaded.</p><p className="mt-1">{loadError}</p><Button className="mt-3" variant="outline" onClick={() => { invalidateCachedJson('/api/flows'); setLoadAttempt((value) => value + 1) }}>Try again</Button></div>
       ) : otherFlows.length === 0 ? (
         suggestedFlows.length === 0 ? (
           <EmptyState

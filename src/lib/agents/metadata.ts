@@ -27,6 +27,13 @@ export type AgentMetadata = {
   alwaysStrategize?: boolean
   /** AI-proposed goal surfaced from a run's reflection pass, pending user confirmation. */
   suggestedGoal?: string
+  /** Optional structured response contract enforced by the runtime. */
+  outputFields?: Array<{
+    name: string
+    type: 'string' | 'number' | 'boolean' | 'object' | 'array'
+    description?: string
+  }>
+  responseFormat?: 'structured'
 }
 
 /** Parse an unknown JSON value into a typed AgentMetadata (never throws). */

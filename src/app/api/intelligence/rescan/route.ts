@@ -29,7 +29,7 @@ async function assertOwnedConnection(
   }
   if (plane === 'mcp') {
     const connection = await prisma.mcpConnection.findFirst({
-      where: { id: connectionRef, organizationId, OR: [{ userId: null }, { userId }] },
+      where: { id: connectionRef, organizationId, OR: [{ userId }, { userId: null, provider: { not: null } }] },
       select: { id: true },
     })
     if (!connection) throw new ApiError('Connection not found', 404, 'NOT_FOUND')

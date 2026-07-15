@@ -139,11 +139,11 @@ export default function SignUpPage() {
                 <Input
                   id="password"
                   type="password"
-                  placeholder="••••••••"
+                  placeholder="At least 12 characters"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   required
-                  minLength={6}
+                  minLength={12}
                 />
               </div>
               <div className="space-y-2">
@@ -151,11 +151,11 @@ export default function SignUpPage() {
                 <Input
                   id="confirmPassword"
                   type="password"
-                  placeholder="••••••••"
+                  placeholder="Repeat the 12-character password"
                   value={confirmPassword}
                   onChange={(e) => setConfirmPassword(e.target.value)}
                   required
-                  minLength={6}
+                  minLength={12}
                 />
               </div>
               <Button type="submit" className="w-full" loading={loading}>

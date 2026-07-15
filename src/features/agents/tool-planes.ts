@@ -85,11 +85,11 @@ export function toolName(provider: string, name: string) {
   return `${provider}_${name}`.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 64)
 }
 
-/** Shared connection visibility: org-shared rows plus the acting user's own. */
+/** Credential visibility: platform-managed org rows plus the acting user's own. */
 export function mcpConnectionScope(organizationId: string, userId?: string) {
   return userId
-    ? { organizationId, isActive: true, OR: [{ userId: null }, { userId }] }
-    : { organizationId, isActive: true }
+    ? { organizationId, isActive: true, OR: [{ userId }, { userId: null, provider: { not: null } }] }
+    : { organizationId, isActive: true, userId: null, provider: { not: null } }
 }
 
 // MCP tool lists are near-static, but discovery re-ran (initialize + tools/list

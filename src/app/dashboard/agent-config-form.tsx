@@ -186,17 +186,21 @@ function ModelOption({ provider, label }: { provider: 'anthropic' | 'qwen'; labe
 // ── Schedule cadence (visual UI concept mapped onto the backend schedule) ────
 // Backend supports type manual|hourly|daily|weekly|cron|once (see due.ts). The
 // UI offers only friendly visual cadences and never exposes raw cron.
-type Cadence = 'daily' | 'daysofweek' | 'once'
+type Cadence = 'hourly' | 'daily' | 'weekly' | 'daysofweek' | 'once' | 'custom'
 
 const DAY_LABELS = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'] as const
 
 function cadenceOf(schedule: AgentDraft['schedule']): Cadence {
   if (schedule.type === 'once') return 'once'
+  if (schedule.type === 'hourly') return 'hourly'
   if (schedule.type === 'daily') return 'daily'
-  // Everything else recurring — day-of-week crons plus legacy weekly / hourly /
-  // every-other-day / arbitrary crons — surfaces as the flexible "days of week"
-  // picker; a legacy schedule converts to a clean cron on its next save.
-  return 'daysofweek'
+  if (schedule.type === 'weekly') return 'weekly'
+  if (schedule.type === 'cron') {
+    const fields = (schedule.cron || '').trim().split(/\s+/)
+    if (fields.length === 5 && /^\d+$/.test(fields[0]) && /^\d+$/.test(fields[1]) && fields[2] === '*' && fields[3] === '*' && /^(?:[0-6](?:,[0-6])*)$/.test(fields[4])) return 'daysofweek'
+    return 'custom'
+  }
+  return 'daily'
 }
 
 /** HH:MM + selected weekdays → a `mm hh * * d,d` cron. */
@@ -231,10 +235,7 @@ function cronToTime(cron: string): string {
   return `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}`
 }
 
-/** Legacy 'hourly' ≡ cron '0 * * * *'; represent it as cron so the cadence UI
- *  (which has no Hourly preset) round-trips it losslessly via "Advanced". */
 function normalizeSchedule(schedule: AgentDraft['schedule']): AgentDraft['schedule'] {
-  if (schedule.type === 'hourly') return { ...schedule, type: 'cron', cron: schedule.cron || '0 * * * *' }
   return schedule
 }
 
@@ -325,6 +326,7 @@ export function AgentConfigForm({
   const [runsLoading, setRunsLoading] = useState(false)
   const [memories, setMemories] = useState<AgentMemory[]>([])
   const [memoriesLoading, setMemoriesLoading] = useState(false)
+  const [memoriesError, setMemoriesError] = useState('')
   const [webhook, setWebhook] = useState<AgentWebhook | null>(null)
   const [webhookBusy, setWebhookBusy] = useState(false)
   const [dismissingSuggestionId, setDismissingSuggestionId] = useState<string | null>(null)
@@ -356,22 +358,31 @@ export function AgentConfigForm({
   useEffect(() => {
     if (!active || !editingAgent?.id) { setMemories([]); return }
     setMemoriesLoading(true)
+    setMemoriesError('')
     fetch(`/api/agents/${editingAgent.id}/memories`, { cache: 'no-store' })
-      .then((res) => res.json())
-      .then((data) => setMemories(data.success ? data.memories : []))
-      .catch(() => setMemories([]))
+      .then(async (res) => {
+        const data = await res.json().catch(() => ({}))
+        if (!res.ok || !data.success) throw new Error(data.error || 'Could not load memory.')
+        return data
+      })
+      .then((data) => setMemories(data.memories ?? []))
+      .catch((cause) => setMemoriesError(cause instanceof Error ? cause.message : 'Could not load memory.'))
       .finally(() => setMemoriesLoading(false))
   }, [active, editingAgent])
 
   const deleteMemory = async (id: string) => {
     if (!editingAgent?.id) return
+    const previous = memories
     setMemories((prev) => prev.filter((m) => m.id !== id))
-    const response = await fetch(`/api/agents/${editingAgent.id}/memories`, {
-      method: 'DELETE',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id }),
-    })
-    if (!response.ok) toast.error('Could not remove memory.')
+    try {
+      const response = await fetch(`/api/agents/${editingAgent.id}/memories`, {
+        method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id }),
+      })
+      if (!response.ok) throw new Error()
+    } catch {
+      setMemories(previous)
+      toast.error('Could not remove memory.')
+    }
   }
 
   // Suggested improvements (behavioral-intelligence Task 3) are open
@@ -643,11 +654,19 @@ export function AgentConfigForm({
           category: 'Custom',
           instructions,
           integrations: draft.integrations,
+          requiredIntegrations: draft.requiredIntegrations,
           skills: draft.skills,
           tags,
           model: draft.model,
           icon: draft.icon,
           allowSubagents: draft.allowSubagents === true,
+          subagentIds: draft.subagentIds ?? [],
+          goal: draft.goal,
+          autoAnswerFromMemory: draft.autoAnswerFromMemory !== false,
+          alwaysStrategize: draft.alwaysStrategize === true,
+          maxTurns: draft.maxTurns ?? 16,
+          outputFields: draft.outputFields ?? [],
+          schedule: draft.schedule,
         }),
       })
       const data = await response.json().catch(() => ({}))
@@ -687,7 +706,9 @@ export function AgentConfigForm({
     const time = scheduleTime
     const timezone = draft.schedule.timezone || browserTimezone()
     const schedule: AgentDraft['schedule'] =
-      next === 'daily' ? { type: 'daily', time, timezone, isActive: true }
+      next === 'hourly' ? { type: 'hourly', timezone, isActive: true }
+      : next === 'daily' ? { type: 'daily', time, timezone, isActive: true }
+      : next === 'weekly' ? { type: 'weekly', time, timezone, isActive: true }
       : next === 'once' ? { type: 'once', runAt: draft.schedule.runAt || todayKey(), time, timezone, isActive: true }
       : { type: 'cron', cron: dowCron(time, selectedDays.length ? selectedDays : [1, 2, 3, 4, 5]), time, timezone, isActive: true }
     setDraft({ ...draft, schedule })
@@ -718,12 +739,15 @@ export function AgentConfigForm({
   // Plain-language confirmation of what the current schedule does.
   const scheduleSummary = (() => {
     const tz = draft.schedule.timezone || 'UTC'
+    if (cadence === 'hourly') return 'Runs every hour.'
     if (cadence === 'daily') return `Runs every day at ${scheduleTime} (${tz}).`
+    if (cadence === 'weekly') return `Runs every 7 days at ${scheduleTime} (${tz}).`
     if (cadence === 'daysofweek') {
       const names = [...selectedDays].sort((a, b) => a - b).map((d) => DAY_LABELS[d]).join(', ')
       return `Runs ${names || '—'} at ${scheduleTime} (${tz}).`
     }
     if (cadence === 'once') return `Runs once on ${draft.schedule.runAt || todayKey()} at ${scheduleTime} (${tz}).`
+    if (cadence === 'custom') return `Custom cron preserved exactly: ${draft.schedule.cron || 'not set'} (${tz}).`
     return ''
   })()
 
@@ -1106,9 +1130,12 @@ export function AgentConfigForm({
               <Select value={cadence} onValueChange={(value) => setCadence(value as Cadence)}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
+                  <SelectItem value="hourly">Hourly</SelectItem>
                   <SelectItem value="daily">Daily</SelectItem>
+                  <SelectItem value="weekly">Every 7 days</SelectItem>
                   <SelectItem value="daysofweek">Days of week</SelectItem>
                   <SelectItem value="once">Once (specific date)</SelectItem>
+                  {cadence === 'custom' && <SelectItem value="custom" disabled>Custom cron (preserved)</SelectItem>}
                 </SelectContent>
               </Select>
             </div>
@@ -1151,11 +1178,13 @@ export function AgentConfigForm({
               </div>
             )}
 
-            <div className="grid grid-cols-2 gap-4">
-              <div>
+            {cadence === 'custom' && <p className="rounded-md border border-amber-200 bg-amber-50 p-2 text-xs text-amber-900">This schedule uses an advanced cron expression. It will remain unchanged unless you choose another cadence.</p>}
+
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              {cadence !== 'hourly' && cadence !== 'custom' && <div>
                 <Label>Time</Label>
                 <Input type="time" value={scheduleTime} onChange={(event) => setScheduleTime(event.target.value)} />
-              </div>
+              </div>}
               <div>
                 <Label>Timezone</Label>
                 <Select
@@ -1314,6 +1343,8 @@ export function AgentConfigForm({
           </div>
           {memoriesLoading ? (
             <p className="text-sm text-gray-500"><Loader2 className="inline h-3.5 w-3.5 animate-spin" /> Loading…</p>
+          ) : memoriesError ? (
+            <p className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">{memoriesError}</p>
           ) : memories.length === 0 ? (
             <p className="rounded-lg border border-dashed p-3 text-sm text-gray-500">
               Nothing learned yet — memories appear after runs complete.

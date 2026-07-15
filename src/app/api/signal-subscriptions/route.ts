@@ -18,7 +18,10 @@ export const GET = withAuthenticatedApi(async (_request, auth) => {
     orderBy: { createdAt: 'desc' },
     include: { agentTask: { select: { id: true, description: true } } },
   })
-  return { success: true, subscriptions }
+  return { success: true, subscriptions: subscriptions.map((subscription) => ({
+    ...subscription,
+    canManage: auth.dbUser.role === 'ADMIN' || subscription.createdById === auth.dbUser.id,
+  })) }
 })
 
 export const POST = withAuthenticatedApi(async (request, auth) => {

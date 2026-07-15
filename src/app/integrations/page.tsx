@@ -8,12 +8,16 @@ import { McpServersPanel } from '@/components/connections/mcp-servers-panel'
 import { PageHeader } from '@/components/ui/page-header'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { OAuthIntegrationsGrid } from './oauth-integrations-grid'
+import { SlackBotCard } from '@/components/integrations/slack-bot-card'
+import { ServiceConfigurationCards } from '@/components/integrations/service-configuration-cards'
+import { useAuth } from '@/hooks/use-auth'
 
 function IntegrationsTabs() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const tabParam = searchParams.get('tab')
   const activeTab = tabParam === 'accounts' ? 'accounts' : tabParam === 'mcp' ? 'mcp' : 'tools'
+  const { isAdmin } = useAuth()
 
   const handleTabChange = (value: string) => {
     router.replace(value === 'tools' ? '/integrations' : `/integrations?tab=${value}`, { scroll: false })
@@ -31,6 +35,14 @@ function IntegrationsTabs() {
         <Suspense fallback={<p className="text-sm text-gray-500">Loading integrations...</p>}>
           <OAuthIntegrationsGrid />
         </Suspense>
+        {isAdmin ? (
+          <>
+            <ServiceConfigurationCards />
+            <SlackBotCard />
+          </>
+        ) : (
+          <p className="rounded-lg border bg-muted/30 p-4 text-sm text-muted-foreground">Workspace service credentials are managed by an administrator.</p>
+        )}
       </TabsContent>
       <TabsContent value="mcp" className="mt-6"><McpServersPanel /></TabsContent>
     </Tabs>

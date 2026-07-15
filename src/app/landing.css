@@ -12,8 +12,11 @@
   background: #f8faf8;
   color: var(--fg-1);
   font-family: var(--font-display), 'Arimo', system-ui, sans-serif;
+  overflow-x: clip;
 }
 .sl-l-wrap {
+  box-sizing: border-box;
+  width: 100%;
   max-width: 1200px;
   margin: 0 auto;
   padding-left: 48px;
@@ -86,6 +89,7 @@
   padding-top: 60px;
   padding-bottom: 72px;
 }
+.sl-l-hero > * { min-width: 0; }
 .sl-l-h1 {
   font-weight: 600;
   font-size: clamp(40px, 5vw, 64px);
@@ -517,10 +521,13 @@
 }
 @media (max-width: 719px) {
   .sl-l-wrap { padding-left: 24px; padding-right: 24px; }
+  .sl-l-nav { gap: 8px; }
+  .sl-l-nav > img { width: 92px; height: auto !important; }
+  .sl-l-nav .sl-l-btn { padding: 7px 10px; font-size: 12px; white-space: nowrap; }
   .sl-l-section { padding-top: 64px; padding-bottom: 64px; }
   .sl-l-feature-grid { grid-template-columns: 1fr; }
   .sl-l-steps { grid-template-columns: 1fr; }
-  .sl-l-stage { padding: 20px 20px 0; }
+  .sl-l-stage { width: 100%; max-width: 100%; padding: 20px 20px 0; }
   .sl-l-stage--3d { min-height: 610px; }
   .sl-l-orbit--one { width: 330px; }
   .sl-l-orbit--two { width: 430px; }

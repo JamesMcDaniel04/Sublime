@@ -31,20 +31,31 @@ export default function SettingsPage() {
   const [inviteEmail, setInviteEmail] = useState('')
   const [orgSettings, setOrgSettings] = useState<OrgSettings>({})
   const [savingScanToggle, setSavingScanToggle] = useState(false)
+  const [loadingSettings, setLoadingSettings] = useState(true)
+  const [loadError, setLoadError] = useState('')
 
   async function load() {
-    const [response, factorResult, memberResponse, orgResponse] = await Promise.all([
-      fetch('/api/settings/profile', { cache: 'no-store' }),
-      supabase.auth.mfa.listFactors(),
-      fetch('/api/settings/members', { cache: 'no-store' }),
-      fetch('/api/organizations', { cache: 'no-store' }),
-    ])
-    const data = await response.json()
-    if (data.success) { setProfile(data.profile); setEmail(data.profile.email || '') }
-    setFactors((factorResult.data?.totp || []) as Factor[])
-    const memberData = await memberResponse.json(); if (memberData.success) { setMembers(memberData.members); setInvitations(memberData.invitations || []) }
-    const orgData = await orgResponse.json()
-    if (orgData.success) setOrgSettings((orgData.organizations?.[0]?.settings || {}) as OrgSettings)
+    setLoadingSettings(true)
+    setLoadError('')
+    try {
+      const [response, factorResult, memberResponse, orgResponse] = await Promise.all([
+        fetch('/api/settings/profile', { cache: 'no-store' }), supabase.auth.mfa.listFactors(),
+        fetch('/api/settings/members', { cache: 'no-store' }), fetch('/api/organizations', { cache: 'no-store' }),
+      ])
+      const [data, memberData, orgData] = await Promise.all([
+        response.json().catch(() => ({})), memberResponse.json().catch(() => ({})), orgResponse.json().catch(() => ({})),
+      ])
+      if (!response.ok || !data.success) throw new Error(data.error || 'Could not load your profile.')
+      if (!memberResponse.ok || !memberData.success) throw new Error(memberData.error || 'Could not load workspace members.')
+      if (!orgResponse.ok || !orgData.success) throw new Error(orgData.error || 'Could not load workspace settings.')
+      if (factorResult.error) throw factorResult.error
+      setProfile(data.profile); setEmail(data.profile.email || '')
+      setFactors((factorResult.data?.totp || []) as Factor[])
+      setMembers(memberData.members); setInvitations(memberData.invitations || [])
+      setOrgSettings((orgData.organizations?.[0]?.settings || {}) as OrgSettings)
+    } catch (cause) {
+      setLoadError(cause instanceof Error ? cause.message : 'Could not load settings.')
+    } finally { setLoadingSettings(false) }
   }
   useEffect(() => { void load() }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -122,7 +133,8 @@ export default function SettingsPage() {
   }
 
   return <div className="space-y-6"><PageHeader eyebrow="Account" title="Settings" description="Manage your profile, sign-in security, and active sessions." />
-    <Tabs defaultValue="profile"><TabsList><TabsTrigger value="profile">Profile</TabsTrigger><TabsTrigger value="security">Security</TabsTrigger><TabsTrigger value="members">Members</TabsTrigger><TabsTrigger value="workspace">Workspace</TabsTrigger></TabsList>
+    {loadError && <Card className="border-red-200"><CardContent className="flex flex-wrap items-center justify-between gap-3 p-4"><p className="text-sm text-red-700">{loadError}</p><Button variant="outline" onClick={() => void load()} loading={loadingSettings}>Try again</Button></CardContent></Card>}
+    <Tabs defaultValue="profile"><TabsList className="flex h-auto flex-wrap"><TabsTrigger value="profile">Profile</TabsTrigger><TabsTrigger value="security">Security</TabsTrigger><TabsTrigger value="members">Members</TabsTrigger><TabsTrigger value="workspace">Workspace</TabsTrigger></TabsList>
       <TabsContent value="profile" className="mt-6">{profile && <Card className="max-w-2xl"><CardHeader><CardTitle>Profile</CardTitle></CardHeader><CardContent><form className="space-y-4" onSubmit={saveProfile}>
         <div className="space-y-2"><Label htmlFor="name">Display name</Label><Input id="name" value={profile.name || ''} onChange={(e) => setProfile({ ...profile, name: e.target.value })} /></div>
         <Button type="submit">Save profile</Button>
@@ -130,8 +142,8 @@ export default function SettingsPage() {
         <Card className="mt-6 max-w-2xl border-red-200"><CardHeader><CardTitle>Delete account</CardTitle></CardHeader><CardContent><p className="mb-4 text-sm text-muted-foreground">Permanently removes your account. If you are the only member, the workspace and its data are also deleted.</p><Button variant="outline" onClick={async () => { if (window.prompt('Type DELETE to permanently delete your account') !== 'DELETE') return; const response = await fetch('/api/settings/profile', { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ confirmation: 'DELETE' }) }); const data = await response.json(); if (!response.ok) return toast.error(data.error || 'Could not delete account'); await supabase.auth.signOut(); window.location.replace('/') }}>Delete account</Button></CardContent></Card>
       </TabsContent>
       <TabsContent value="security" className="mt-6 space-y-6">
-        <Card className="max-w-2xl"><CardHeader><CardTitle>Email address</CardTitle></CardHeader><CardContent className="flex gap-3"><Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} /><Button onClick={changeEmail}>Change email</Button></CardContent></Card>
-        <Card className="max-w-2xl"><CardHeader><CardTitle>Password</CardTitle></CardHeader><CardContent className="flex gap-3"><Input type="password" autoComplete="new-password" placeholder="At least 12 characters" value={password} onChange={(e) => setPassword(e.target.value)} /><Button onClick={changePassword}>Change password</Button></CardContent></Card>
+        <Card className="max-w-2xl"><CardHeader><CardTitle>Email address</CardTitle></CardHeader><CardContent className="flex flex-col gap-3 sm:flex-row"><Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} /><Button onClick={changeEmail}>Change email</Button></CardContent></Card>
+        <Card className="max-w-2xl"><CardHeader><CardTitle>Password</CardTitle></CardHeader><CardContent className="flex flex-col gap-3 sm:flex-row"><Input type="password" autoComplete="new-password" placeholder="At least 12 characters" value={password} onChange={(e) => setPassword(e.target.value)} /><Button onClick={changePassword}>Change password</Button></CardContent></Card>
         <Card className="max-w-2xl"><CardHeader><CardTitle>Two-factor authentication</CardTitle></CardHeader><CardContent className="space-y-4">
           {factors.map((factor) => <div key={factor.id} className="flex items-center justify-between rounded-md border p-3"><span className="text-sm">{factor.friendly_name || 'Authenticator app'} · {factor.status}</span><Button variant="outline" onClick={() => removeMfa(factor.id)}>Remove</Button></div>)}
           {enrollment ? <div className="space-y-3"><div className="w-48" dangerouslySetInnerHTML={{ __html: enrollment.qr }} /><p className="text-sm text-muted-foreground">Scan the code, then enter the six-digit verification code.</p><div className="flex gap-3"><Input inputMode="numeric" autoComplete="one-time-code" value={code} onChange={(e) => setCode(e.target.value)} /><Button onClick={verifyMfa}>Verify</Button></div></div> : <Button variant="outline" onClick={enrollMfa}>Add authenticator</Button>}
@@ -139,11 +151,12 @@ export default function SettingsPage() {
         <Card className="max-w-2xl"><CardHeader><CardTitle>Sessions</CardTitle></CardHeader><CardContent><Button variant="outline" onClick={async () => { const { error } = await supabase.auth.signOut({ scope: 'others' }); if (error) toast.error(error.message); else toast.success('Other sessions signed out') }}>Sign out other sessions</Button></CardContent></Card>
       </TabsContent>
       <TabsContent value="members" className="mt-6"><Card className="max-w-3xl"><CardHeader><CardTitle>Workspace members</CardTitle></CardHeader><CardContent className="space-y-4">
-        <form className="flex gap-3" onSubmit={inviteMember}><Input type="email" placeholder="colleague@example.com" value={inviteEmail} onChange={(e) => setInviteEmail(e.target.value)} required /><Button type="submit">Invite</Button></form>
-        {invitations.length > 0 && <div className="space-y-2"><p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Pending invitations</p>{invitations.map((invitation) => <div key={invitation.id} className="flex items-center gap-3 rounded-md border border-dashed p-3"><div className="min-w-0 flex-1"><p className="truncate text-sm font-medium">{invitation.email}</p><p className="text-xs text-muted-foreground">{invitation.role} · expires {new Date(invitation.expiresAt).toLocaleDateString()}</p></div><Button variant="outline" size="sm" onClick={() => revokeInvitation(invitation)}>Revoke</Button></div>)}</div>}
-        {members.map((member) => <div key={member.id} className="flex items-center gap-3 rounded-md border p-3"><div className="min-w-0 flex-1"><p className="truncate text-sm font-medium">{member.name || member.email}</p><p className="truncate text-xs text-muted-foreground">{member.email}</p></div><Button variant="outline" onClick={() => updateMember(member, { role: member.role === 'ADMIN' ? 'USER' : 'ADMIN' })}>{member.role}</Button><Button variant="outline" onClick={() => updateMember(member, { isActive: !member.isActive })}>{member.isActive ? 'Suspend' : 'Reactivate'}</Button></div>)}
+        {profile?.role === 'ADMIN' ? <form className="flex flex-col gap-3 sm:flex-row" onSubmit={inviteMember}><Input type="email" placeholder="colleague@example.com" value={inviteEmail} onChange={(e) => setInviteEmail(e.target.value)} required /><Button type="submit">Invite</Button></form> : <p className="text-sm text-muted-foreground">Only workspace admins can invite or manage members.</p>}
+        {invitations.length > 0 && <div className="space-y-2"><p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Pending invitations</p>{invitations.map((invitation) => <div key={invitation.id} className="flex flex-wrap items-center gap-3 rounded-md border border-dashed p-3"><div className="min-w-0 flex-1"><p className="truncate text-sm font-medium">{invitation.email}</p><p className="text-xs text-muted-foreground">{invitation.role} · expires {new Date(invitation.expiresAt).toLocaleDateString()}</p></div>{profile?.role === 'ADMIN' && <Button variant="outline" size="sm" onClick={() => revokeInvitation(invitation)}>Revoke</Button>}</div>)}</div>}
+        {members.map((member) => <div key={member.id} className="flex flex-wrap items-center gap-3 rounded-md border p-3"><div className="min-w-0 flex-1"><p className="truncate text-sm font-medium">{member.name || member.email}</p><p className="truncate text-xs text-muted-foreground">{member.email}</p></div>{profile?.role === 'ADMIN' ? <><Button variant="outline" onClick={() => updateMember(member, { role: member.role === 'ADMIN' ? 'USER' : 'ADMIN' })}>{member.role}</Button><Button variant="outline" onClick={() => updateMember(member, { isActive: !member.isActive })}>{member.isActive ? 'Suspend' : 'Reactivate'}</Button></> : <span className="text-xs text-muted-foreground">{member.role}</span>}</div>)}
       </CardContent></Card></TabsContent>
       <TabsContent value="workspace" className="mt-6">
+        {profile?.role === 'ADMIN' && <Card className="mb-6 max-w-2xl"><CardHeader><CardTitle>Audit log</CardTitle></CardHeader><CardContent><p className="mb-3 text-sm text-muted-foreground">Download an organization-scoped CSV record of agent actions and external tool use.</p><Button variant="outline" asChild><a href="/api/audit/export">Download audit CSV</a></Button></CardContent></Card>}
         <Card className="max-w-2xl">
           <CardHeader><CardTitle>Connection scanning</CardTitle></CardHeader>
           <CardContent>

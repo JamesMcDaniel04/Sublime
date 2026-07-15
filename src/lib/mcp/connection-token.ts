@@ -14,7 +14,7 @@
  */
 
 import { Prisma } from '@prisma/client'
-import { prisma, systemPrisma } from '@/lib/prisma'
+import { systemPrisma } from '@/lib/prisma'
 import { apiLogger } from '@/lib/logger'
 import { encryptSecret, decryptSecret } from '@/lib/crypto/secrets'
 import { refreshAccessToken, type TokenResponse } from '@/lib/mcp/oauth-authcode'

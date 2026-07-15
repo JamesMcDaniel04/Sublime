@@ -1,7 +1,7 @@
 'use client'
 
 import { Suspense, useCallback, useEffect, useState } from 'react'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { toast } from 'sonner'
 import { AlertCircle, Plug, Plus, Server, Trash2 } from 'lucide-react'
 import { McpConnectionDialog, type McpConnectionDraft, type SerializedConnection } from './mcp-connection-dialog'
@@ -12,7 +12,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { Switch } from '@/components/ui/switch'
 import { useScanExclusions } from '@/lib/client/use-scan-exclusions'
 import { connectionSourceRef } from '@/lib/intelligence/scan-exclusions'
-import { getCachedJson, invalidateCachedJson } from '@/lib/client/use-cached-json'
+import { CachedJsonError, getCachedJson, invalidateCachedJson } from '@/lib/client/use-cached-json'
 
 // ── Auth-badge labels ─────────────────────────────────────────────────────────
 
@@ -28,6 +28,7 @@ const authLabels: Record<string, string> = {
 
 function McpServersPanelInner() {
   const router = useRouter()
+  const searchParams = useSearchParams()
   const [connections, setConnections] = useState<SerializedConnection[]>([])
   const [loading, setLoading] = useState(true)
   const [authError, setAuthError] = useState<string | null>(null)
@@ -36,6 +37,7 @@ function McpServersPanelInner() {
   const [editingConnection, setEditingConnection] = useState<SerializedConnection | null>(null)
   const [deletingId, setDeletingId] = useState<string | null>(null)
   const [togglingLearningId, setTogglingLearningId] = useState<string | null>(null)
+  const [rescanningId, setRescanningId] = useState<string | null>(null)
   const { isLearningEnabled, setLearningEnabled } = useScanExclusions()
 
   const load = useCallback(async (force = false) => {
@@ -46,7 +48,7 @@ function McpServersPanelInner() {
       setAuthError(null)
       setAuthStatus(null)
     } catch (error) {
-      setAuthStatus(null)
+      setAuthStatus(error instanceof CachedJsonError ? error.status : null)
       setAuthError(error instanceof Error ? error.message : 'Could not load connections.')
     }
     setLoading(false)
@@ -55,6 +57,14 @@ function McpServersPanelInner() {
   useEffect(() => {
     load().catch(() => setLoading(false))
   }, [load])
+
+  useEffect(() => {
+    const connected = searchParams.get('connected')
+    const oauthError = searchParams.get('error')
+    if (connected === '1') toast.success('MCP server connected.')
+    if (oauthError) toast.error('MCP authorization did not complete. Try connecting again.')
+    if (connected || oauthError) router.replace('/integrations?tab=mcp', { scroll: false })
+  }, [router, searchParams])
 
   const saveConnection = async (draft: McpConnectionDraft) => {
     // Build the payload — omit secret fields that are blank on edit
@@ -139,6 +149,20 @@ function McpServersPanelInner() {
     } finally {
       setTogglingLearningId(null)
     }
+  }
+
+  const rescan = async (conn: SerializedConnection) => {
+    setRescanningId(conn.id)
+    try {
+      const response = await fetch('/api/intelligence/rescan', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ plane: 'mcp', connectionRef: conn.id, connectionName: conn.name }),
+      })
+      const data = await response.json().catch(() => ({}))
+      if (!response.ok) throw new Error(data.error || 'Could not rescan this server.')
+      toast.success('Connection scan complete.')
+    } catch (error) { toast.error(error instanceof Error ? error.message : 'Could not rescan this server.') }
+    finally { setRescanningId(null) }
   }
 
   const openAdd = () => {
@@ -297,13 +321,8 @@ function McpServersPanelInner() {
                 </div>
 
                 <div className="flex items-center justify-between gap-2 border-t pt-3">
-                  <span className="text-xs text-muted-foreground">Learning</span>
-                  <Switch
-                    checked={isLearningEnabled(connectionSourceRef('mcp', conn.id))}
-                    disabled={togglingLearningId === conn.id}
-                    onCheckedChange={(enabled) => toggleLearning(conn, enabled)}
-                    aria-label={isLearningEnabled(connectionSourceRef('mcp', conn.id)) ? 'Disable learning from this server' : 'Enable learning from this server'}
-                  />
+                  <Button size="sm" variant="ghost" loading={rescanningId === conn.id} disabled={rescanningId !== null || !conn.isActive} onClick={() => void rescan(conn)}>Rescan</Button>
+                  <div className="flex items-center gap-2"><span className="text-xs text-muted-foreground">Learning</span><Switch checked={isLearningEnabled(connectionSourceRef('mcp', conn.id))} disabled={togglingLearningId === conn.id} onCheckedChange={(enabled) => toggleLearning(conn, enabled)} aria-label={isLearningEnabled(connectionSourceRef('mcp', conn.id)) ? 'Disable learning from this server' : 'Enable learning from this server'} /></div>
                 </div>
               </div>
             ))}

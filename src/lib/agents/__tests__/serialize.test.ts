@@ -13,6 +13,8 @@ test('preserves template-required integrations in the agent wire shape', () => {
       integrations: ['salesforce', 'slack'],
       requiredIntegrations: ['salesforce'],
       maxTurns: 24,
+      outputFields: [{ name: 'account', type: 'string', description: 'Account name' }],
+      responseFormat: 'structured',
     },
     folder: null,
     visibility: 'shared',
@@ -25,6 +27,7 @@ test('preserves template-required integrations in the agent wire shape', () => {
   assert.deepEqual(agent.requiredIntegrations, ['salesforce'])
   assert.equal(agent.autoAnswerFromMemory, true, 'legacy agents reuse remembered blocking answers by default')
   assert.equal(agent.maxTurns, 24)
+  assert.deepEqual(agent.outputFields, [{ name: 'account', type: 'string', description: 'Account name' }])
 })
 
 test('preserves an explicit remembered-answer opt-out', () => {
@@ -36,4 +39,5 @@ test('preserves an explicit remembered-answer opt-out', () => {
   })
   assert.equal(agent.autoAnswerFromMemory, false)
   assert.equal(agent.maxTurns, 16, 'legacy agents get the runtime default in the editor')
+  assert.deepEqual(agent.outputFields, [])
 })

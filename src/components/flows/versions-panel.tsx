@@ -29,22 +29,30 @@ export function VersionsPanel({
 }) {
   const [versions, setVersions] = useState<VersionRow[]>([])
   const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState('')
+  const [loadAttempt, setLoadAttempt] = useState(0)
 
   useEffect(() => {
     let cancelled = false
+    setLoading(true)
+    setLoadError('')
     fetch(`/api/flows/${flowId}/versions`, { cache: 'no-store' })
-      .then((r) => r.json())
+      .then(async (r) => {
+        const data = await r.json().catch(() => ({}))
+        if (!r.ok || !data.success) throw new Error(data.error || 'Could not load version history.')
+        return data
+      })
       .then((data) => {
         if (!cancelled && data.success) setVersions(data.versions)
       })
-      .catch(() => undefined)
+      .catch((cause) => { if (!cancelled) setLoadError(cause instanceof Error ? cause.message : 'Could not load version history.') })
       .finally(() => {
         if (!cancelled) setLoading(false)
       })
     return () => {
       cancelled = true
     }
-  }, [flowId])
+  }, [flowId, loadAttempt])
 
   return (
     <div className="flex h-full w-full flex-col border-l border-border bg-card">
@@ -57,6 +65,8 @@ export function VersionsPanel({
       <div className="flex-1 overflow-y-auto">
         {loading ? (
           <p className="p-4 text-sm text-muted-foreground">Loading…</p>
+        ) : loadError ? (
+          <div className="p-4 text-sm text-red-700"><p>{loadError}</p><Button className="mt-2" variant="outline" size="sm" onClick={() => setLoadAttempt((value) => value + 1)}>Try again</Button></div>
         ) : versions.length === 0 ? (
           <p className="p-4 text-sm text-muted-foreground">Publish the flow to start its version history.</p>
         ) : (

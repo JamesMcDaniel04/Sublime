@@ -62,8 +62,9 @@ DROP TYPE "IntegrationType"; DROP TYPE "MCPAgentType";`
   env vars for the Preview environment of the `staging` git branch).
 - **Vercel env fixes**:
   - `DIRECT_URL` → change port 6543 → **5432** (session pooler, same host).
-  - `OPENAI_API_KEY` → set (default agent model is GPT-4o), or change the
-    default model to a `claude-*` id via `AGENT_MODEL`.
+  - `ANTHROPIC_API_KEY` → set (default agent model is Claude), or configure
+    `QWEN_API_KEY`, `QWEN_BASE_URL`, and `QWEN_MODEL`, then set `AGENT_MODEL`
+    to the Qwen model exposed in the agent picker.
   - `SENTRY_DSN` → set to enable error tracking (optional but recommended).
 - **Worker (Phase 4)**: deploy the BullMQ worker via `render.yaml`
   (Render → New → Blueprint → this repo), setting every `sync: false` secret in
