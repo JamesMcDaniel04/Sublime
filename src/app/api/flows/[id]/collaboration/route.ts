@@ -3,7 +3,7 @@ import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import { prisma } from '@/lib/prisma'
 import { ApiError, withAuthenticatedApi } from '@/lib/server/api-handler'
-import { flowVisibilityScope } from '@/lib/server/visibility'
+import { flowReadScope, flowWriteScope } from '@/lib/server/visibility'
 import { flowGraphSchema } from '@/lib/flows/graph'
 import {
   applyFlowCollaborationPatch,
@@ -32,9 +32,18 @@ function channelTopic(flowId: string, organizationId: string, accessRevision: nu
   return `flow-jam:${flowId}:${accessRevision}:${signature}`
 }
 
-async function collaborationFlow(id: string, organizationId: string, userId: string) {
+/**
+ * `access: 'read'` — may JOIN the session: load the graph + private topic and
+ * watch teammates' cursors/edits live. Granted to the owner, invited
+ * collaborators, and any org share (viewer or editor).
+ *
+ * `access: 'write'` — may CHANGE the graph (apply a patch). Owner, invited
+ * collaborators, and org_editor only, so an org_viewer can observe a jam without
+ * being able to mutate someone else's flow.
+ */
+async function collaborationFlow(id: string, organizationId: string, userId: string, access: 'read' | 'write') {
   const flow = await prisma.flow.findFirst({
-    where: { id, organizationId, ...flowVisibilityScope(userId) },
+    where: { id, organizationId, ...(access === 'write' ? flowWriteScope(userId) : flowReadScope(userId)) },
     select: {
       id: true,
       userId: true,
@@ -51,7 +60,7 @@ async function collaborationFlow(id: string, organizationId: string, userId: str
 export const GET = withAuthenticatedApi(async (request, auth) => {
   const id = request.nextUrl.pathname.split('/').at(-2)
   if (!id) throw new ApiError('Flow id is required')
-  const flow = await collaborationFlow(id, auth.organizationId, auth.dbUser.id)
+  const flow = await collaborationFlow(id, auth.organizationId, auth.dbUser.id, 'read')
   return {
     success: true,
     topic: channelTopic(flow.id, auth.organizationId, flow.collaborationAccessRevision),
@@ -76,7 +85,7 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
   const input = postSchema.parse(JSON.parse(rawBody))
 
   for (let attempt = 0; attempt < 5; attempt += 1) {
-    const flow = await collaborationFlow(id, auth.organizationId, auth.dbUser.id)
+    const flow = await collaborationFlow(id, auth.organizationId, auth.dbUser.id, 'write')
     const graph = flowGraphSchema.parse(flow.graph)
 
     if (input.baseRevision !== flow.collaborationRevision && patchChangesTopology(input.patch)) {
@@ -109,7 +118,7 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
         id,
         organizationId: auth.organizationId,
         collaborationRevision: flow.collaborationRevision,
-        ...flowVisibilityScope(auth.dbUser.id),
+        ...flowWriteScope(auth.dbUser.id),
       },
       data: {
         graph: JSON.parse(JSON.stringify(applied.graph)),

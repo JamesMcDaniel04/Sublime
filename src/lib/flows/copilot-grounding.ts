@@ -1,5 +1,5 @@
 import { prisma } from '@/lib/prisma'
-import { agentVisibilityScope } from '@/lib/server/visibility'
+import { agentReadScope } from '@/lib/server/visibility'
 import { readAgentMetadata } from '@/lib/agents/metadata'
 import { loadFlowToolCatalog, type FlowToolCatalogConnection } from '@/lib/flows/tool-catalog'
 import { outputFieldsFromJsonSchema } from '@/lib/flows/schema-fields'
@@ -58,7 +58,7 @@ export async function buildCopilotGrounding(
 }> {
   const [agents, toolCatalog, callableFlows] = await Promise.all([
     prisma.agentTask.findMany({
-      where: { organizationId, status: 'ACTIVE', ...agentVisibilityScope(userId) },
+      where: { organizationId, status: 'ACTIVE', ...agentReadScope(userId) },
       select: { id: true, description: true, metadata: true },
       take: 100,
     }),

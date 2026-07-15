@@ -1,7 +1,7 @@
 import { z } from 'zod'
 import { prisma } from '@/lib/prisma'
 import { ApiError, withAuthenticatedApi } from '@/lib/server/api-handler'
-import { agentVisibilityScope } from '@/lib/server/visibility'
+import { flowReadScope } from '@/lib/server/visibility'
 import { dispatchFlowExecution } from '@/features/flows/execute-flow'
 import { parseFlowInput } from '@/lib/flows/input'
 import { deriveRunWaiting } from '@/lib/flows/run-waiting'
@@ -16,7 +16,7 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
   if (!id) throw new ApiError('Flow id is required')
   // Visibility gate: a private flow may only be run by its owner.
   const flow = await prisma.flow.findFirst({
-    where: { id, organizationId: auth.organizationId, ...agentVisibilityScope(auth.dbUser.id) },
+    where: { id, organizationId: auth.organizationId, ...flowReadScope(auth.dbUser.id) },
     select: { id: true },
   })
   if (!flow) throw new ApiError('Flow not found', 404, 'NOT_FOUND')

@@ -1,7 +1,7 @@
 import { z } from 'zod'
 import { prisma } from '@/lib/prisma'
 import { ApiError, withAuthenticatedApi } from '@/lib/server/api-handler'
-import { agentVisibilityScope } from '@/lib/server/visibility'
+import { agentReadScope } from '@/lib/server/visibility'
 import { notify } from '@/lib/notifications/service'
 import { isCancellableRunStatus, isTerminalRunStatus, isWaitingRunStatus } from '@/lib/agents/run-status'
 
@@ -19,7 +19,7 @@ async function requireAgentAndRun(request: Request, auth: { organizationId: stri
   if (!agentId || !runId) throw new ApiError('Agent id and run id are required')
 
   const agent = await prisma.agentTask.findFirst({
-    where: { id: agentId, organizationId: auth.organizationId, status: { not: 'DELETED' }, ...agentVisibilityScope(auth.dbUser.id) },
+    where: { id: agentId, organizationId: auth.organizationId, status: { not: 'DELETED' }, ...agentReadScope(auth.dbUser.id) },
     select: { id: true, description: true },
   })
   if (!agent) throw new ApiError('Agent not found', 404, 'NOT_FOUND')

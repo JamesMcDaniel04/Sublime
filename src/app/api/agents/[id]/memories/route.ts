@@ -1,16 +1,31 @@
 import { z } from 'zod'
 import { prisma } from '@/lib/prisma'
 import { ApiError, withAuthenticatedApi } from '@/lib/server/api-handler'
-import { agentVisibilityScope } from '@/lib/server/visibility'
+import { agentReadScope, agentWriteScope } from '@/lib/server/visibility'
 
 export const runtime = 'nodejs'
 
-/** Resolve the agent id from the path and enforce visibility. */
-async function requireAgent(request: Request, auth: { organizationId: string; dbUser: { id: string } }) {
+/**
+ * Resolve the agent id from the path and enforce access.
+ *
+ * `access` matters once agents can be org-shared: 'read' lets a viewer list this
+ * agent's rows, while any mutation demands 'write' so an org_viewer can never
+ * change someone else's agent.
+ */
+async function requireAgent(
+  request: Request,
+  auth: { organizationId: string; dbUser: { id: string } },
+  access: 'read' | 'write' = 'write',
+) {
   const id = new URL(request.url).pathname.split('/').at(-2)
   if (!id) throw new ApiError('Agent id is required')
   const agent = await prisma.agentTask.findFirst({
-    where: { id, organizationId: auth.organizationId, status: { not: 'DELETED' }, ...agentVisibilityScope(auth.dbUser.id) },
+    where: {
+      id,
+      organizationId: auth.organizationId,
+      status: { not: 'DELETED' },
+      ...(access === 'write' ? agentWriteScope(auth.dbUser.id) : agentReadScope(auth.dbUser.id)),
+    },
     select: { id: true },
   })
   if (!agent) throw new ApiError('Agent not found', 404, 'NOT_FOUND')
@@ -19,7 +34,7 @@ async function requireAgent(request: Request, auth: { organizationId: string; db
 
 // GET — list this agent's memories (optionally filtered by kind/status).
 export const GET = withAuthenticatedApi(async (request, auth) => {
-  const agentId = await requireAgent(request, auth)
+  const agentId = await requireAgent(request, auth, 'read')
   const kind = request.nextUrl.searchParams.get('kind') ?? undefined
   const status = request.nextUrl.searchParams.get('status') ?? undefined
   const [memories, openSuggestions] = await Promise.all([

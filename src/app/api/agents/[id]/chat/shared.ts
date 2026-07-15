@@ -3,7 +3,7 @@ import type { AgentTask } from '@prisma/client'
 import { prisma } from '@/lib/prisma'
 import { ApiError } from '@/lib/server/api-handler'
 import type { AuthContext } from '@/lib/server/auth'
-import { agentVisibilityScope } from '@/lib/server/visibility'
+import { agentReadScope } from '@/lib/server/visibility'
 
 /**
  * Shared helpers for the agent-scoped assistant chat routes (`/chat` and
@@ -30,7 +30,7 @@ export async function requireAgent(id: string, auth: AuthContext): Promise<Agent
       id,
       organizationId: auth.organizationId,
       status: { not: 'DELETED' },
-      ...agentVisibilityScope(auth.dbUser.id),
+      ...agentReadScope(auth.dbUser.id),
     },
   })
   if (!agent) throw new ApiError('Agent not found', 404, 'NOT_FOUND')

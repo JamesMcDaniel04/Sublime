@@ -1,7 +1,7 @@
 import { z } from 'zod'
 import { prisma } from '@/lib/prisma'
 import { ApiError, withAuthenticatedApi } from '@/lib/server/api-handler'
-import { agentVisibilityScope } from '@/lib/server/visibility'
+import { agentReadScope, flowOwnerScope } from '@/lib/server/visibility'
 import { serializeFlow } from '@/lib/flows/serialize'
 import { flowGraphSchema } from '@/lib/flows/graph'
 import { validateFlowGraph, validationErrorMessage } from '@/lib/flows/validate'
@@ -21,7 +21,7 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
   const { revert } = z.object({ revert: z.boolean().default(false) }).parse(await request.json().catch(() => ({})))
 
   const existing = await prisma.flow.findFirst({
-    where: { id, organizationId: auth.organizationId, ...agentVisibilityScope(auth.dbUser.id) },
+    where: { id, organizationId: auth.organizationId, ...flowOwnerScope(auth.dbUser.id) },
   })
   if (!existing) throw new ApiError('Flow not found', 404, 'NOT_FOUND')
 
@@ -37,7 +37,7 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
   ).filter((id): id is string => Boolean(id))))
   const [agents, connections] = await Promise.all([
     prisma.agentTask.findMany({
-      where: { organizationId: auth.organizationId, status: 'ACTIVE', ...agentVisibilityScope(auth.dbUser.id) },
+      where: { organizationId: auth.organizationId, status: 'ACTIVE', ...agentReadScope(auth.dbUser.id) },
       select: { id: true, description: true },
       take: 500,
     }),

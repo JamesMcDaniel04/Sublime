@@ -2,7 +2,7 @@ import { randomBytes } from 'crypto'
 import { z } from 'zod'
 import { prisma } from '@/lib/prisma'
 import { ApiError, withAuthenticatedApi } from '@/lib/server/api-handler'
-import { agentVisibilityScope } from '@/lib/server/visibility'
+import { flowOwnerScope } from '@/lib/server/visibility'
 import { hashToken } from '@/lib/crypto/secrets'
 
 // Mint (or rotate) the flow's webhook trigger secret. Mirrors the agent
@@ -14,7 +14,7 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
   const { rotate } = z.object({ rotate: z.boolean().default(false) }).parse(await request.json().catch(() => ({})))
 
   const flow = await prisma.flow.findFirst({
-    where: { id, organizationId: auth.organizationId, ...agentVisibilityScope(auth.dbUser.id) },
+    where: { id, organizationId: auth.organizationId, ...flowOwnerScope(auth.dbUser.id) },
   })
   if (!flow) throw new ApiError('Flow not found', 404, 'NOT_FOUND')
 

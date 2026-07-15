@@ -5,7 +5,7 @@ import { ApiError, withAuthenticatedApi } from '@/lib/server/api-handler'
 import { runAgentExecution } from '@/features/agents/execute-agent'
 import { dispatchFlowExecution } from '@/features/flows/execute-flow'
 import { inlineExecution } from '@/lib/queue/execution-mode'
-import { executionVisibilityScope, agentVisibilityScope } from '@/lib/server/visibility'
+import { executionVisibilityScope, flowReadScope } from '@/lib/server/visibility'
 import { deriveRunWaiting } from '@/lib/flows/run-waiting'
 import { resolveReplyTarget, type ReplyTarget } from '@/lib/flows/reply-target'
 
@@ -35,7 +35,7 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
   const flowStep = await prisma.flowRunStep.findFirst({
     where: {
       agentExecutionId: execution.id,
-      run: { organizationId: auth.organizationId, flow: agentVisibilityScope(auth.dbUser.id) },
+      run: { organizationId: auth.organizationId, flow: flowReadScope(auth.dbUser.id) },
     },
     orderBy: { startedAt: 'desc' },
     include: { run: { select: { id: true, flowId: true, status: true, userId: true, trigger: true } } },

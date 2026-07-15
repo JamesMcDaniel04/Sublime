@@ -1,6 +1,6 @@
 import { prisma } from '@/lib/prisma'
 import { withAuthenticatedApi } from '@/lib/server/api-handler'
-import { agentVisibilityScope, executionVisibilityScope } from '@/lib/server/visibility'
+import { agentReadScope, executionVisibilityScope } from '@/lib/server/visibility'
 import { serializeAgent } from '@/lib/agents/serialize'
 import { isUsageExemptEmail } from '@/lib/usage/budget'
 
@@ -34,7 +34,7 @@ export const GET = withAuthenticatedApi(async (_request, auth) => {
         status: { not: 'DELETED' },
         // org-intelligence holder (see lib/intelligence) is infrastructure, never a listed agent
         agentType: { not: 'SYSTEM' },
-        ...agentVisibilityScope(auth.dbUser.id),
+        ...agentReadScope(auth.dbUser.id),
       },
       orderBy: { updatedAt: 'desc' },
       take: 300,

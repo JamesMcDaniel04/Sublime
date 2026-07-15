@@ -1,6 +1,6 @@
 import { prisma } from '@/lib/prisma'
 import { withAuthenticatedApi } from '@/lib/server/api-handler'
-import { agentVisibilityScope, executionVisibilityScope } from '@/lib/server/visibility'
+import { agentReadScope, executionVisibilityScope } from '@/lib/server/visibility'
 
 function metadataOf(value: unknown): Record<string, any> {
   return value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, any>) : {}
@@ -23,7 +23,7 @@ export const GET = withAuthenticatedApi(async (request, auth) => {
         agentType: { not: 'SYSTEM' },
         AND: [
           { OR: [{ description: text }, { objective: text }, { folder: text }] },
-          agentVisibilityScope(auth.dbUser.id),
+          agentReadScope(auth.dbUser.id),
         ],
       },
       orderBy: { updatedAt: 'desc' },

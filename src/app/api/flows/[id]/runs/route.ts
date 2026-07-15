@@ -1,6 +1,6 @@
 import { prisma } from '@/lib/prisma'
 import { ApiError, withAuthenticatedApi } from '@/lib/server/api-handler'
-import { agentVisibilityScope } from '@/lib/server/visibility'
+import { flowReadScope } from '@/lib/server/visibility'
 import { deriveRunWaiting } from '@/lib/flows/run-waiting'
 
 // GET /api/flows/[id]/runs — recent runs + each run's per-step detail (input,
@@ -20,7 +20,7 @@ export const GET = withAuthenticatedApi(async (request, auth) => {
   if (!id) throw new ApiError('Flow id is required')
   // Visibility gate: private-flow run history is owner-only.
   const flow = await prisma.flow.findFirst({
-    where: { id, organizationId: auth.organizationId, ...agentVisibilityScope(auth.dbUser.id) },
+    where: { id, organizationId: auth.organizationId, ...flowReadScope(auth.dbUser.id) },
     select: { id: true },
   })
   if (!flow) throw new ApiError('Flow not found', 404, 'NOT_FOUND')

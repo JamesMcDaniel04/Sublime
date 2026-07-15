@@ -1,7 +1,7 @@
 import { z } from 'zod'
 import { prisma, systemPrisma } from '@/lib/prisma'
 import { ApiError, withAuthenticatedApi } from '@/lib/server/api-handler'
-import { agentVisibilityScope } from '@/lib/server/visibility'
+import { agentWriteScope } from '@/lib/server/visibility'
 import { readAgentMetadata } from '@/lib/agents/metadata'
 import { getSkill } from '@/lib/skills/compose'
 
@@ -31,7 +31,7 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
       id: agentId,
       organizationId: auth.organizationId,
       status: { not: 'DELETED' },
-      ...agentVisibilityScope(auth.dbUser.id),
+      ...agentWriteScope(auth.dbUser.id),
     },
     select: { id: true, metadata: true },
   })

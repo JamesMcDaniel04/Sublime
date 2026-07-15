@@ -25,7 +25,7 @@ import {
   type ToolPlaneGroup,
 } from './tool-planes'
 import { resolveAgentConnectorKeys } from '@/lib/connectors/agent-connectors'
-import { agentVisibilityScope } from '@/lib/server/visibility'
+import { agentReadScope } from '@/lib/server/visibility'
 import { notify } from '@/lib/notifications/service'
 import { checkMonthlyTokenBudget, recordTokenUsage } from '@/lib/usage/budget'
 import { buildAgentSystemPrompt } from './system-prompt'
@@ -642,7 +642,7 @@ export async function runAgentExecution(
           organizationId,
           status: 'ACTIVE',
           id: allowList.length ? { in: allowList, notIn: chain } : { notIn: chain },
-          ...agentVisibilityScope(userId),
+          ...agentReadScope(userId),
         },
         select: { id: true, description: true, metadata: true },
         take: 100,

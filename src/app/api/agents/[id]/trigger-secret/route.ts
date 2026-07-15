@@ -2,7 +2,7 @@ import { randomBytes } from 'crypto'
 import { z } from 'zod'
 import { prisma } from '@/lib/prisma'
 import { ApiError, withAuthenticatedApi } from '@/lib/server/api-handler'
-import { agentVisibilityScope } from '@/lib/server/visibility'
+import { agentOwnerScope } from '@/lib/server/visibility'
 import { hashToken } from '@/lib/crypto/secrets'
 
 // Returns the agent's webhook trigger secret status, minting one on first call.
@@ -17,7 +17,7 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
 
   // Private agents: only the owner may mint/rotate the trigger secret.
   const agent = await prisma.agentTask.findFirst({
-    where: { id, organizationId: auth.organizationId, status: { not: 'DELETED' }, ...agentVisibilityScope(auth.dbUser.id) },
+    where: { id, organizationId: auth.organizationId, status: { not: 'DELETED' }, ...agentOwnerScope(auth.dbUser.id) },
   })
   if (!agent) throw new ApiError('Agent not found', 404, 'NOT_FOUND')
 

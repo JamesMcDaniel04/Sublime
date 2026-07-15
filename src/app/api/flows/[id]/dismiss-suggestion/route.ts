@@ -1,6 +1,6 @@
 import { prisma } from '@/lib/prisma'
 import { ApiError, withAuthenticatedApi } from '@/lib/server/api-handler'
-import { agentVisibilityScope } from '@/lib/server/visibility'
+import { flowWriteScope } from '@/lib/server/visibility'
 
 /**
  * POST /api/flows/[id]/dismiss-suggestion — dismiss a *suggested* draft flow
@@ -23,7 +23,7 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
   if (!id) throw new ApiError('Flow id is required')
 
   const flow = await prisma.flow.findFirst({
-    where: { id, organizationId: auth.organizationId, ...agentVisibilityScope(auth.dbUser.id) },
+    where: { id, organizationId: auth.organizationId, ...flowWriteScope(auth.dbUser.id) },
     select: { id: true, metadata: true },
   })
   if (!flow) throw new ApiError('Flow not found', 404, 'NOT_FOUND')

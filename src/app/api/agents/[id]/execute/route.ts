@@ -4,7 +4,7 @@ import { createQueue, QUEUE_NAMES, workersEnabled } from '@/lib/queue/config'
 import { ApiError, withAuthenticatedApi } from '@/lib/server/api-handler'
 import { runAgentExecution } from '@/features/agents/execute-agent'
 import { inlineExecution } from '@/lib/queue/execution-mode'
-import { agentVisibilityScope } from '@/lib/server/visibility'
+import { agentReadScope } from '@/lib/server/visibility'
 
 export const runtime = 'nodejs'
 export const maxDuration = 1200
@@ -19,7 +19,7 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
       organizationId: auth.organizationId,
       status: 'ACTIVE',
       // Private agents are runnable only by their owner.
-      ...agentVisibilityScope(auth.dbUser.id),
+      ...agentReadScope(auth.dbUser.id),
     },
   })
   if (!agent) throw new ApiError('Agent not found', 404, 'NOT_FOUND')

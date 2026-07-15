@@ -2,13 +2,23 @@ import { z } from 'zod'
 import { prisma } from '@/lib/prisma'
 import { DEFAULT_AGENT_MODEL } from '@/lib/llm/model-runner'
 import { ApiError, withAuthenticatedApi } from '@/lib/server/api-handler'
-import { agentVisibilityScope } from '@/lib/server/visibility'
+import { agentOwnerScope, agentReadScope, agentWriteScope, VISIBILITY } from '@/lib/server/visibility'
 import { readAgentMetadata } from '@/lib/agents/metadata'
 import { serializeAgent } from '@/lib/agents/serialize'
 import { indexAgent, removeAgentFromGraph } from '@/lib/rag/indexer'
 import { syncAgentConnectors } from '@/lib/connectors/agent-connectors'
 
 /** Best-effort graph-RAG indexing of an agent node (gated on embeddings). */
+/**
+ * Legacy rows/clients carry `visibility: 'shared'` — a value the access rules
+ * never honoured (and the old default), so it never shared anything. Treat it as
+ * private: enabling sharing must not retroactively expose every existing agent.
+ * Only the explicit org_* roles grant org access.
+ */
+function normalizeVisibility(value: string): string {
+  return value === VISIBILITY.orgViewer || value === VISIBILITY.orgEditor ? value : VISIBILITY.private
+}
+
 function indexAgentRow(agent: { id: string; organizationId: string; objective: string; description: string; metadata: unknown; userId?: string | null; visibility?: string }): Promise<void> {
   const metadata = readAgentMetadata(agent.metadata)
   return indexAgent({
@@ -19,7 +29,9 @@ function indexAgentRow(agent: { id: string; organizationId: string; objective: s
     description: metadata.description || agent.description,
     // Per-rep scope: a private agent's node is visible only to its owner.
     ownerUserId: agent.userId ?? null,
-    visibility: agent.visibility === 'private' ? 'private' : 'shared',
+    // Mirror the access rules exactly: ONLY an explicit org_* share is shared.
+    // Legacy 'shared' never granted access, so it must not seed a shared RAG node.
+    visibility: normalizeVisibility(agent.visibility ?? '') === VISIBILITY.private ? 'private' : 'shared',
   }).catch(() => undefined)
 }
 
@@ -43,7 +55,11 @@ const agentSchema = z.object({
   requiredIntegrations: z.array(z.string()).default([]),
   skills: z.array(z.string()).default([]),
   folder: z.string().trim().max(60).nullish(),
-  visibility: z.enum(['shared', 'private']).default('shared'),
+  // Sharing: private (default), or shared with the org as viewer/editor. Legacy
+  // rows/clients send 'shared' — a value the access rules never honoured (it was
+  // even the old default), so it is accepted and normalized to private rather
+  // than retroactively exposing every existing agent to the whole org.
+  visibility: z.enum(['private', 'org_viewer', 'org_editor', 'shared']).default('private'),
   icon: z.string().trim().max(8).optional(),
   // Lets this agent delegate to other agents via the run_agent tool (pipelines).
   allowSubagents: z.boolean().optional(),
@@ -71,7 +87,7 @@ export const GET = withAuthenticatedApi(async (_request, auth) => {
       status: { not: 'DELETED' },
       // org-intelligence holder (see lib/intelligence) is infrastructure, never a listed agent
       agentType: { not: 'SYSTEM' },
-      ...agentVisibilityScope(auth.dbUser.id),
+      ...agentReadScope(auth.dbUser.id),
     },
     orderBy: { updatedAt: 'desc' },
     // Bounded: this list is polled by the sidebar + dashboard; an org with a
@@ -94,7 +110,7 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
       schedule: data.schedule,
       status: 'ACTIVE',
       folder: data.folder || null,
-      visibility: data.visibility,
+      visibility: normalizeVisibility(data.visibility),
       goal: data.goal?.trim() ? data.goal.trim() : null,
       organizationId: auth.organizationId,
       userId: auth.dbUser.id,
@@ -124,9 +140,15 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
 export const PUT = withAuthenticatedApi(async (request, auth) => {
   const body = z.object({ id: z.string().min(1) }).merge(agentSchema.partial()).parse(await request.json())
   const existing = await prisma.agentTask.findFirst({
-    where: { id: body.id, organizationId: auth.organizationId, ...agentVisibilityScope(auth.dbUser.id) },
+    where: { id: body.id, organizationId: auth.organizationId, ...agentWriteScope(auth.dbUser.id) },
   })
   if (!existing) throw new ApiError('Agent not found', 404, 'NOT_FOUND')
+  // Editing is open to org_editors; changing WHO can see it is the owner's call
+  // alone — otherwise an editor could re-share someone else's agent.
+  const sharingChanged = body.visibility !== undefined && normalizeVisibility(body.visibility) !== existing.visibility
+  if (sharingChanged && existing.userId !== auth.dbUser.id) {
+    throw new ApiError('Only the agent owner can change who it is shared with', 403, 'FORBIDDEN')
+  }
   const metadata = existing.metadata && typeof existing.metadata === 'object' && !Array.isArray(existing.metadata) ? existing.metadata : {}
   const agent = await prisma.agentTask.update({
     where: { id: body.id, organizationId: auth.organizationId },
@@ -136,7 +158,7 @@ export const PUT = withAuthenticatedApi(async (request, auth) => {
       ...(body.priority !== undefined && { priority: body.priority.toUpperCase() }),
       ...(body.schedule !== undefined && { schedule: body.schedule }),
       ...(body.folder !== undefined && { folder: body.folder || null }),
-      ...(body.visibility !== undefined && { visibility: body.visibility }),
+      ...(body.visibility !== undefined && { visibility: normalizeVisibility(body.visibility) }),
       ...(body.goal !== undefined && { goal: body.goal?.trim() ? body.goal.trim() : null }),
       metadata: {
         ...metadata,
@@ -175,7 +197,8 @@ export const PUT = withAuthenticatedApi(async (request, auth) => {
 export const DELETE = withAuthenticatedApi(async (request, auth) => {
   const { id } = z.object({ id: z.string().min(1) }).parse(await request.json())
   const result = await prisma.agentTask.updateMany({
-    where: { id, organizationId: auth.organizationId, ...agentVisibilityScope(auth.dbUser.id) },
+    // Owner only — sharing an agent never grants anyone the right to destroy it.
+    where: { id, organizationId: auth.organizationId, ...agentOwnerScope(auth.dbUser.id) },
     data: { status: 'DELETED' },
   })
   if (!result.count) throw new ApiError('Agent not found', 404, 'NOT_FOUND')
