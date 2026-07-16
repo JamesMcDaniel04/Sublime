@@ -38,7 +38,8 @@ if (!TEST_DB) {
     }
   })
 
-  test('new signups join the original admin workspace as regular members', async () => {
+  test('a new signup gets its OWN workspace as admin — never an existing one', async () => {
+    // An older admin workspace exists; the new signup must NOT be folded into it.
     const original = await systemPrisma.organization.create({
       data: {
         name: 'Original Workspace',
@@ -58,10 +59,22 @@ if (!TEST_DB) {
 
     const signup = identity()
     const member = await provisionUser(signup)
+    if (member.organizationId) organizationIds.push(member.organizationId)
 
-    assert.equal(member.organizationId, original.id)
-    assert.equal(member.role, 'USER')
+    assert.ok(member.organizationId)
+    assert.notEqual(member.organizationId, original.id)
+    assert.equal(member.role, 'ADMIN')
     assert.equal(member.supabaseId, signup.id)
+  })
+
+  test('provisioning is idempotent — a second call keeps the same workspace', async () => {
+    const signup = identity()
+    const first = await provisionUser(signup)
+    if (first.organizationId) organizationIds.push(first.organizationId)
+    const second = await provisionUser(signup)
+
+    assert.equal(second.organizationId, first.organizationId)
+    assert.equal(second.id, first.id)
   })
 
   test('a pending invitation overrides automatic original-workspace assignment', async () => {

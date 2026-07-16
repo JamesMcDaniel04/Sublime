@@ -26,9 +26,10 @@ async function findDbUserCached(supabaseId: string): Promise<DbUserRow> {
   return row
 }
 
-// Self-healing bootstrap: every accepted Supabase identity joins the original
-// workspace. The first-ever identity bootstraps that workspace; all later
-// signups are regular members. Pending invitations still win.
+// Workspace bootstrap: every Supabase identity gets its OWN workspace on
+// first signup (as its admin) — a user's agents, flows, and runs are private
+// to their workspace by default. A pending invitation wins: the invitee joins
+// the inviting workspace (their team) with the invited role instead.
 export async function provisionUser(user: User, existing?: NonNullable<DbUserRow>) {
   const normalizedEmail = user.email?.trim().toLowerCase()
   const meta = (user.user_metadata || {}) as Record<string, unknown>
@@ -39,18 +40,18 @@ export async function provisionUser(user: User, existing?: NonNullable<DbUserRow
 
   try {
     return await prisma.$transaction(async (tx) => {
-      // Serialize first-workspace creation and concurrent first requests from
-      // the same new session. This is transaction-scoped and auto-releases.
-      await tx.$executeRaw`SELECT pg_advisory_xact_lock(73194521)`
+      // Serialize concurrent first requests from the same new session so one
+      // identity never creates two workspaces. Transaction-scoped, auto-releases.
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${user.id}))`
 
       // Another API request from the same freshly signed-in browser may have
       // completed provisioning while this one waited for the lock. Honor that
-      // membership (especially an invitation target) instead of moving it.
+      // membership instead of re-provisioning it.
       const current = existing ?? await tx.user.findFirst({
         where: { supabaseId: user.id, isActive: true },
         include: { organization: true },
       })
-      if (current && !needsPrimaryWorkspace(current, user.id)) return current
+      if (current?.organizationId) return current
 
       const invitation = normalizedEmail
         ? await tx.organizationInvitation.findFirst({
@@ -59,23 +60,15 @@ export async function provisionUser(user: User, existing?: NonNullable<DbUserRow
           })
         : null
 
-      // The oldest active-admin workspace is the original platform workspace.
-      // This avoids another deployment setting and deterministically ignores
-      // any accidental per-signup workspaces created by the reverted build.
-      const primary = invitation
-        ? null
-        : await tx.organization.findFirst({
-            where: { users: { some: { isActive: true, role: 'ADMIN' } } },
-            orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
-          })
-
+      // Invited → join the inviting team. Otherwise → a fresh personal
+      // workspace, owned (ADMIN) by this user. Nobody is ever folded into an
+      // unrelated existing workspace implicitly.
       const organization = invitation
         ? { id: invitation.organizationId }
-        : primary ?? await tx.organization.create({
+        : await tx.organization.create({
             data: { name: orgName, slug: `org-${user.id}` },
           })
-      const role = invitation?.role
-        ?? (!primary ? 'ADMIN' : current?.organizationId === organization.id ? current.role : 'USER')
+      const role = invitation?.role ?? 'ADMIN'
 
       const member = current
         ? await tx.user.update({
@@ -103,17 +96,10 @@ export async function provisionUser(user: User, existing?: NonNullable<DbUserRow
   }
 }
 
-function needsPrimaryWorkspace(row: NonNullable<DbUserRow>, supabaseId: string): boolean {
-  return !row.organizationId || row.organization?.slug === `org-${supabaseId}`
-}
-
 export async function ensureWorkspaceMembership(user: User): Promise<DbUserRow> {
   const existing = await findDbUserCached(user.id)
-  if (existing && !needsPrimaryWorkspace(existing, user.id)) return existing
+  if (existing?.organizationId) return existing
 
-  // A sole first user legitimately owns the oldest workspace; provisionUser
-  // will select that same organization and leave them as its admin. Users in
-  // accidental per-signup orgs are moved into the older primary workspace.
   const provisioned = await provisionUser(user, existing ?? undefined)
   if (provisioned) dbUserCache.set(user.id, { row: provisioned, ts: Date.now() })
   return provisioned

@@ -257,12 +257,50 @@ function FlowBuilder() {
   })
   const canvasPanRef = useRef(canvasPan)
   canvasPanRef.current = canvasPan
+  const zoomRef = useRef(zoom)
+  zoomRef.current = zoom
   const jamCursorUpdateRef = useRef<(cursor: { x: number; y: number } | null) => void>(() => {})
   const panRef = useRef<ReturnType<typeof startCanvasPan>>(null)
+  // Two-finger pinch state: live touch points by pointer id, plus the distance/
+  // zoom captured when the second finger lands (the pinch baseline).
+  const touchPointsRef = useRef(new Map<number, { x: number; y: number }>())
+  const pinchBaseRef = useRef<{ distance: number; zoom: number } | null>(null)
+
+  // Trackpad pinch arrives as a ctrl/cmd+wheel event. Attached natively
+  // (passive: false) because React's synthetic wheel handler can't reliably
+  // preventDefault, and the browser would page-zoom instead of canvas-zoom.
+  useEffect(() => {
+    const container = canvasScrollRef.current
+    if (!container) return
+    const onWheel = (event: WheelEvent) => {
+      if (!event.ctrlKey && !event.metaKey) return
+      event.preventDefault()
+      setZoom(zoomRef.current * Math.exp(-event.deltaY * 0.01))
+    }
+    container.addEventListener('wheel', onWheel, { passive: false })
+    return () => container.removeEventListener('wheel', onWheel)
+  }, [setZoom, canvasMode, loading, loadError])
   const suppressCanvasClickRef = useRef(false)
+  const pinchDistance = () => {
+    const points = [...touchPointsRef.current.values()]
+    return points.length >= 2 ? Math.hypot(points[0].x - points[1].x, points[0].y - points[1].y) : 0
+  }
   const onCanvasPointerDown = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
     const container = canvasScrollRef.current
     if (!container) return
+    if (event.pointerType === 'touch') {
+      touchPointsRef.current.set(event.pointerId, { x: event.clientX, y: event.clientY })
+      if (touchPointsRef.current.size === 2) {
+        // Second finger down → the gesture is a pinch, not a pan. Abandon any
+        // in-flight pan session so the two inputs don't fight over the canvas.
+        panRef.current = null
+        document.body.style.cursor = ''
+        document.body.style.userSelect = ''
+        pinchBaseRef.current = { distance: pinchDistance(), zoom: zoomRef.current }
+        container.setPointerCapture?.(event.pointerId)
+        return
+      }
+    }
     const origin = canvasPanRef.current
     const pan = startCanvasPan(event, (dx, dy) => {
       const next = { x: origin.x + dx, y: origin.y + dy }
@@ -275,13 +313,26 @@ function FlowBuilder() {
     document.body.style.userSelect = 'none'
   }, [snapToGrid])
   const onCanvasPointerMove = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    if (event.pointerType === 'touch' && touchPointsRef.current.has(event.pointerId)) {
+      touchPointsRef.current.set(event.pointerId, { x: event.clientX, y: event.clientY })
+      const base = pinchBaseRef.current
+      if (base && touchPointsRef.current.size >= 2) {
+        const distance = pinchDistance()
+        if (base.distance > 0 && distance > 0) setZoom(base.zoom * (distance / base.distance))
+        return
+      }
+    }
     panRef.current?.move(event.clientX, event.clientY)
     jamCursorUpdateRef.current({
       x: Math.min(1, Math.max(0, event.clientX / window.innerWidth)),
       y: Math.min(1, Math.max(0, event.clientY / window.innerHeight)),
     })
-  }, [])
+  }, [setZoom])
   const onCanvasPointerEnd = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    if (event.pointerType === 'touch') {
+      touchPointsRef.current.delete(event.pointerId)
+      if (touchPointsRef.current.size < 2) pinchBaseRef.current = null
+    }
     const pan = panRef.current
     if (!pan) return
     panRef.current = null
@@ -346,6 +397,15 @@ function FlowBuilder() {
     setLoading(true)
     setLoadError(null)
     getCachedJson<any>('/api/flows')
+      .then(async (cachedData) => {
+        if (cancelled) return cachedData
+        // A cached list can predate an access grant (e.g. a Jam invite deep-link
+        // opened seconds after the invite): when the id is missing, re-fetch
+        // fresh before concluding the user has no access.
+        const inCache = cachedData?.success && Array.isArray(cachedData.flows)
+          && cachedData.flows.some((f: { id: string }) => f.id === id)
+        return inCache ? cachedData : getCachedJson<any>('/api/flows', 0)
+      })
       .then(async (flowsData) => {
         if (cancelled) return
         if (!flowsData?.success || !Array.isArray(flowsData.flows)) throw new Error('The flow list could not be loaded.')
@@ -1448,6 +1508,9 @@ function FlowBuilder() {
           style={{
             backgroundImage: 'radial-gradient(circle, rgba(15, 23, 42, 0.22) 1px, transparent 1px)',
             backgroundSize: '28px 28px',
+            // Keep one-finger scrolling, but claim two-finger pinch for the
+            // canvas zoom instead of the browser's page zoom.
+            touchAction: 'pan-x pan-y',
           }}
         >
           <div

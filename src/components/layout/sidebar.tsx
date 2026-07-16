@@ -231,19 +231,23 @@ export function Sidebar() {
   const sections = useMemo(() => {
     // Bucket by the rule the ACCESS LAYER actually applies (agentReadScope): only
     // an explicit org_viewer/org_editor is shared. The legacy `'shared'` value —
-    // once the default — grants nothing, so listing it under Workspace would tell
-    // the user their work is shared when it is not.
-    const shared = agents.filter((agent) => normalizeShareValue(agent.visibility) !== 'private')
-    const folders = new Map<string, Agent[]>()
-    for (const agent of shared) {
-      const key = agent.folder?.trim() || 'General'
-      const bucket = folders.get(key)
-      if (bucket) bucket.push(agent)
-      else folders.set(key, [agent])
+    // once the default — grants nothing, so it buckets under Private (matching
+    // what the access layer enforces) rather than disappearing entirely.
+    const byFolder = (list: Agent[]) => {
+      const folders = new Map<string, Agent[]>()
+      for (const agent of list) {
+        const key = agent.folder?.trim() || 'General'
+        const bucket = folders.get(key)
+        if (bucket) bucket.push(agent)
+        else folders.set(key, [agent])
+      }
+      return [...folders.entries()].sort(([a], [b]) => a.localeCompare(b))
     }
+    const shared = agents.filter((agent) => normalizeShareValue(agent.visibility) !== 'private')
+    const personal = agents.filter((agent) => normalizeShareValue(agent.visibility) === 'private')
     return {
-      workspace: [...folders.entries()].sort(([a], [b]) => a.localeCompare(b)),
-      private: agents.filter((agent) => agent.visibility === 'private'),
+      workspace: byFolder(shared),
+      private: byFolder(personal),
     }
   }, [agents])
 
@@ -549,7 +553,29 @@ export function Sidebar() {
             <Lock className="h-3 w-3" /> Private
           </div>
           {sections.private.length > 0
-            ? <div className="ml-3 border-l border-white/10 pl-1">{sections.private.map(renderAgent)}</div>
+            ? sections.private.map(([folder, folderAgents]) => {
+                const key = `pv:${folder}`
+                const isCollapsed = collapsed[key]
+                const isGeneral = folder === 'General'
+                return (
+                  <div key={key} className="mb-0.5">
+                    <button
+                      className={cn(
+                        'flex w-full items-center gap-1.5 rounded-lg px-2 py-1.5 text-sm font-medium text-[#C0D5D5] hover:bg-white/10 hover:text-white',
+                        dragOver === key && 'bg-white/10',
+                      )}
+                      onClick={() => setCollapsed((current) => ({ ...current, [key]: !current[key] }))}
+                      {...dropProps(key, { folder: isGeneral ? null : folder, share: 'private' })}
+                    >
+                      {isCollapsed ? <ChevronRight className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+                      <Folder className="h-3.5 w-3.5 text-[#7DACA8]" />
+                      <span className="flex-1 truncate text-left">{folder}</span>
+                      <span className="text-xs text-[#7DACA8]">{folderAgents.length}</span>
+                    </button>
+                    {!isCollapsed && <div className="ml-3 border-l border-white/10 pl-1">{folderAgents.map(renderAgent)}</div>}
+                  </div>
+                )
+              })
             : <p className="px-2 py-1 text-xs text-[#7DACA8]">Drag agents here to make them private.</p>}
         </div>
 
