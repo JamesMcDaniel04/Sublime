@@ -483,8 +483,12 @@ export async function runFlowExecution(
     }
   }
 
-  // Adapter: each subflow node runs the child flow synchronously and records a
-  // FlowRunStep linking the child run. Mirrors the runAgent adapter above.
+  // Adapter: each subflow node runs the child flow and records a FlowRunStep
+  // linking the child run. A child that PAUSES (ask-user / humanReview /
+  // durable Wait) pauses the parent too: the step parks `waiting` carrying the
+  // child run id, and a parent resume re-enters this node — forwarding the
+  // user's reply (or the scheduler tick) into the child, then continuing with
+  // the child's final output. Mirrors the runAgent adapter above.
   const runFlow: RunFlowFn = async (node) => {
     const step = await prisma.flowRunStep.create({
       data: {
@@ -500,30 +504,74 @@ export async function runFlowExecution(
     const finishStep = async (data: Record<string, unknown>) => {
       await prisma.flowRunStep.updateMany({ where: { id: step.id, status: 'running' }, data })
     }
-    try {
-      const res = await runFlowExecution({
-        flowId: node.flowId,
-        organizationId: job.organizationId,
-        userId: job.userId,
-        input: node.input,
-        usePublished: true,
-        trigger: { type: 'signal', via: 'subflow' },
-        subflowDepth: (job.subflowDepth ?? 0) + 1,
+    // Park the parent on this step: persist the child linkage + pause reason,
+    // and hand the interpreter a `waiting` result so the whole run parks.
+    // A time-kind child pause wakes the PARENT slightly after the child, so
+    // the scheduler resumes the child first and the parent finds its result.
+    const pauseOn = async (childFlowRunId: string, waiting: { question?: string; wakeAt?: string } | undefined) => {
+      const parentWakeAt = waiting?.wakeAt
+        ? new Date(new Date(waiting.wakeAt).getTime() + 60_000).toISOString()
+        : undefined
+      const kind = parentWakeAt ? 'time' : 'input'
+      await finishStep({
+        status: 'waiting',
+        childFlowRunId,
+        output: jsonValue({ waiting: { kind, question: waiting?.question, ...(parentWakeAt ? { wakeAt: parentWakeAt } : {}) } }),
+        finishedAt: new Date(),
       })
+      return { waiting: { question: waiting?.question, ...(parentWakeAt ? { wakeAt: parentWakeAt } : {}) } }
+    }
+    try {
+      const resumeChild = node.resume ? resumeChildFlowRunId : undefined
+      let res: Awaited<ReturnType<typeof runFlowExecution>>
+      if (resumeChild) {
+        // Re-entering a step that paused on a child run: settle from the
+        // child's CURRENT state — it may have been resumed directly (its own
+        // activity page / a humanReview assignee) while the parent waited.
+        const child = await prisma.flowRun.findFirst({
+          where: { id: resumeChild, flowId: node.flowId, organizationId: job.organizationId },
+          select: { id: true, status: true, output: true, error: true },
+        })
+        if (!child) {
+          const message = 'The paused subflow run no longer exists.'
+          await finishStep({ status: 'failed', error: message, finishedAt: new Date() })
+          return { error: message }
+        }
+        if (child.status === 'succeeded') {
+          res = { flowRunId: child.id, status: 'succeeded', output: child.output }
+        } else if (child.status === 'failed') {
+          res = { flowRunId: child.id, status: 'failed', output: null, error: child.error ?? 'The subflow failed.' }
+        } else if (child.status === 'waiting') {
+          // Forward the reply (or the scheduler tick) into the paused child.
+          res = await runFlowExecution({
+            flowId: node.flowId,
+            organizationId: job.organizationId,
+            userId: job.userId,
+            flowRunId: child.id,
+            reply: job.reply,
+            resumeReason: job.resumeReason,
+            usePublished: true,
+            trigger: { type: 'signal', via: 'subflow' },
+            subflowDepth: (job.subflowDepth ?? 0) + 1,
+          })
+        } else {
+          // 'running': a concurrent resume owns the child — park again and let
+          // the scheduler re-check shortly rather than double-driving it.
+          return await pauseOn(child.id, { wakeAt: new Date(Date.now() + 60_000).toISOString() })
+        }
+      } else {
+        res = await runFlowExecution({
+          flowId: node.flowId,
+          organizationId: job.organizationId,
+          userId: job.userId,
+          input: node.input,
+          usePublished: true,
+          trigger: { type: 'signal', via: 'subflow' },
+          subflowDepth: (job.subflowDepth ?? 0) + 1,
+        })
+      }
       if (res.status === 'waiting') {
-        // Synchronous subflow, v1: a child that itself pauses (its own
-        // humanReview/ask-user node) is a clean subflow error, never a parent
-        // pause — full pausable-subflow resume (re-entering the paused child,
-        // forwarding the reply) is deferred to a later iteration. The parent
-        // FlowRun must NEVER be set to `waiting` for a subflow, so this
-        // always finishes the step `failed`, never `waiting`.
-        const message =
-          "A subflow's child flow paused for human input, which subflows don't support — inline the interaction, or call the flow as an agent tool instead."
-        // Terminalize the abandoned paused child so it can't linger 'waiting'
-        // or re-run its side effects if resumed.
-        await terminalizeAbandonedChildRun(job.organizationId, res.flowRunId)
-        await finishStep({ status: 'failed', childFlowRunId: res.flowRunId, error: message, finishedAt: new Date() })
-        return { error: message }
+        return await pauseOn(res.flowRunId, res.waiting)
       }
       if (res.status === 'failed') {
         const message = res.error ?? 'The subflow failed.'
