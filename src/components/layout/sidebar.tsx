@@ -332,13 +332,18 @@ export function Sidebar() {
   }
 
   const dropProps = (key: string, target: { folder: string | null; share: 'org' | 'private' }) => ({
+    // Sections are drop zones that CONTAIN folder drop zones, so both handlers
+    // stop propagation — otherwise one drop on a folder would bubble up and
+    // fire a second, conflicting move on the section.
     onDragOver: (event: React.DragEvent) => {
       event.preventDefault()
+      event.stopPropagation()
       setDragOver(key)
     },
     onDragLeave: () => setDragOver((current) => (current === key ? null : current)),
     onDrop: (event: React.DragEvent) => {
       event.preventDefault()
+      event.stopPropagation()
       setDragOver(null)
       const agentId = event.dataTransfer.getData('text/agent-id')
       if (agentId) moveAgent(agentId, target).catch(() => undefined)
@@ -504,13 +509,14 @@ export function Sidebar() {
             })}
           </nav>
 
+          {/* The whole section — header AND folder list — is the drop zone, so a
+              drop anywhere in it shares the agent (inner folder rows are nested
+              zones that stop propagation and take precedence). */}
           <div
-            className={cn(
-              'flex items-center justify-between rounded-lg px-2 pb-1 pt-3',
-              dragOver === 'workspace' && 'bg-white/10',
-            )}
+            className={cn('rounded-lg', dragOver === 'workspace' && 'bg-white/10')}
             {...dropProps('workspace', { folder: null, share: 'org' })}
           >
+          <div className="flex items-center justify-between px-2 pb-1 pt-3">
             <span className="font-mono text-[11px] font-bold uppercase tracking-wider text-[#7DACA8]">Workspace</span>
             <Button
               size="icon"
@@ -545,14 +551,15 @@ export function Sidebar() {
               </div>
             )
           })}
+          </div>
 
+          {/* Same section-wide drop zone: dropping anywhere in Private — the
+              header, a folder, or the empty-state hint — makes the agent private. */}
           <div
-            className={cn(
-              'flex items-center gap-1.5 rounded-lg px-2 pb-1 pt-3 font-mono text-[11px] font-bold uppercase tracking-wider text-[#7DACA8]',
-              dragOver === 'private' && 'bg-white/10',
-            )}
+            className={cn('rounded-lg', dragOver === 'private' && 'bg-white/10')}
             {...dropProps('private', { folder: null, share: 'private' })}
           >
+          <div className="flex items-center gap-1.5 px-2 pb-1 pt-3 font-mono text-[11px] font-bold uppercase tracking-wider text-[#7DACA8]">
             <Lock className="h-3 w-3" /> Private
           </div>
           {sections.private.length > 0
@@ -580,6 +587,7 @@ export function Sidebar() {
                 )
               })
             : <p className="px-2 py-1 text-xs text-[#7DACA8]">Drag agents here to make them private.</p>}
+          </div>
         </div>
 
         {/* Footer: usage + user */}
