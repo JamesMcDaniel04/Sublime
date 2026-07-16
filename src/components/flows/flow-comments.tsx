@@ -13,6 +13,7 @@ import { toast } from 'sonner'
 import { Check, CornerDownRight, Loader2, MapPin, MessageSquareText, Pin, RotateCcw, Send, Trash2, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { jamCursorColor, type JamCanvasSpace } from '@/lib/flows/jam-presence'
+import { splitMentionSegments, type MentionCandidate } from '@/lib/flows/comment-mentions'
 import { cn } from '@/lib/utils'
 
 export type CommentAnchorPoint = { space: JamCanvasSpace; x: number; y: number }
@@ -195,6 +196,29 @@ export function CommentsPanel({
   const [replyDraft, setReplyDraft] = useState('')
   const [busy, setBusy] = useState(false)
   const threadRefs = useRef(new Map<string, HTMLDivElement>())
+  // Workspace members power @mention autocomplete + highlighting. Loaded once
+  // per panel open; the API re-parses mentions server-side regardless.
+  const [members, setMembers] = useState<MentionCandidate[]>([])
+  const [mentionQuery, setMentionQuery] = useState<string | null>(null)
+  const composerRef = useRef<HTMLTextAreaElement | null>(null)
+
+  useEffect(() => {
+    if (!open) return
+    let cancelled = false
+    fetch('/api/organizations/members', { cache: 'no-store' })
+      .then((response) => response.json())
+      .then((data) => {
+        if (cancelled) return
+        const list = (data.members || [])
+          .filter((member: { name?: string | null }) => member.name?.trim())
+          .map((member: { id: string; name: string }) => ({ id: member.id, name: member.name }))
+        setMembers(list)
+      })
+      .catch(() => undefined)
+    return () => {
+      cancelled = true
+    }
+  }, [open])
 
   // A pin click on the canvas scrolls its thread into view.
   useEffect(() => {
@@ -202,6 +226,35 @@ export function CommentsPanel({
     const element = threadRefs.current.get(focusThreadId)
     element?.scrollIntoView({ behavior: 'smooth', block: 'center' })
   }, [focusThreadId, open, comments.length])
+
+  const mentionMatches = mentionQuery === null
+    ? []
+    : members.filter((member) => member.name.toLowerCase().startsWith(mentionQuery.toLowerCase())).slice(0, 5)
+
+  /** Trailing "@query" before the caret (no spaces) — arms the autocomplete. */
+  const syncMentionQuery = (value: string, caret: number | null) => {
+    const before = value.slice(0, caret ?? value.length)
+    const match = /@([^\s@]*)$/.exec(before)
+    setMentionQuery(match ? match[1] : null)
+  }
+
+  const applyMention = (member: MentionCandidate) => {
+    const textarea = composerRef.current
+    const caret = textarea?.selectionStart ?? draft.length
+    const before = draft.slice(0, caret)
+    const match = /@([^\s@]*)$/.exec(before)
+    if (!match) return
+    const start = caret - match[0].length
+    const inserted = `@${member.name} `
+    setDraft(draft.slice(0, start) + inserted + draft.slice(caret))
+    setMentionQuery(null)
+    requestAnimationFrame(() => {
+      if (!textarea) return
+      textarea.focus()
+      const position = start + inserted.length
+      textarea.setSelectionRange(position, position)
+    })
+  }
 
   const roots = comments.filter((comment) => !comment.parentId)
   const openThreads = roots.filter((comment) => !comment.resolvedAt).sort((a, b) => b.createdAt.localeCompare(a.createdAt))
@@ -293,7 +346,15 @@ export function CommentsPanel({
           <span className="font-semibold text-slate-800">{comment.author.name}</span>{' '}
           <span className="text-slate-400">{timeAgo(comment.createdAt)}</span>
         </p>
-        <p className="whitespace-pre-wrap break-words text-sm text-slate-700">{comment.body}</p>
+        <p className="whitespace-pre-wrap break-words text-sm text-slate-700">
+          {splitMentionSegments(comment.body, members).map((segment, index) =>
+            segment.mention ? (
+              <span key={`${comment.id}-${index}`} className="rounded bg-indigo-50 px-0.5 font-medium text-indigo-700">{segment.text}</span>
+            ) : (
+              <span key={`${comment.id}-${index}`}>{segment.text}</span>
+            ),
+          )}
+        </p>
       </div>
       {(comment.mine || canModerate) && (
         <button
@@ -433,24 +494,61 @@ export function CommentsPanel({
             Attach to <span className="max-w-[150px] truncate font-medium text-indigo-700">{nodeLabels[selectedNodeId] || 'selected step'}</span>
           </label>
         )}
-        <div className="flex items-end gap-1.5">
-          <textarea
-            value={draft}
-            disabled={busy}
-            onChange={(event) => setDraft(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === 'Enter' && !event.shiftKey) {
-                event.preventDefault()
-                void create()
-              }
-            }}
-            rows={2}
-            placeholder={composerPlaceholder}
-            className="min-h-[3rem] flex-1 resize-none rounded-md border border-slate-200 p-2 text-sm outline-none focus:border-indigo-300"
-          />
-          <Button size="icon" aria-label="Post comment" disabled={busy || !draft.trim()} onClick={() => void create()}>
-            <Send className="h-4 w-4" />
-          </Button>
+        <div className="relative">
+          {mentionMatches.length > 0 && (
+            <div className="absolute inset-x-0 top-full z-10 mt-1 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-lg">
+              {mentionMatches.map((member) => (
+                <button
+                  key={member.id}
+                  type="button"
+                  // Keep the textarea focused so picking doesn't blur mid-insert.
+                  onMouseDown={(event) => event.preventDefault()}
+                  onClick={() => applyMention(member)}
+                  className="flex w-full items-center gap-2 px-2 py-1.5 text-left text-sm hover:bg-slate-50"
+                >
+                  <CommentAvatar userId={member.id} name={member.name} />
+                  <span className="truncate">{member.name}</span>
+                </button>
+              ))}
+            </div>
+          )}
+          <div className="flex items-end gap-1.5">
+            <textarea
+              ref={composerRef}
+              value={draft}
+              disabled={busy}
+              onChange={(event) => {
+                setDraft(event.target.value)
+                syncMentionQuery(event.target.value, event.target.selectionStart)
+              }}
+              onKeyDown={(event) => {
+                // While the @mention dropdown is open, Enter/Tab pick the top
+                // match and Escape dismisses — Enter only submits otherwise.
+                if (mentionMatches.length > 0) {
+                  if (event.key === 'Enter' || event.key === 'Tab') {
+                    event.preventDefault()
+                    applyMention(mentionMatches[0])
+                    return
+                  }
+                  if (event.key === 'Escape') {
+                    setMentionQuery(null)
+                    return
+                  }
+                }
+                if (event.key === 'Enter' && !event.shiftKey) {
+                  event.preventDefault()
+                  void create()
+                }
+              }}
+              onBlur={() => setMentionQuery(null)}
+              rows={2}
+              placeholder={composerPlaceholder}
+              className="min-h-[3rem] flex-1 resize-none rounded-md border border-slate-200 p-2 text-sm outline-none focus:border-indigo-300"
+            />
+            <Button size="icon" aria-label="Post comment" disabled={busy || !draft.trim()} onClick={() => void create()}>
+              <Send className="h-4 w-4" />
+            </Button>
+          </div>
         </div>
       </div>
 

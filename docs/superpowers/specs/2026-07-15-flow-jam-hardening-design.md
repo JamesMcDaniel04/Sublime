@@ -108,6 +108,10 @@ Scope change: voice chat was originally out of scope; pulled in by product decis
   coordinates (the same projection as cursors — ViewportPortal in dag, the transform wrapper
   in stack), counter-scaled about the teardrop tip; placement mode arms the next canvas
   click, and clicking a pin focuses its thread in the panel. Resolved threads drop their pin.
+  **@mentions** resolve against the canonical member list server-side (longest-name-wins,
+  word-boundary-checked — never free-text guessing), with composer autocomplete and inline
+  highlighting; mentioned teammates get a specific action-level notification instead of the
+  generic comment one.
 - **Emoji reactions:** ephemeral broadcast-only floating emoji (never persisted).
 - **Spotlight:** presenter broadcasts a request; peers get a consent toast, never a forced
   viewport takeover.

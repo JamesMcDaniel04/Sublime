@@ -3,6 +3,7 @@ import { prisma } from '@/lib/prisma'
 import { ApiError, withAuthenticatedApi } from '@/lib/server/api-handler'
 import { flowReadScope } from '@/lib/server/visibility'
 import { notify } from '@/lib/notifications/service'
+import { extractMentions } from '@/lib/flows/comment-mentions'
 
 export const runtime = 'nodejs'
 
@@ -124,9 +125,24 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
     include: { user: AUTHOR_SELECT },
   })
 
-  // Offline delivery: the flow owner and everyone already in the thread hear
-  // about new comments (bell + push, deep-linking into the jam). People with
-  // the flow open get the fast path via the jam channel broadcast instead.
+  // @mentions resolve against the canonical member list — parsed server-side
+  // so a hand-typed "@Full Name" mentions someone even without autocomplete.
+  const mentioned = new Set<string>()
+  if (input.body.includes('@')) {
+    const members = await prisma.user.findMany({
+      where: { organizationId: auth.organizationId, isActive: true, name: { not: null } },
+      select: { id: true, name: true },
+    })
+    for (const userId of extractMentions(input.body, members.map((member) => ({ id: member.id, name: member.name ?? '' })))) {
+      mentioned.add(userId)
+    }
+  }
+  mentioned.delete(auth.dbUser.id)
+
+  // Offline delivery: mentioned teammates get the specific "mentioned you"
+  // notification; the flow owner and thread participants get the generic one
+  // (never both). People with the flow open get the fast path via the jam
+  // channel broadcast instead.
   const participants = new Set<string>()
   if (flow.userId) participants.add(flow.userId)
   if (rootId) {
@@ -137,16 +153,31 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
     for (const row of thread) participants.add(row.userId)
   }
   participants.delete(auth.dbUser.id)
-  await Promise.all([...participants].map((userId) => notify({
-    organizationId: auth.organizationId,
-    userId,
-    type: 'flow.jam.comment',
-    level: 'info',
-    title: `${auth.dbUser.name || auth.dbUser.email || 'A teammate'} commented on “${flow.name}”`,
-    body: input.body.slice(0, 140),
-    executionId: flow.id,
-    link: `/flows/${flow.id}`,
-  })))
+  for (const userId of mentioned) participants.delete(userId)
+
+  const authorName = auth.dbUser.name || auth.dbUser.email || 'A teammate'
+  await Promise.all([
+    ...[...mentioned].map((userId) => notify({
+      organizationId: auth.organizationId,
+      userId,
+      type: 'flow.jam.mention',
+      level: 'action',
+      title: `${authorName} mentioned you on “${flow.name}”`,
+      body: input.body.slice(0, 140),
+      executionId: flow.id,
+      link: `/flows/${flow.id}`,
+    })),
+    ...[...participants].map((userId) => notify({
+      organizationId: auth.organizationId,
+      userId,
+      type: 'flow.jam.comment',
+      level: 'info',
+      title: `${authorName} commented on “${flow.name}”`,
+      body: input.body.slice(0, 140),
+      executionId: flow.id,
+      link: `/flows/${flow.id}`,
+    })),
+  ])
 
   return { success: true, comment: serializeComment(comment, auth.dbUser.id) }
 })
