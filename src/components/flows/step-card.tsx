@@ -49,6 +49,7 @@ import {
 import { toast } from 'sonner'
 import { IntegrationLogo } from '@/components/integrations/integration-logo'
 import { cn } from '@/lib/utils'
+import { jamCursorColor } from '@/lib/flows/jam-presence'
 import { CONDITION_OPS, CONDITION_OP_LABELS, DATA_OPS, FIELD_TYPES, VARIABLE_OPS, VARIABLE_OP_LABELS, VARIABLE_TYPES, VARIABLE_TYPE_LABELS, type ConditionClause, type ConditionOp, type DataOp, type FlowNode, type OutputField, type TriggerInputField, type VariableOp, type VariableType } from '@/lib/flows/graph'
 import { DATA_OP_LABELS } from '@/lib/flows/data-ops'
 import { DATA_OP_HELPER, DATA_OP_INPUT_PLACEHOLDER, VARIABLE_VALUE_PLACEHOLDER, variableValueOptional } from '@/lib/flows/step-copy'
@@ -669,10 +670,13 @@ export function StepCard({
         )}
         {jamEditors && jamEditors.length > 0 && (
           <span
-            className="flex shrink-0 items-center gap-1 rounded-full border border-indigo-200 bg-indigo-50 px-2 py-0.5 text-[11px] font-semibold text-indigo-700"
+            className="flex shrink-0 items-center gap-1 rounded-full border bg-white px-2 py-0.5 text-[11px] font-semibold"
+            // The peer's stable cursor color, so "who is here" matches their
+            // cursor and canvas outline everywhere.
+            style={{ borderColor: jamCursorColor(jamEditors[0].userId), color: jamCursorColor(jamEditors[0].userId) }}
             title={`${jamEditors.map((editor) => editor.name).join(', ')} editing`}
           >
-            <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-indigo-500" />
+            <span className="h-1.5 w-1.5 animate-pulse rounded-full" style={{ backgroundColor: jamCursorColor(jamEditors[0].userId) }} />
             {jamEditors.length === 1 ? `${jamEditors[0].name} is here` : `${jamEditors.length} teammates here`}
           </span>
         )}

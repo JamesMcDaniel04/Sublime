@@ -20,7 +20,7 @@
  * widgets — their container owns them, mirroring the interpreter's `contained`
  * set — so they're edited, reordered, and added inside the container's panel.
  */
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useMemo, useRef, useState } from 'react'
 import {
   Background,
   Controls,
@@ -29,11 +29,15 @@ import {
   Panel,
   Position,
   ReactFlow,
+  ViewportPortal,
   useReactFlow,
+  useStore,
+  useViewport,
   type Connection,
   type Edge,
   type Node,
   type NodeProps,
+  type ReactFlowInstance,
 } from '@xyflow/react'
 import { AlertCircle, Plus, X } from 'lucide-react'
 import { toast } from 'sonner'
@@ -47,7 +51,8 @@ import { connectNodes, disconnectEdge, moveNodeTo, type StepType } from '@/lib/f
 import { cn } from '@/lib/utils'
 import type { DataField } from '@/lib/flows/datatree'
 import type { FlowGraph, FlowNode } from '@/lib/flows/graph'
-import type { JamPeer } from './use-flow-jam'
+import { edgeIndicator, flowToScreenPoint, type JamCursor } from '@/lib/flows/jam-presence'
+import { jamCursorColor, type JamPeer } from './use-flow-jam'
 
 type Agent = { id: string; title: string }
 type NodeIssues = { errors: number; warnings: number; items: { level: 'error' | 'warning'; message: string }[] }
@@ -159,6 +164,13 @@ function StepWidget({ data }: Readonly<NodeProps>) {
           step.selected ? 'border-blue-500 ring-2 ring-blue-200' : 'border-slate-200 hover:border-blue-300',
           step.highlighted && 'ring-2 ring-amber-300',
         )}
+        // A peer on this step outlines it in THEIR cursor color — selection
+        // presence that works even across canvas modes.
+        style={
+          step.jamEditors.length > 0
+            ? { boxShadow: `0 0 0 2px white, 0 0 0 4px ${jamCursorColor(step.jamEditors[0].userId)}` }
+            : undefined
+        }
       >
         <span className={cn('flex h-9 w-9 shrink-0 items-center justify-center rounded-lg', nodeToneOf(step.node.type))}>
           <Icon className="h-4.5 w-4.5" />
@@ -173,11 +185,16 @@ function StepWidget({ data }: Readonly<NodeProps>) {
         {errors > 0 && <AlertCircle className="h-4 w-4 shrink-0 text-red-500" aria-label={`${errors} errors`} />}
         {step.status && <span className={cn('h-2 w-2 shrink-0 rounded-full', STATUS_DOT[step.status] ?? 'bg-slate-300')} />}
       </button>
-      {/* Who else is on this step right now (Flow Jam). */}
+      {/* Who else is on this step right now (Flow Jam), in their cursor color. */}
       {step.jamEditors.length > 0 && (
         <div className="mt-1 flex gap-1">
           {step.jamEditors.map((peer) => (
-            <span key={peer.clientId} className="rounded-full bg-slate-900 px-1.5 py-0.5 text-[9px] font-semibold text-white" title={`${peer.name} is editing`}>
+            <span
+              key={peer.clientId}
+              className="rounded-full px-1.5 py-0.5 text-[9px] font-semibold text-white"
+              style={{ backgroundColor: jamCursorColor(peer.userId) }}
+              title={`${peer.name} is editing`}
+            >
               {peer.name.slice(0, 12)}
             </span>
           ))}
@@ -190,6 +207,82 @@ function StepWidget({ data }: Readonly<NodeProps>) {
 
 // Stable identity — React Flow re-mounts every node if this object changes.
 const nodeTypes = { step: StepWidget }
+
+/**
+ * Peers' live cursors, rendered in FLOW coordinates via ViewportPortal so each
+ * viewer's own pan/zoom projects them — a peer pointing at a node shows at that
+ * node on every screen. Counter-scaled so the cursor stays constant screen
+ * size, Figma-style. Off-screen peers pin to the canvas edge with an arrow
+ * pointing toward them.
+ */
+function JamDagCursors({ peers }: Readonly<{ peers: JamPeer[] }>) {
+  const viewport = useViewport()
+  const width = useStore((state) => state.width)
+  const height = useStore((state) => state.height)
+  const live = peers.filter(
+    (peer): peer is JamPeer & { cursor: JamCursor } => peer.cursor?.space === 'dag',
+  )
+  if (live.length === 0) return null
+  return (
+    <>
+      <ViewportPortal>
+        {live.map((peer) => (
+          <div
+            key={peer.clientId}
+            className="pointer-events-none absolute transition-transform duration-75 ease-linear"
+            style={{
+              transform: `translate(${peer.cursor.point.x}px, ${peer.cursor.point.y}px) scale(${1 / viewport.zoom})`,
+              transformOrigin: 'top left',
+            }}
+          >
+            <svg width="18" height="24" viewBox="0 0 18 24" className="drop-shadow" aria-hidden="true">
+              <path d="M2 1L16 13H9.5L6 21L2 1Z" fill={jamCursorColor(peer.userId)} stroke="white" strokeWidth="1.5" />
+            </svg>
+            <span
+              className="ml-3 -mt-1 block w-fit whitespace-nowrap rounded px-1.5 py-0.5 text-[10px] font-semibold text-white shadow"
+              style={{ backgroundColor: jamCursorColor(peer.userId) }}
+            >
+              {peer.name}
+            </span>
+          </div>
+        ))}
+      </ViewportPortal>
+      {/* Edge indicators live in SCREEN space over the canvas container. */}
+      <div className="pointer-events-none absolute inset-0 z-10" aria-hidden="true">
+        {live.map((peer) => {
+          const screen = flowToScreenPoint(peer.cursor.point, viewport)
+          const edge = edgeIndicator(screen, { width, height }, 28)
+          if (!edge) return null
+          return (
+            <div
+              key={peer.clientId}
+              className="absolute flex items-center gap-1"
+              style={{ left: edge.x, top: edge.y, transform: 'translate(-50%, -50%)' }}
+              title={`${peer.name} is here — off screen`}
+            >
+              <span
+                className="flex h-6 w-6 items-center justify-center rounded-full border-2 border-white text-[10px] font-bold text-white shadow"
+                style={{ backgroundColor: jamCursorColor(peer.userId) }}
+              >
+                {peer.name.charAt(0).toUpperCase()}
+              </span>
+              <svg
+                width="10"
+                height="10"
+                viewBox="0 0 10 10"
+                className="absolute -right-2 -top-1"
+                style={{ transform: `rotate(${edge.angle}deg)` }}
+                aria-hidden="true"
+              >
+                <path d="M0 5L10 0v10L0 5z" transform="rotate(180 5 5)" fill={jamCursorColor(peer.userId)} />
+              </svg>
+            </div>
+          )
+        })}
+      </div>
+    </>
+  )
+}
 
 /**
  * "Add step" for the canvas. Lives inside <ReactFlow> so it can use
@@ -371,6 +464,9 @@ export function DagCanvas({
   onAddNode,
   onReorderContainer,
   onAddContainerStep,
+  onCursorMove,
+  onRfInit,
+  onUserPan,
 }: Readonly<{
   graph: FlowGraph
   agents: Agent[]
@@ -392,6 +488,12 @@ export function DagCanvas({
   onAddNode: (type: StepType, seed: FlowInsertSeed | undefined, position: { x: number; y: number }) => void
   onReorderContainer?: (containerId: string, from: number, to: number, branchIndex?: number) => void
   onAddContainerStep?: (containerId: string, type: EditableType, branchIndex?: number) => void
+  /** Local pointer position in FLOW coordinates + current viewport (Jam cursor). */
+  onCursorMove?: (cursor: JamCursor | null) => void
+  /** Hands the React Flow instance up for follow mode's setViewport. */
+  onRfInit?: (instance: ReactFlowInstance) => void
+  /** A USER pan/zoom gesture (not programmatic) — breaks follow mode. */
+  onUserPan?: () => void
 }>) {
   // Positions: stored layout wins, dagre fills the rest. Legacy flows (no layout
   // at all) get a full arrangement without persisting anything.
@@ -479,9 +581,25 @@ export function DagCanvas({
     [agents, toolCatalog, dataFields, variableNames],
   )
 
+  // The instance powers cursor capture (screenToFlowPosition) locally and
+  // follow mode (setViewport) up at the page level via onRfInit.
+  const rfInstance = useRef<ReactFlowInstance | null>(null)
+
   return (
     <div className="flex h-full w-full">
-      <div className="min-w-0 flex-1">
+      <div
+        className="min-w-0 flex-1"
+        onPointerMove={(event) => {
+          const instance = rfInstance.current
+          if (!instance || !onCursorMove) return
+          onCursorMove({
+            space: 'dag',
+            point: instance.screenToFlowPosition({ x: event.clientX, y: event.clientY }),
+            viewport: instance.getViewport(),
+          })
+        }}
+        onPointerLeave={() => onCursorMove?.(null)}
+      >
         <ReactFlow
           nodes={rfNodes}
           edges={rfEdges}
@@ -490,6 +608,15 @@ export function DagCanvas({
           onEdgesDelete={onEdgesDelete}
           onNodeDragStop={onNodeDragStop}
           onPaneClick={() => onSelect(null)}
+          onInit={(instance) => {
+            rfInstance.current = instance
+            onRfInit?.(instance)
+          }}
+          // event is set only for USER gestures; programmatic setViewport
+          // (follow mode itself) passes no event and must not break the follow.
+          onMoveStart={(event) => {
+            if (event) onUserPan?.()
+          }}
           nodesConnectable={!readOnly}
           elementsSelectable
           proOptions={{ hideAttribution: true }}
@@ -499,6 +626,7 @@ export function DagCanvas({
           <Background gap={28} size={1} color="rgba(15, 23, 42, 0.22)" />
           <Controls showInteractive={false} />
           <MiniMap pannable zoomable className="!bg-white" />
+          <JamDagCursors peers={jamPeers ?? []} />
         </ReactFlow>
       </div>
       {panelNode && (

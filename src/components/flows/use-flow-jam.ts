@@ -19,10 +19,11 @@ import {
   patchChangesTopology,
 } from '@/lib/flows/collaboration'
 import { reduceJamConnection, type JamConnectionEvent, type JamConnectionState } from '@/lib/flows/jam-connection'
+import { diffPeers, jamCursorSchema, type JamCursor } from '@/lib/flows/jam-presence'
 
 export type { JamConnectionState } from '@/lib/flows/jam-connection'
+export type { JamCursor } from '@/lib/flows/jam-presence'
 
-export type JamCursor = { x: number; y: number }
 export type JamPeer = {
   clientId: string
   userId: string
@@ -52,15 +53,13 @@ const CURSOR_THROTTLE_MS = 33
 const CONNECTED_POLL_MS = 30000
 const DEGRADED_POLL_MS = 1000
 
-export function normalizeJamCursor(x: number, y: number): JamCursor {
-  return { x: Math.max(0, Math.min(1, x)), y: Math.max(0, Math.min(1, y)) }
+/** Parse a peer's cursor off the wire; anything unrecognized renders as none. */
+function parsePeerCursor(value: unknown): JamCursor | null {
+  const parsed = jamCursorSchema.safeParse(value)
+  return parsed.success ? parsed.data : null
 }
 
-export function jamCursorColor(userId: string): string {
-  let hash = 0
-  for (let index = 0; index < userId.length; index++) hash = (hash * 31 + userId.charCodeAt(index)) | 0
-  return `hsl(${Math.abs(hash) % 360} 72% 46%)`
-}
+export { jamCursorColor } from '@/lib/flows/jam-presence'
 
 function sameGraph(left: FlowGraph | null, right: FlowGraph | null): boolean {
   return JSON.stringify(left) === JSON.stringify(right)
@@ -74,9 +73,12 @@ export function useFlowJam(options: {
   onRemoteGraph: (graph: FlowGraph) => void
   onRemoteSaved: (updatedAt: string) => void
   onConflict: (message: string) => void
+  /** Presence roster changes (joins/leaves) — the page turns these into toasts. */
+  onPeersChanged?: (change: { joined: JamPeer[]; left: JamPeer[] }) => void
 }) {
   const { flowId, enabled, selectedNodeId } = options
   const [peers, setPeers] = useState<JamPeer[]>([])
+  const peersRef = useRef<JamPeer[]>([])
   const [connectionState, setConnectionState] = useState<JamConnectionState>('connecting')
   const clientId = useMemo(() => globalThis.crypto?.randomUUID?.() || Math.random().toString(36).slice(2), [])
   const channelRef = useRef<ReturnType<ReturnType<typeof createClient>['channel']> | null>(null)
@@ -123,6 +125,9 @@ export function useFlowJam(options: {
     channelRef.current = null
     supabaseRef.current = null
     if (channel && supabase) void supabase.removeChannel(channel)
+    // Our OWN disconnect empties the roster silently — no "left" toasts for
+    // peers who are still there from their point of view.
+    peersRef.current = []
     setPeers([])
   }
 
@@ -392,20 +397,29 @@ export function useFlowJam(options: {
                   userId: entry.userId,
                   name: entry.name,
                   selectedNodeId: entry.selectedNodeId ?? null,
-                  cursor: entry.cursor ?? null,
+                  cursor: parsePeerCursor(entry.cursor),
                 })
               }
             }
           }
+          const change = diffPeers(peersRef.current, next)
+          peersRef.current = next
           setPeers(next)
+          if (change.joined.length > 0 || change.left.length > 0) {
+            callbacksRef.current.onPeersChanged?.(change)
+          }
         })
         .on('broadcast', { event: 'cursor' }, ({ payload }) => {
           if (!payload?.clientId || payload.clientId === clientId) return
-          setPeers((current) => current.map((peer) =>
-            peer.clientId === payload.clientId
-              ? { ...peer, cursor: payload.cursor ?? null, selectedNodeId: payload.selectedNodeId ?? peer.selectedNodeId }
-              : peer,
-          ))
+          setPeers((current) => {
+            const next = current.map((peer) =>
+              peer.clientId === payload.clientId
+                ? { ...peer, cursor: parsePeerCursor(payload.cursor), selectedNodeId: payload.selectedNodeId ?? peer.selectedNodeId }
+                : peer,
+            )
+            peersRef.current = next
+            return next
+          })
         })
         .on('broadcast', { event: 'preview-patch' }, ({ payload }) => {
           if (!payload || payload.clientId === clientId || typeof payload.baseRevision !== 'number') return
@@ -561,7 +575,7 @@ export function useFlowJam(options: {
   }
 
   const updateCursor = (cursor: JamCursor | null) => {
-    cursorRef.current = cursor ? normalizeJamCursor(cursor.x, cursor.y) : null
+    cursorRef.current = cursor
     const remaining = CURSOR_THROTTLE_MS - (Date.now() - lastCursorSentAtRef.current)
     if (remaining <= 0) {
       sendCursor()

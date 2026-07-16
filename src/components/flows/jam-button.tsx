@@ -41,7 +41,25 @@ function connectionTone(state: JamConnectionState): string {
   return 'bg-rose-500'
 }
 
-export function JamButton({ flowId, peers, connectionState, canManage = false, onAccessChanged }: { flowId: string; peers: JamPeer[]; connectionState: JamConnectionState; canManage?: boolean; onAccessChanged?: () => void }) {
+export function JamButton({
+  flowId,
+  peers,
+  connectionState,
+  canManage = false,
+  onAccessChanged,
+  followingClientId = null,
+  onToggleFollow,
+}: {
+  flowId: string
+  peers: JamPeer[]
+  connectionState: JamConnectionState
+  canManage?: boolean
+  onAccessChanged?: () => void
+  /** Peer currently being followed (viewport tracking), if any. */
+  followingClientId?: string | null
+  /** Click an avatar to follow that peer's viewport; click again to stop. */
+  onToggleFollow?: (clientId: string) => void
+}) {
   const [open, setOpen] = useState(false)
   const [members, setMembers] = useState<Member[]>([])
   const [selected, setSelected] = useState<Set<string>>(new Set())
@@ -89,23 +107,35 @@ export function JamButton({ flowId, peers, connectionState, canManage = false, o
 
   return (
     <div className="relative flex items-center gap-2">
-      {/* Live peers */}
+      {/* Live peers — click an avatar to follow that teammate's viewport. */}
       {peers.length > 0 && (
         <div className="flex -space-x-1.5" aria-label={`${peers.length} teammates in this jam`}>
           {peers.slice(0, 4).map((peer) => (
-            <span
+            <button
               key={peer.clientId}
-              title={peer.name}
+              type="button"
+              title={followingClientId === peer.clientId ? `Following ${peer.name} — click to stop` : `Follow ${peer.name}`}
+              onClick={() => onToggleFollow?.(peer.clientId)}
               className={cn(
-                'flex h-6 w-6 items-center justify-center rounded-full border-2 border-white text-[10px] font-bold text-white',
+                'flex h-6 w-6 items-center justify-center rounded-full border-2 border-white text-[10px] font-bold text-white transition-shadow',
                 jamAvatarTone(peer.userId),
+                followingClientId === peer.clientId && 'ring-2 ring-indigo-500 ring-offset-1',
               )}
             >
               {peer.name.charAt(0).toUpperCase()}
-            </span>
+            </button>
           ))}
           {peers.length > 4 && <span className="flex h-6 w-6 items-center justify-center rounded-full border-2 border-white bg-slate-400 text-[10px] font-bold text-white">+{peers.length - 4}</span>}
         </div>
+      )}
+      {followingClientId && (
+        <button
+          type="button"
+          className="rounded-full bg-indigo-600 px-2 py-0.5 text-[10px] font-semibold text-white shadow hover:bg-indigo-700"
+          onClick={() => onToggleFollow?.(followingClientId)}
+        >
+          Following {peers.find((peer) => peer.clientId === followingClientId)?.name ?? 'teammate'} — stop
+        </button>
       )}
       <Button
         variant="outline"

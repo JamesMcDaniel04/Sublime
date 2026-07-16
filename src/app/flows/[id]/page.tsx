@@ -37,6 +37,8 @@ import { ResizablePanel } from '@/components/flows/resizable-panel'
 import { TestPanel } from '@/components/flows/test-panel'
 import { VersionsPanel } from '@/components/flows/versions-panel'
 import { useFlowJam, type JamPeer } from '@/components/flows/use-flow-jam'
+import { contentPointFromClient, jamCursorColor, type JamCursor } from '@/lib/flows/jam-presence'
+import type { ReactFlowInstance } from '@xyflow/react'
 import { JamButton } from '@/components/flows/jam-button'
 import type { StepStatus } from '@/components/flows/step-card'
 import { SuggestedImprovementBanner } from '@/components/intelligence/suggested-improvement-banner'
@@ -170,19 +172,33 @@ function filenameSlug(value: string): string {
     .slice(0, 80) || 'flow'
 }
 
-function JamCursorOverlay({ peers }: { peers: JamPeer[] }) {
+/**
+ * Peer cursors for the STACK canvas, rendered in CONTENT coordinates inside
+ * the pan/zoom-transformed wrapper — each viewer's own transform projects
+ * them, so a peer pointing at a card shows at that card on every screen.
+ * (DAG-mode cursors render inside DagCanvas via ViewportPortal.)
+ */
+function JamStackCursors({ peers, zoom }: Readonly<{ peers: JamPeer[]; zoom: number }>) {
+  const live = peers.filter(
+    (peer): peer is JamPeer & { cursor: JamCursor } => peer.cursor?.space === 'stack',
+  )
+  if (live.length === 0) return null
   return (
-    <div className="pointer-events-none fixed inset-0 z-[70]" aria-hidden="true">
-      {peers.filter((peer) => peer.cursor).map((peer) => (
+    <div className="pointer-events-none absolute inset-0" aria-hidden="true">
+      {live.map((peer) => (
         <div
           key={peer.clientId}
           className="absolute transition-[left,top] duration-75 ease-linear"
-          style={{ left: `${peer.cursor!.x * 100}vw`, top: `${peer.cursor!.y * 100}vh` }}
+          // Counter-scale so the cursor stays constant screen size under zoom.
+          style={{ left: peer.cursor.point.x, top: peer.cursor.point.y, transform: `scale(${1 / zoom})`, transformOrigin: 'top left' }}
         >
           <svg width="18" height="24" viewBox="0 0 18 24" className="drop-shadow" aria-hidden="true">
-            <path d="M2 1L16 13H9.5L6 21L2 1Z" fill="#4f46e5" stroke="white" strokeWidth="1.5" />
+            <path d="M2 1L16 13H9.5L6 21L2 1Z" fill={jamCursorColor(peer.userId)} stroke="white" strokeWidth="1.5" />
           </svg>
-          <span className="ml-3 -mt-1 block whitespace-nowrap rounded bg-indigo-600 px-1.5 py-0.5 text-[10px] font-semibold text-white shadow">
+          <span
+            className="ml-3 -mt-1 block w-fit whitespace-nowrap rounded px-1.5 py-0.5 text-[10px] font-semibold text-white shadow"
+            style={{ backgroundColor: jamCursorColor(peer.userId) }}
+          >
             {peer.name}
           </span>
         </div>
@@ -263,7 +279,15 @@ function FlowBuilder() {
   canvasPanRef.current = canvasPan
   const zoomRef = useRef(zoom)
   zoomRef.current = zoom
-  const jamCursorUpdateRef = useRef<(cursor: { x: number; y: number } | null) => void>(() => {})
+  const jamCursorUpdateRef = useRef<(cursor: JamCursor | null) => void>(() => {})
+  // The stack canvas's pan/zoom-transformed content wrapper. Its measured rect
+  // already reflects every transform, so cursor capture divides the zoom back
+  // out and gets exact content coordinates.
+  const stackContentRef = useRef<HTMLDivElement>(null)
+  // React Flow instance (DAG mode) — follow mode drives setViewport through it.
+  const rfInstanceRef = useRef<ReactFlowInstance | null>(null)
+  // Which peer's viewport we're following, if any (Figma's follow mode).
+  const [followingClientId, setFollowingClientId] = useState<string | null>(null)
   const panRef = useRef<ReturnType<typeof startCanvasPan>>(null)
   // Two-finger pinch state: live touch points by pointer id, plus the distance/
   // zoom captured when the second finger lands (the pinch baseline).
@@ -279,6 +303,7 @@ function FlowBuilder() {
     const onWheel = (event: WheelEvent) => {
       if (!event.ctrlKey && !event.metaKey) return
       event.preventDefault()
+      setFollowingClientId(null) // a manual zoom breaks follow mode
       setZoom(zoomRef.current * Math.exp(-event.deltaY * 0.01))
     }
     container.addEventListener('wheel', onWheel, { passive: false })
@@ -290,6 +315,7 @@ function FlowBuilder() {
     return points.length >= 2 ? Math.hypot(points[0].x - points[1].x, points[0].y - points[1].y) : 0
   }
   const onCanvasPointerDown = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    setFollowingClientId(null) // grabbing the canvas breaks follow mode
     const container = canvasScrollRef.current
     if (!container) return
     if (event.pointerType === 'touch') {
@@ -327,10 +353,21 @@ function FlowBuilder() {
       }
     }
     panRef.current?.move(event.clientX, event.clientY)
-    jamCursorUpdateRef.current({
-      x: Math.min(1, Math.max(0, event.clientX / window.innerWidth)),
-      y: Math.min(1, Math.max(0, event.clientY / window.innerHeight)),
-    })
+    // Broadcast the cursor in CONTENT coordinates (zoom divided back out of
+    // the measured rect) so peers see it at the same card, not the same pixel.
+    const rect = stackContentRef.current?.getBoundingClientRect()
+    if (rect) {
+      jamCursorUpdateRef.current({
+        space: 'stack',
+        point: contentPointFromClient({ x: event.clientX, y: event.clientY }, rect, zoomRef.current),
+        viewport: {
+          x: canvasPanRef.current.x,
+          y: canvasPanRef.current.y,
+          zoom: zoomRef.current,
+          scrollTop: canvasScrollRef.current?.scrollTop ?? 0,
+        },
+      })
+    }
   }, [setZoom])
   const onCanvasPointerEnd = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
     if (event.pointerType === 'touch') {
@@ -365,6 +402,15 @@ function FlowBuilder() {
   // Flow Jam: the server is the durable sequencer; Realtime accelerates graph,
   // cursor, and selected-widget presence without becoming the source of truth.
   const remoteGraphSnapshotRef = useRef<string | null>(null)
+  // Join/leave toasts, throttled per user so reconnect flaps don't spam.
+  const peerToastAtRef = useRef(new Map<string, number>())
+  const peerToast = useCallback((kind: 'joined' | 'left', userId: string, message: string) => {
+    const key = `${kind}:${userId}`
+    const now = Date.now()
+    if (now - (peerToastAtRef.current.get(key) ?? 0) < 30000) return
+    peerToastAtRef.current.set(key, now)
+    toast(message)
+  }, [])
   const { peers, connectionState, broadcastGraph, updateCursor, broadcastAccessChange } = useFlowJam({
     flowId: id,
     enabled: !loading && !loadError,
@@ -377,8 +423,40 @@ function FlowBuilder() {
       baseUpdatedAtRef.current = updatedAt
     },
     onConflict: (message) => toast.warning(message, { duration: 8000 }),
+    onPeersChanged: ({ joined, left }) => {
+      for (const peer of joined) peerToast('joined', peer.userId, `${peer.name} joined the jam`)
+      for (const peer of left) peerToast('left', peer.userId, `${peer.name} left the jam`)
+    },
   })
   jamCursorUpdateRef.current = updateCursor
+
+  // Follow mode: track the followed peer's broadcast viewport (and canvas
+  // mode) until the user pans/zooms themselves or clicks the avatar again.
+  useEffect(() => {
+    if (!followingClientId) return
+    const peer = peers.find((candidate) => candidate.clientId === followingClientId)
+    if (!peer) {
+      setFollowingClientId(null)
+      return
+    }
+    const cursor = peer.cursor
+    if (!cursor) return
+    if (cursor.space === 'dag') {
+      if (canvasMode !== 'dag') setCanvasMode('dag')
+      // No-op until the RF instance mounts; the next cursor tick converges.
+      rfInstanceRef.current?.setViewport(
+        { x: cursor.viewport.x, y: cursor.viewport.y, zoom: cursor.viewport.zoom },
+        { duration: 120 },
+      )
+    } else {
+      if (canvasMode !== 'stack') setCanvasMode('stack')
+      setZoom(cursor.viewport.zoom)
+      setCanvasPan({ x: cursor.viewport.x, y: cursor.viewport.y })
+      if (typeof cursor.viewport.scrollTop === 'number' && canvasScrollRef.current) {
+        canvasScrollRef.current.scrollTop = cursor.viewport.scrollTop
+      }
+    }
+  }, [followingClientId, peers, canvasMode, setCanvasMode, setZoom])
   useEffect(() => {
     if (loading || loadError) return
     const snapshot = JSON.stringify(graph)
@@ -1379,7 +1457,15 @@ function FlowBuilder() {
             </button>
           ))}
         </div>
-        <JamButton flowId={id} peers={peers} connectionState={connectionState} canManage={canManageJam} onAccessChanged={broadcastAccessChange} />
+        <JamButton
+          flowId={id}
+          peers={peers}
+          connectionState={connectionState}
+          canManage={canManageJam}
+          onAccessChanged={broadcastAccessChange}
+          followingClientId={followingClientId}
+          onToggleFollow={(clientId) => setFollowingClientId((current) => (current === clientId ? null : clientId))}
+        />
         <Button variant="outline" size="sm" onClick={() => setShowTest((v) => !v)}>
           <FlaskConical className="mr-1.5 h-4 w-4" /> Test
         </Button>
@@ -1450,16 +1536,16 @@ function FlowBuilder() {
         {/* DAG mode owns its own pan/zoom/background (React Flow), so it renders
             OUTSIDE the stack canvas's scroll + transform wrapper. */}
         {canvasMode === 'dag' ? (
-          // Reuses the stack canvas's pointer handler so a teammate still sees
-          // this user's Jam cursor here (panRef is null in DAG mode, so its
-          // pan-drag call safely no-ops). JamCursorOverlay is page-level, so
-          // peers' cursors already render over either canvas.
-          <div
-            className="min-w-0 flex-1 bg-white"
-            onPointerMove={onCanvasPointerMove}
-            onPointerLeave={() => jamCursorUpdateRef.current(null)}
-          >
+          // Cursor capture happens inside DagCanvas (it needs React Flow's
+          // screenToFlowPosition); peers' cursors render there too, in flow
+          // space via ViewportPortal.
+          <div className="min-w-0 flex-1 bg-white">
             <DagCanvas
+              onCursorMove={(cursor) => jamCursorUpdateRef.current(cursor)}
+              onRfInit={(instance) => {
+                rfInstanceRef.current = instance
+              }}
+              onUserPan={() => setFollowingClientId(null)}
               graph={canvasGraph}
               agents={agents}
               toolCatalog={toolCatalog}
@@ -1530,14 +1616,18 @@ function FlowBuilder() {
           }}
         >
           <div
+            ref={stackContentRef}
             style={{
               // Translate first (screen-pixel pan), then scale (zoom). Fit resets both.
               transform: `translate(${canvasPan.x}px, ${canvasPan.y}px) scale(${zoom})`,
               transformOrigin: 'top center',
               width: `${100 / zoom}%`,
               marginLeft: `${(1 - 1 / zoom) * 50}%`,
+              // Anchor for the content-space Jam cursor overlay.
+              position: 'relative',
             }}
           >
+            <JamStackCursors peers={peers} zoom={zoom} />
             <FlowCanvas
               graph={canvasGraph}
               flowId={id}
@@ -1746,7 +1836,6 @@ function FlowBuilder() {
           </ResizablePanel>
         )}
       </div>
-      <JamCursorOverlay peers={peers} />
     </div>
   )
 }
