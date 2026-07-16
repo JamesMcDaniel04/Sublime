@@ -27,6 +27,7 @@ import { NotificationBell } from '@/components/notifications/notification-bell'
 import { Button } from '@/components/ui/button'
 import { useAuth } from '@/hooks/use-auth'
 import { normalizeShareValue } from '@/components/share-control'
+import { resizeImageToDataUrl } from '@/lib/client/resize-image'
 import { getSnapshot, scopeSnapshot } from '@/lib/client/snapshot'
 import { prefetchCachedJson, scopeCachedJson } from '@/lib/client/use-cached-json'
 import { cn } from '@/lib/utils'
@@ -39,35 +40,6 @@ type Organization = { id: string; name: string; slug: string; plan: string; logo
 /** Default workspace avatar — the Sublime mark, until an org uploads its own. */
 const DEFAULT_ORG_LOGO = '/sublime-icon.png'
 
-/**
- * Downscale an uploaded image to a small square PNG data URL so the logo can
- * be stored inline (no object storage) and still render crisply at 32px.
- */
-function resizeImageToDataUrl(file: File, size = 128): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const url = URL.createObjectURL(file)
-    const image = new Image()
-    image.onload = () => {
-      URL.revokeObjectURL(url)
-      const canvas = document.createElement('canvas')
-      canvas.width = size
-      canvas.height = size
-      const context = canvas.getContext('2d')
-      if (!context) return reject(new Error('Canvas unavailable'))
-      // Cover-fit: crop the shorter axis so logos stay centered and square.
-      const scale = Math.max(size / image.width, size / image.height)
-      const width = image.width * scale
-      const height = image.height * scale
-      context.drawImage(image, (size - width) / 2, (size - height) / 2, width, height)
-      resolve(canvas.toDataURL('image/png'))
-    }
-    image.onerror = () => {
-      URL.revokeObjectURL(url)
-      reject(new Error('Could not read that image'))
-    }
-    image.src = url
-  })
-}
 type Usage = { executions: number; inputTokens: number; outputTokens: number; exempt?: boolean }
 
 // Module-level snapshot of the sidebar's fetched data, persisted across the
@@ -102,7 +74,7 @@ function planLabel(plan: string) {
 export function Sidebar() {
   const pathname = usePathname()
   const router = useRouter()
-  const { user, signOut } = useAuth()
+  const { user, signOut, isAdmin } = useAuth()
   const [mobileOpen, setMobileOpen] = useState(false)
   const [paletteOpen, setPaletteOpen] = useState(false)
   const [orgMenuOpen, setOrgMenuOpen] = useState(false)
@@ -440,35 +412,41 @@ export function Sidebar() {
                     {org.id === activeOrg?.id && <Check className="h-4 w-4 text-indigo-600" />}
                   </div>
                 ))}
-                <div className="my-1 border-t" />
-                <button
-                  className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-gray-700 hover:bg-gray-100 disabled:opacity-50"
-                  disabled={uploadingLogo}
-                  onClick={() => logoInputRef.current?.click()}
-                >
-                  {uploadingLogo ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ImagePlus className="h-3.5 w-3.5" />}
-                  {activeOrg?.logoUrl ? 'Change workspace logo' : 'Upload workspace logo'}
-                </button>
-                {activeOrg?.logoUrl && (
-                  <button
-                    className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-gray-700 hover:bg-gray-100 disabled:opacity-50"
-                    disabled={uploadingLogo}
-                    onClick={() => saveOrgLogo(null)}
-                  >
-                    <Trash2 className="h-3.5 w-3.5" /> Remove logo
-                  </button>
+                {/* Logo management PATCHes /api/organizations, which is
+                    admin-only (403 for members) — don't offer it to non-admins. */}
+                {isAdmin && (
+                  <>
+                    <div className="my-1 border-t" />
+                    <button
+                      className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-gray-700 hover:bg-gray-100 disabled:opacity-50"
+                      disabled={uploadingLogo}
+                      onClick={() => logoInputRef.current?.click()}
+                    >
+                      {uploadingLogo ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ImagePlus className="h-3.5 w-3.5" />}
+                      {activeOrg?.logoUrl ? 'Change workspace logo' : 'Upload workspace logo'}
+                    </button>
+                    {activeOrg?.logoUrl && (
+                      <button
+                        className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-gray-700 hover:bg-gray-100 disabled:opacity-50"
+                        disabled={uploadingLogo}
+                        onClick={() => saveOrgLogo(null)}
+                      >
+                        <Trash2 className="h-3.5 w-3.5" /> Remove logo
+                      </button>
+                    )}
+                    <input
+                      ref={logoInputRef}
+                      type="file"
+                      accept="image/png,image/jpeg,image/webp,image/svg+xml"
+                      className="hidden"
+                      onChange={(event) => {
+                        const file = event.target.files?.[0]
+                        event.target.value = ''
+                        if (file) uploadOrgLogo(file)
+                      }}
+                    />
+                  </>
                 )}
-                <input
-                  ref={logoInputRef}
-                  type="file"
-                  accept="image/png,image/jpeg,image/webp,image/svg+xml"
-                  className="hidden"
-                  onChange={(event) => {
-                    const file = event.target.files?.[0]
-                    event.target.value = ''
-                    if (file) uploadOrgLogo(file)
-                  }}
-                />
                 <div className="my-1 border-t" />
                 <div className="truncate px-2 py-1 text-xs text-gray-400">{user?.emailAddress}</div>
                 <button

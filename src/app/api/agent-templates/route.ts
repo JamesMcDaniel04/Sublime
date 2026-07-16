@@ -110,33 +110,48 @@ export const GET = withAuthenticatedApi(async (request, auth) => {
 
 export const POST = withAuthenticatedApi(async (request, auth) => {
   const data = templateSchema.parse(await request.json())
+  const name = data.name.trim()
+  const configuration = {
+    instructions: data.instructions,
+    integrations: data.integrations,
+    skills: data.skills,
+    tags: data.tags,
+    model: data.model,
+    ...(data.exampleOutput ? { exampleOutput: data.exampleOutput } : {}),
+    ...(data.icon ? { icon: data.icon } : {}),
+    ...(data.allowSubagents ? { allowSubagents: true } : {}),
+    ...(data.subagentIds ? { subagentIds: data.subagentIds } : {}),
+    ...(data.goal ? { goal: data.goal } : {}),
+    ...(data.autoAnswerFromMemory !== undefined ? { autoAnswerFromMemory: data.autoAnswerFromMemory } : {}),
+    ...(data.alwaysStrategize !== undefined ? { alwaysStrategize: data.alwaysStrategize } : {}),
+    ...(data.maxTurns !== undefined ? { maxTurns: data.maxTurns } : {}),
+    ...(data.outputFields ? { outputFields: data.outputFields } : {}),
+    ...(data.schedule ? { schedule: data.schedule } : {}),
+    authorName: auth.dbUser.name || auth.dbUser.email || '',
+    ...(data.departments ? { departments: data.departments } : {}),
+    ...(data.requiredIntegrations ? { requiredIntegrations: data.requiredIntegrations } : {}),
+    ...(data.recommendedIntegrations ? { recommendedIntegrations: data.recommendedIntegrations } : {}),
+    ...(data.kind ? { kind: data.kind } : {}),
+  }
+  // Idempotent publish: re-posting the same name (e.g. re-clicking "Add to
+  // templates") must overwrite the author's existing row, never fork a
+  // duplicate in the community library.
+  const existing = await prisma.agentTemplate.findFirst({
+    where: { name, organizationId: auth.organizationId, userId: auth.dbUser.id, isActive: true },
+  })
+  if (existing) {
+    const template = await prisma.agentTemplate.update({
+      where: { id: existing.id, organizationId: auth.organizationId },
+      data: { name, description: data.description, type: data.category, configuration },
+    })
+    return { success: true, template: serializeTemplate(template, auth.organizationId), updated: true }
+  }
   const template = await prisma.agentTemplate.create({
     data: {
-      name: data.name,
+      name,
       description: data.description,
       type: data.category,
-      configuration: {
-        instructions: data.instructions,
-        integrations: data.integrations,
-        skills: data.skills,
-        tags: data.tags,
-        model: data.model,
-        ...(data.exampleOutput ? { exampleOutput: data.exampleOutput } : {}),
-        ...(data.icon ? { icon: data.icon } : {}),
-        ...(data.allowSubagents ? { allowSubagents: true } : {}),
-        ...(data.subagentIds ? { subagentIds: data.subagentIds } : {}),
-        ...(data.goal ? { goal: data.goal } : {}),
-        ...(data.autoAnswerFromMemory !== undefined ? { autoAnswerFromMemory: data.autoAnswerFromMemory } : {}),
-        ...(data.alwaysStrategize !== undefined ? { alwaysStrategize: data.alwaysStrategize } : {}),
-        ...(data.maxTurns !== undefined ? { maxTurns: data.maxTurns } : {}),
-        ...(data.outputFields ? { outputFields: data.outputFields } : {}),
-        ...(data.schedule ? { schedule: data.schedule } : {}),
-        authorName: auth.dbUser.name || auth.dbUser.email || '',
-        ...(data.departments ? { departments: data.departments } : {}),
-        ...(data.requiredIntegrations ? { requiredIntegrations: data.requiredIntegrations } : {}),
-        ...(data.recommendedIntegrations ? { recommendedIntegrations: data.recommendedIntegrations } : {}),
-        ...(data.kind ? { kind: data.kind } : {}),
-      },
+      configuration,
       userId: auth.dbUser.id,
       organizationId: auth.organizationId,
     },
@@ -174,6 +189,12 @@ export const PUT = withAuthenticatedApi(async (request, auth) => {
         ...(body.maxTurns !== undefined && { maxTurns: body.maxTurns }),
         ...(body.outputFields !== undefined && { outputFields: body.outputFields }),
         ...(body.schedule !== undefined && { schedule: body.schedule }),
+        // Catalogue metadata is editable too — the schema accepted these but the
+        // handler silently dropped them, so edits never persisted.
+        ...(body.departments !== undefined && { departments: body.departments }),
+        ...(body.requiredIntegrations !== undefined && { requiredIntegrations: body.requiredIntegrations }),
+        ...(body.recommendedIntegrations !== undefined && { recommendedIntegrations: body.recommendedIntegrations }),
+        ...(body.kind !== undefined && { kind: body.kind }),
       },
     },
   })

@@ -2,15 +2,19 @@
 
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
-import { useParams } from 'next/navigation'
-import { ArrowLeft, BookOpen, Plus, Sparkles } from 'lucide-react'
+import { useParams, useRouter } from 'next/navigation'
+import { ArrowLeft, BookOpen, Pencil, Plus, Sparkles, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
+import { Input } from '@/components/ui/input'
+import { Textarea } from '@/components/ui/textarea'
 import { Skeleton } from '@/components/ui/skeleton'
 import { IntegrationChip } from '@/components/integrations/integration-chip'
 import { decodeSkillRouteId } from '@/lib/skills/route-id'
+import { invalidateCachedJson } from '@/lib/client/use-cached-json'
 
 type Skill = {
   id: string
@@ -19,8 +23,22 @@ type Skill = {
   category: string
   audience: string[]
   tags: string[]
+  integrations?: string[]
   instructions: string
+  mine?: boolean
 }
+
+/** Edit dialog draft — comma-separated inputs mirror the explorer's asset dialog. */
+type SkillDraft = {
+  name: string
+  category: string
+  description: string
+  instructions: string
+  tags: string
+  integrations: string
+}
+
+const csv = (value: string) => value.split(',').map((s) => s.trim()).filter(Boolean)
 
 type SuggestedTemplate = {
   id: string
@@ -34,6 +52,7 @@ type Agent = { id: string; title: string; skills: string[] }
 
 export default function SkillDetailsPage() {
   const { id } = useParams<{ id: string }>()
+  const router = useRouter()
   const skillId = decodeSkillRouteId(id)
   const [skill, setSkill] = useState<Skill | null>(null)
   const [templates, setTemplates] = useState<SuggestedTemplate[]>([])
@@ -42,6 +61,11 @@ export default function SkillDetailsPage() {
   const [loading, setLoading] = useState(true)
   const [adding, setAdding] = useState(false)
   const [error, setError] = useState('')
+  // Owner-only actions (skill.mine): edit dialog + themed delete confirmation.
+  const [editDraft, setEditDraft] = useState<SkillDraft | null>(null)
+  const [savingEdit, setSavingEdit] = useState(false)
+  const [confirmingDelete, setConfirmingDelete] = useState(false)
+  const [deleting, setDeleting] = useState(false)
 
   useEffect(() => {
     let cancelled = false
@@ -92,6 +116,74 @@ export default function SkillDetailsPage() {
     }
   }
 
+  const openEdit = () => {
+    if (!skill) return
+    setEditDraft({
+      name: skill.name,
+      category: skill.category,
+      description: skill.description,
+      instructions: skill.instructions,
+      tags: skill.tags.join(', '),
+      integrations: (skill.integrations ?? []).join(', '),
+    })
+  }
+
+  const saveEdit = async () => {
+    if (!skill || !editDraft) return
+    if (!editDraft.name.trim() || !editDraft.instructions.trim()) {
+      toast.error('Name and instructions are required.')
+      return
+    }
+    setSavingEdit(true)
+    try {
+      const response = await fetch('/api/skills', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: skill.id,
+          name: editDraft.name,
+          category: editDraft.category,
+          description: editDraft.description,
+          instructions: editDraft.instructions,
+          tags: csv(editDraft.tags),
+          integrations: csv(editDraft.integrations),
+        }),
+      })
+      const data = await response.json().catch(() => ({}))
+      if (!response.ok) throw new Error(data.error || 'Could not save the skill.')
+      setSkill((current) => current ? { ...current, ...data.skill } : current)
+      // The explorer caches /api/skills — invalidate so the list reflects the edit.
+      invalidateCachedJson('/api/skills')
+      toast.success('Saved')
+      setEditDraft(null)
+    } catch (cause) {
+      toast.error(cause instanceof Error ? cause.message : 'Could not save the skill.')
+    } finally {
+      setSavingEdit(false)
+    }
+  }
+
+  const deleteSkill = async () => {
+    if (!skill || deleting) return
+    setDeleting(true)
+    try {
+      const response = await fetch('/api/skills', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: skill.id }),
+      })
+      const data = await response.json().catch(() => ({}))
+      if (!response.ok) throw new Error(data.error || 'Could not remove the skill.')
+      invalidateCachedJson('/api/skills')
+      toast.success('Removed')
+      router.push('/dashboard?view=templates&tab=skills')
+    } catch (cause) {
+      toast.error(cause instanceof Error ? cause.message : 'Could not remove the skill.')
+      setDeleting(false)
+      setConfirmingDelete(false)
+    }
+  }
+
   return (
     <div className="mx-auto max-w-6xl space-y-6 p-6">
       <Button variant="ghost" size="sm" asChild className="-ml-2 w-fit">
@@ -118,6 +210,16 @@ export default function SkillDetailsPage() {
               </div>
               <h1 className="text-3xl font-bold tracking-tight">{skill.name}</h1>
               <p className="mt-3 text-base leading-relaxed text-muted-foreground">{skill.description}</p>
+              {skill.mine && (
+                <div className="mt-4 flex gap-2">
+                  <Button variant="outline" size="sm" onClick={openEdit}>
+                    <Pencil className="mr-1.5 h-3.5 w-3.5" />Edit
+                  </Button>
+                  <Button variant="outline" size="sm" className="text-red-600 hover:text-red-700" onClick={() => setConfirmingDelete(true)}>
+                    <Trash2 className="mr-1.5 h-3.5 w-3.5" />Delete
+                  </Button>
+                </div>
+              )}
             </div>
 
             <div className="w-full rounded-xl border bg-card p-4 shadow-1 lg:w-[360px]">
@@ -179,6 +281,65 @@ export default function SkillDetailsPage() {
               ))}
             </div>
           </section>
+
+          <Dialog open={editDraft !== null} onOpenChange={(open) => !open && setEditDraft(null)}>
+            <DialogContent className="max-w-lg">
+              <DialogHeader>
+                <DialogTitle>Edit skill</DialogTitle>
+              </DialogHeader>
+              {editDraft && (
+                <div className="max-h-[65vh] space-y-3 overflow-y-auto pr-1">
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="mb-1 block text-xs font-medium text-muted-foreground">Name</label>
+                      <Input value={editDraft.name} onChange={(e) => setEditDraft({ ...editDraft, name: e.target.value })} />
+                    </div>
+                    <div>
+                      <label className="mb-1 block text-xs font-medium text-muted-foreground">Category</label>
+                      <Input value={editDraft.category} onChange={(e) => setEditDraft({ ...editDraft, category: e.target.value })} />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-xs font-medium text-muted-foreground">Description</label>
+                    <Input value={editDraft.description} onChange={(e) => setEditDraft({ ...editDraft, description: e.target.value })} placeholder="One line shown on the card" />
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-xs font-medium text-muted-foreground">Skill instructions (composed into the agent prompt)</label>
+                    <Textarea rows={8} value={editDraft.instructions} onChange={(e) => setEditDraft({ ...editDraft, instructions: e.target.value })} />
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="mb-1 block text-xs font-medium text-muted-foreground">Tags (comma-separated)</label>
+                      <Input value={editDraft.tags} onChange={(e) => setEditDraft({ ...editDraft, tags: e.target.value })} placeholder="sales, email" />
+                    </div>
+                    <div>
+                      <label className="mb-1 block text-xs font-medium text-muted-foreground">Integrations (comma-separated)</label>
+                      <Input value={editDraft.integrations} onChange={(e) => setEditDraft({ ...editDraft, integrations: e.target.value })} placeholder="Slack, Sublime MCP" />
+                    </div>
+                  </div>
+                </div>
+              )}
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setEditDraft(null)}>Cancel</Button>
+                <Button onClick={saveEdit} loading={savingEdit}>Save</Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+
+          <Dialog open={confirmingDelete} onOpenChange={(open) => !open && !deleting && setConfirmingDelete(false)}>
+            <DialogContent className="max-w-sm">
+              <DialogHeader>
+                <DialogTitle>Remove skill</DialogTitle>
+              </DialogHeader>
+              <p className="text-sm text-muted-foreground">
+                Remove &quot;{skill.name}&quot; from the community library? Agents referencing it simply stop composing it.
+              </p>
+              <DialogFooter>
+                <Button variant="outline" disabled={deleting} onClick={() => setConfirmingDelete(false)}>Cancel</Button>
+                <Button variant="destructive" onClick={deleteSkill} loading={deleting}>Remove</Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
         </>
       )}
     </div>

@@ -1088,6 +1088,42 @@ function FlowBuilder() {
     [id, pollRuns],
   )
 
+  // Stop a live run: immediate for waiting runs (no executor attached),
+  // cooperative for running ones (the executor stops at the next node boundary).
+  const stopRun = useCallback(
+    async (runId: string) => {
+      const response = await fetch(`/api/flows/${id}/runs/${runId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'stop' }),
+      })
+      const data = await response.json().catch(() => ({}))
+      if (!response.ok) toast.error(data.error || 'Could not stop the run.')
+      else toast.success(data.status === 'stopped' ? 'Run stopped.' : 'Stopping — the current step finishes first.')
+      pollRuns()
+      void selectRun(runId)
+    },
+    [id, pollRuns, selectRun],
+  )
+
+  // Re-run a settled run with its original input (server keeps the input, so
+  // this works even when the trigger payload came from a webhook or schedule).
+  const resubmitRun = useCallback(
+    async (runId: string) => {
+      const response = await fetch(`/api/flows/${id}/runs/${runId}/resubmit`, { method: 'POST' })
+      const data = await response.json().catch(() => ({}))
+      if (!response.ok) {
+        toast.error(data.error || 'Could not re-run this run.')
+        return
+      }
+      toast.success('Re-run started with the original input.')
+      if (data.run?.flowRunId) pinnedRunId.current = data.run.flowRunId
+      setShowRuns(true)
+      pollRuns()
+    },
+    [id, pollRuns],
+  )
+
   const viewVersion = useCallback(
     async (v: number) => {
       const data = await fetch(`/api/flows/${id}/versions?version=${v}`, { cache: 'no-store' })
@@ -1935,6 +1971,8 @@ function FlowBuilder() {
               onReply={replyToRun}
               remediation={runtimeRemediation}
               onRemediate={remediateFailure}
+              onStopRun={stopRun}
+              onResubmitRun={resubmitRun}
             />
           </ResizablePanel>
         )}

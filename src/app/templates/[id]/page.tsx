@@ -37,6 +37,7 @@ type Template = {
   seed?: boolean
   seedKey?: string
   requiredIntegrations?: string[]
+  recommendedIntegrations?: string[]
   departments?: string[]
   trigger?: {
     type?: string
@@ -276,12 +277,37 @@ export default function TemplateDetails() {
                 </div>
               </div>
 
-              <div>
-                <p className="eyebrow mb-2">Requires</p>
-                <div className="flex flex-wrap gap-2">
-                  {template.integrations.map((integration) => <IntegrationChip key={integration} name={integration} />)}
+              {/* Catalogue templates distinguish must-have from nice-to-have
+                  integrations — mirror the card's "Requires" list instead of
+                  mixing both into one. Templates without that metadata keep
+                  the combined list. */}
+              {(template.requiredIntegrations?.length || template.recommendedIntegrations?.length) ? (
+                <div className="space-y-4">
+                  {!!template.requiredIntegrations?.length && (
+                    <div>
+                      <p className="eyebrow mb-2">Requires</p>
+                      <div className="flex flex-wrap gap-2">
+                        {template.requiredIntegrations.map((integration) => <IntegrationChip key={integration} name={integration} />)}
+                      </div>
+                    </div>
+                  )}
+                  {!!template.recommendedIntegrations?.length && (
+                    <div>
+                      <p className="eyebrow mb-2">Recommended</p>
+                      <div className="flex flex-wrap gap-2">
+                        {template.recommendedIntegrations.map((integration) => <IntegrationChip key={integration} name={integration} />)}
+                      </div>
+                    </div>
+                  )}
                 </div>
-              </div>
+              ) : (
+                <div>
+                  <p className="eyebrow mb-2">Requires</p>
+                  <div className="flex flex-wrap gap-2">
+                    {template.integrations.map((integration) => <IntegrationChip key={integration} name={integration} />)}
+                  </div>
+                </div>
+              )}
 
               <div>
                 <p className="eyebrow mb-2">Departments</p>

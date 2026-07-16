@@ -35,7 +35,7 @@ export type RunFlowFn = (node: { id: string; flowId: string; input: unknown; res
 // pure: the execute-flow adapter wires this to a cheap generateStructured call.
 export type RouteAiFn = (node: { id: string; branches: RouterBranchSpec[]; instructions?: string; input: string }) => Promise<{ branch: string } | { error: string }>
 export type InterpretResult = {
-  status: 'succeeded' | 'failed' | 'waiting'
+  status: 'succeeded' | 'failed' | 'waiting' | 'stopped'
   steps: StepOutcome[]
   output: unknown
   waiting?: { nodeId: string; question?: string; wakeAt?: string }
@@ -58,6 +58,13 @@ type Opts = {
    */
   maxConcurrency?: number
   onStep?: (outcome: StepOutcome) => void
+  /**
+   * Cooperative cancellation: polled between node settlements. Returning true
+   * halts admission of new nodes — in-flight nodes finish (nothing is killed
+   * mid-write) and the run settles as `stopped`. The caller throttles any
+   * expensive check (execute-flow polls the run row at most every ~2s).
+   */
+  shouldStop?: () => Promise<boolean> | boolean
   // Resume support: `completed` maps node ids already finished on a prior run to
   // their output (they are skipped, not re-run); `resumeNodeId` is the node that
   // was paused and should re-run with the user's reply injected.
@@ -1298,6 +1305,11 @@ export async function interpretFlow(graph: FlowGraph, input: unknown, opts: Opts
   // to settle and re-evaluate. On halt we stop admitting work but let in-flight
   // nodes finish so nothing is lost mid-write.
   for (;;) {
+    // A requested stop halts exactly like fail/pause: no new admissions,
+    // in-flight work completes, and the partial output is preserved.
+    if (!halt && opts.shouldStop && (await opts.shouldStop())) {
+      halt = { status: 'stopped', steps, output: lastOutput, webhookResponse }
+    }
     while (!halt && ready.length && inflight.size < cap) {
       const id = ready.shift()!
       const promise = runNode(id).finally(() => { inflight.delete(promise) })

@@ -1,5 +1,7 @@
 import { z } from 'zod'
-import { withAuthenticatedApi } from '@/lib/server/api-handler'
+import { ApiError, withAuthenticatedApi } from '@/lib/server/api-handler'
+import { rateLimit } from '@/lib/ratelimit'
+import { checkMonthlyTokenBudget } from '@/lib/usage/budget'
 import { flowGraphSchema, emptyGraph } from '@/lib/flows/graph'
 import { generateFlowGraph } from '@/lib/flows/copilot-generate'
 import { buildCopilotGrounding } from '@/lib/flows/copilot-grounding'
@@ -11,6 +13,11 @@ const requestSchema = z.object({
 })
 
 export const POST = withAuthenticatedApi(async (request, auth) => {
+  // Copilot generation is a full LLM call — same guardrails as agent execute.
+  const limited = await rateLimit(`copilot:${auth.dbUser.id}`, { limit: 20, windowMs: 60_000 })
+  if (!limited.ok) throw new ApiError('Rate limit exceeded', 429, 'RATE_LIMITED')
+  const budget = await checkMonthlyTokenBudget(auth.organizationId, auth.dbUser.id)
+  if (budget.over) throw new ApiError('Monthly token budget reached for this workspace.', 429, 'BUDGET_EXCEEDED')
   const { description, currentGraph, issues } = requestSchema.parse(await request.json())
   const { roster, toolCatalog, contextBlock, graphRules } = await buildCopilotGrounding(auth.organizationId, auth.dbUser.id)
   const system = graphRules

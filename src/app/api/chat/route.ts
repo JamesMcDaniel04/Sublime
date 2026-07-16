@@ -5,6 +5,8 @@ import { DEFAULT_SUMMARY_MODEL } from '@/lib/llm/model-runner'
 import { qwenClient, qwenConfigured, qwenModel } from '@/lib/llm/qwen'
 import { ApiError, withAuthenticatedApi } from '@/lib/server/api-handler'
 import { executionVisibilityScope } from '@/lib/server/visibility'
+import { rateLimit } from '@/lib/ratelimit'
+import { checkMonthlyTokenBudget } from '@/lib/usage/budget'
 
 const SYSTEM_PROMPT =
   'Answer questions about an AI agent run. Be precise about its output, tool calls, and errors. Do not claim actions not present in the run data.'
@@ -13,6 +15,12 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
   if (!process.env.ANTHROPIC_API_KEY && !qwenConfigured()) {
     throw new ApiError('No model provider is configured', 503, 'AI_UNAVAILABLE')
   }
+  // Same guardrails as the agent chat/execute paths: authenticated is not a
+  // license to drive unbounded model cost.
+  const limited = await rateLimit(`chat:${auth.dbUser.id}`, { limit: 30, windowMs: 60_000 })
+  if (!limited.ok) throw new ApiError('Rate limit exceeded', 429, 'RATE_LIMITED')
+  const budget = await checkMonthlyTokenBudget(auth.organizationId, auth.dbUser.id)
+  if (budget.over) throw new ApiError('Monthly token budget reached for this workspace.', 429, 'BUDGET_EXCEEDED')
   const { executionId, question } = z.object({
     executionId: z.string().min(1),
     question: z.string().min(1).max(4000),

@@ -48,6 +48,7 @@ interface TemplateItem {
   kind?: 'agent' | 'flow'
   seed?: boolean
   seedKey?: string
+  schedule?: { type?: string; cron?: string; time?: string; timezone?: string; isActive?: boolean }
 }
 
 interface SkillItem {
@@ -75,11 +76,18 @@ type AssetDraft = {
   tags: string
   integrations: string
   exampleOutput: string
+  // Advanced template fields (ignored for skills). templateKind is named to
+  // avoid colliding with the dialog's own template/skill discriminator.
+  templateKind: 'agent' | 'flow'
+  requiredIntegrations: string
+  recommendedIntegrations: string
+  scheduleCron: string
 }
 
 const emptyAsset = (kind: 'template' | 'skill'): AssetDraft => ({
   kind, name: '', category: kind === 'template' ? 'Custom' : 'Community',
   description: '', instructions: '', tags: '', integrations: '', exampleOutput: '',
+  templateKind: 'agent', requiredIntegrations: '', recommendedIntegrations: '', scheduleCron: '',
 })
 
 const csv = (value: string) => value.split(',').map((s) => s.trim()).filter(Boolean)
@@ -157,6 +165,8 @@ export function TemplatesExplorer() {
   // Create/edit dialog for community templates + skills.
   const [dialog, setDialog] = useState<AssetDraft | null>(null)
   const [savingAsset, setSavingAsset] = useState(false)
+  // Themed confirmation for asset deletion (replaces native confirm()).
+  const [confirmDelete, setConfirmDelete] = useState<{ kind: 'template' | 'skill'; id: string; name: string } | null>(null)
   const aiRequestSeq = useRef(0)
   // Org's connected integrations (canonical slugs) — drives the Starter
   // catalogue's ready-first sort and per-card Connect CTA. Never used to hide
@@ -169,12 +179,17 @@ export function TemplatesExplorer() {
       id: t.id, kind: 'template', name: t.name, category: t.category, description: t.description,
       instructions: t.instructions ?? '', tags: (t.tags ?? []).join(', '), integrations: (t.integrations ?? []).join(', '),
       exampleOutput: t.exampleOutput ?? '',
+      templateKind: t.kind === 'flow' ? 'flow' : 'agent',
+      requiredIntegrations: (t.requiredIntegrations ?? []).join(', '),
+      recommendedIntegrations: (t.recommendedIntegrations ?? []).join(', '),
+      scheduleCron: t.schedule?.type === 'cron' ? t.schedule.cron ?? '' : '',
     })
   const openEditSkill = (s: SkillItem) =>
     setDialog({
       id: s.id, kind: 'skill', name: s.name, category: s.category, description: s.description,
       instructions: s.instructions ?? '', tags: (s.tags ?? []).join(', '), integrations: (s.integrations ?? []).join(', '),
       exampleOutput: '',
+      templateKind: 'agent', requiredIntegrations: '', recommendedIntegrations: '', scheduleCron: '',
     })
 
   const saveAsset = async () => {
@@ -184,9 +199,20 @@ export function TemplatesExplorer() {
     }
     setSavingAsset(true)
     const url = dialog.kind === 'template' ? '/api/agent-templates' : '/api/skills'
+    const scheduleCron = dialog.scheduleCron.trim()
+    // Clearing the cron on edit must overwrite the stored schedule (PUT skips
+    // undefined keys), so edits always send an explicit schedule object.
+    let schedule: Record<string, unknown> | undefined
+    if (scheduleCron) schedule = { type: 'cron', cron: scheduleCron, time: '', timezone: 'UTC', isActive: true }
+    else if (dialog.id) schedule = { type: 'manual', cron: '', time: '', timezone: 'UTC', isActive: false }
     const payload =
       dialog.kind === 'template'
-        ? { name: dialog.name, category: dialog.category, description: dialog.description, instructions: dialog.instructions, tags: csv(dialog.tags), integrations: csv(dialog.integrations), exampleOutput: dialog.exampleOutput || undefined }
+        ? {
+            name: dialog.name, category: dialog.category, description: dialog.description, instructions: dialog.instructions,
+            tags: csv(dialog.tags), integrations: csv(dialog.integrations), exampleOutput: dialog.exampleOutput || undefined,
+            kind: dialog.templateKind, requiredIntegrations: csv(dialog.requiredIntegrations),
+            recommendedIntegrations: csv(dialog.recommendedIntegrations), schedule,
+          }
         : { name: dialog.name, category: dialog.category, description: dialog.description, instructions: dialog.instructions, tags: csv(dialog.tags), integrations: csv(dialog.integrations) }
     try {
       const res = await fetch(url, {
@@ -214,16 +240,26 @@ export function TemplatesExplorer() {
     }
   }
 
-  const deleteAsset = async (kind: 'template' | 'skill', id: string, name: string) => {
-    if (!confirm(`Remove "${name}" from the community library?`)) return
+  const deleteAsset = async () => {
+    if (!confirmDelete) return
+    const { kind, id } = confirmDelete
+    setConfirmDelete(null)
     const url = kind === 'template' ? '/api/agent-templates' : '/api/skills'
-    const res = await fetch(url, { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id }) })
-    if (res.ok) {
+    // Optimistic removal — the card disappears immediately and is restored if
+    // the DELETE fails.
+    const prevTemplates = templates
+    const prevSkills = skills
+    if (kind === 'template') setTemplates((prev) => prev.filter((t) => t.id !== id))
+    else setSkills((prev) => prev.filter((s) => s.id !== id))
+    const res = await fetch(url, { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id }) }).catch(() => null)
+    if (res?.ok) {
       invalidateCachedJson(url)
-      if (kind === 'template') setTemplates((prev) => prev.filter((t) => t.id !== id))
-      else setSkills((prev) => prev.filter((s) => s.id !== id))
       toast.success('Removed')
-    } else toast.error('Could not remove')
+    } else {
+      if (kind === 'template') setTemplates(prevTemplates)
+      else setSkills(prevSkills)
+      toast.error('Could not remove')
+    }
   }
 
   const handleTabChange = (value: string) => {
@@ -303,7 +339,7 @@ export function TemplatesExplorer() {
               {!t.autoGenerated && (
                 <button type="button" aria-label="Edit template" onClick={(e) => { e.preventDefault(); openEditTemplate(t) }} className="rounded-md border bg-card p-1.5 text-muted-foreground shadow-1 hover:text-indigo-600"><Pencil className="h-3.5 w-3.5" /></button>
               )}
-              <button type="button" aria-label="Delete template" onClick={(e) => { e.preventDefault(); deleteAsset('template', t.id, t.name) }} className="rounded-md border bg-card p-1.5 text-muted-foreground shadow-1 hover:text-red-600"><Trash2 className="h-3.5 w-3.5" /></button>
+              <button type="button" aria-label="Delete template" onClick={(e) => { e.preventDefault(); setConfirmDelete({ kind: 'template', id: t.id, name: t.name }) }} className="rounded-md border bg-card p-1.5 text-muted-foreground shadow-1 hover:text-red-600"><Trash2 className="h-3.5 w-3.5" /></button>
             </div>
           )}
           <CardHeader className="space-y-2.5 pt-5">
@@ -762,7 +798,7 @@ export function TemplatesExplorer() {
                     {skill.mine && (
                       <div className="absolute right-2 top-2 z-10 hidden gap-1 group-hover:flex">
                         <button type="button" aria-label="Edit skill" onClick={() => openEditSkill(skill)} className="rounded-md border bg-card p-1.5 text-muted-foreground shadow-1 hover:text-indigo-600"><Pencil className="h-3.5 w-3.5" /></button>
-                        <button type="button" aria-label="Delete skill" onClick={() => deleteAsset('skill', skill.id, skill.name)} className="rounded-md border bg-card p-1.5 text-muted-foreground shadow-1 hover:text-red-600"><Trash2 className="h-3.5 w-3.5" /></button>
+                        <button type="button" aria-label="Delete skill" onClick={() => setConfirmDelete({ kind: 'skill', id: skill.id, name: skill.name })} className="rounded-md border bg-card p-1.5 text-muted-foreground shadow-1 hover:text-red-600"><Trash2 className="h-3.5 w-3.5" /></button>
                       </div>
                     )}
                     <Link href={`/skills/${encodeURIComponent(skill.id)}`} className="flex flex-1 flex-col">
@@ -904,12 +940,59 @@ export function TemplatesExplorer() {
                   <Textarea rows={3} value={dialog.exampleOutput} onChange={(e) => setDialog({ ...dialog, exampleOutput: e.target.value })} placeholder="Illustrative output shown on the detail page" />
                 </div>
               )}
+              {dialog.kind === 'template' && (
+                <div className="space-y-3 rounded-lg border border-border/60 p-3">
+                  <p className="text-xs font-semibold text-muted-foreground">Advanced</p>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="mb-1 block text-xs font-medium text-muted-foreground">Kind</label>
+                      <select
+                        value={dialog.templateKind}
+                        onChange={(e) => setDialog({ ...dialog, templateKind: e.target.value === 'flow' ? 'flow' : 'agent' })}
+                        className="h-9 w-full rounded-md border bg-background px-3 text-sm"
+                      >
+                        <option value="agent">Agent</option>
+                        <option value="flow">Flow</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="mb-1 block text-xs font-medium text-muted-foreground">Schedule (cron, optional)</label>
+                      <Input value={dialog.scheduleCron} onChange={(e) => setDialog({ ...dialog, scheduleCron: e.target.value })} placeholder="0 14 * * 1" />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="mb-1 block text-xs font-medium text-muted-foreground">Required integrations (comma-separated)</label>
+                      <Input value={dialog.requiredIntegrations} onChange={(e) => setDialog({ ...dialog, requiredIntegrations: e.target.value })} placeholder="Slack, HubSpot" />
+                    </div>
+                    <div>
+                      <label className="mb-1 block text-xs font-medium text-muted-foreground">Recommended integrations (comma-separated)</label>
+                      <Input value={dialog.recommendedIntegrations} onChange={(e) => setDialog({ ...dialog, recommendedIntegrations: e.target.value })} placeholder="Gmail" />
+                    </div>
+                  </div>
+                </div>
+              )}
               <p className="text-xs text-muted-foreground">Published to the public community library — visible to every workspace.</p>
             </div>
           )}
           <DialogFooter>
             <Button variant="outline" onClick={() => setDialog(null)}>Cancel</Button>
             <Button onClick={saveAsset} loading={savingAsset}>{dialog?.id ? 'Save' : 'Publish'}</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={confirmDelete !== null} onOpenChange={(open) => !open && setConfirmDelete(null)}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Remove {confirmDelete?.kind === 'skill' ? 'skill' : 'template'}</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground">
+            Remove &quot;{confirmDelete?.name}&quot; from the community library? This cannot be undone.
+          </p>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setConfirmDelete(null)}>Cancel</Button>
+            <Button variant="destructive" onClick={deleteAsset}>Remove</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

@@ -764,6 +764,24 @@ export async function runFlowExecution(
     }
   }
 
+  // Cooperative stop: the runs route flips the row to 'stopping'; the
+  // interpreter polls this between node settlements and halts without
+  // starting new work. Throttled so a many-node flow doesn't hammer the DB.
+  let stopCheckedAt = 0
+  let stopRequested = false
+  const shouldStop = async () => {
+    if (stopRequested) return true
+    const now = Date.now()
+    if (now - stopCheckedAt < 2000) return false
+    stopCheckedAt = now
+    const current = await prisma.flowRun.findFirst({
+      where: { id: run.id, organizationId: job.organizationId },
+      select: { status: true },
+    })
+    stopRequested = current?.status === 'stopping'
+    return stopRequested
+  }
+
   const result = await interpretFlow(graph, input, {
     runAgent,
     runAction,
@@ -771,6 +789,7 @@ export async function runFlowExecution(
     routeAi,
     onStep,
     stepLabels,
+    shouldStop,
     // resumeKey names the EXACT paused iteration (see resume-scan.ts) — the
     // interpreter's guards match on it, so dropping it here would silently
     // downgrade every loop resume to the bare-id fallback (reply lost).
@@ -778,7 +797,10 @@ export async function runFlowExecution(
     ...(job.startNodeId ? { startNodeId: job.startNodeId } : {}),
   })
   await Promise.all(pending) // ensure all container-step rows are written
-  const status = result.status === 'succeeded' ? 'succeeded' : result.status === 'waiting' ? 'waiting' : 'failed'
+  const status = result.status === 'succeeded' ? 'succeeded'
+    : result.status === 'waiting' ? 'waiting'
+    : result.status === 'stopped' ? 'stopped'
+    : 'failed'
   // A failed run persists WHY it failed (e.g. the step-timeout message) — the
   // runs API surfaces FlowRun.error, so it must never stay null on failure.
   const runError = status === 'failed' ? (result.error ?? 'The flow failed.').slice(0, 300) : null
@@ -807,19 +829,21 @@ export async function runFlowExecution(
       })
     }
   }
-  if (status === 'failed') {
+  if (status === 'failed' || status === 'stopped') {
     // Sweep phantom 'running' rows: a timed-out agent step's adapter promise
     // was abandoned by the interpreter, so its FlowRunStep would stay stuck
     // 'running' forever. Close every such row for THIS run. The sweep wins
     // over the abandoned adapter: its terminal writes are conditional on the
     // row still being 'running' (finishStep/finish above), so a zombie
     // completion can never flip a swept step back inside a failed run.
-    // Best-effort — sweep failure must not mask the run's real outcome.
+    // A user-stopped run sweeps the same way, just labeled 'stopped' —
+    // a stop is not a failure. Best-effort — sweep failure must not mask
+    // the run's real outcome.
     await prisma.flowRunStep
       .updateMany({
         where: { flowRunId: run.id, status: 'running' },
         data: {
-          status: 'failed',
+          status: status === 'stopped' ? 'stopped' : 'failed',
           error: runError ?? 'The flow stopped before this step finished.',
           finishedAt: new Date(),
         },

@@ -1,18 +1,43 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { PageHeader } from '@/components/ui/page-header'
+import { Skeleton } from '@/components/ui/skeleton'
 import { Switch } from '@/components/ui/switch'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { toast } from 'sonner'
+import { resizeImageToDataUrl } from '@/lib/client/resize-image'
 import { LearningsPanel } from './learnings-panel'
 
 type Profile = { name: string; email: string; imageUrl: string | null; role: string }
+
+/** PATCH /api/settings/profile caps imageUrl at 2048 characters. */
+const AVATAR_URL_MAX = 2048
+
+/**
+ * Downscale an uploaded photo to a small square data URL that fits the
+ * profile imageUrl limit: PNG first (crispest), then increasingly compact
+ * JPEGs until one fits.
+ */
+async function fileToAvatarDataUrl(file: File): Promise<string> {
+  const attempts: Array<{ size: number; mimeType: 'image/png' | 'image/jpeg'; quality?: number }> = [
+    { size: 64, mimeType: 'image/png' },
+    { size: 64, mimeType: 'image/jpeg', quality: 0.8 },
+    { size: 48, mimeType: 'image/jpeg', quality: 0.7 },
+    { size: 32, mimeType: 'image/jpeg', quality: 0.6 },
+    { size: 24, mimeType: 'image/jpeg', quality: 0.5 },
+  ]
+  for (const { size, mimeType, quality } of attempts) {
+    const dataUrl = await resizeImageToDataUrl(file, size, { mimeType, quality })
+    if (dataUrl.length <= AVATAR_URL_MAX) return dataUrl
+  }
+  throw new Error('Could not shrink that image enough — try a simpler one.')
+}
 type Factor = { id: string; friendly_name?: string; status: string }
 type Member = { id: string; email: string | null; name: string | null; role: 'ADMIN' | 'USER'; isActive: boolean }
 type Invitation = { id: string; email: string; role: 'ADMIN' | 'USER'; expiresAt: string; createdAt: string }
@@ -21,6 +46,9 @@ type OrgSettings = { disableConnectionScans?: boolean }
 export default function SettingsPage() {
   const supabase = createClient()
   const [profile, setProfile] = useState<Profile | null>(null)
+  const [savedProfileName, setSavedProfileName] = useState('')
+  const [savingAvatar, setSavingAvatar] = useState(false)
+  const avatarInputRef = useRef<HTMLInputElement>(null)
   const [password, setPassword] = useState('')
   const [email, setEmail] = useState('')
   const [factors, setFactors] = useState<Factor[]>([])
@@ -54,6 +82,7 @@ export default function SettingsPage() {
       if (!orgResponse.ok || !orgData.success) throw new Error(orgData.error || 'Could not load workspace settings.')
       if (factorResult.error) throw factorResult.error
       setProfile(data.profile); setEmail(data.profile.email || '')
+      setSavedProfileName(data.profile.name || '')
       setFactors((factorResult.data?.totp || []) as Factor[])
       setMembers(memberData.members); setInvitations(memberData.invitations || [])
       setOrgSettings((orgData.organizations?.[0]?.settings || {}) as OrgSettings)
@@ -124,10 +153,43 @@ export default function SettingsPage() {
 
   async function saveProfile(event: React.FormEvent) {
     event.preventDefault()
-    const response = await fetch('/api/settings/profile', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(profile) })
+    if (!profile) return
+    const name = profile.name?.trim()
+    if (!name || name === savedProfileName) return
+    const response = await fetch('/api/settings/profile', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...profile, name }) })
     const data = await response.json()
     if (!response.ok) return toast.error(data.error || 'Could not save profile')
-    setProfile(data.profile); toast.success('Profile saved')
+    setProfile(data.profile); setSavedProfileName(data.profile?.name || name); toast.success('Profile saved')
+  }
+
+  /** PATCH just the photo, keeping the last-saved name (the schema requires one). */
+  async function saveAvatar(imageUrl: string | null) {
+    if (!profile) return
+    const name = savedProfileName.trim() || profile.name?.trim()
+    if (!name) return toast.error('Set a display name before adding a photo.')
+    setSavingAvatar(true)
+    try {
+      const response = await fetch('/api/settings/profile', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name, imageUrl }) })
+      const data = await response.json().catch(() => ({}))
+      if (!response.ok) return toast.error(data.error || 'Could not update your photo')
+      // Merge instead of replacing so an in-progress name edit isn't clobbered.
+      setProfile((current) => (current ? { ...current, imageUrl: data.profile?.imageUrl ?? imageUrl } : current))
+      toast.success(imageUrl ? 'Photo updated' : 'Photo removed')
+    } finally {
+      setSavingAvatar(false)
+    }
+  }
+
+  async function uploadAvatar(file: File) {
+    setSavingAvatar(true)
+    try {
+      const imageUrl = await fileToAvatarDataUrl(file)
+      await saveAvatar(imageUrl)
+    } catch (cause) {
+      toast.error(cause instanceof Error && cause.message ? cause.message : 'Could not read that image — try a PNG or JPEG.')
+    } finally {
+      setSavingAvatar(false)
+    }
   }
 
   async function changeEmail() {
@@ -180,10 +242,42 @@ export default function SettingsPage() {
 
   return <div className="space-y-6"><PageHeader eyebrow="Account" title="Settings" description="Manage your profile, sign-in security, and active sessions." />
     {loadError && <Card className="border-red-200"><CardContent className="flex flex-wrap items-center justify-between gap-3 p-4"><p className="text-sm text-red-700">{loadError}</p><Button variant="outline" onClick={() => void load()} loading={loadingSettings}>Try again</Button></CardContent></Card>}
+    {loadingSettings && !profile ? (
+      <div className="space-y-6" aria-busy="true" aria-label="Loading settings">
+        <Skeleton className="h-9 w-80 max-w-full rounded-lg" />
+        <Skeleton className="h-56 max-w-2xl rounded-xl" />
+        <Skeleton className="h-40 max-w-2xl rounded-xl" />
+      </div>
+    ) : (
     <Tabs defaultValue="profile"><TabsList className="flex h-auto flex-wrap"><TabsTrigger value="profile">Profile</TabsTrigger><TabsTrigger value="security">Security</TabsTrigger><TabsTrigger value="members">Members</TabsTrigger><TabsTrigger value="workspace">Workspace</TabsTrigger></TabsList>
       <TabsContent value="profile" className="mt-6">{profile && <Card className="max-w-2xl"><CardHeader><CardTitle>Profile</CardTitle></CardHeader><CardContent><form className="space-y-4" onSubmit={saveProfile}>
+        <div className="flex items-center gap-4">
+          {profile.imageUrl ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={profile.imageUrl} alt="Profile photo" className="h-14 w-14 rounded-full border object-cover" />
+          ) : (
+            <div className="flex h-14 w-14 items-center justify-center rounded-full bg-muted text-lg font-semibold text-muted-foreground" aria-hidden>
+              {(profile.name || profile.email || 'U').trim().charAt(0).toUpperCase()}
+            </div>
+          )}
+          <div className="flex flex-wrap gap-2">
+            <Button type="button" variant="outline" size="sm" loading={savingAvatar} onClick={() => avatarInputRef.current?.click()}>
+              {profile.imageUrl ? 'Change photo' : 'Upload photo'}
+            </Button>
+            {profile.imageUrl && (
+              <Button type="button" variant="ghost" size="sm" disabled={savingAvatar} onClick={() => void saveAvatar(null)}>Remove</Button>
+            )}
+          </div>
+          <input
+            ref={avatarInputRef}
+            type="file"
+            accept="image/png,image/jpeg,image/webp"
+            className="hidden"
+            onChange={(e) => { const file = e.target.files?.[0]; e.target.value = ''; if (file) void uploadAvatar(file) }}
+          />
+        </div>
         <div className="space-y-2"><Label htmlFor="name">Display name</Label><Input id="name" value={profile.name || ''} onChange={(e) => setProfile({ ...profile, name: e.target.value })} /></div>
-        <Button type="submit">Save profile</Button>
+        <Button type="submit" disabled={!profile.name?.trim() || profile.name.trim() === savedProfileName}>Save profile</Button>
       </form></CardContent></Card>}
         <Card className="mt-6 max-w-2xl border-red-200"><CardHeader><CardTitle>Delete account</CardTitle></CardHeader><CardContent><p className="mb-4 text-sm text-muted-foreground">Permanently removes your account. If you are the only member, the workspace and its data are also deleted.</p><Button variant="outline" onClick={async () => { if (window.prompt('Type DELETE to permanently delete your account') !== 'DELETE') return; const response = await fetch('/api/settings/profile', { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ confirmation: 'DELETE' }) }); const data = await response.json(); if (!response.ok) return toast.error(data.error || 'Could not delete account'); await supabase.auth.signOut(); window.location.replace('/') }}>Delete account</Button></CardContent></Card>
       </TabsContent>
@@ -252,6 +346,7 @@ export default function SettingsPage() {
         )}
       </TabsContent>
     </Tabs>
+    )}
   </div>
 }
 

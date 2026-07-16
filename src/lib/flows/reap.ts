@@ -28,8 +28,11 @@ const REAP_BATCH_LIMIT = 500
 export async function reapStuckFlowRuns(now = new Date(), onAfterRead?: () => Promise<void>): Promise<number> {
   const cutoff = new Date(now.getTime() - STUCK_FLOW_RUN_TIMEOUT_MS)
   // systemPrisma: global reaper sweep — runs across all orgs by design (invoked from CRON_SECRET-gated dispatch).
+  // 'stopping' is swept too: it means a stop was requested while an executor
+  // was live — if that executor died before honoring it, the run would
+  // otherwise sit in 'stopping' forever.
   const stuck = await systemPrisma.flowRun.findMany({
-    where: { status: 'running', startedAt: { lt: cutoff } },
+    where: { status: { in: ['running', 'stopping'] }, startedAt: { lt: cutoff } },
     select: { id: true },
     take: REAP_BATCH_LIMIT,
   })
@@ -42,7 +45,7 @@ export async function reapStuckFlowRuns(now = new Date(), onAfterRead?: () => Pr
     // (e.g. paused on a question) between the read above and this write is
     // left alone.
     const reaped = await tx.flowRun.updateMany({
-      where: { id: { in: runIds }, status: 'running' },
+      where: { id: { in: runIds }, status: { in: ['running', 'stopping'] } },
       data: { status: 'failed', error: STUCK_RUN_ERROR, finishedAt: now },
     })
     if (reaped.count === 0) return 0

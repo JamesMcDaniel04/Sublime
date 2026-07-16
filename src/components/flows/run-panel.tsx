@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { AlertTriangle, ChevronRight, Sparkles, X } from 'lucide-react'
+import { AlertTriangle, ChevronRight, RotateCcw, Sparkles, Square, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Markdown } from '@/components/ui/markdown'
@@ -52,11 +52,16 @@ const STATUS_TEXT: Record<string, string> = {
   failed: 'text-red-600',
   waiting: 'text-blue-600',
   running: 'text-amber-600',
+  stopping: 'text-slate-500',
   skipped: 'text-gray-400',
   stopped: 'text-slate-500',
   queued: 'text-gray-400',
   resumed: 'text-gray-400',
 }
+
+/** Live runs can be stopped; settled ones can be re-run with their input. */
+const STOPPABLE_RUN_STATUSES = new Set(['running', 'waiting', 'stopping'])
+const RESUBMITTABLE_RUN_STATUSES = new Set(['succeeded', 'failed', 'stopped'])
 
 function preview(value: unknown): string {
   if (value == null) return '—'
@@ -261,6 +266,8 @@ export function RunPanel({
   onReply,
   remediation,
   onRemediate,
+  onStopRun,
+  onResubmitRun,
 }: {
   runs: { id: string; status: string; startedAt?: string }[]
   selected: FlowRunDetail | null
@@ -270,6 +277,10 @@ export function RunPanel({
   onReply?: (flowRunId: string, reply: string) => Promise<void>
   remediation?: FlowFailureRemediation | null
   onRemediate?: (remediation: FlowFailureRemediation) => void
+  /** Stop a running/waiting run (cooperative for running, immediate for waiting). */
+  onStopRun?: (flowRunId: string) => Promise<void>
+  /** Re-run a settled run with its original input. */
+  onResubmitRun?: (flowRunId: string) => Promise<void>
 }) {
   return (
     <div className="flex h-full w-full flex-col border-l border-border bg-card">
@@ -299,7 +310,34 @@ export function RunPanel({
         ) : (
           <>
             <div className="border-b border-border px-3 py-2">
-              <span className={cn('text-xs font-semibold capitalize', STATUS_TEXT[selected.status])}>{selected.status === 'running' ? <TypewriterStatus /> : selected.status}</span>
+              <div className="flex items-center justify-between gap-2">
+                <span className={cn('text-xs font-semibold capitalize', STATUS_TEXT[selected.status])}>{selected.status === 'running' ? <TypewriterStatus /> : selected.status}</span>
+                <div className="flex items-center gap-1">
+                  {onStopRun && STOPPABLE_RUN_STATUSES.has(selected.status) && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-6 px-2 text-xs"
+                      disabled={selected.status === 'stopping'}
+                      onClick={() => void onStopRun(selected.id)}
+                    >
+                      <Square className="mr-1 h-3 w-3" />
+                      {selected.status === 'stopping' ? 'Stopping…' : 'Stop'}
+                    </Button>
+                  )}
+                  {onResubmitRun && RESUBMITTABLE_RUN_STATUSES.has(selected.status) && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-6 px-2 text-xs"
+                      title="Run again with this run's original input"
+                      onClick={() => void onResubmitRun(selected.id)}
+                    >
+                      <RotateCcw className="mr-1 h-3 w-3" /> Re-run
+                    </Button>
+                  )}
+                </div>
+              </div>
               {reusedInputOf(selected.trigger) && (
                 <p className="mt-1 text-xs text-muted-foreground">Using the input from the last successful run.</p>
               )}

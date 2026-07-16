@@ -27,7 +27,7 @@ type RunSummary = {
   steps: RunStepSummary[]
 }
 
-type StatusFilter = 'all' | 'running' | 'succeeded' | 'failed' | 'waiting'
+type StatusFilter = 'all' | 'running' | 'succeeded' | 'failed' | 'waiting' | 'stopped'
 
 const FILTERS: { key: StatusFilter; label: string }[] = [
   { key: 'all', label: 'All' },
@@ -35,18 +35,22 @@ const FILTERS: { key: StatusFilter; label: string }[] = [
   { key: 'succeeded', label: 'Succeeded' },
   { key: 'failed', label: 'Failed' },
   { key: 'waiting', label: 'Waiting' },
+  { key: 'stopped', label: 'Stopped' },
 ]
 
 const STATUS_BADGE: Record<string, 'good' | 'risk' | 'warn' | 'info' | 'outline'> = {
   succeeded: 'good',
   failed: 'risk',
   running: 'info',
+  stopping: 'info',
   waiting: 'warn',
+  stopped: 'outline',
 }
 
 const STEP_DOT: Record<string, string> = {
   succeeded: 'bg-emerald-500',
   failed: 'bg-red-500',
+  stopped: 'bg-slate-400',
   waiting: 'bg-blue-500',
   running: 'bg-amber-500',
   skipped: 'bg-gray-300',
@@ -153,6 +157,9 @@ export default function FlowActivityPage() {
   const [filter, setFilter] = useState<StatusFilter>('all')
   const [expandedId, setExpandedId] = useState<string | null>(null)
   const [refreshKey, setRefreshKey] = useState(0)
+  // Page size for the runs table — "Load more" grows it up to the API's cap
+  // (100) so older runs stay reachable instead of silently truncating at 20.
+  const [take, setTake] = useState(20)
 
   // Flow name + graph (for step labels) — same loader shape as the builder.
   useEffect(() => {
@@ -180,7 +187,7 @@ export default function FlowActivityPage() {
     let timer: ReturnType<typeof setInterval> | null = null
 
     const load = async () => {
-      const qs = new URLSearchParams({ summary: '1' })
+      const qs = new URLSearchParams({ summary: '1', take: String(take) })
       if (filter !== 'all') qs.set('status', filter)
       const data = await fetch(`/api/flows/${id}/runs?${qs.toString()}`, { cache: 'no-store' })
         .then((response) => response.json())
@@ -189,7 +196,7 @@ export default function FlowActivityPage() {
       const nextRuns: RunSummary[] = data?.success ? data.runs : []
       setRuns(nextRuns)
       setLoading(false)
-      const active = nextRuns.some((run) => run.status === 'running' || run.status === 'waiting')
+      const active = nextRuns.some((run) => run.status === 'running' || run.status === 'waiting' || run.status === 'stopping')
       if (active && !timer) timer = setInterval(load, 5000)
       if (!active && timer) {
         clearInterval(timer)
@@ -202,7 +209,7 @@ export default function FlowActivityPage() {
       cancelled = true
       if (timer) clearInterval(timer)
     }
-  }, [id, filter, refreshKey])
+  }, [id, filter, refreshKey, take])
 
   // Delete a settled run from history, then refetch (keeps the filter).
   const deleteRun = async (flowRunId: string) => {
@@ -367,6 +374,15 @@ export default function FlowActivityPage() {
             })}
           </TableBody>
         </Table>
+      )}
+      {/* The runs API caps at 100; below that, page through instead of
+          silently truncating history at the first 20. */}
+      {!loading && runs.length >= take && take < 100 && (
+        <div className="flex justify-center pt-2">
+          <Button variant="outline" size="sm" onClick={() => setTake((current) => Math.min(current + 40, 100))}>
+            Load more runs
+          </Button>
+        </div>
       )}
     </div>
   )

@@ -14,7 +14,9 @@ const ItemSchema = z.object({
 
 const BodySchema = z.object({
   query: z.string().min(3).max(500),
-  items: z.array(ItemSchema).min(1).max(200),
+  // Degrade gracefully as the catalog grows: rank the first 500 items instead
+  // of rejecting the whole request with a 400 (the old hard .max(200)).
+  items: z.array(ItemSchema).min(1).max(2000).transform((items) => items.slice(0, 500)),
 })
 
 const MATCHES_SCHEMA = {

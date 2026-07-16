@@ -46,3 +46,30 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
 
   return { success: true, skills }
 })
+
+/** Detach one skill without overwriting other agent fields. Detaching an id
+ *  that is not attached is a no-op, so no skill-existence check is needed. */
+export const DELETE = withAuthenticatedApi(async (request, auth) => {
+  const agentId = agentIdFromRequest(request)
+  const { skillId } = z.object({ skillId: z.string().min(1) }).parse(await request.json())
+
+  const agent = await prisma.agentTask.findFirst({
+    where: {
+      id: agentId,
+      organizationId: auth.organizationId,
+      status: { not: 'DELETED' },
+      ...agentWriteScope(auth.dbUser.id),
+    },
+    select: { id: true, metadata: true },
+  })
+  if (!agent) throw new ApiError('Agent not found', 404, 'NOT_FOUND')
+
+  const metadata = readAgentMetadata(agent.metadata)
+  const skills = (metadata.skills ?? []).filter((id) => id !== skillId)
+  await prisma.agentTask.update({
+    where: { id: agent.id, organizationId: auth.organizationId },
+    data: { metadata: { ...metadata, skills } },
+  })
+
+  return { success: true, skills }
+})
