@@ -40,6 +40,10 @@ import { retrieveAgentMemory, renderAgentMemories, bestAnswerMatch, markMemories
 import { findOrgIntelligenceAgentId } from '@/lib/intelligence/connection-scan'
 import { reflectAndRemember } from './reflection'
 import { shouldStrategize, goalSection, strategizeSection, STRATEGIZE_RETRIEVAL } from './strategy'
+import { isWriteProvider } from '@/lib/connectors/registry'
+import { approvalQuestion, isApprovalReply, toolNeedsApproval, type PendingApproval } from './approval'
+import { serializeToolResult } from '@/lib/agents/tool-result'
+import { createRunBudget, chargeRunBudget, type RunBudget } from '@/lib/agents/run-budget'
 
 export type AgentExecutionJob = {
   executionId?: string
@@ -334,7 +338,9 @@ export async function runAgentExecution(
   // the execution id as soon as its row exists — long before the run finishes —
   // so live UIs can start following the run. It is intentionally NOT part of
   // AgentExecutionJob: queue jobs are serialized and can't carry a function.
-  data: AgentExecutionJob & { onExecutionCreated?: (executionId: string) => void | Promise<void> },
+  // runBudget is likewise inline-only: the parent run passes its own budget
+  // object BY REFERENCE into sub-runs so the whole tree spends one cap.
+  data: AgentExecutionJob & { onExecutionCreated?: (executionId: string) => void | Promise<void>; runBudget?: RunBudget },
 ) {
   const { agentId, organizationId, userId } = data
   const agent = await prisma.agentTask.findFirst({
@@ -383,6 +389,9 @@ export async function runAgentExecution(
 
   let transcript: unknown[]
   let pendingResults: ToolResult[] | null = null
+  // A held write-tool call whose approval reply arrived with this resume; it
+  // executes (or is denied) once tool bindings are loaded below.
+  let approvalToResolve: (PendingApproval & { approved: boolean; reply: string }) | null = null
   let startTurn = 0
   // On any resume, already-succeeded tool steps form an idempotency ledger so a
   // replayed call reuses its stored output instead of re-firing.
@@ -390,9 +399,12 @@ export async function runAgentExecution(
 
   if (resuming && queuedExecution) {
     const executionMetadata = metadataOf(queuedExecution.metadata)
-    const pending = executionMetadata.pendingQuestion as PendingQuestion | undefined
+    const heldApproval = executionMetadata.pendingApproval as PendingApproval | undefined
+    // pendingQuestion is also written as a display mirror while an approval is
+    // held, so the approval check must come first on resume.
+    const pending = heldApproval ? undefined : (executionMetadata.pendingQuestion as PendingQuestion | undefined)
     const waiting = queuedExecution.status === 'waiting_for_input'
-    if (!waiting || !pending || !Array.isArray(queuedExecution.transcript)) {
+    if (!waiting || (!pending && !heldApproval) || !Array.isArray(queuedExecution.transcript)) {
       throw new Error('Execution is not waiting for input')
     }
     // Atomic claim: two concurrent replies — e.g. builder and Activity page
