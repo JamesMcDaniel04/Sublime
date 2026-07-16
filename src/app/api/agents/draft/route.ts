@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { prisma } from '@/lib/prisma'
+import { syncAgentConnectors } from '@/lib/connectors/agent-connectors'
 import { BUILTIN_CONNECTORS } from '@/lib/connectors/registry'
 import { DEFAULT_AGENT_MODEL, generateStructured } from '@/lib/llm/model-runner'
 import { qwenConfigured } from '@/lib/llm/qwen'
@@ -97,7 +98,7 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
   // emoji (no ASCII letters/digits, short), else fall back to a default mark.
   const rawIcon = draft.icon?.trim() || ''
   const icon = rawIcon && !/[A-Za-z0-9]/.test(rawIcon) && [...rawIcon].length <= 4 ? rawIcon : '🤖'
-  const enrichedDraft = { ...draft, icon, schedule, model: DEFAULT_AGENT_MODEL, visibility: 'shared' as const, folder: null }
+  const enrichedDraft = { ...draft, icon, schedule, model: DEFAULT_AGENT_MODEL, visibility: 'private' as const, folder: null }
   if (!create) {
     return { success: true, draft: enrichedDraft }
   }
@@ -109,7 +110,7 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
       objective: draft.instructions,
       schedule,
       status: 'ACTIVE',
-      visibility: 'shared',
+      visibility: 'private',
       organizationId: auth.organizationId,
       userId: auth.dbUser.id,
       metadata: {
@@ -121,5 +122,8 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
       },
     },
   })
+  // Same typed connector bindings as POST /api/agents — without this, a
+  // draft-built agent's first run falls back to metadata-string matching.
+  await syncAgentConnectors(agent.id, auth.organizationId, auth.dbUser.id, draft.integrations)
   return { success: true, draft: enrichedDraft, agentId: agent.id }
 })

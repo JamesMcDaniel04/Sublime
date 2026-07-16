@@ -14,39 +14,35 @@ export default function AuthCodeErrorPage() {
             <AlertTriangle className="h-6 w-6 text-red-600" />
           </div>
           <CardTitle className="text-2xl font-bold text-gray-900">
-            Authentication Error
+            We couldn&apos;t sign you in
           </CardTitle>
           <CardDescription className="text-gray-600">
-            There was a problem with the authentication process
+            This sign-in link is invalid or has expired.
           </CardDescription>
         </CardHeader>
-        
+
         <CardContent className="space-y-4">
-          <div className="text-sm text-gray-700">
-            <p className="mb-2">This could be due to:</p>
-            <ul className="list-disc list-inside space-y-1 text-gray-600">
-              <li>Redirect URI mismatch in Supabase configuration</li>
-              <li>Invalid or expired authentication code</li>
-              <li>Network connectivity issues</li>
-            </ul>
-          </div>
-          
+          <p className="text-sm text-gray-700">
+            Sign-in links can only be used once and expire after a short while.
+            Head back to the sign-in page to request a fresh one.
+          </p>
+
           <div className="space-y-3">
             <Button asChild className="w-full">
               <Link href="/auth/login">
-                Try Again
+                Back to sign in
               </Link>
             </Button>
-            
+
             <Button variant="outline" asChild className="w-full">
               <Link href="/">
-                Go Home
+                Go home
               </Link>
             </Button>
           </div>
-          
+
           <div className="text-xs text-gray-500 text-center">
-            <p>If this problem persists, please contact support</p>
+            <p>If this keeps happening, please contact support.</p>
           </div>
         </CardContent>
       </Card>

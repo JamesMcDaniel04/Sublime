@@ -72,7 +72,7 @@ async function materializeAgent(
       objective: withTemplateOutputStandard(spec.instructions),
       schedule,
       status: 'ACTIVE',
-      visibility: 'shared',
+      visibility: 'private',
       organizationId,
       userId,
       metadata: {
@@ -175,7 +175,7 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
         name: seed.name,
         description: seed.description,
         status: 'DRAFT',
-        visibility: 'shared',
+        visibility: 'private',
         trigger: jsonValue(trigger),
         graph: jsonValue(graph),
         metadata: jsonValue({ seededFrom: seed.seedKey, provisionedAs: 'flow' }),

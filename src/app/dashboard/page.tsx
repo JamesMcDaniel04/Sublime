@@ -3,12 +3,14 @@
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { toast } from 'sonner'
-import { AlertCircle, FileText, List, Loader2, Play, Plus, Settings2, Sparkles, X } from 'lucide-react'
+import { AlertCircle, Copy, FileText, List, Loader2, MoreHorizontal, Play, Plus, Settings2, Sparkles, Trash2, X } from 'lucide-react'
 import { AgentActivityPane, resultText, type RunMutation } from './agent-activity-pane'
 import { AgentConfigForm, type AgentDraft } from './agent-config-form'
 import { AssistantPanel } from './assistant-panel'
 import { TemplatesExplorer } from '@/components/templates/templates-explorer'
 import { Button } from '@/components/ui/button'
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { EmptyState } from '@/components/ui/empty-state'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
@@ -29,6 +31,24 @@ type GranolaNote = {
 
 /** Sentinel selection meaning "setting up a brand-new agent". */
 const NEW_AGENT = 'new'
+
+/**
+ * Fields the serialized agent (from /api/snapshot and /api/agents) carries
+ * beyond the lean client `Agent` type — used to duplicate an agent faithfully
+ * and to gate owner-only actions.
+ */
+type SerializedAgentExtras = {
+  isOwner?: boolean
+  requiredIntegrations?: string[]
+  goal?: string | null
+  allowSubagents?: boolean
+  subagentIds?: string[]
+  autoAnswerFromMemory?: boolean
+  requireApproval?: boolean
+  alwaysStrategize?: boolean
+  maxTurns?: number
+  outputFields?: { name: string; type: string; description?: string }[]
+}
 
 // Right-pane (assistant) width — user-resizable on desktop, persisted per browser.
 const ASSISTANT_WIDTH_KEY = 'dashboard.assistantWidth'
@@ -67,6 +87,9 @@ function AgentHQ() {
   const [describe, setDescribe] = useState('')
   const [building, setBuilding] = useState(false)
   const [runningId, setRunningId] = useState<string | null>(null)
+  const [duplicatingAgent, setDuplicatingAgent] = useState(false)
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false)
+  const [deletingAgent, setDeletingAgent] = useState(false)
   const [authError, setAuthError] = useState<string | null>(null)
   const [authStatus, setAuthStatus] = useState<number | null>(null)
   const [granolaPickerOpen, setGranolaPickerOpen] = useState(false)
@@ -386,6 +409,85 @@ function AgentHQ() {
     }
   }
 
+  const duplicateAgent = async (agent: Agent) => {
+    const source = agent as Agent & SerializedAgentExtras
+    setDuplicatingAgent(true)
+    try {
+      const response = await fetch('/api/agents', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title: `${agent.title} (copy)`,
+          description: agent.description,
+          instructions: agent.instructions,
+          model: agent.model,
+          integrations: agent.integrations,
+          requiredIntegrations: source.requiredIntegrations ?? [],
+          skills: agent.skills,
+          icon: agent.icon,
+          folder: agent.folder,
+          visibility: agent.visibility,
+          goal: source.goal ?? null,
+          allowSubagents: source.allowSubagents,
+          subagentIds: source.subagentIds,
+          autoAnswerFromMemory: source.autoAnswerFromMemory,
+          requireApproval: source.requireApproval,
+          alwaysStrategize: source.alwaysStrategize,
+          maxTurns: source.maxTurns,
+          outputFields: source.outputFields,
+          schedule: agent.schedule,
+        }),
+      })
+      const data = await response.json().catch(() => ({}))
+      if (!response.ok) {
+        toast.error(data.error || `Could not duplicate ${agent.title}.`)
+        return
+      }
+      notifyAgentsChanged()
+      toast.success(`Duplicated as "${data.agent?.title || `${agent.title} (copy)`}".`)
+      await load(true)
+      if (data.agent?.id) {
+        setSelectedAgentId(data.agent.id)
+        setConfigureOpen(false)
+        setFocusRunId(null)
+      }
+    } catch {
+      toast.error(`Could not duplicate ${agent.title} — check your connection and try again.`)
+    } finally {
+      setDuplicatingAgent(false)
+    }
+  }
+
+  const deleteSelectedAgent = async () => {
+    if (!selectedAgent) return
+    setDeletingAgent(true)
+    try {
+      // Same call the sidebar makes; the route is owner-only (404 otherwise).
+      const response = await fetch('/api/agents', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: selectedAgent.id }),
+      })
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}))
+        toast.error(data.error || 'Could not delete this agent — only its owner can.')
+        return
+      }
+      setDeleteConfirmOpen(false)
+      setSelectedAgentId(null)
+      setConfigureOpen(false)
+      setFocusRunId(null)
+      setSelectedRun(null)
+      notifyAgentsChanged()
+      toast.success(`Deleted ${selectedAgent.title}.`)
+      await load(true)
+    } catch {
+      toast.error('Could not delete this agent — check your connection and try again.')
+    } finally {
+      setDeletingAgent(false)
+    }
+  }
+
   const runAgent = async (agent: Agent) => {
     setRunningId(agent.id)
     try {
@@ -515,6 +617,30 @@ function AgentHQ() {
                     >
                       {configureOpen ? <List className="h-4 w-4" /> : <Settings2 className="h-4 w-4" />}
                     </Button>
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button
+                          variant="outline"
+                          size="icon"
+                          disabled={duplicatingAgent}
+                          aria-label={`More actions for ${selectedAgent.title}`}
+                          title="More actions"
+                        >
+                          {duplicatingAgent ? <Loader2 className="h-4 w-4 animate-spin" /> : <MoreHorizontal className="h-4 w-4" />}
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        <DropdownMenuItem onSelect={() => void duplicateAgent(selectedAgent)}>
+                          <Copy /> Duplicate agent
+                        </DropdownMenuItem>
+                        {/* Delete is owner-only server-side — don't offer it to non-owners. */}
+                        {(selectedAgent as Agent & SerializedAgentExtras).isOwner !== false && (
+                          <DropdownMenuItem className="text-red-600 focus:text-red-600" onSelect={() => setDeleteConfirmOpen(true)}>
+                            <Trash2 /> Delete agent
+                          </DropdownMenuItem>
+                        )}
+                      </DropdownMenuContent>
+                    </DropdownMenu>
                   </>
                 )}
                 <Button
@@ -691,6 +817,23 @@ function AgentHQ() {
           />
         </section>
       </div>
+
+      <Dialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Delete {selectedAgent?.title || 'this agent'}?</DialogTitle>
+            <DialogDescription>
+              This removes the agent for everyone it is shared with. Its past runs stay in your history. This cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" disabled={deletingAgent} onClick={() => setDeleteConfirmOpen(false)}>Cancel</Button>
+            <Button variant="destructive" loading={deletingAgent} onClick={() => void deleteSelectedAgent()}>
+              Delete agent
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
       </>
       )}
     </div>

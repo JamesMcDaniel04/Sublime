@@ -4,10 +4,12 @@ import { useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { toast } from 'sonner'
-import { Workflow, Plus, Sparkles, X } from 'lucide-react'
+import { Copy, MoreHorizontal, Plus, Sparkles, Trash2, Workflow, X } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { EmptyState } from '@/components/ui/empty-state'
 import { PageHeader } from '@/components/ui/page-header'
 import { Pagination, paginate } from '@/components/ui/pagination'
@@ -25,6 +27,9 @@ type FlowItem = {
   status: string
   stepCount: number
   updatedAt: string
+  /** Full definition (in the list payload) — lets Duplicate copy the flow verbatim. */
+  trigger?: unknown
+  graph?: unknown
   suggested?: boolean
   unpublishedChanges?: boolean
   sharedWithYou?: boolean
@@ -48,6 +53,8 @@ export default function FlowsPage() {
   const [page, setPage] = useState(1)
   const [creating, setCreating] = useState(false)
   const [dismissingId, setDismissingId] = useState<string | null>(null)
+  const [duplicatingId, setDuplicatingId] = useState<string | null>(null)
+  const [deleteTarget, setDeleteTarget] = useState<FlowItem | null>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -110,6 +117,55 @@ export default function FlowsPage() {
       toast.error('Could not create the flow.')
     } finally {
       setCreating(false)
+    }
+  }
+
+  const duplicateFlow = async (flow: FlowItem) => {
+    setDuplicatingId(flow.id)
+    try {
+      const response = await fetch('/api/flows', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: `${flow.name} (copy)`,
+          description: flow.description || '',
+          trigger: flow.trigger,
+          graph: flow.graph,
+        }),
+      })
+      const data = await response.json().catch(() => ({}))
+      if (response.ok && data.flow) {
+        invalidateCachedJson('/api/flows')
+        router.push(`/flows/${data.flow.id}`)
+      } else {
+        toast.error(data.error || 'Could not duplicate the flow.')
+      }
+    } catch {
+      toast.error('Could not duplicate the flow.')
+    } finally {
+      setDuplicatingId(null)
+    }
+  }
+
+  /** Optimistic delete: remove the card immediately, restore + toast on failure. */
+  const deleteFlow = async (flow: FlowItem) => {
+    const previous = flows
+    setFlows((prev) => prev.filter((entry) => entry.id !== flow.id))
+    setDeleteTarget(null)
+    try {
+      const response = await fetch('/api/flows', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: flow.id }),
+      })
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}))
+        throw new Error(data.error)
+      }
+      invalidateCachedJson('/api/flows')
+    } catch (cause) {
+      setFlows(previous)
+      toast.error(cause instanceof Error && cause.message ? cause.message : 'Could not delete the flow.')
     }
   }
 
@@ -201,6 +257,30 @@ export default function FlowsPage() {
                         )}
                         {flow.unpublishedChanges && <Badge variant="warn" className="text-[10px]">Unpublished changes</Badge>}
                         <span className="text-xs text-muted-foreground">{flow.stepCount} step{flow.stepCount === 1 ? '' : 's'}</span>
+                        {/* Swallow clicks here so opening the menu never follows the card Link. */}
+                        <div onClick={(event) => { event.preventDefault(); event.stopPropagation() }}>
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-7 w-7 text-muted-foreground hover:text-foreground"
+                                aria-label={`Actions for ${flow.name}`}
+                                disabled={duplicatingId === flow.id}
+                              >
+                                <MoreHorizontal className="h-4 w-4" />
+                              </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end">
+                              <DropdownMenuItem onSelect={() => void duplicateFlow(flow)}>
+                                <Copy /> Duplicate
+                              </DropdownMenuItem>
+                              <DropdownMenuItem className="text-red-600 focus:text-red-600" onSelect={() => setDeleteTarget(flow)}>
+                                <Trash2 /> Delete
+                              </DropdownMenuItem>
+                            </DropdownMenuContent>
+                          </DropdownMenu>
+                        </div>
                       </div>
                     </div>
                     <div className="flex items-start gap-2.5">
@@ -220,6 +300,23 @@ export default function FlowsPage() {
           <Pagination page={current} pageCount={pageCount} onPageChange={setPage} />
         </>
       )}
+
+      <Dialog open={Boolean(deleteTarget)} onOpenChange={(next) => { if (!next) setDeleteTarget(null) }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Delete “{deleteTarget?.name}”?</DialogTitle>
+            <DialogDescription>
+              This permanently deletes the flow and its published version. This cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteTarget(null)}>Cancel</Button>
+            <Button variant="destructive" onClick={() => { if (deleteTarget) void deleteFlow(deleteTarget) }}>
+              Delete flow
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

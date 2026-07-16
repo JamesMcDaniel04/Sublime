@@ -1,6 +1,8 @@
 import { z } from 'zod'
 import { generateStructured } from '@/lib/llm/model-runner'
 import { ApiError, withAuthenticatedApi } from '@/lib/server/api-handler'
+import { rateLimit } from '@/lib/ratelimit'
+import { checkMonthlyTokenBudget } from '@/lib/usage/budget'
 import { parseMatches, sanitizeMatches, type CatalogItem } from '@/lib/templates/ai-search'
 
 const ItemSchema = z.object({
@@ -59,7 +61,12 @@ function formatCatalog(items: z.infer<typeof ItemSchema>[]): string {
 // skills), so this route needs no extra DB access and works for either tab.
 // The model only ranks/reasons — sanitizeMatches is the source of truth for
 // which ids are real, so a hallucinated id can never reach the UI.
-export const POST = withAuthenticatedApi(async (request) => {
+export const POST = withAuthenticatedApi(async (request, auth) => {
+  // One LLM ranking call per request — same guardrails as the other AI routes.
+  const limited = await rateLimit(`ai-search:${auth.dbUser.id}`, { limit: 20, windowMs: 60_000 })
+  if (!limited.ok) throw new ApiError('Rate limit exceeded', 429, 'RATE_LIMITED')
+  const budget = await checkMonthlyTokenBudget(auth.organizationId, auth.dbUser.id)
+  if (budget.over) throw new ApiError('Monthly token budget reached for this workspace.', 429, 'BUDGET_EXCEEDED')
   const { query, items } = BodySchema.parse(await request.json())
 
   let raw: string

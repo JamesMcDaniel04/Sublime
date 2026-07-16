@@ -882,7 +882,9 @@ export async function runFlowExecution(
   // run.trigger carries the origin (persisted at dispatch), so resumes reply
   // too. Fire-and-safe: a Slack outage must never affect the run's outcome.
   const slackOrigin = slackOriginOf(run.trigger)
-  if (slackOrigin) {
+  // No reply for user-stopped runs: the stop was a deliberate in-app action,
+  // not an outcome the Slack originator is waiting on.
+  if (slackOrigin && status !== 'stopped') {
     await deliverSlackRunReply({
       organizationId: job.organizationId,
       flowId: flow.id,

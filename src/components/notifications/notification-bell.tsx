@@ -260,7 +260,15 @@ export function NotificationBell({ buttonClassName }: { buttonClassName?: string
                     {n.type === 'intelligence.scan' ? (
                       <button type="button" onClick={() => openDetail(n)} className={rowClass}>{content}</button>
                     ) : (
-                      <a href={notificationHref(n)} className={rowClass}>{content}</a>
+                      /* Client-side route (no full-page reload); a button keeps
+                         Enter/Space keyboard activation like the old link. */
+                      <button
+                        type="button"
+                        className={rowClass}
+                        onClick={() => { setOpen(false); router.push(notificationHref(n)) }}
+                      >
+                        {content}
+                      </button>
                     )}
                     {/* Broadcast rows (userId null) are deletable by admins only —
                         the DELETE route 404s for everyone else, so don't offer it. */}
