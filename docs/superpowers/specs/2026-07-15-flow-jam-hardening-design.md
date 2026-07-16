@@ -77,19 +77,43 @@ unit-tested reducer driving the Jam pill UI. Every state has a defined recovery 
 - **Join/leave & connection UX:** throttled join/leave toasts; Jam pill labels driven by the
   Spec-1 state machine.
 
-## Spec 3 — Social Layer (summary)
+## Spec 4 — Voice Huddle & Invite Arrival (added 2026-07-16, implemented)
 
-- **Comments:** `FlowComment` model (anchor = node id or canvas point, threads via `parentId`,
-  resolve state). Authz through the API (`flowReadScope`); delivery via the jam channel;
-  bell/push notifications for mentions and offline replies. Pins render on both canvas modes;
-  sidebar lists open threads.
-- **Emoji reactions:** ephemeral broadcast-only floating emoji.
+Scope change: voice chat was originally out of scope; pulled in by product decision on
+2026-07-16 alongside a hardening of the invitee's arrival experience.
+
+- **Voice huddle:** WebRTC mesh audio sized for the jam's 2–5 editors — no SFU, no vendor.
+  The existing jam channel is the signaling rail (`huddle-signal` broadcasts carry
+  offer/answer/ICE, directed by clientId); huddle membership + mute state ride the presence
+  payload, so late joiners learn the roster from the presence sync they already receive.
+  Offer-glare is impossible by construction: the lexicographically smaller clientId dials.
+  STUN-only ICE (public Google STUN); symmetric-NAT pairs that would need TURN fail per-pair,
+  not per-huddle, and redial on the next reconcile. Mic capture uses echo cancellation +
+  noise suppression; a shared AudioContext meters RMS per stream for speaking rings.
+  Pure parts (caller election, connection-plan reconcile, signal schema, speech gate) live in
+  `lib/flows/jam-huddle.ts` with unit tests.
+- **Invite arrival:** a `flow.jam.invite` notification now also surfaces as a live actionable
+  toast ("Join jam" → straight into the flow) the next time the invitee's app polls the
+  snapshot — not just a passive bell badge. Flows shared via invite/org-share are badged
+  "Shared with you" on the flows list so invitees can find the flow again later.
+
+## Spec 3 — Social Layer (implemented 2026-07-16)
+
+- **Comments:** `FlowComment` model (anchor = node id, threads via `parentId`, resolve state).
+  Authz through the API (`flowReadScope` — commenting rides read access, moderation stays
+  with authors + the flow owner); live delivery via a `comments-changed` jam-channel nudge;
+  bell/push notifications for the owner and thread participants who are offline. A threads
+  panel lists open (then resolved) threads with jump-to-node anchor chips.
+  *v1 deliberately ships node-anchored + flow-level comments only; free canvas-point pins
+  (and in-canvas pin rendering) are deferred — the anchor model already supports adding them.*
+- **Emoji reactions:** ephemeral broadcast-only floating emoji (never persisted).
 - **Spotlight:** presenter broadcasts a request; peers get a consent toast, never a forced
   viewport takeover.
 
 ## Out of scope
 
-Voice/video/audio chat, anonymous guest access, cross-org sharing, >5-editor scale work.
+Video chat, screen share, TURN relay infrastructure, anonymous guest access, cross-org
+sharing, >5-editor scale work. (Voice audio chat moved INTO scope as Spec 4 on 2026-07-16.)
 
 ## Context: bugs already fixed (2026-07-15, pre-design)
 

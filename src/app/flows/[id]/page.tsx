@@ -3,7 +3,7 @@
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useParams, useRouter, useSearchParams } from 'next/navigation'
 import { toast } from 'sonner'
-import { AlertTriangle, ArrowLeft, Play, Save, Sparkles, Loader2, ListChecks, ShieldCheck, Undo2, Redo2, MoreHorizontal, Copy, Download, Trash2, FlaskConical, History, ScrollText } from 'lucide-react'
+import { AlertTriangle, ArrowLeft, Play, Save, Sparkles, Loader2, ListChecks, MessageSquareText, ShieldCheck, Undo2, Redo2, MoreHorizontal, Copy, Download, Trash2, FlaskConical, History, ScrollText } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Badge } from '@/components/ui/badge'
@@ -36,7 +36,9 @@ import { CheckerPanel } from '@/components/flows/checker-panel'
 import { ResizablePanel } from '@/components/flows/resizable-panel'
 import { TestPanel } from '@/components/flows/test-panel'
 import { VersionsPanel } from '@/components/flows/versions-panel'
-import { useFlowJam, type JamPeer } from '@/components/flows/use-flow-jam'
+import { useFlowJam, type HuddleSignal, type JamPeer } from '@/components/flows/use-flow-jam'
+import { useJamHuddle } from '@/components/flows/use-jam-huddle'
+import { CommentsPanel, JamReactionsOverlay, useFlowComments, type FloatingReaction } from '@/components/flows/flow-comments'
 import { contentPointFromClient, jamCursorColor, type JamCursor } from '@/lib/flows/jam-presence'
 import type { ReactFlowInstance } from '@xyflow/react'
 import { JamButton } from '@/components/flows/jam-button'
@@ -411,7 +413,27 @@ function FlowBuilder() {
     peerToastAtRef.current.set(key, now)
     toast(message)
   }, [])
-  const { peers, connectionState, broadcastGraph, updateCursor, broadcastAccessChange } = useFlowJam({
+  // ── Spec 3 social layer: comments, ephemeral reactions, spotlight ──
+  const [commentsOpen, setCommentsOpen] = useState(false)
+  const { comments, loading: commentsLoading, refresh: refreshComments, openThreadCount } = useFlowComments(id, !loading && !loadError)
+  const [floatingReactions, setFloatingReactions] = useState<FloatingReaction[]>([])
+  const reactionKeyRef = useRef(0)
+  const pushReaction = useCallback((emoji: string, name: string) => {
+    const key = ++reactionKeyRef.current
+    // Cap the burst so a spamming teammate can't flood the overlay.
+    setFloatingReactions((current) => [...current.slice(-11), { key, emoji, name }])
+    window.setTimeout(() => {
+      setFloatingReactions((current) => current.filter((reaction) => reaction.key !== key))
+    }, 1900)
+  }, [])
+  // Spotlight requests are consent-based and throttled — never a forced viewport.
+  const spotlightToastAtRef = useRef(0)
+
+  // Huddle signaling arrives via useFlowJam but is handled by useJamHuddle,
+  // which itself needs useFlowJam's transport — a ref breaks the circle (same
+  // pattern as jamCursorUpdateRef).
+  const huddleSignalRef = useRef<(signal: HuddleSignal) => void>(() => {})
+  const { peers, connectionState, clientId, broadcastGraph, updateCursor, broadcastAccessChange, sendHuddleSignal, setHuddlePresence, sendReaction, requestSpotlight, broadcastCommentsChanged } = useFlowJam({
     flowId: id,
     enabled: !loading && !loadError,
     selectedNodeId: selectedId,
@@ -427,8 +449,45 @@ function FlowBuilder() {
       for (const peer of joined) peerToast('joined', peer.userId, `${peer.name} joined the jam`)
       for (const peer of left) peerToast('left', peer.userId, `${peer.name} left the jam`)
     },
+    onHuddleSignal: (signal) => huddleSignalRef.current(signal),
+    onReaction: ({ name, emoji }) => pushReaction(emoji, name),
+    onSpotlight: ({ clientId: presenterClientId, name }) => {
+      const now = Date.now()
+      if (now - spotlightToastAtRef.current < 10000) return
+      spotlightToastAtRef.current = now
+      toast(`${name} wants everyone to follow along`, {
+        duration: 10000,
+        action: { label: 'Follow', onClick: () => setFollowingClientId(presenterClientId) },
+      })
+    },
+    onCommentsChanged: () => void refreshComments(),
   })
   jamCursorUpdateRef.current = updateCursor
+  const huddle = useJamHuddle({ clientId, peers, sendSignal: sendHuddleSignal, setHuddlePresence })
+  huddleSignalRef.current = huddle.handleSignal
+
+  const handleReact = (emoji: string) => {
+    sendReaction(emoji)
+    pushReaction(emoji, 'You')
+  }
+  const handleSpotlight = () => {
+    requestSpotlight()
+    toast.success('Asked your teammates to follow you.')
+  }
+  // Local mutations refresh our list AND nudge peers to refetch (offline
+  // participants are notified durably by the comments API itself).
+  const handleCommentsChanged = () => {
+    void refreshComments()
+    broadcastCommentsChanged()
+  }
+  // Display labels for comment anchor chips; falls back to the operator type.
+  const commentNodeLabels = useMemo(() => {
+    const labels: Record<string, string> = {}
+    for (const node of graph.nodes) {
+      labels[node.id] = (node.data as { label?: string } | undefined)?.label || node.type
+    }
+    return labels
+  }, [graph])
 
   // Follow mode: track the followed peer's broadcast viewport (and canvas
   // mode) until the user pans/zooms themselves or clicks the avatar again.
@@ -1464,8 +1523,24 @@ function FlowBuilder() {
           canManage={canManageJam}
           onAccessChanged={broadcastAccessChange}
           followingClientId={followingClientId}
-          onToggleFollow={(clientId) => setFollowingClientId((current) => (current === clientId ? null : clientId))}
+          onToggleFollow={(peerClientId) => setFollowingClientId((current) => (current === peerClientId ? null : peerClientId))}
+          huddle={huddle}
+          onReact={handleReact}
+          onSpotlight={handleSpotlight}
         />
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => setCommentsOpen((value) => !value)}
+          aria-label={commentsOpen ? 'Close comments' : 'Open comments'}
+          title="Comments"
+          className={cn('transition-colors duration-150', commentsOpen && 'bg-indigo-50 text-indigo-700')}
+        >
+          <MessageSquareText className="h-4 w-4" />
+          {openThreadCount > 0 && (
+            <span className="rounded-full bg-indigo-100 px-1.5 text-[10px] font-semibold text-indigo-700">{openThreadCount}</span>
+          )}
+        </Button>
         <Button variant="outline" size="sm" onClick={() => setShowTest((v) => !v)}>
           <FlaskConical className="mr-1.5 h-4 w-4" /> Test
         </Button>
@@ -1836,6 +1911,19 @@ function FlowBuilder() {
           </ResizablePanel>
         )}
       </div>
+      <CommentsPanel
+        flowId={id}
+        open={commentsOpen}
+        onClose={() => setCommentsOpen(false)}
+        comments={comments}
+        loading={commentsLoading}
+        canModerate={canManageJam}
+        nodeLabels={commentNodeLabels}
+        selectedNodeId={selectedId}
+        onJumpToNode={(nodeId) => setSelectedId(nodeId)}
+        onChanged={handleCommentsChanged}
+      />
+      <JamReactionsOverlay reactions={floatingReactions} />
     </div>
   )
 }

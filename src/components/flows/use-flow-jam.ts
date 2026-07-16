@@ -82,6 +82,12 @@ export function useFlowJam(options: {
   onPeersChanged?: (change: { joined: JamPeer[]; left: JamPeer[] }) => void
   /** Directed WebRTC signaling addressed to THIS client (voice huddle). */
   onHuddleSignal?: (signal: HuddleSignal) => void
+  /** Ephemeral emoji reaction from a peer (never persisted). */
+  onReaction?: (reaction: { clientId: string; name: string; emoji: string }) => void
+  /** A peer asks everyone to follow them — consent toast, never a forced viewport. */
+  onSpotlight?: (request: { clientId: string; name: string }) => void
+  /** A peer created/resolved/deleted a comment — refetch the thread list. */
+  onCommentsChanged?: () => void
 }) {
   const { flowId, enabled, selectedNodeId } = options
   const [peers, setPeers] = useState<JamPeer[]>([])
@@ -478,6 +484,26 @@ export function useFlowJam(options: {
           if (!parsed.success || parsed.data.to !== clientId || parsed.data.from === clientId) return
           callbacksRef.current.onHuddleSignal?.(parsed.data)
         })
+        .on('broadcast', { event: 'reaction' }, ({ payload }) => {
+          if (!payload?.clientId || payload.clientId === clientId) return
+          if (typeof payload.emoji !== 'string' || payload.emoji.length === 0 || payload.emoji.length > 8) return
+          callbacksRef.current.onReaction?.({
+            clientId: payload.clientId,
+            name: typeof payload.name === 'string' ? payload.name : 'Teammate',
+            emoji: payload.emoji,
+          })
+        })
+        .on('broadcast', { event: 'spotlight' }, ({ payload }) => {
+          if (!payload?.clientId || payload.clientId === clientId) return
+          callbacksRef.current.onSpotlight?.({
+            clientId: payload.clientId,
+            name: typeof payload.name === 'string' ? payload.name : 'Teammate',
+          })
+        })
+        .on('broadcast', { event: 'comments-changed' }, ({ payload }) => {
+          if (payload?.clientId === clientId) return
+          callbacksRef.current.onCommentsChanged?.()
+        })
         .subscribe(async (status) => {
           if (disposed) return
           if (status === 'SUBSCRIBED') {
@@ -618,5 +644,78 @@ export function useFlowJam(options: {
     refreshAccessRef.current()
   }
 
-  return { peers, connectionState, broadcastGraph, updateCursor, broadcastAccessChange }
+  /** Send directed WebRTC signaling to a huddle peer over the jam channel. */
+  const sendHuddleSignal = (signal: HuddleSignal) => {
+    const channel = channelRef.current
+    if (!channel) return
+    void channel.send({
+      type: 'broadcast',
+      event: 'huddle-signal',
+      payload: signal,
+    }).then(markRealtimeDelivery)
+  }
+
+  /** Fire an ephemeral emoji reaction at every peer (never persisted). */
+  const sendReaction = (emoji: string) => {
+    const channel = channelRef.current
+    if (!channel) return
+    void channel.send({
+      type: 'broadcast',
+      event: 'reaction',
+      payload: { clientId, name: actorRef.current?.name ?? 'Teammate', emoji },
+    }).then(markRealtimeDelivery)
+  }
+
+  /** Ask every peer to follow this client's viewport (they get a consent toast). */
+  const requestSpotlight = () => {
+    const channel = channelRef.current
+    if (!channel) return
+    void channel.send({
+      type: 'broadcast',
+      event: 'spotlight',
+      payload: { clientId, name: actorRef.current?.name ?? 'Teammate' },
+    }).then(markRealtimeDelivery)
+  }
+
+  /** Tell peers the comment list changed so they refetch (fast path vs. bell). */
+  const broadcastCommentsChanged = () => {
+    const channel = channelRef.current
+    if (!channel) return
+    void channel.send({
+      type: 'broadcast',
+      event: 'comments-changed',
+      payload: { clientId },
+    }).then(markRealtimeDelivery)
+  }
+
+  /** Publish this client's huddle membership/mute so peers' rosters update. */
+  const setHuddlePresence = (state: { inHuddle: boolean; muted: boolean }) => {
+    huddleStateRef.current = state
+    const channel = channelRef.current
+    const actor = actorRef.current
+    if (!channel || !actor) return
+    void channel.track({
+      clientId,
+      userId: actor.userId,
+      name: actor.name,
+      selectedNodeId: callbacksRef.current.selectedNodeId,
+      cursor: cursorRef.current,
+      inHuddle: state.inHuddle,
+      huddleMuted: state.muted,
+    })
+  }
+
+  return {
+    peers,
+    connectionState,
+    clientId,
+    broadcastGraph,
+    updateCursor,
+    broadcastAccessChange,
+    sendHuddleSignal,
+    setHuddlePresence,
+    sendReaction,
+    requestSpotlight,
+    broadcastCommentsChanged,
+  }
 }

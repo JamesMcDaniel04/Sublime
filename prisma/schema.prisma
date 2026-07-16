@@ -41,6 +41,7 @@ model Organization {
   sharedSkills              SharedSkill[]
   invitations               OrganizationInvitation[]
   flowCollaborators         FlowCollaborator[]
+  flowComments              FlowComment[]
   slackWorkspaceConnections SlackWorkspaceConnection[]
   slackThreadSessions       SlackThreadSession[]
 
@@ -69,6 +70,7 @@ model User {
   mcpConnections     McpConnection[]
   flowCollaborations FlowCollaborator[] @relation("FlowCollaboratorUser")
   flowInvitesSent    FlowCollaborator[] @relation("FlowCollaboratorInviter")
+  flowComments       FlowComment[]      @relation("FlowCommentAuthor")
 
   @@index([organizationId])
   @@map("users")
@@ -532,9 +534,37 @@ model Flow {
   runs          FlowRun[]
   versions      FlowVersion[]
   collaborators FlowCollaborator[]
+  comments      FlowComment[]
 
   @@index([organizationId, updatedAt])
   @@map("flows")
+}
+
+/// Flow Jam threaded comments (Spec 3). Anchored to a node (survives node
+/// moves) or unanchored for flow-level discussion; replies carry the root
+/// comment's id as parentId (threads are one level deep). Resolution keeps the
+/// row so a resolved thread can be reopened with its history intact.
+model FlowComment {
+  id             String    @id @default(cuid())
+  flowId         String
+  organizationId String    @db.Uuid
+  userId         String
+  parentId       String?
+  anchorNodeId   String?
+  body           String
+  resolvedAt     DateTime? @db.Timestamptz(6)
+  createdAt      DateTime  @default(now()) @db.Timestamptz(6)
+  updatedAt      DateTime  @updatedAt @db.Timestamptz(6)
+
+  flow         Flow          @relation(fields: [flowId], references: [id], onDelete: Cascade)
+  organization Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user         User          @relation("FlowCommentAuthor", fields: [userId], references: [id], onDelete: Cascade)
+  parent       FlowComment?  @relation("FlowCommentThread", fields: [parentId], references: [id], onDelete: Cascade)
+  replies      FlowComment[] @relation("FlowCommentThread")
+
+  @@index([flowId, createdAt])
+  @@index([organizationId, flowId])
+  @@map("flow_comments")
 }
 
 /// Explicit per-flow edit access. Workspace membership alone never exposes a

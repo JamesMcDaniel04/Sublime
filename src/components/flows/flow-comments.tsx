@@ -1,0 +1,355 @@
+'use client'
+
+/**
+ * Flow Jam comments (Spec 3): a threads panel + ephemeral reactions overlay.
+ *
+ * Threads anchor to a node (jump-to-node chip) or to the whole flow. The panel
+ * owns its own API calls; the page passes `onChanged` so every mutation also
+ * refreshes the list and broadcasts `comments-changed` to peers on the jam
+ * channel (offline teammates get bell/push notifications from the API instead).
+ */
+import { useCallback, useEffect, useState } from 'react'
+import { toast } from 'sonner'
+import { Check, CornerDownRight, Loader2, MapPin, MessageSquareText, RotateCcw, Send, Trash2, X } from 'lucide-react'
+import { Button } from '@/components/ui/button'
+import { jamCursorColor } from '@/lib/flows/jam-presence'
+import { cn } from '@/lib/utils'
+
+export type FlowCommentItem = {
+  id: string
+  parentId: string | null
+  anchorNodeId: string | null
+  body: string
+  resolvedAt: string | null
+  createdAt: string
+  author: { id: string; name: string }
+  mine: boolean
+}
+
+export function useFlowComments(flowId: string, enabled: boolean) {
+  const [comments, setComments] = useState<FlowCommentItem[]>([])
+  const [loading, setLoading] = useState(true)
+
+  const refresh = useCallback(async () => {
+    if (!enabled) return
+    try {
+      const response = await fetch(`/api/flows/${flowId}/comments`, { cache: 'no-store' })
+      const data = await response.json().catch(() => ({}))
+      if (response.ok && data.success) setComments(data.comments || [])
+    } catch {
+      // keep the last-known list on a transient failure
+    } finally {
+      setLoading(false)
+    }
+  }, [flowId, enabled])
+
+  useEffect(() => {
+    void refresh()
+  }, [refresh])
+
+  const openThreadCount = comments.filter((comment) => !comment.parentId && !comment.resolvedAt).length
+  return { comments, loading, refresh, openThreadCount }
+}
+
+function CommentAvatar({ userId, name }: { userId: string; name: string }) {
+  return (
+    <span
+      className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[10px] font-bold text-white"
+      style={{ backgroundColor: jamCursorColor(userId) }}
+    >
+      {name.trim().charAt(0).toUpperCase() || '?'}
+    </span>
+  )
+}
+
+function timeAgo(iso: string): string {
+  const seconds = Math.max(0, (Date.now() - new Date(iso).getTime()) / 1000)
+  if (seconds < 60) return 'just now'
+  if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`
+  if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ago`
+  return new Date(iso).toLocaleDateString()
+}
+
+export function CommentsPanel({
+  flowId,
+  open,
+  onClose,
+  comments,
+  loading,
+  canModerate,
+  nodeLabels,
+  selectedNodeId,
+  onJumpToNode,
+  onChanged,
+}: {
+  flowId: string
+  open: boolean
+  onClose: () => void
+  comments: FlowCommentItem[]
+  loading: boolean
+  /** Flow owner: may resolve/delete anyone's thread (authors always can, theirs). */
+  canModerate: boolean
+  /** node id → display label, for anchor chips. */
+  nodeLabels: Record<string, string>
+  /** Currently selected canvas node — a new comment anchors to it by default. */
+  selectedNodeId: string | null
+  onJumpToNode: (nodeId: string) => void
+  /** Called after any successful mutation (refresh + peer broadcast). */
+  onChanged: () => void
+}) {
+  const [draft, setDraft] = useState('')
+  const [anchorToSelection, setAnchorToSelection] = useState(true)
+  const [replyingTo, setReplyingTo] = useState<string | null>(null)
+  const [replyDraft, setReplyDraft] = useState('')
+  const [busy, setBusy] = useState(false)
+
+  const roots = comments.filter((comment) => !comment.parentId)
+  const openThreads = roots.filter((comment) => !comment.resolvedAt).sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+  const resolvedThreads = roots.filter((comment) => Boolean(comment.resolvedAt)).sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+  const repliesOf = (rootId: string) => comments.filter((comment) => comment.parentId === rootId)
+
+  const mutate = async (perform: () => Promise<Response>, failure: string) => {
+    setBusy(true)
+    try {
+      const response = await perform()
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}))
+        toast.error(data.error || failure)
+        return false
+      }
+      onChanged()
+      return true
+    } catch {
+      toast.error(failure)
+      return false
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const create = async () => {
+    const body = draft.trim()
+    if (!body) return
+    const anchorNodeId = anchorToSelection && selectedNodeId ? selectedNodeId : undefined
+    const ok = await mutate(
+      () => fetch(`/api/flows/${flowId}/comments`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ body, ...(anchorNodeId ? { anchorNodeId } : {}) }),
+      }),
+      'Could not post the comment.',
+    )
+    if (ok) setDraft('')
+  }
+
+  const reply = async (rootId: string) => {
+    const body = replyDraft.trim()
+    if (!body) return
+    const ok = await mutate(
+      () => fetch(`/api/flows/${flowId}/comments`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ body, parentId: rootId }),
+      }),
+      'Could not post the reply.',
+    )
+    if (ok) {
+      setReplyDraft('')
+      setReplyingTo(null)
+    }
+  }
+
+  const setResolved = (id: string, resolved: boolean) => mutate(
+    () => fetch(`/api/flows/${flowId}/comments`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id, resolved }),
+    }),
+    'Could not update the thread.',
+  )
+
+  const remove = (id: string) => mutate(
+    () => fetch(`/api/flows/${flowId}/comments`, {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id }),
+    }),
+    'Could not delete the comment.',
+  )
+
+  const renderComment = (comment: FlowCommentItem, isReply = false) => (
+    <div key={comment.id} className={cn('group/comment flex gap-2', isReply && 'ml-7')}>
+      <CommentAvatar userId={comment.author.id} name={comment.author.name} />
+      <div className="min-w-0 flex-1">
+        <p className="text-xs">
+          <span className="font-semibold text-slate-800">{comment.author.name}</span>{' '}
+          <span className="text-slate-400">{timeAgo(comment.createdAt)}</span>
+        </p>
+        <p className="whitespace-pre-wrap break-words text-sm text-slate-700">{comment.body}</p>
+      </div>
+      {(comment.mine || canModerate) && (
+        <button
+          type="button"
+          aria-label="Delete comment"
+          title="Delete"
+          disabled={busy}
+          onClick={() => void remove(comment.id)}
+          className="hidden h-6 w-6 shrink-0 items-center justify-center rounded text-slate-300 hover:bg-slate-100 hover:text-rose-500 group-hover/comment:flex"
+        >
+          <Trash2 className="h-3.5 w-3.5" />
+        </button>
+      )}
+    </div>
+  )
+
+  const renderThread = (root: FlowCommentItem) => {
+    const anchorLabel = root.anchorNodeId ? nodeLabels[root.anchorNodeId] : null
+    const resolved = Boolean(root.resolvedAt)
+    return (
+      <div key={root.id} className={cn('space-y-2 rounded-lg border p-2.5', resolved ? 'border-slate-100 bg-slate-50/60 opacity-75' : 'border-slate-200 bg-white')}>
+        {root.anchorNodeId && (
+          <button
+            type="button"
+            onClick={() => onJumpToNode(root.anchorNodeId!)}
+            className="flex max-w-full items-center gap-1 rounded-full bg-indigo-50 px-2 py-0.5 text-[11px] font-medium text-indigo-700 hover:bg-indigo-100"
+            title="Select this step on the canvas"
+          >
+            <MapPin className="h-3 w-3 shrink-0" />
+            <span className="truncate">{anchorLabel || 'Removed step'}</span>
+          </button>
+        )}
+        {renderComment(root)}
+        {repliesOf(root.id).map((comment) => renderComment(comment, true))}
+        <div className="flex items-center gap-1.5 pl-8">
+          {replyingTo === root.id ? (
+            <>
+              <input
+                autoFocus
+                value={replyDraft}
+                disabled={busy}
+                onChange={(event) => setReplyDraft(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter') void reply(root.id)
+                  if (event.key === 'Escape') setReplyingTo(null)
+                }}
+                placeholder="Reply…"
+                className="h-7 min-w-0 flex-1 rounded-md border border-slate-200 px-2 text-xs outline-none focus:border-indigo-300"
+              />
+              <button type="button" aria-label="Send reply" disabled={busy || !replyDraft.trim()} onClick={() => void reply(root.id)} className="flex h-7 w-7 items-center justify-center rounded-md bg-indigo-600 text-white disabled:opacity-40">
+                <Send className="h-3.5 w-3.5" />
+              </button>
+            </>
+          ) : (
+            <>
+              <button type="button" onClick={() => { setReplyingTo(root.id); setReplyDraft('') }} className="flex items-center gap-1 text-[11px] font-medium text-slate-500 hover:text-indigo-600">
+                <CornerDownRight className="h-3 w-3" /> Reply
+              </button>
+              {(root.mine || canModerate) && (
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => void setResolved(root.id, !resolved)}
+                  className={cn('ml-auto flex items-center gap-1 text-[11px] font-medium', resolved ? 'text-slate-500 hover:text-indigo-600' : 'text-emerald-600 hover:text-emerald-700')}
+                >
+                  {resolved ? <><RotateCcw className="h-3 w-3" /> Reopen</> : <><Check className="h-3 w-3" /> Resolve</>}
+                </button>
+              )}
+            </>
+          )}
+        </div>
+      </div>
+    )
+  }
+
+  if (!open) return null
+  return (
+    <div className="fixed bottom-4 right-4 top-20 z-40 flex w-80 flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xl">
+      <div className="flex items-center justify-between border-b px-3 py-2">
+        <p className="flex items-center gap-1.5 text-sm font-semibold text-slate-900">
+          <MessageSquareText className="h-4 w-4 text-indigo-600" /> Comments
+        </p>
+        <button type="button" aria-label="Close comments" onClick={onClose} className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700">
+          <X className="h-4 w-4" />
+        </button>
+      </div>
+
+      <div className="border-b p-3">
+        {selectedNodeId && (
+          <label className="mb-1.5 flex cursor-pointer items-center gap-1.5 text-[11px] text-slate-600">
+            <input type="checkbox" className="accent-indigo-600" checked={anchorToSelection} onChange={(event) => setAnchorToSelection(event.target.checked)} />
+            Attach to <span className="max-w-[150px] truncate font-medium text-indigo-700">{nodeLabels[selectedNodeId] || 'selected step'}</span>
+          </label>
+        )}
+        <div className="flex items-end gap-1.5">
+          <textarea
+            value={draft}
+            disabled={busy}
+            onChange={(event) => setDraft(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter' && !event.shiftKey) {
+                event.preventDefault()
+                void create()
+              }
+            }}
+            rows={2}
+            placeholder={selectedNodeId && anchorToSelection ? 'Comment on this step…' : 'Comment on this flow…'}
+            className="min-h-[3rem] flex-1 resize-none rounded-md border border-slate-200 p-2 text-sm outline-none focus:border-indigo-300"
+          />
+          <Button size="icon" aria-label="Post comment" disabled={busy || !draft.trim()} onClick={() => void create()}>
+            <Send className="h-4 w-4" />
+          </Button>
+        </div>
+      </div>
+
+      <div className="flex-1 space-y-2 overflow-y-auto p-3">
+        {loading && <Loader2 className="mx-auto my-6 h-4 w-4 animate-spin text-slate-400" />}
+        {!loading && roots.length === 0 && (
+          <p className="py-8 text-center text-xs text-slate-400">No comments yet — start the discussion.</p>
+        )}
+        {openThreads.map(renderThread)}
+        {resolvedThreads.length > 0 && (
+          <>
+            <p className="pt-2 text-[11px] font-semibold uppercase tracking-wide text-slate-400">Resolved</p>
+            {resolvedThreads.map(renderThread)}
+          </>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// ── Ephemeral reactions ──────────────────────────────────────────────────────
+
+export const JAM_REACTION_EMOJI = ['👍', '🎉', '❤️', '😂', '👀', '🔥'] as const
+
+export type FloatingReaction = { key: number; emoji: string; name: string }
+
+/** Floating emoji rising from the bottom of the canvas — broadcast-only, never stored. */
+export function JamReactionsOverlay({ reactions }: { reactions: FloatingReaction[] }) {
+  if (reactions.length === 0) return null
+  return (
+    <div className="pointer-events-none fixed inset-x-0 bottom-20 z-50 flex justify-center" aria-hidden="true">
+      <style>{`
+        @keyframes jam-reaction-rise {
+          0% { transform: translateY(0) scale(0.8); opacity: 0; }
+          15% { transform: translateY(-16px) scale(1.1); opacity: 1; }
+          100% { transform: translateY(-160px) scale(1); opacity: 0; }
+        }
+      `}</style>
+      <div className="relative h-0 w-0">
+        {reactions.map((reaction) => (
+          <div
+            key={reaction.key}
+            className="absolute bottom-0 flex -translate-x-1/2 flex-col items-center"
+            style={{ left: `${((reaction.key % 7) - 3) * 26}px`, animation: 'jam-reaction-rise 1.8s ease-out forwards' }}
+          >
+            <span className="text-3xl drop-shadow">{reaction.emoji}</span>
+            <span className="mt-0.5 whitespace-nowrap rounded-full bg-white/90 px-1.5 text-[10px] font-semibold text-slate-600 shadow-sm">
+              {reaction.name}
+            </span>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
