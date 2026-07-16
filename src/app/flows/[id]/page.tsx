@@ -38,7 +38,7 @@ import { TestPanel } from '@/components/flows/test-panel'
 import { VersionsPanel } from '@/components/flows/versions-panel'
 import { useFlowJam, type HuddleSignal, type JamPeer } from '@/components/flows/use-flow-jam'
 import { useJamHuddle } from '@/components/flows/use-jam-huddle'
-import { CommentsPanel, JamReactionsOverlay, useFlowComments, type FloatingReaction } from '@/components/flows/flow-comments'
+import { CommentsPanel, JamReactionsOverlay, JamStackCommentPins, commentPinsFor, useFlowComments, type CommentAnchorPoint, type FloatingReaction } from '@/components/flows/flow-comments'
 import { contentPointFromClient, jamCursorColor, type JamCursor } from '@/lib/flows/jam-presence'
 import type { ReactFlowInstance } from '@xyflow/react'
 import { JamButton } from '@/components/flows/jam-button'
@@ -416,6 +416,28 @@ function FlowBuilder() {
   // ── Spec 3 social layer: comments, ephemeral reactions, spotlight ──
   const [commentsOpen, setCommentsOpen] = useState(false)
   const { comments, loading: commentsLoading, refresh: refreshComments, openThreadCount } = useFlowComments(id, !loading && !loadError)
+  // Canvas-point pins: placement mode arms the next canvas click; the clicked
+  // point becomes the pending anchor the panel's composer posts with.
+  const [placingPin, setPlacingPin] = useState(false)
+  const [pendingPin, setPendingPin] = useState<CommentAnchorPoint | null>(null)
+  const [focusThreadId, setFocusThreadId] = useState<string | null>(null)
+  const placePin = useCallback((space: CommentAnchorPoint['space'], point: { x: number; y: number }) => {
+    setPendingPin({ space, x: point.x, y: point.y })
+    setPlacingPin(false)
+    setCommentsOpen(true)
+  }, [])
+  const openPinThread = useCallback((rootId: string) => {
+    setCommentsOpen(true)
+    setFocusThreadId(rootId)
+  }, [])
+  useEffect(() => {
+    if (!placingPin) return
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setPlacingPin(false)
+    }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [placingPin])
   const [floatingReactions, setFloatingReactions] = useState<FloatingReaction[]>([])
   const reactionKeyRef = useRef(0)
   const pushReaction = useCallback((emoji: string, name: string) => {
@@ -488,6 +510,8 @@ function FlowBuilder() {
     }
     return labels
   }, [graph])
+  const dagCommentPins = useMemo(() => commentPinsFor(comments, 'dag'), [comments])
+  const stackCommentPins = useMemo(() => commentPinsFor(comments, 'stack'), [comments])
 
   // Follow mode: track the followed peer's broadcast viewport (and canvas
   // mode) until the user pans/zooms themselves or clicks the avatar again.
@@ -1617,6 +1641,10 @@ function FlowBuilder() {
           <div className="min-w-0 flex-1 bg-white">
             <DagCanvas
               onCursorMove={(cursor) => jamCursorUpdateRef.current(cursor)}
+              commentPins={dagCommentPins}
+              onPinClick={openPinThread}
+              placingPin={placingPin}
+              onPlacePin={(point) => placePin('dag', point)}
               onRfInit={(instance) => {
                 rfInstanceRef.current = instance
               }}
@@ -1668,12 +1696,21 @@ function FlowBuilder() {
         ) : (
         <div
           ref={canvasScrollRef}
-          className="min-w-0 flex-1 cursor-grab overflow-y-auto bg-white p-8"
-          onClick={() => {
+          className={cn('min-w-0 flex-1 overflow-y-auto bg-white p-8', placingPin ? 'cursor-crosshair' : 'cursor-grab')}
+          onClick={(event) => {
             // A completed drag-to-scroll must not read as a background click.
             if (suppressCanvasClickRef.current) {
               suppressCanvasClickRef.current = false
               return
+            }
+            // Placement mode: the click drops a comment pin in CONTENT
+            // coordinates (same capture as the Jam cursor broadcast).
+            if (placingPin) {
+              const rect = stackContentRef.current?.getBoundingClientRect()
+              if (rect) {
+                placePin('stack', contentPointFromClient({ x: event.clientX, y: event.clientY }, rect, zoom))
+                return
+              }
             }
             setSelectedId(null)
           }}
@@ -1703,6 +1740,7 @@ function FlowBuilder() {
             }}
           >
             <JamStackCursors peers={peers} zoom={zoom} />
+            <JamStackCommentPins pins={stackCommentPins} zoom={zoom} onPinClick={openPinThread} />
             <FlowCanvas
               graph={canvasGraph}
               flowId={id}
@@ -1914,7 +1952,12 @@ function FlowBuilder() {
       <CommentsPanel
         flowId={id}
         open={commentsOpen}
-        onClose={() => setCommentsOpen(false)}
+        onClose={() => {
+          setCommentsOpen(false)
+          setPendingPin(null)
+          setPlacingPin(false)
+          setFocusThreadId(null)
+        }}
         comments={comments}
         loading={commentsLoading}
         canModerate={canManageJam}
@@ -1922,6 +1965,11 @@ function FlowBuilder() {
         selectedNodeId={selectedId}
         onJumpToNode={(nodeId) => setSelectedId(nodeId)}
         onChanged={handleCommentsChanged}
+        pendingPin={pendingPin}
+        onCancelPendingPin={() => setPendingPin(null)}
+        placingPin={placingPin}
+        onTogglePinPlacement={() => setPlacingPin((value) => !value)}
+        focusThreadId={focusThreadId}
       />
       <JamReactionsOverlay reactions={floatingReactions} />
     </div>

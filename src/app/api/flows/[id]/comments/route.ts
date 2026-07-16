@@ -13,9 +13,16 @@ export const runtime = 'nodejs'
  * owner; authors can always resolve/delete their own.
  */
 
+const anchorPointSchema = z.object({
+  space: z.enum(['dag', 'stack']),
+  x: z.number().finite(),
+  y: z.number().finite(),
+})
+
 const createSchema = z.object({
   body: z.string().trim().min(1).max(4000),
   anchorNodeId: z.string().min(1).max(200).optional(),
+  anchorPoint: anchorPointSchema.optional(),
   parentId: z.string().min(1).optional(),
 })
 
@@ -45,6 +52,7 @@ type CommentWithAuthor = {
   id: string
   parentId: string | null
   anchorNodeId: string | null
+  anchorPoint: unknown
   body: string
   resolvedAt: Date | null
   createdAt: Date
@@ -52,10 +60,12 @@ type CommentWithAuthor = {
 }
 
 function serializeComment(comment: CommentWithAuthor, selfId: string) {
+  const point = anchorPointSchema.safeParse(comment.anchorPoint)
   return {
     id: comment.id,
     parentId: comment.parentId,
     anchorNodeId: comment.anchorNodeId,
+    anchorPoint: point.success ? point.data : null,
     body: comment.body,
     resolvedAt: comment.resolvedAt?.toISOString() ?? null,
     createdAt: comment.createdAt.toISOString(),
@@ -97,13 +107,18 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
     rootId = parent.parentId ?? parent.id
   }
 
+  // A root comment carries at most ONE anchor: a node beats a free point.
+  // Replies inherit the root's anchor, so they carry neither.
+  const anchorNodeId = rootId ? null : input.anchorNodeId ?? null
+  const anchorPoint = rootId || anchorNodeId ? null : input.anchorPoint ?? null
   const comment = await prisma.flowComment.create({
     data: {
       flowId: flow.id,
       organizationId: auth.organizationId,
       userId: auth.dbUser.id,
       parentId: rootId,
-      anchorNodeId: rootId ? null : input.anchorNodeId ?? null,
+      anchorNodeId,
+      ...(anchorPoint ? { anchorPoint } : {}),
       body: input.body,
     },
     include: { user: AUTHOR_SELECT },

@@ -551,6 +551,8 @@ model FlowComment {
   userId         String
   parentId       String?
   anchorNodeId   String?
+  /// Free canvas-point anchor: { space: 'dag'|'stack', x, y } in canvas coords.
+  anchorPoint    Json?
   body           String
   resolvedAt     DateTime? @db.Timestamptz(6)
   createdAt      DateTime  @default(now()) @db.Timestamptz(6)

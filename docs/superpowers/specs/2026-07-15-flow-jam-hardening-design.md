@@ -99,13 +99,15 @@ Scope change: voice chat was originally out of scope; pulled in by product decis
 
 ## Spec 3 — Social Layer (implemented 2026-07-16)
 
-- **Comments:** `FlowComment` model (anchor = node id, threads via `parentId`, resolve state).
-  Authz through the API (`flowReadScope` — commenting rides read access, moderation stays
-  with authors + the flow owner); live delivery via a `comments-changed` jam-channel nudge;
-  bell/push notifications for the owner and thread participants who are offline. A threads
-  panel lists open (then resolved) threads with jump-to-node anchor chips.
-  *v1 deliberately ships node-anchored + flow-level comments only; free canvas-point pins
-  (and in-canvas pin rendering) are deferred — the anchor model already supports adding them.*
+- **Comments:** `FlowComment` model (anchor = node id, free canvas point `{space,x,y}`, or
+  unanchored; threads via `parentId`, resolve state). Authz through the API (`flowReadScope`
+  — commenting rides read access, moderation stays with authors + the flow owner); live
+  delivery via a `comments-changed` jam-channel nudge; bell/push notifications for the owner
+  and thread participants who are offline. A threads panel lists open (then resolved)
+  threads with jump-to-node anchor chips. Point pins render on BOTH canvas modes in canvas
+  coordinates (the same projection as cursors — ViewportPortal in dag, the transform wrapper
+  in stack), counter-scaled about the teardrop tip; placement mode arms the next canvas
+  click, and clicking a pin focuses its thread in the panel. Resolved threads drop their pin.
 - **Emoji reactions:** ephemeral broadcast-only floating emoji (never persisted).
 - **Spotlight:** presenter broadcasts a request; peers get a consent toast, never a forced
   viewport takeover.

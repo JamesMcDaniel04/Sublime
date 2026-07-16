@@ -53,6 +53,7 @@ import type { DataField } from '@/lib/flows/datatree'
 import type { FlowGraph, FlowNode } from '@/lib/flows/graph'
 import { edgeIndicator, flowToScreenPoint, type JamCursor } from '@/lib/flows/jam-presence'
 import { jamCursorColor, type JamPeer } from './use-flow-jam'
+import { CommentPinMarker, type CommentPinData } from './flow-comments'
 
 type Agent = { id: string; title: string }
 type NodeIssues = { errors: number; warnings: number; items: { level: 'error' | 'warning'; message: string }[] }
@@ -207,6 +208,27 @@ function StepWidget({ data }: Readonly<NodeProps>) {
 
 // Stable identity — React Flow re-mounts every node if this object changes.
 const nodeTypes = { step: StepWidget }
+
+/**
+ * Comment pins in FLOW coordinates via ViewportPortal — same projection as the
+ * Jam cursors, counter-scaled about the teardrop's tip so it stays anchored to
+ * the exact spot at any zoom.
+ */
+function JamDagCommentPins({ pins, onPinClick }: Readonly<{ pins: CommentPinData[]; onPinClick?: (rootId: string) => void }>) {
+  const viewport = useViewport()
+  if (pins.length === 0) return null
+  return (
+    <ViewportPortal>
+      {pins.map((pin) => (
+        <div key={pin.id} className="absolute h-0 w-0" style={{ transform: `translate(${pin.x}px, ${pin.y}px)` }}>
+          <div className="absolute bottom-0 left-0" style={{ transform: `scale(${1 / viewport.zoom})`, transformOrigin: 'bottom left' }}>
+            <CommentPinMarker pin={pin} onClick={() => onPinClick?.(pin.id)} />
+          </div>
+        </div>
+      ))}
+    </ViewportPortal>
+  )
+}
 
 /**
  * Peers' live cursors, rendered in FLOW coordinates via ViewportPortal so each
@@ -467,6 +489,10 @@ export function DagCanvas({
   onCursorMove,
   onRfInit,
   onUserPan,
+  commentPins,
+  onPinClick,
+  placingPin = false,
+  onPlacePin,
 }: Readonly<{
   graph: FlowGraph
   agents: Agent[]
@@ -494,6 +520,12 @@ export function DagCanvas({
   onRfInit?: (instance: ReactFlowInstance) => void
   /** A USER pan/zoom gesture (not programmatic) — breaks follow mode. */
   onUserPan?: () => void
+  /** Open point-anchored comment threads to render as canvas pins. */
+  commentPins?: CommentPinData[]
+  onPinClick?: (rootId: string) => void
+  /** Comment placement mode: the next pane click drops a pin instead of deselecting. */
+  placingPin?: boolean
+  onPlacePin?: (point: { x: number; y: number }) => void
 }>) {
   // Positions: stored layout wins, dagre fills the rest. Legacy flows (no layout
   // at all) get a full arrangement without persisting anything.
@@ -588,7 +620,7 @@ export function DagCanvas({
   return (
     <div className="flex h-full w-full">
       <div
-        className="min-w-0 flex-1"
+        className={cn('min-w-0 flex-1', placingPin && '[&_.react-flow__pane]:!cursor-crosshair')}
         onPointerMove={(event) => {
           const instance = rfInstance.current
           if (!instance || !onCursorMove) return
@@ -607,7 +639,14 @@ export function DagCanvas({
           onConnect={onConnect}
           onEdgesDelete={onEdgesDelete}
           onNodeDragStop={onNodeDragStop}
-          onPaneClick={() => onSelect(null)}
+          onPaneClick={(event) => {
+            const instance = rfInstance.current
+            if (placingPin && onPlacePin && instance) {
+              onPlacePin(instance.screenToFlowPosition({ x: event.clientX, y: event.clientY }))
+              return
+            }
+            onSelect(null)
+          }}
           onInit={(instance) => {
             rfInstance.current = instance
             onRfInit?.(instance)
@@ -627,6 +666,7 @@ export function DagCanvas({
           <Controls showInteractive={false} />
           <MiniMap pannable zoomable className="!bg-white" />
           <JamDagCursors peers={jamPeers ?? []} />
+          <JamDagCommentPins pins={commentPins ?? []} onPinClick={onPinClick} />
         </ReactFlow>
       </div>
       {panelNode && (
