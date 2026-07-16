@@ -164,9 +164,6 @@ function ExplorePage() {
   // a template, only to order/annotate it.
   const [connected, setConnected] = useState<Set<string>>(new Set())
   const [dept, setDept] = useState<Department | 'all'>('all')
-  // seedKey of the catalogue card currently provisioning (POST /api/templates/provision).
-  const [provisioningKey, setProvisioningKey] = useState<string | null>(null)
-
   const openCreate = (kind: 'template' | 'skill') => setDialog(emptyAsset(kind))
   const openEditTemplate = (t: TemplateItem) =>
     setDialog({
@@ -351,32 +348,6 @@ function ExplorePage() {
     )
   }
 
-  // "Use template" for a Starter-catalogue seed: materializes the seed's real
-  // agent/flow rows server-side, then routes to the newly created object.
-  // Missing integrations never block this — the org can connect them after.
-  const provisionSeedTemplate = async (t: TemplateItem) => {
-    if (!t.seedKey || provisioningKey) return
-    setProvisioningKey(t.seedKey)
-    try {
-      const res = await fetch('/api/templates/provision', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ seedKey: t.seedKey }),
-      })
-      const data = await res.json().catch(() => ({}))
-      if (!res.ok) throw new Error(data.error || 'Could not set up this template')
-      if (data.kind === 'flow' && data.flowId) router.push(`/flows/${data.flowId}`)
-      // There is no /agents/<id> route — agents open on the dashboard via ?agent=<id>.
-      // This used to push /agents/<id>, which 404'd AFTER the agent was created, so
-      // users assumed it failed and clicked again, creating duplicate active agents.
-      else if (data.kind === 'agent' && data.agentId) router.push(`/dashboard?agent=${data.agentId}`)
-    } catch (e: any) {
-      toast.error(e?.message || 'Could not set up this template')
-    } finally {
-      setProvisioningKey(null)
-    }
-  }
-
   // Starter-catalogue card: same visual language as renderTemplateCard, plus a
   // department label and a readiness pill. Per product rule, a template is
   // NEVER hidden for missing integrations — it still renders with a Connect CTA.
@@ -385,7 +356,6 @@ function ExplorePage() {
     const Icon = categoryIcon(t.category)
     const missing = missingIntegrations(t.requiredIntegrations ?? [], connected)
     const department = t.departments?.[0]
-    const isProvisioning = provisioningKey === t.seedKey
     return (
       <Link key={t.id} href={`/templates/${t.id}`} className="block">
         <Card className={cn(
@@ -424,14 +394,16 @@ function ExplorePage() {
                 </div>
               </div>
             )}
+            {/* Navigates to the detail page (same destination as the card link),
+                where the user chooses to connect the template to an agent or a
+                flow — nothing is provisioned from the card itself. */}
             <Button
               size="sm"
               variant={missing.length > 0 ? 'outline' : 'default'}
               className="w-full"
-              loading={isProvisioning}
-              onClick={(e) => { e.preventDefault(); e.stopPropagation(); provisionSeedTemplate(t) }}
+              onClick={(e) => { e.preventDefault(); e.stopPropagation(); router.push(`/templates/${t.id}`) }}
             >
-              {isProvisioning ? 'Setting up…' : 'Use template'}
+              Use template
             </Button>
           </CardContent>
         </Card>

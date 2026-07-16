@@ -95,6 +95,7 @@ export function useFlowJam(options: {
   const previewCounterRef = useRef(0)
   const seenPreviewMutationsRef = useRef(new Set<string>())
   const accessDeniedRef = useRef(false)
+  const misconfiguredRef = useRef(false)
   const refreshAccessRef = useRef<() => void>(() => {})
   const reconnectRef = useRef<() => void>(() => {})
   const connectionStateRef = useRef<JamConnectionState>('connecting')
@@ -281,13 +282,31 @@ export function useFlowJam(options: {
           accessDeniedRef.current = true
           disconnectRealtime()
         }
+        // A deployment without ENCRYPTION_KEY/SUPABASE_SERVICE_ROLE_KEY can't
+        // mint channel topics. Tell the user ONCE why Jam is dead instead of
+        // showing an eternal silent "Reconnecting" dot, and stop the channel
+        // retry loop (regular saves are unaffected).
+        if (data.code === 'COLLABORATION_NOT_CONFIGURED' && !misconfiguredRef.current) {
+          misconfiguredRef.current = true
+          accessDeniedRef.current = true
+          disconnectRealtime()
+          callbacksRef.current.onConflict(
+            'Live collaboration is not configured on this server (missing ENCRYPTION_KEY). Flow edits still save normally.',
+          )
+        }
         if (!response.ok || !data.success) throw new Error(data.error || 'Collaboration unavailable')
         const topicChanged = Boolean(topicRef.current && topicRef.current !== data.topic)
         if (!disposed) {
+          // A successful snapshot proves access — clear a stale denial (e.g. the
+          // owner re-invited this user mid-session) so patches flow again.
+          const regained = accessDeniedRef.current
+          accessDeniedRef.current = false
           acceptServerGraph(data)
           if (connectionStateRef.current !== 'connected') setConnectionState('degraded')
           if (topicChanged) {
             topicRef.current = data.topic
+            reconnectRef.current()
+          } else if (regained && !channelRef.current) {
             reconnectRef.current()
           }
         }
@@ -305,7 +324,12 @@ export function useFlowJam(options: {
     const schedulePoll = () => {
       if (disposed) return
       if (pollTimer) clearTimeout(pollTimer)
-      const delay = connectionStateRef.current === 'connected' ? CONNECTED_POLL_MS : DEGRADED_POLL_MS
+      // The fast poll exists to catch up edits while realtime is flaky. When
+      // access is denied (or the server can't do collaboration at all) there
+      // are no edits to catch — poll slowly, just enough to notice re-grants.
+      const delay = connectionStateRef.current === 'connected' || accessDeniedRef.current
+        ? CONNECTED_POLL_MS
+        : DEGRADED_POLL_MS
       pollTimer = setTimeout(async () => {
         await loadSnapshot()
         schedulePoll()
