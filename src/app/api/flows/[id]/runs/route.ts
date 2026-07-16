@@ -1,6 +1,6 @@
 import { prisma } from '@/lib/prisma'
 import { ApiError, withAuthenticatedApi } from '@/lib/server/api-handler'
-import { flowReadScope } from '@/lib/server/visibility'
+import { flowReadScope, flowRunVisibilityScope } from '@/lib/server/visibility'
 import { deriveRunWaiting } from '@/lib/flows/run-waiting'
 
 // GET /api/flows/[id]/runs — recent runs + each run's per-step detail (input,
@@ -21,7 +21,7 @@ export const GET = withAuthenticatedApi(async (request, auth) => {
   // Visibility gate: private-flow run history is owner-only.
   const flow = await prisma.flow.findFirst({
     where: { id, organizationId: auth.organizationId, ...flowReadScope(auth.dbUser.id) },
-    select: { id: true },
+    select: { id: true, userId: true },
   })
   if (!flow) throw new ApiError('Flow not found', 404, 'NOT_FOUND')
 
@@ -32,7 +32,14 @@ export const GET = withAuthenticatedApi(async (request, auth) => {
   const summary = searchParams.get('summary') === '1'
 
   const runs = await prisma.flowRun.findMany({
-    where: { flowId: id, organizationId: auth.organizationId, ...(statusList.length ? { status: { in: statusList } } : {}) },
+    // Run history is per-user even on a shared flow: a run's input/output can
+    // carry the starting user's data (same invariant as agent executions).
+    where: {
+      flowId: id,
+      organizationId: auth.organizationId,
+      ...flowRunVisibilityScope(auth.dbUser.id, flow.userId),
+      ...(statusList.length ? { status: { in: statusList } } : {}),
+    },
     orderBy: { startedAt: 'desc' },
     take,
     include: {

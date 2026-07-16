@@ -1,5 +1,5 @@
 import type { User } from '@supabase/supabase-js'
-import { prisma } from '@/lib/prisma'
+import { prisma, systemPrisma } from '@/lib/prisma'
 import { createClient } from '@/lib/supabase/server'
 
 function findDbUser(supabaseId: string) {
@@ -26,6 +26,15 @@ async function findDbUserCached(supabaseId: string): Promise<DbUserRow> {
   return row
 }
 
+/**
+ * Drop the cached user→workspace row after a membership-changing mutation
+ * (workspace delete, account delete) so the next request re-resolves instead
+ * of serving a dead organization for up to the cache TTL.
+ */
+export function invalidateDbUserCache(supabaseId: string): void {
+  dbUserCache.delete(supabaseId)
+}
+
 // Workspace bootstrap: every Supabase identity gets its OWN workspace on
 // first signup (as its admin) — a user's agents, flows, and runs are private
 // to their workspace by default. A pending invitation wins: the invitee joins
@@ -39,7 +48,10 @@ export async function provisionUser(user: User, existing?: NonNullable<DbUserRow
   const name = metaString('full_name') || emailPrefix
 
   try {
-    return await prisma.$transaction(async (tx) => {
+    // systemPrisma: workspace bootstrap runs BEFORE the user has any tenant
+    // context — the invitation lookup is cross-org by design (which workspace
+    // invited this email?), so the tenant guard cannot apply here.
+    return await systemPrisma.$transaction(async (tx) => {
       // Serialize concurrent first requests from the same new session so one
       // identity never creates two workspaces. Transaction-scoped, auto-releases.
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${user.id}))`

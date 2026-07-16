@@ -21,7 +21,7 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
   const invitation = await prisma.organizationInvitation.create({ data: { organizationId: auth.organizationId, email, role: input.role, invitedById: auth.dbUser.id, expiresAt: new Date(Date.now() + 7 * 86_400_000) } })
   const redirectTo = `${process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, '') || request.nextUrl.origin}/auth/callback`
   const { error } = await createAdminClient().auth.admin.inviteUserByEmail(email, { redirectTo })
-  if (error) { await prisma.organizationInvitation.delete({ where: { id: invitation.id } }); throw new ApiError('Could not send invitation', 502, 'INVITE_FAILED', error) }
+  if (error) { await prisma.organizationInvitation.delete({ where: { id: invitation.id, organizationId: auth.organizationId } }); throw new ApiError('Could not send invitation', 502, 'INVITE_FAILED', error) }
   void recordAudit({ organizationId: auth.organizationId, actorUserId: auth.dbUser.id, action: 'organization.member.invited', resourceType: 'invitation', resourceId: invitation.id })
   return { success: true, invitation }
 })

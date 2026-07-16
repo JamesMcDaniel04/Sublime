@@ -337,7 +337,7 @@ if (TEST_DB) {
       data: { organizationId: ids.org, bindingId, channel: 'C0SWEEP1', threadTs: '1752300900.000100', flowId: flow.id, flowRunId: run.id, status: 'open' },
     })
     await closeSession({ organizationId: ids.org, id: fresh.id })
-    const closed = await prisma.slackThreadSession.findFirst({ where: { id: fresh.id } })
+    const closed = await prisma.slackThreadSession.findFirst({ where: { id: fresh.id, organizationId: ids.org } })
     assert.equal(closed.status, 'closed')
 
     const stale = await prisma.slackThreadSession.create({
@@ -355,9 +355,9 @@ if (TEST_DB) {
 
     const closedCount = await closeStaleSlackSessions()
     assert.ok(closedCount >= 1)
-    const staleAfter = await prisma.slackThreadSession.findFirst({ where: { id: stale.id } })
+    const staleAfter = await prisma.slackThreadSession.findFirst({ where: { id: stale.id, organizationId: ids.org } })
     assert.equal(staleAfter.status, 'closed', 'idle 8+ days -> swept closed')
-    const stillFreshAfter = await prisma.slackThreadSession.findFirst({ where: { id: stillFresh.id } })
+    const stillFreshAfter = await prisma.slackThreadSession.findFirst({ where: { id: stillFresh.id, organizationId: ids.org } })
     assert.equal(stillFreshAfter.status, 'open', 'recently active session survives the sweep')
   })
 
@@ -531,7 +531,7 @@ if (TEST_DB) {
 
     const runs = await prisma.flowRun.findMany({ where: { flowId: flow.id, organizationId: ids.org } })
     assert.equal(runs.length, 2, 'fell through to normal matching, which still matched and dispatched — NOT a continuation')
-    const after = await prisma.slackThreadSession.findFirst({ where: { id: session.id } })
+    const after = await prisma.slackThreadSession.findFirst({ where: { id: session.id, organizationId: ids.org } })
     assert.equal(after.status, 'closed', 'the stale session (threadMemory now off) was closed rather than continued')
   })
 } else {

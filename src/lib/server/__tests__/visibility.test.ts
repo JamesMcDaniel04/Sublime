@@ -7,6 +7,7 @@ import {
   agentWriteScope,
   executionVisibilityScope,
   flowOwnerScope,
+  flowRunVisibilityScope,
   flowReadScope,
   flowWriteScope,
   isVisibility,
@@ -66,6 +67,16 @@ test('agent OWNER: owner only', () => {
 
 test('run history is NEVER shared by sharing a flow — it can hold other people data', () => {
   assert.deepEqual(executionVisibilityScope('user-a'), { userId: 'user-a' })
+})
+
+test('FLOW run history follows the same invariant: own runs only', () => {
+  // A non-owner viewer of a shared flow sees only their own runs.
+  assert.deepEqual(flowRunVisibilityScope('user-a', 'owner-b'), { userId: 'user-a' })
+  // The flow owner additionally sees ownerless (legacy/system) runs, which
+  // would otherwise be invisible to everyone.
+  assert.deepEqual(flowRunVisibilityScope('owner-b', 'owner-b'), { OR: [{ userId: 'owner-b' }, { userId: null }] })
+  // A null flow owner (legacy row) never widens a viewer's scope.
+  assert.deepEqual(flowRunVisibilityScope('user-a', null), { userId: 'user-a' })
 })
 
 // ── Deprecated aliases ──────────────────────────────────────────────────────

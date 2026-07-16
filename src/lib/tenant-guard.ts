@@ -21,19 +21,24 @@
  * accidental omissions — RLS remains the structural fix.
  */
 
-// Org-carrying models with a REQUIRED organizationId (schema.prisma).
-// User (nullable orgId, auth bootstrap) and Organization (the tenant row)
-// are deliberately excluded. Transitively-scoped children (WorkflowStep,
-// FlowRunStep, ExecutionMessage, WorkflowEvent) are excluded — they carry
-// no organizationId column; scope them via relation filters when querying
-// from user-facing code.
-export const ORG_SCOPED_MODELS: ReadonlySet<string> = new Set([
-  'AgentTask', 'AgentConnector', 'AgentMemory', 'AgentChatMessage', 'AgentChatSession',
-  'AgentExecution', 'Notification',
-  'PushSubscription', 'AuditEvent', 'AgentTemplate', 'Integration',
-  'McpConnection', 'NangoConnection', 'IntegrationSecret',
-  'Flow', 'FlowVersion', 'FlowRun', 'KnowledgeDocument', 'KnowledgeChunk', 'SharedSkill',
-])
+import { Prisma } from '@prisma/client'
+
+// Org-carrying models with a REQUIRED organizationId, DERIVED from the Prisma
+// schema (DMMF) so the guard can never silently drift when a model is added.
+// The derivation naturally excludes User (nullable orgId, auth bootstrap),
+// Organization (the tenant row itself), and transitively-scoped children
+// (WorkflowStep, FlowRunStep, ExecutionMessage, WorkflowEvent) — none of them
+// carry a required organizationId column; scope children via relation filters
+// when querying from user-facing code.
+export const ORG_SCOPED_MODELS: ReadonlySet<string> = new Set(
+  Prisma.dmmf.datamodel.models
+    .filter((model) =>
+      model.fields.some(
+        (field) => field.name === 'organizationId' && field.kind === 'scalar' && field.isRequired && !field.isList,
+      ),
+    )
+    .map((model) => model.name),
+)
 
 const GUARDED_OPERATIONS = new Set([
   'findFirst', 'findFirstOrThrow', 'findMany', 'findUnique', 'findUniqueOrThrow',

@@ -62,3 +62,48 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
   const updated = await prisma.flow.update({ where: { id, organizationId: auth.organizationId }, data: { graph: jsonValue(row.graph) } })
   return { success: true, flow: serializeFlow(updated) }
 })
+
+// PATCH /api/flows/[id]/versions — { version, note } edits a snapshot's note.
+// Write scope (owner / collaborator / org_editor), same as publishing.
+const noteSchema = z.object({ version: z.number().int().positive(), note: z.string().trim().max(200) })
+
+export const PATCH = withAuthenticatedApi(async (request, auth) => {
+  const id = request.nextUrl.pathname.split('/').at(-2)
+  if (!id) throw new ApiError('Flow id is required')
+
+  const flow = await prisma.flow.findFirst({
+    where: { id, organizationId: auth.organizationId, ...flowWriteScope(auth.dbUser.id) },
+    select: { id: true },
+  })
+  if (!flow) throw new ApiError('Flow not found', 404, 'NOT_FOUND')
+
+  const { version, note } = noteSchema.parse(await request.json())
+  const result = await prisma.flowVersion.updateMany({
+    where: { flowId: id, organizationId: auth.organizationId, version },
+    data: { note: note || null },
+  })
+  if (!result.count) throw new ApiError('Version not found', 404, 'NOT_FOUND')
+  return { success: true }
+})
+
+// DELETE /api/flows/[id]/versions?version=N — remove a snapshot from history.
+// Owner-only: deleting history is destructive and cannot be undone. The
+// snapshot is a copy (the flow's published graph is stored on the flow row),
+// so removing any version never breaks the live published flow.
+export const DELETE = withAuthenticatedApi(async (request, auth) => {
+  const id = request.nextUrl.pathname.split('/').at(-2)
+  if (!id) throw new ApiError('Flow id is required')
+
+  const flow = await prisma.flow.findFirst({
+    where: { id, organizationId: auth.organizationId, userId: auth.dbUser.id },
+    select: { id: true },
+  })
+  if (!flow) throw new ApiError('Only the flow owner can delete version history', 403, 'FORBIDDEN')
+
+  const version = z.coerce.number().int().positive().parse(request.nextUrl.searchParams.get('version'))
+  const result = await prisma.flowVersion.deleteMany({
+    where: { flowId: id, organizationId: auth.organizationId, version },
+  })
+  if (!result.count) throw new ApiError('Version not found', 404, 'NOT_FOUND')
+  return { success: true }
+})

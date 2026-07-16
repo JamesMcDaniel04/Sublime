@@ -1722,6 +1722,7 @@ function FlowBuilder() {
             <VersionsPanel
               flowId={id}
               currentVersion={version}
+              isOwner={canManageJam}
               onView={viewVersion}
               onRestore={restoreVersion}
               onClose={() => setShowVersions(false)}

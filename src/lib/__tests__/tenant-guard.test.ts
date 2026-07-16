@@ -41,6 +41,19 @@ test('ORG_SCOPED_MODELS covers the known org-carrying models', () => {
   assert.ok(!ORG_SCOPED_MODELS.has('Organization')) // the tenant row itself
 })
 
+test('ORG_SCOPED_MODELS is derived from the schema — previously drifted models are now guarded', () => {
+  // These six carry a required organizationId but were missing from the old
+  // hand-maintained allowlist; derivation from the DMMF closes that class of
+  // drift permanently.
+  for (const model of ['OrganizationInvitation', 'FlowCollaborator', 'SlackWorkspaceConnection', 'SlackThreadSession', 'ActivityEvent', 'ActivityBackfill']) {
+    assert.ok(ORG_SCOPED_MODELS.has(model), model)
+  }
+  // Transitively-scoped children carry no organizationId column and must stay out.
+  for (const model of ['WorkflowStep', 'FlowRunStep', 'ExecutionMessage', 'WorkflowEvent']) {
+    assert.ok(!ORG_SCOPED_MODELS.has(model), model)
+  }
+})
+
 test('whereHasOrgScope rejects an undefined organizationId value', () => {
   assert.equal(whereHasOrgScope({ organizationId: undefined }), false)
   assert.equal(whereHasOrgScope({ id: '1', organizationId: undefined }), false)

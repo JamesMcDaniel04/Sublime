@@ -17,7 +17,7 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
   // Visibility gate: a private flow may only be run by its owner.
   const flow = await prisma.flow.findFirst({
     where: { id, organizationId: auth.organizationId, ...flowReadScope(auth.dbUser.id) },
-    select: { id: true },
+    select: { id: true, userId: true, graph: true, publishedGraph: true },
   })
   if (!flow) throw new ApiError('Flow not found', 404, 'NOT_FOUND')
   const body = await request.json().catch(() => ({}))
@@ -44,10 +44,9 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
   if (parsed.flowRunId) {
     const owned = await prisma.flowRun.findFirst({
       where: { id: parsed.flowRunId, flowId: flow.id, organizationId: auth.organizationId },
-      select: { id: true, status: true },
+      select: { id: true, status: true, userId: true },
     })
     if (!owned) throw new ApiError('Run not found', 404, 'NOT_FOUND')
-    // A durable Wait pause resumes on the scheduler, never via a user reply.
     if (parsed.reply !== undefined && owned.status === 'waiting') {
       const steps = await prisma.flowRunStep.findMany({
         where: { flowRunId: owned.id },
@@ -55,7 +54,20 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
         select: { nodeId: true, status: true, output: true },
       })
       const waiting = deriveRunWaiting(owned.status, steps)
+      // A durable Wait pause resumes on the scheduler, never via a user reply.
       if (waiting?.kind === 'time') throw new ApiError('This run is waiting for its scheduled resume time.', 400, 'FLOW_RUN_AWAITING_TIME')
+      // Run privacy: a shared flow does not share its runs. Only the run's
+      // owner, the flow's owner (ownerless legacy runs included), or the
+      // waiting humanReview step's explicit assignee may resume — resuming
+      // returns the run's output, which can carry the owner's data.
+      if (owned.userId !== auth.dbUser.id && flow.userId !== auth.dbUser.id) {
+        const graph = (flow.publishedGraph ?? flow.graph) as { nodes?: Array<{ id: string; type: string; data?: { assigneeUserId?: string } }> } | null
+        const waitingNode = graph?.nodes?.find((node) => node.id === waiting?.nodeId)
+        const assignee = waitingNode?.type === 'humanReview' ? waitingNode.data?.assigneeUserId?.trim() : undefined
+        if (!assignee || assignee !== auth.dbUser.id) {
+          throw new ApiError('Only the person this run is waiting on can reply to it.', 403, 'FLOW_RUN_NOT_YOURS')
+        }
+      }
     }
   }
   // `background: true` decouples a fresh manual run from THIS request so it

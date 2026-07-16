@@ -36,6 +36,7 @@ const settingsPatchSchema = z.object({
 })
 
 const patchSchema = z.object({
+  name: z.string().trim().min(1, 'Workspace name cannot be empty.').max(80).optional(),
   logoUrl: z
     .string()
     .max(LOGO_MAX_LENGTH, 'Image is too large — please use a smaller file.')
@@ -47,7 +48,7 @@ const patchSchema = z.object({
 
 export const PATCH = withAuthenticatedApi(async (request, auth) => {
   if (auth.dbUser.role !== 'ADMIN') throw new ApiError('Admin access required', 403, 'FORBIDDEN')
-  const { logoUrl, settings } = patchSchema.parse(await request.json())
+  const { name, logoUrl, settings } = patchSchema.parse(await request.json())
 
   let mergedSettings: Record<string, unknown> | undefined
   if (settings) {
@@ -65,10 +66,43 @@ export const PATCH = withAuthenticatedApi(async (request, auth) => {
   const organization = await prisma.organization.update({
     where: { id: auth.organizationId },
     data: {
+      ...(name !== undefined && { name }),
       ...(logoUrl !== undefined && { logoUrl }),
       ...(mergedSettings !== undefined && { settings: mergedSettings }),
     },
     select: ORG_SELECT,
   })
   return { success: true, organization }
+})
+
+// Delete the whole workspace: external resources (Nango connections, graph
+// store) are deprovisioned best-effort, then the org row's FK cascades remove
+// every owned row — including all member users, whose next sign-in
+// re-provisions a fresh personal workspace. Admin-only and irreversible; the
+// client confirms with a typed workspace name before calling.
+export const DELETE = withAuthenticatedApi(async (request, auth) => {
+  if (auth.dbUser.role !== 'ADMIN') throw new ApiError('Admin access required', 403, 'FORBIDDEN')
+  const { confirmName } = z.object({ confirmName: z.string() }).parse(await request.json())
+  const organization = await prisma.organization.findUnique({
+    where: { id: auth.organizationId },
+    select: { id: true, name: true },
+  })
+  if (!organization) throw new ApiError('Workspace not found', 404, 'NOT_FOUND')
+  // Server-side confirmation: the typed name must match, so a stray API call
+  // (or a stale client) can never delete a workspace by accident.
+  if (confirmName.trim() !== organization.name.trim()) {
+    throw new ApiError('The typed name does not match this workspace.', 400, 'CONFIRM_NAME_MISMATCH')
+  }
+
+  const members = await prisma.user.findMany({
+    where: { organizationId: auth.organizationId },
+    select: { supabaseId: true },
+  })
+  const { teardownOrganization } = await import('@/lib/org-teardown')
+  await teardownOrganization(auth.organizationId)
+  // Every member's cached user→workspace row now points at a dead org; bust
+  // them so their next request re-provisions instead of wedging for the TTL.
+  const { invalidateDbUserCache } = await import('@/lib/supabase/auth-utils')
+  for (const member of members) invalidateDbUserCache(member.supabaseId)
+  return { success: true }
 })

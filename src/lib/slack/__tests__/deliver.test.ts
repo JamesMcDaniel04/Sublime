@@ -105,7 +105,7 @@ if (TEST_DB) {
       fetchImpl: stubFetch(posts),
     })
 
-    const after = await prisma.slackThreadSession.findFirst({ where: { id: session.id } })
+    const after = await prisma.slackThreadSession.findFirst({ where: { id: session.id, organizationId: seeded.organizationId } })
     assert.equal(after.agentExecutionId, 'exec-good', 'the seed stays the last SUCCEEDED step, never the later failed one')
   })
 

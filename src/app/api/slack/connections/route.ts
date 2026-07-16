@@ -53,6 +53,6 @@ export const DELETE = withAuthenticatedApi(async (request, auth) => {
   const existing = await prisma.slackWorkspaceConnection.findFirst({ where: { id, organizationId: auth.organizationId } })
   if (!existing) throw new ApiError('Slack connection not found', 404, 'NOT_FOUND')
   await prisma.slackThreadSession.deleteMany({ where: { organizationId: auth.organizationId, bindingId: existing.id } })
-  await prisma.slackWorkspaceConnection.delete({ where: { id: existing.id } })
+  await prisma.slackWorkspaceConnection.delete({ where: { id: existing.id, organizationId: auth.organizationId } })
   return { success: true }
 })

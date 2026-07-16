@@ -92,6 +92,18 @@ export function executionVisibilityScope(userId: string) {
   return { userId }
 }
 
+/**
+ * Same invariant for FLOW runs: a shared flow shares its definition, never
+ * other people's run history. A run is visible to the user who started it;
+ * ownerless rows (legacy/system runs with a null userId) fall back to the
+ * flow's owner so they don't become invisible to everyone.
+ */
+export function flowRunVisibilityScope(userId: string, flowOwnerId: string | null) {
+  return flowOwnerId === userId
+    ? { OR: [{ userId }, { userId: null }] }
+    : { userId }
+}
+
 // NOTE: the old `agentVisibilityScope` / `flowVisibilityScope` helpers are gone.
 // They were ambiguous — `agentVisibilityScope` was even used as the owner guard
 // on flow publish/delete/trigger-secret — and a single "visibility" rule cannot

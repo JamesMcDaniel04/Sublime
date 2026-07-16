@@ -30,6 +30,10 @@ export default function SettingsPage() {
   const [invitations, setInvitations] = useState<Invitation[]>([])
   const [inviteEmail, setInviteEmail] = useState('')
   const [orgSettings, setOrgSettings] = useState<OrgSettings>({})
+  const [orgName, setOrgName] = useState('')
+  const [savedOrgName, setSavedOrgName] = useState('')
+  const [savingOrgName, setSavingOrgName] = useState(false)
+  const [deletingWorkspace, setDeletingWorkspace] = useState(false)
   const [savingScanToggle, setSavingScanToggle] = useState(false)
   const [loadingSettings, setLoadingSettings] = useState(true)
   const [loadError, setLoadError] = useState('')
@@ -53,11 +57,53 @@ export default function SettingsPage() {
       setFactors((factorResult.data?.totp || []) as Factor[])
       setMembers(memberData.members); setInvitations(memberData.invitations || [])
       setOrgSettings((orgData.organizations?.[0]?.settings || {}) as OrgSettings)
+      setOrgName(orgData.organizations?.[0]?.name || '')
+      setSavedOrgName(orgData.organizations?.[0]?.name || '')
     } catch (cause) {
       setLoadError(cause instanceof Error ? cause.message : 'Could not load settings.')
     } finally { setLoadingSettings(false) }
   }
   useEffect(() => { void load() }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  async function saveOrgName(event: React.FormEvent) {
+    event.preventDefault()
+    const name = orgName.trim()
+    if (!name || name === savedOrgName) return
+    setSavingOrgName(true)
+    try {
+      const response = await fetch('/api/organizations', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name }),
+      })
+      const data = await response.json().catch(() => ({}))
+      if (!response.ok) { toast.error(data.error || 'Could not rename the workspace'); return }
+      setOrgName(data.organization?.name || name)
+      setSavedOrgName(data.organization?.name || name)
+      toast.success('Workspace renamed')
+    } finally {
+      setSavingOrgName(false)
+    }
+  }
+
+  async function deleteWorkspace() {
+    const typed = window.prompt(`This permanently deletes the workspace, every member, and all its agents, flows, and runs.\n\nType the workspace name (${savedOrgName}) to confirm:`)
+    if (typed === null) return
+    setDeletingWorkspace(true)
+    try {
+      const response = await fetch('/api/organizations', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ confirmName: typed }),
+      })
+      const data = await response.json().catch(() => ({}))
+      if (!response.ok) { toast.error(data.error || 'Could not delete the workspace'); return }
+      await supabase.auth.signOut()
+      window.location.replace('/')
+    } finally {
+      setDeletingWorkspace(false)
+    }
+  }
 
   async function toggleConnectionScanning(enabled: boolean) {
     setSavingScanToggle(true)
@@ -156,6 +202,19 @@ export default function SettingsPage() {
         {members.map((member) => <div key={member.id} className="flex flex-wrap items-center gap-3 rounded-md border p-3"><div className="min-w-0 flex-1"><p className="truncate text-sm font-medium">{member.name || member.email}</p><p className="truncate text-xs text-muted-foreground">{member.email}</p></div>{profile?.role === 'ADMIN' ? <><Button variant="outline" onClick={() => updateMember(member, { role: member.role === 'ADMIN' ? 'USER' : 'ADMIN' })}>{member.role}</Button><Button variant="outline" onClick={() => updateMember(member, { isActive: !member.isActive })}>{member.isActive ? 'Suspend' : 'Reactivate'}</Button></> : <span className="text-xs text-muted-foreground">{member.role}</span>}</div>)}
       </CardContent></Card></TabsContent>
       <TabsContent value="workspace" className="mt-6">
+        <Card className="mb-6 max-w-2xl">
+          <CardHeader><CardTitle>Workspace name</CardTitle></CardHeader>
+          <CardContent>
+            {profile?.role === 'ADMIN' ? (
+              <form className="flex flex-col gap-3 sm:flex-row" onSubmit={saveOrgName}>
+                <Input value={orgName} onChange={(e) => setOrgName(e.target.value)} maxLength={80} required aria-label="Workspace name" />
+                <Button type="submit" loading={savingOrgName} disabled={savingOrgName || !orgName.trim() || orgName.trim() === savedOrgName}>Rename</Button>
+              </form>
+            ) : (
+              <p className="text-sm text-muted-foreground">{savedOrgName || '—'} <span className="text-xs">(only workspace admins can rename)</span></p>
+            )}
+          </CardContent>
+        </Card>
         {profile?.role === 'ADMIN' && <Card className="mb-6 max-w-2xl"><CardHeader><CardTitle>Audit log</CardTitle></CardHeader><CardContent><p className="mb-3 text-sm text-muted-foreground">Download an organization-scoped CSV record of agent actions and external tool use.</p><Button variant="outline" asChild><a href="/api/audit/export">Download audit CSV</a></Button></CardContent></Card>}
         <Card className="max-w-2xl">
           <CardHeader><CardTitle>Connection scanning</CardTitle></CardHeader>
@@ -177,6 +236,19 @@ export default function SettingsPage() {
           </CardContent>
         </Card>
         <LearningsPanel />
+        {profile?.role === 'ADMIN' && (
+          <Card className="mt-6 max-w-2xl border-red-200">
+            <CardHeader><CardTitle>Delete workspace</CardTitle></CardHeader>
+            <CardContent>
+              <p className="mb-4 text-sm text-muted-foreground">
+                Permanently deletes this workspace for every member — all agents, flows, runs, connections, and history. Members&apos; next sign-in starts a fresh personal workspace. This cannot be undone.
+              </p>
+              <Button variant="outline" className="border-red-300 text-red-700 hover:bg-red-50" loading={deletingWorkspace} disabled={deletingWorkspace} onClick={deleteWorkspace}>
+                Delete workspace
+              </Button>
+            </CardContent>
+          </Card>
+        )}
       </TabsContent>
     </Tabs>
   </div>
