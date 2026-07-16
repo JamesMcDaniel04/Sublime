@@ -34,7 +34,7 @@ test('assertOrgScoped ignores non-where operations and create data', () => {
 })
 
 test('ORG_SCOPED_MODELS covers the known org-carrying models', () => {
-  for (const model of ['AgentTask', 'AgentExecution', 'Flow', 'FlowRun', 'Signal', 'Notification', 'AuditEvent', 'McpConnection', 'KnowledgeDocument']) {
+  for (const model of ['AgentTask', 'AgentExecution', 'Flow', 'FlowRun', 'Notification', 'AuditEvent', 'McpConnection', 'KnowledgeDocument']) {
     assert.ok(ORG_SCOPED_MODELS.has(model), model)
   }
   assert.ok(!ORG_SCOPED_MODELS.has('User')) // nullable orgId — bootstrap queries are org-less by design

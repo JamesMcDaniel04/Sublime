@@ -10,7 +10,7 @@ export const runtime = 'nodejs'
 export const maxDuration = 300
 
 const bodySchema = z.object({
-  plane: z.enum(['klavis', 'nango', 'mcp']),
+  plane: z.enum(['nango', 'mcp']),
   connectionRef: z.string().min(1),
   connectionName: z.string().min(1),
 })
@@ -19,14 +19,9 @@ const bodySchema = z.object({
 async function assertOwnedConnection(
   organizationId: string,
   userId: string,
-  plane: 'klavis' | 'nango' | 'mcp',
+  plane: 'nango' | 'mcp',
   connectionRef: string,
 ): Promise<void> {
-  if (plane === 'klavis') {
-    const agent = await prisma.mCPAgent.findFirst({ where: { id: connectionRef, organizationId }, select: { id: true } })
-    if (!agent) throw new ApiError('Connection not found', 404, 'NOT_FOUND')
-    return
-  }
   if (plane === 'mcp') {
     const connection = await prisma.mcpConnection.findFirst({
       where: { id: connectionRef, organizationId, OR: [{ userId }, { userId: null, provider: { not: null } }] },

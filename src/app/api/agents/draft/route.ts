@@ -1,10 +1,15 @@
 import { z } from 'zod'
 import { prisma } from '@/lib/prisma'
-import { PROVIDERS } from '@/lib/mcp/provider-capabilities'
+import { BUILTIN_CONNECTORS } from '@/lib/connectors/registry'
 import { DEFAULT_AGENT_MODEL, generateStructured } from '@/lib/llm/model-runner'
 import { qwenConfigured } from '@/lib/llm/qwen'
 import { ApiError, withAuthenticatedApi } from '@/lib/server/api-handler'
 import { checkMonthlyTokenBudget, recordTokenUsage } from '@/lib/usage/budget'
+
+// The integration vocabulary the model may pick from: every registry key
+// (deduped case-insensitively — the builtin 'Slack' and the nango 'slack'
+// capability are the same selection string to the runtime's matcher).
+const PROVIDERS = [...new Map(BUILTIN_CONNECTORS.map((c) => [c.key.toLowerCase(), c.key])).values()]
 
 const DRAFT_SCHEMA = {
   type: 'object',

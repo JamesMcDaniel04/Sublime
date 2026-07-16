@@ -4,9 +4,9 @@
  *
  * Before this, plane gating was scattered as fuzzy regexes over the agent's
  * `integrations` JSON (`/slack/i`, `/granola/i`, `new RegExp(capability)`) in
- * loadTools, DUPLICATED again in /api/integrations/available (fromNango /
- * fromKlavis), with write-vs-read classification hard-coded per call site. A
- * drifting key in one place silently disabled an integration in another.
+ * loadTools, DUPLICATED again in /api/integrations/available, with
+ * write-vs-read classification hard-coded per call site. A drifting key in
+ * one place silently disabled an integration in another.
  *
  * Now every built-in plane is one typed descriptor: its canonical key, how a
  * stored selection activates it (`matches`), whether it is an outbound-write
@@ -14,9 +14,8 @@
  * available-integrations endpoint, and the audit write classification
  * all derive from here.
  *
- * Dynamic planes (Klavis-provisioned MCP servers, per-org MCP connections) are
- * discovered from DB rows rather than declared here, but their key derivation
- * lives here too (fromKlavisAgentType) so the runtime and the UI agree.
+ * Dynamic planes (per-org MCP connections) are discovered from DB rows
+ * rather than declared here.
  */
 import { slackConfigured } from '@/lib/integrations/slack'
 import { emailConfigured } from '@/lib/integrations/email'
@@ -149,27 +148,3 @@ export function fromNangoProviderKey(providerConfigKey: string): { key: string; 
   return { key: k, label: titleCase(k), slug: k }
 }
 
-const KLAVIS_LABELS: Record<string, string> = {
-  github: 'GitHub', google_drive: 'Google Drive', google_sheets: 'Google Sheets',
-  google_docs: 'Google Docs', google_forms: 'Google Forms', google_calendar: 'Google Calendar',
-  google_cloud: 'Google Cloud', hubspot: 'HubSpot', clickup: 'ClickUp', supabase: 'Supabase',
-  airtable: 'Airtable', intercom: 'Intercom', snowflake: 'Snowflake', figma: 'Figma',
-  salesforce: 'Salesforce', confluence: 'Confluence', notion: 'Notion', linear: 'Linear',
-  jira: 'Jira', asana: 'Asana', gmail: 'Gmail', slack: 'Slack', zendesk: 'Zendesk',
-  plai: 'Plai', posthog: 'PostHog', postman: 'Postman', youtube: 'YouTube',
-  close: 'Close', gitlab: 'GitLab', motion: 'Motion', microsoft_teams: 'Microsoft Teams',
-  hugging_face: 'Hugging Face', amplitude: 'Amplitude',
-}
-const KLAVIS_SLUGS: Record<string, string> = {
-  google_drive: 'googledrive', google_sheets: 'googlesheets', google_docs: 'googledocs',
-  google_forms: 'googleforms', google_calendar: 'googlecalendar', google_cloud: 'googlecloud',
-  microsoft_teams: 'microsoftteams',
-  hugging_face: 'huggingface',
-  monday: 'mondaydotcom',
-}
-
-/** Klavis agentType (e.g. "GITHUB") → key (lowercased) + display + icon slug. */
-export function fromKlavisAgentType(agentType: string): { key: string; label: string; slug: string } {
-  const key = agentType.toLowerCase()
-  return { key, label: KLAVIS_LABELS[key] ?? titleCase(key), slug: KLAVIS_SLUGS[key] ?? key }
-}

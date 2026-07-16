@@ -11,7 +11,7 @@ type OrganizationsResponse = { organizations?: { settings?: OrgSettings }[] }
  * Per-connection learning opt-out (Task 4.5): reads and writes
  * organizations.settings.scanExclusions — the org-wide list of
  * `<plane>:<connectionRef>` keys the connection scan skips. Shared by the
- * MCP-server rows and the Klavis integration cards so both surfaces reflect
+ * MCP-server rows so both surfaces reflect
  * the same underlying setting. Imports only from scan-exclusions.ts (no
  * server-only code) so it's safe to use from a client component.
  */

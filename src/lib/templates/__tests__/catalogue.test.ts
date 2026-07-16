@@ -7,7 +7,7 @@ import { flowGraphSchema } from '@/lib/flows/graph'
 import { canonicalIntegrationSlug, departmentsForTools, DEPARTMENTS } from '../departments'
 
 const KNOWN = new Set(DEPARTMENTS)
-const STABLE_TOOL_PLANES = new Set(['nango', 'native', 'template']) // template placeholders bind to per-org Klavis ids at provision time
+const STABLE_TOOL_PLANES = new Set(['nango', 'native', 'template']) // template placeholders bind to per-org connection ids at provision time
 
 test('80 seeds, 16 per department bucket, unique seedKeys', () => {
   assert.equal(SEED_CATALOGUE.length, 80)

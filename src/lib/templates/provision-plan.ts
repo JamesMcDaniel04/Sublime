@@ -7,7 +7,7 @@ const slug = (value: string) => value.toLowerCase().replace(/[^a-z0-9]+/g, '')
 
 /**
  * Bind catalogue-only tool placeholders to this workspace's real connection.
- * Klavis is deliberately preferred; Nango/native are compatibility fallbacks.
+ * Nango is preferred; native/MCP are compatibility fallbacks.
  */
 export function resolveGraphToolConnections(graph: FlowGraph, catalog: FlowToolCatalogConnection[]): FlowGraph {
   const clone: FlowGraph = JSON.parse(JSON.stringify(graph))
@@ -16,7 +16,7 @@ export function resolveGraphToolConnections(graph: FlowGraph, catalog: FlowToolC
     const provider = node.data.connectionId.slice(TEMPLATE_CONNECTION_PREFIX.length)
     const matches = catalog.filter((connection) => slug(connection.name) === slug(provider))
     const connection = matches.sort((a, b) => {
-      const rank = (id: string) => id.startsWith('klavis:') ? 0 : id.startsWith('nango:') ? 1 : 2
+      const rank = (id: string) => id.startsWith('nango:') ? 0 : 1
       return rank(a.id) - rank(b.id)
     })[0]
     if (!connection) throw new Error(`Connect ${provider} before using this template`)

@@ -41,22 +41,21 @@ export const MAX_IMPROVEMENTS = 5
  *  org-shared holder agent's memories. */
 export const FLOW_TARGET_MARKER_PREFIX = 'flow:'
 
-export type ConnectionCounts = { klavis: number; nango: number; mcp: number }
+export type ConnectionCounts = { nango: number; mcp: number }
 
 /** Pure: the org has enough cross-tool context for suggestions once its
- * active connections across all three planes total >= 3. */
+ * active connections across the integration planes total >= 3. */
 export function meetsSuggestionGate(counts: ConnectionCounts): boolean {
-  return counts.klavis + counts.nango + counts.mcp >= 3
+  return counts.nango + counts.mcp >= 3
 }
 
-/** Active connection counts across all three integration planes. */
+/** Active connection counts across the integration planes. */
 export async function countActiveConnections(organizationId: string): Promise<ConnectionCounts> {
-  const [klavis, nango, mcp] = await Promise.all([
-    prisma.mCPAgent.count({ where: { organizationId, isActive: true } }),
+  const [nango, mcp] = await Promise.all([
     prisma.nangoConnection.count({ where: { organizationId, status: NANGO_CONNECTED_STATUS } }),
     prisma.mcpConnection.count({ where: { organizationId, isActive: true } }),
   ])
-  return { klavis, nango, mcp }
+  return { nango, mcp }
 }
 
 type NewSuggestion = { title: string; description: string; flowPrompt: string }

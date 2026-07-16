@@ -25,7 +25,7 @@ import { saveAgentMemory } from '@/lib/memory/agent-memory'
 import { notify } from '@/lib/notifications/service'
 import { indexConnectionScan, removeConnectionScanFromGraph } from '@/lib/rag/indexer'
 import { formatFlowToolConnectionId } from '@/lib/flows/tool-connection-id'
-import { loadKlavisPlaneGroups, loadMcpConnectionPlaneGroups, loadNangoPlaneGroups, type ToolPlaneGroup } from '@/features/agents/tool-planes'
+import { loadMcpConnectionPlaneGroups, loadNangoPlaneGroups, type ToolPlaneGroup } from '@/features/agents/tool-planes'
 import { connectionSourceRef, isScanExcluded, type ScanPlane } from './scan-exclusions'
 
 // Re-exported so existing server-side importers of connection-scan.ts (this
@@ -236,15 +236,13 @@ export async function orgIntelligenceAgentId(organizationId: string): Promise<st
 async function loadScanGroup(
   organizationId: string,
   userId: string | null,
-  plane: 'klavis' | 'nango' | 'mcp',
+  plane: 'nango' | 'mcp',
   connectionRef: string,
 ): Promise<ToolPlaneGroup | undefined> {
   const groups =
-    plane === 'klavis'
-      ? await loadKlavisPlaneGroups(organizationId)
-      : plane === 'nango'
-        ? await loadNangoPlaneGroups(organizationId, userId)
-        : await loadMcpConnectionPlaneGroups(organizationId, userId, { connectionIds: [connectionRef] })
+    plane === 'nango'
+      ? await loadNangoPlaneGroups(organizationId, userId)
+      : await loadMcpConnectionPlaneGroups(organizationId, userId, { connectionIds: [connectionRef] })
   const wantId = formatFlowToolConnectionId(plane, connectionRef)
   return groups.find((g) => g.id === wantId)
 }

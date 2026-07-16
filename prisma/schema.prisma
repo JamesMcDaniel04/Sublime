@@ -26,7 +26,6 @@ model Organization {
   executions                AgentExecution[]
   templates                 AgentTemplate[]
   integrations              Integration[]
-  mcpAgents                 MCPAgent[]
   notifications             Notification[]
   mcpConnections            McpConnection[]
   nangoConnections          NangoConnection[]
@@ -66,7 +65,6 @@ model User {
   executions         AgentExecution[]
   templates          AgentTemplate[]
   integrations       Integration[]
-  mcpAgents          MCPAgent[]
   ownedAgents        AgentTask[]
   mcpConnections     McpConnection[]
   flowCollaborations FlowCollaborator[] @relation("FlowCollaboratorUser")
@@ -134,9 +132,9 @@ model AgentConnector {
   id              String   @id @default(cuid())
   agentTaskId     String
   organizationId  String   @db.Uuid
-  /// Canonical selection key (registry key, Klavis agentType, or connection name).
+  /// Canonical selection key (registry key or connection name).
   connectorKey    String
-  /// Plane: 'builtin' | 'nango' | 'klavis' | 'mcp' | 'external'.
+  /// Plane: 'builtin' | 'nango' | 'mcp' | 'external'.
   kind            String   @default("external")
   /// Optional FK to a specific per-org MCP connection this binding targets.
   mcpConnectionId String?
@@ -431,27 +429,6 @@ model Integration {
   @@unique([userId, provider])
   @@index([organizationId, provider])
   @@map("integrations")
-}
-
-model MCPAgent {
-  id             String   @id @default(cuid())
-  userId         String
-  organizationId String   @db.Uuid
-  name           String
-  agentType      String
-  description    String?
-  mcpServerUrl   String
-  isActive       Boolean  @default(false)
-  configuration  Json     @default("{}")
-  metadata       Json?
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
-
-  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
-  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-
-  @@unique([userId, organizationId, agentType])
-  @@map("mcp_agents")
 }
 
 model McpConnection {

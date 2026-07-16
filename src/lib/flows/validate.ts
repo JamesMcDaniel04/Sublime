@@ -1,6 +1,5 @@
 import { FIELD_TYPES, type FlowGraph, type FlowNode } from '@/lib/flows/graph'
 import { FLOW_TRIGGER_TYPES } from '@/lib/flows/trigger'
-import { parseFlowToolConnectionId } from '@/lib/flows/tool-connection-id'
 import { SLACK_EVENT_KINDS } from '@/lib/slack/payload'
 
 export type FlowValidationIssue = {

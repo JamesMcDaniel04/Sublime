@@ -29,7 +29,6 @@ test('canonicalIntegrationSlug normalizes chip keys/labels/aliases', () => {
   assert.equal(canonicalIntegrationSlug('googlesheets'), 'google_sheets')
   assert.equal(canonicalIntegrationSlug('resend'), 'email')
   assert.equal(canonicalIntegrationSlug('mondaydotcom'), 'monday')
-  assert.equal(canonicalIntegrationSlug('strata:snowflake'), 'snowflake')
 })
 
 test('DEPARTMENTS is the canonical order', () => {

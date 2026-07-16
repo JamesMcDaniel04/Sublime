@@ -4,7 +4,6 @@ import { parseSourceRef, planeLabel } from '../learnings'
 
 test('parseSourceRef: splits "<plane>:<ref>" into parts', () => {
   assert.deepEqual(parseSourceRef('mcp:conn123'), { plane: 'mcp', ref: 'conn123' })
-  assert.deepEqual(parseSourceRef('klavis:agent456'), { plane: 'klavis', ref: 'agent456' })
   assert.deepEqual(parseSourceRef('nango:slack'), { plane: 'nango', ref: 'slack' })
 })
 
@@ -26,7 +25,6 @@ test('parseSourceRef: null for malformed input (no colon, or an empty side)', ()
 
 test('planeLabel: known planes get a friendly fallback label', () => {
   assert.equal(planeLabel('mcp'), 'MCP server')
-  assert.equal(planeLabel('klavis'), 'Klavis')
   assert.equal(planeLabel('nango'), 'Connected account')
 })
 

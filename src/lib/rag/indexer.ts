@@ -16,7 +16,7 @@ import { prisma } from '@/lib/prisma'
 import { apiLogger } from '@/lib/logger'
 import { embedTexts } from './embeddings'
 import { getGraphRagStore, graphRagPersistent, ragEnabled } from './get-store'
-import type { EdgeRelation, GraphEdge, GraphNode, NodeType, NodeVisibility } from './store'
+import type { GraphEdge, GraphNode, NodeType, NodeVisibility } from './store'
 
 // ── Node id scheme (stable, so re-indexing upserts in place) ─────────────────
 export const nodeIds = {

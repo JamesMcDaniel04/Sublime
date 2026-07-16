@@ -1,11 +1,9 @@
 import { prisma } from '@/lib/prisma'
 import { withAuthenticatedApi } from '@/lib/server/api-handler'
 import { granolaConfigured } from '@/lib/integrations/granola'
-import { getOrgStrataConnection, getStrataServerNames, isStrataUrl, STRATA_KEY_PREFIX } from '@/lib/mcp/strata'
 import {
   BUILTIN_CONNECTORS,
   fromNangoProviderKey,
-  fromKlavisAgentType,
 } from '@/lib/connectors/registry'
 
 /**
@@ -14,30 +12,30 @@ import {
  * Every tool the org can attach to an agent, unified across planes so the
  * create-agent form shows what's ACTUALLY configured (not just env builtins):
  *  - `tools`: a deduped, logo-tagged list merging built-ins (Slack/Email/
- *    Granola), Nango-connected accounts, and Klavis-provisioned MCP servers.
+ *    Granola) and Nango-connected accounts.
  *    Each `key` is the string the agent runtime matches — both this endpoint
  *    and loadTools derive keys/matching from the shared connector registry, so
  *    a chip the UI shows is a chip the runtime activates.
  *  - `connections`: the org's custom Sublime-MCP connections (id + name),
  *    which the runtime loads for every agent regardless of selection.
  *
- * Connection state is read from the mirror tables (nango_connections,
- * mcp_agents) — the same source the runtime uses — so this stays a fast DB
- * read with no external Nango/Klavis round-trips.
+ * Connection state is read from the mirror table (nango_connections) — the
+ * same source the runtime uses — so this stays a fast DB read with no
+ * external Nango round-trips.
  */
 
 type ToolChip = { key: string; label: string; slug: string; connected: boolean }
 
 export const GET = withAuthenticatedApi(async (_request, auth) => {
   const organizationId = auth.organizationId
-  const [connectionsRaw, hasGranola, nango, klavis, strataConnection] = await Promise.all([
+  const [connections, hasGranola, nango] = await Promise.all([
     prisma.mcpConnection.findMany({
       where: {
         organizationId,
         isActive: true,
         OR: [{ userId: auth.dbUser.id }, { userId: null, provider: { not: null } }],
       },
-      select: { id: true, name: true, serverUrl: true },
+      select: { id: true, name: true },
       orderBy: { createdAt: 'desc' },
     }),
     granolaConfigured(organizationId),
@@ -45,27 +43,7 @@ export const GET = withAuthenticatedApi(async (_request, auth) => {
       where: { organizationId, status: 'connected' },
       select: { providerConfigKey: true },
     }),
-    prisma.mCPAgent.findMany({
-      where: { organizationId, isActive: true },
-      select: { agentType: true },
-    }),
-    getOrgStrataConnection(organizationId),
   ])
-
-  // The Strata connection is surfaced as individual per-server chips below, not
-  // as one opaque "connection" chip.
-  const connections = connectionsRaw.filter((c) => !isStrataUrl(c.serverUrl))
-
-  // Each Strata server is an attachable tool keyed `strata:<server>`. Selecting
-  // some scopes the agent to only those (see loadTools); selecting none means
-  // the agent gets no Strata tools — so agents no longer carry all 90 at once.
-  const strataServers = strataConnection ? await getStrataServerNames(strataConnection) : []
-  const strataTools: ToolChip[] = strataServers.map((name) => ({
-    key: `${STRATA_KEY_PREFIX}${name}`,
-    label: name.replace(/\b\w/g, (ch) => ch.toUpperCase()),
-    slug: name.toLowerCase().replace(/[^a-z0-9]+/g, ''),
-    connected: true,
-  }))
 
   // Merge planes, deduping by lowercased key and OR-ing connected state. Builtins
   // are added first so their canonical labels/keys (Slack/Email/Granola) win.
@@ -92,10 +70,6 @@ export const GET = withAuthenticatedApi(async (_request, auth) => {
     const m = fromNangoProviderKey(c.providerConfigKey)
     add({ ...m, connected: true })
   }
-  for (const a of klavis) {
-    const m = fromKlavisAgentType(a.agentType)
-    add({ ...m, connected: true })
-  }
 
   // Connected first, then alphabetical, so the user's real tools lead.
   const tools = [...byKey.values()].sort((a, b) =>
@@ -105,7 +79,6 @@ export const GET = withAuthenticatedApi(async (_request, auth) => {
   return {
     success: true,
     tools,
-    strataTools,
     connections: connections.map((c) => ({ id: c.id, name: c.name })),
   }
 })

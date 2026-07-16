@@ -4,12 +4,12 @@
  * `<plane>:<connectionRef>` keys the connection scan must skip.
  *
  * Deliberately has NO imports (not even @/lib/prisma) so client components
- * (the "Learning" toggle on the MCP-server rows and Klavis cards) can import
+ * (the "Learning" toggle on the MCP-server rows) can import
  * it directly without pulling server-only code into the browser bundle.
  * connection-scan.ts re-exports these for its own (server-side) callers.
  */
 
-export const SCAN_PLANES = ['klavis', 'nango', 'mcp'] as const
+export const SCAN_PLANES = ['nango', 'mcp'] as const
 export type ScanPlane = (typeof SCAN_PLANES)[number]
 
 /** Pure: the stable key identifying one connection across settings, memory

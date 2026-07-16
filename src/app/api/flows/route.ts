@@ -48,7 +48,7 @@ export const GET = withAuthenticatedApi(async (_request, auth) => {
     }),
     countActiveConnections(auth.organizationId),
   ])
-  const totalConnections = counts.klavis + counts.nango + counts.mcp
+  const totalConnections = counts.nango + counts.mcp
   const ready = meetsSuggestionGate(counts)
   return {
     success: true,

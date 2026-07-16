@@ -4,13 +4,13 @@ import { connectionSourceRef, isValidScanExclusionEntry, isScanExcluded, toggleS
 
 test('connectionSourceRef: joins plane + connectionRef with a colon', () => {
   assert.equal(connectionSourceRef('mcp', 'conn123'), 'mcp:conn123')
-  assert.equal(connectionSourceRef('klavis', 'agent456'), 'klavis:agent456')
+  assert.equal(connectionSourceRef('nango', 'slack'), 'nango:slack')
   assert.equal(connectionSourceRef('nango', 'slack'), 'nango:slack')
 })
 
 test('isValidScanExclusionEntry: accepts <plane>:<nonEmptyRef> for a known plane', () => {
   assert.equal(isValidScanExclusionEntry('mcp:conn123'), true)
-  assert.equal(isValidScanExclusionEntry('klavis:agent456'), true)
+  assert.equal(isValidScanExclusionEntry('nango:slack'), true)
   assert.equal(isValidScanExclusionEntry('nango:slack'), true)
 })
 
@@ -35,23 +35,23 @@ test('isScanExcluded: false when scanExclusions is absent or not an array', () =
 })
 
 test('isScanExcluded: true only when the exact sourceRef is listed', () => {
-  const settings = { scanExclusions: ['mcp:conn123', 'klavis:agent456'] }
+  const settings = { scanExclusions: ['mcp:conn123', 'nango:slack'] }
   assert.equal(isScanExcluded(settings, 'mcp:conn123'), true)
-  assert.equal(isScanExcluded(settings, 'klavis:agent456'), true)
+  assert.equal(isScanExcluded(settings, 'nango:slack'), true)
   assert.equal(isScanExcluded(settings, 'mcp:other'), false)
   assert.equal(isScanExcluded({ scanExclusions: [] }, 'mcp:conn123'), false)
 })
 
 test('toggleScanExclusion: enabling learning removes the entry', () => {
-  assert.deepEqual(toggleScanExclusion(['mcp:conn123', 'klavis:agent456'], 'mcp:conn123', true), ['klavis:agent456'])
+  assert.deepEqual(toggleScanExclusion(['mcp:conn123', 'nango:slack'], 'mcp:conn123', true), ['nango:slack'])
 })
 
 test('toggleScanExclusion: enabling learning is a no-op when the entry is absent', () => {
-  assert.deepEqual(toggleScanExclusion(['klavis:agent456'], 'mcp:conn123', true), ['klavis:agent456'])
+  assert.deepEqual(toggleScanExclusion(['nango:slack'], 'mcp:conn123', true), ['nango:slack'])
 })
 
 test('toggleScanExclusion: disabling learning adds the entry', () => {
-  assert.deepEqual(toggleScanExclusion(['klavis:agent456'], 'mcp:conn123', false), ['klavis:agent456', 'mcp:conn123'])
+  assert.deepEqual(toggleScanExclusion(['nango:slack'], 'mcp:conn123', false), ['nango:slack', 'mcp:conn123'])
 })
 
 test('toggleScanExclusion: disabling learning is idempotent (no duplicate entries)', () => {
@@ -60,6 +60,6 @@ test('toggleScanExclusion: disabling learning is idempotent (no duplicate entrie
 
 test('toggleScanExclusion: never mutates the input array', () => {
   const current = ['mcp:conn123']
-  toggleScanExclusion(current, 'klavis:agent456', false)
+  toggleScanExclusion(current, 'nango:slack', false)
   assert.deepEqual(current, ['mcp:conn123'])
 })

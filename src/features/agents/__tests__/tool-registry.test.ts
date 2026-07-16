@@ -15,11 +15,11 @@ test('merges groups and tags provenance', () => {
 test('first group wins on a name collision; the loser is reported', () => {
   const { tools, dropped } = buildToolRegistry([
     [{ name: 'send', provenance: 'nango' }],
-    [{ name: 'send', provenance: 'klavis' }],
+    [{ name: 'send', provenance: 'mcp' }],
   ])
   assert.equal(tools.length, 1)
   assert.equal(tools[0].provenance, 'nango')
-  assert.deepEqual(dropped, [{ name: 'send', provenance: 'klavis', keptProvenance: 'nango' }])
+  assert.deepEqual(dropped, [{ name: 'send', provenance: 'mcp', keptProvenance: 'nango' }])
 })
 
 test('normalizes missing/invalid schema and description', () => {

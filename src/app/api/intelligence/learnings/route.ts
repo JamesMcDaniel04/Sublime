@@ -3,7 +3,7 @@ import { prisma } from '@/lib/prisma'
 import { ApiError, withAuthenticatedApi } from '@/lib/server/api-handler'
 import { findOrgIntelligenceAgentId } from '@/lib/intelligence/connection-scan'
 import { parseSourceRef, planeLabel } from '@/lib/intelligence/learnings'
-import { fromKlavisAgentType, fromNangoProviderKey } from '@/lib/connectors/registry'
+import { fromNangoProviderKey } from '@/lib/connectors/registry'
 import { DELIVERY_PROVIDERS, type DeliveryCapability } from '@/lib/nango/delivery'
 
 export const runtime = 'nodejs'
@@ -28,10 +28,6 @@ async function resolveSourceLabel(organizationId: string, sourceRef: string | nu
     if (plane === 'mcp') {
       const connection = await prisma.mcpConnection.findFirst({ where: { id: ref, organizationId }, select: { name: true } })
       return connection?.name ?? planeLabel(plane)
-    }
-    if (plane === 'klavis') {
-      const agent = await prisma.mCPAgent.findFirst({ where: { id: ref, organizationId }, select: { agentType: true } })
-      return agent ? fromKlavisAgentType(agent.agentType).label : planeLabel(plane)
     }
     if (plane === 'nango') {
       const keys = DELIVERY_PROVIDERS[ref as DeliveryCapability] as readonly string[] | undefined

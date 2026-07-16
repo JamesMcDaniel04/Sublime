@@ -41,7 +41,7 @@ const GLUE = new Set(['slack', 'gmail', 'email', 'notion', 'google_sheets', 'goo
  * integrationSlug(), but returns the runtime-matchable underscore slug.
  */
 export function canonicalIntegrationSlug(raw: string): string {
-  const n = raw.toLowerCase().replace(/^strata:/, '').trim()
+  const n = raw.toLowerCase().trim()
   if (n.includes('salesforce')) return 'salesforce'
   if (n.includes('slack')) return 'slack'
   if (n.includes('hubspot')) return 'hubspot'

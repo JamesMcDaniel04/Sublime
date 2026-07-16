@@ -7,7 +7,6 @@
  *   - MCP connection rows keep their RAW database id (no prefix) so graphs
  *     stored before multi-plane support keep working unchanged.
  *   - Every other plane uses a `<plane>:<ref>` synthetic id:
- *       klavis:<mcpAgentId>   — a Klavis-provisioned MCP server row
  *       native:<providerId>   — a built-in integration (granola|slack|http|email)
  *       nango:<capability>    — a Nango delivery capability (slack|gmail|salesforce)
  *       flow:<flowId>         — an agent-callable flow (workflows-as-tools)
@@ -17,11 +16,11 @@
  * technically legal there), which preserves backward compatibility.
  */
 
-export const FLOW_TOOL_PLANES = ['klavis', 'mcp', 'native', 'nango', 'flow'] as const
+export const FLOW_TOOL_PLANES = ['mcp', 'native', 'nango', 'flow'] as const
 export type FlowToolPlane = (typeof FLOW_TOOL_PLANES)[number]
 
 /** Planes that use a `<plane>:<ref>` prefix (mcp rows stay raw). */
-const PREFIXED_PLANES = new Set<FlowToolPlane>(['klavis', 'native', 'nango', 'flow'])
+const PREFIXED_PLANES = new Set<FlowToolPlane>(['native', 'nango', 'flow'])
 
 export type ParsedFlowToolConnectionId = { plane: FlowToolPlane; ref: string }
 

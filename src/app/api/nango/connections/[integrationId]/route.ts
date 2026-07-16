@@ -51,7 +51,7 @@ export const DELETE = withAuthenticatedApi(async (request, auth) => {
   // providerConfigKey can map to the same capability (e.g. "google-mail" and
   // "gmail" both → gmail), so only purge if NO remaining connected Nango
   // connection still maps to it. `after` (Next 15) keeps this running past
-  // the response on serverless, same reasoning as the mcp/klavis disconnects.
+  // the response on serverless, same reasoning as the mcp disconnects.
   const affectedCapability = capabilityForProviderConfigKey(integrationId)
   if (affectedCapability) {
     const stillConnectedRows = await prisma.nangoConnection.findMany({

@@ -51,7 +51,6 @@ type ConnectionIntegration = {
 
 type AvailableIntegrations = {
   tools: ToolChip[]
-  strataTools: ToolChip[]
   connections: ConnectionIntegration[]
 }
 
@@ -321,7 +320,6 @@ export function AgentConfigForm({
   const baselineRef = useRef<string>(JSON.stringify(emptyDraft))
   const [skillNames, setSkillNames] = useState<Record<string, string>>({})
   const [availableIntegrations, setAvailableIntegrations] = useState<AvailableIntegrations | null>(null)
-  const [strataQuery, setStrataQuery] = useState('')
   const [runs, setRuns] = useState<any[]>([])
   const [runsLoading, setRunsLoading] = useState(false)
   const [memories, setMemories] = useState<AgentMemory[]>([])
@@ -443,8 +441,8 @@ export function AgentConfigForm({
 
   // Load available integrations when the form becomes active, and refetch when
   // the user returns to the tab — so a tool connected elsewhere (the
-  // Connections/MCP pages, or a Klavis OAuth popup) shows up here promptly
-  // instead of only after a full reload.
+  // Connections/MCP pages) shows up here promptly instead of only after a
+  // full reload.
   useEffect(() => {
     if (!active) return
     let cancelled = false
@@ -453,7 +451,7 @@ export function AgentConfigForm({
         .then((res) => res.json())
         .then((data) => {
           if (cancelled || !data.success) return
-          setAvailableIntegrations({ tools: data.tools ?? [], strataTools: data.strataTools ?? [], connections: data.connections ?? [] })
+          setAvailableIntegrations({ tools: data.tools ?? [], connections: data.connections ?? [] })
         })
         .catch(() => {})
     }
@@ -517,10 +515,7 @@ export function AgentConfigForm({
   }
 
   const dirty = JSON.stringify(draft) !== baselineRef.current
-  const connectedIntegrationSlugs = connectedSlugSet([
-    ...(availableIntegrations?.tools ?? []),
-    ...(availableIntegrations?.strataTools ?? []),
-  ])
+  const connectedIntegrationSlugs = connectedSlugSet(availableIntegrations?.tools ?? [])
   const checkingRequiredIntegrations = (draft.requiredIntegrations?.length ?? 0) > 0 && !availableIntegrations
   const missingRequiredIntegrations = availableIntegrations
     ? missingIntegrations(draft.requiredIntegrations ?? [], connectedIntegrationSlugs)
@@ -833,7 +828,7 @@ export function AgentConfigForm({
         <Label>Connected tools</Label>
         {availableIntegrations ? (
           <div className="mt-2 space-y-3">
-            {/* All attachable tools across planes (built-ins, Nango, Klavis, and
+            {/* All attachable tools across planes (built-ins, Nango, and
                 custom Sublime-MCP connections) in one wrapping row group so
                 they flow together rather than breaking onto separate rows. */}
             {(availableIntegrations.tools.length > 0 || availableIntegrations.connections.length > 0) && (
@@ -882,52 +877,6 @@ export function AgentConfigForm({
                     </button>
                   )
                 })}
-              </div>
-            )}
-
-            {/* Klavis Strata catalogue — searchable; each server is opt-in so an
-                agent carries only the tools it needs, not all of them. */}
-            {availableIntegrations.strataTools.length > 0 && (
-              <div className="space-y-2 rounded-lg border p-3">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <p className="text-xs font-medium text-foreground">
-                    Klavis tools
-                    {(() => {
-                      const n = draft.integrations.filter((k) => k.toLowerCase().startsWith('strata:')).length
-                      return n > 0 ? <span className="ml-1 text-muted-foreground">· {n} attached</span> : null
-                    })()}
-                  </p>
-                  <Input
-                    value={strataQuery}
-                    onChange={(event) => setStrataQuery(event.target.value)}
-                    placeholder="Search Klavis tools"
-                    className="h-8 w-48 text-xs"
-                  />
-                </div>
-                <div className="flex max-h-48 flex-wrap gap-2 overflow-y-auto">
-                  {availableIntegrations.strataTools
-                    .filter((t) => !strataQuery.trim() || t.label.toLowerCase().includes(strataQuery.trim().toLowerCase()))
-                    .slice(0, 60)
-                    .map((t) => {
-                      const selected = draft.integrations.includes(t.key)
-                      return (
-                        <button
-                          key={t.key}
-                          type="button"
-                          onClick={() => toggleIntegration(t.key)}
-                          className={cn(
-                            'flex items-center gap-1.5 rounded-full border py-1 pl-1.5 pr-3 text-xs transition-colors duration-150',
-                            selected
-                              ? 'border-primary bg-primary text-primary-foreground'
-                              : 'border-border bg-transparent text-muted-foreground hover:border-primary hover:text-foreground',
-                          )}
-                        >
-                          <IntegrationLogo slug={t.slug} name={t.label} className="h-4 w-4 bg-white/70" />
-                          {t.label}
-                        </button>
-                      )
-                    })}
-                </div>
               </div>
             )}
 

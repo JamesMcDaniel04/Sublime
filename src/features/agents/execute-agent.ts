@@ -11,10 +11,8 @@ import { retrieveKnowledge, renderKnowledge } from '@/lib/knowledge/retrieve'
 import { embeddingsConfigured, embedQuery, embedTexts, cosineSimilarity } from '@/lib/rag/embeddings'
 import { getGraphRagStore } from '@/lib/rag/get-store'
 import { indexExecution } from '@/lib/rag/indexer'
-import { selectedStrataServers } from '@/lib/mcp/strata'
 import {
   loadFlowPlaneGroups,
-  loadKlavisPlaneGroups,
   loadMcpConnectionPlaneGroups,
   loadNativePlaneGroups,
   loadNangoPlaneGroups,
@@ -253,34 +251,10 @@ async function loadTools(organizationId: string, providers: string[], ownerUserI
     }
   }
 
-  // ---- Klavis-managed MCP servers ----------------------------------------
-  const klavisProviders = providers
-
-  if (process.env.KLAVIS_API_KEY && klavisProviders.length > 0) {
-    const klavisGroups = await loadKlavisPlaneGroups(organizationId, {
-      agentTypes: klavisProviders.map((provider) => provider.toUpperCase()),
-    })
-    for (const group of klavisGroups) {
-      if (group.tools.length > 20) {
-        apiLogger.warn('loadTools: per-provider tool cap reached; some tools not exposed to the agent', {
-          provider: group.provider, organizationId, discovered: group.tools.length, cap: 20, dropped: group.tools.length - 20,
-        })
-      }
-      pushGroup(group, { cap: 20 })
-    }
-  }
-
   // ---- Per-org MCP connections (all active connections, any authType) ------
   // Custom MCP connections load for every agent regardless of the providers
-  // list — EXCEPT Klavis Strata, which is opt-in per agent: its ~90 tools would
-  // otherwise all be live at once. An agent gets Strata's meta-tools only when
-  // it has selected at least one `strata:<server>`; the selected set scopes it
-  // (see the system-prompt note added in the run). A failing/unreachable server
-  // must NOT abort the run or block others.
-  const strataSelected = selectedStrataServers(providers)
-  const mcpGroups = await loadMcpConnectionPlaneGroups(organizationId, ownerUserId, {
-    includeStrata: strataSelected.length > 0,
-  })
+  // list. A failing/unreachable server must NOT abort the run or block others.
+  const mcpGroups = await loadMcpConnectionPlaneGroups(organizationId, ownerUserId)
   for (const group of mcpGroups) pushGroup(group, { cap: 20 })
 
   // ---- Native built-ins (Granola / Slack / HTTP / Email) --------------------
@@ -607,13 +581,6 @@ export async function runAgentExecution(
     let system = buildAgentSystemPrompt(agent.objective, skillIds, communitySkills)
     if (structuredFields.length) {
       system += `\n\n${structuredResponseInstruction(structuredFields)}`
-    }
-
-    // Scope Klavis Strata to the servers this agent selected, so its discovery/
-    // execute meta-tools only reach the intended tools rather than all ~90.
-    const strataScope = selectedStrataServers(providers)
-    if (strataScope.length) {
-      system += `\nThrough the Klavis Strata meta-tools, use ONLY these servers: ${strataScope.join(', ')}. When calling the discovery and execute_action tools, restrict server_names to this list and do not use other Strata servers.`
     }
 
     // Goal awareness + strategize mode (WS1.9). The goal steers every turn;

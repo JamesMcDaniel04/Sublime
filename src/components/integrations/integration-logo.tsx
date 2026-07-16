@@ -12,7 +12,7 @@ import { cn } from '@/lib/utils'
  * never leaves a broken image.
  */
 
-// Klavis/Nango provider key → Simple Icons slug (https://simpleicons.org).
+// Nango provider key → Simple Icons slug (https://simpleicons.org).
 // Only entries that differ from the raw provider key, or need pinning, matter;
 // unmapped providers try the key itself, then fall back to an initial tile.
 const SIMPLE_ICON_SLUGS: Record<string, string> = {

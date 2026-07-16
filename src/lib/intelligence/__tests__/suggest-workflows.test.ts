@@ -3,19 +3,19 @@ import assert from 'node:assert/strict'
 import { meetsSuggestionGate, parseSuggestions, FLOW_TARGET_MARKER_PREFIX } from '../suggest-workflows'
 
 test('meetsSuggestionGate: below 3 total connections is not met', () => {
-  assert.equal(meetsSuggestionGate({ klavis: 0, nango: 0, mcp: 0 }), false)
-  assert.equal(meetsSuggestionGate({ klavis: 1, nango: 1, mcp: 0 }), false)
-  assert.equal(meetsSuggestionGate({ klavis: 2, nango: 0, mcp: 0 }), false)
+  assert.equal(meetsSuggestionGate({ nango: 0, mcp: 0 }), false)
+  assert.equal(meetsSuggestionGate({ nango: 1, mcp: 0 }), false)
+  assert.equal(meetsSuggestionGate({ nango: 2, mcp: 0 }), false)
 })
 
 test('meetsSuggestionGate: exactly 3 total (any split) is met', () => {
-  assert.equal(meetsSuggestionGate({ klavis: 3, nango: 0, mcp: 0 }), true)
-  assert.equal(meetsSuggestionGate({ klavis: 1, nango: 1, mcp: 1 }), true)
-  assert.equal(meetsSuggestionGate({ klavis: 0, nango: 0, mcp: 3 }), true)
+  assert.equal(meetsSuggestionGate({ nango: 3, mcp: 0 }), true)
+  assert.equal(meetsSuggestionGate({ nango: 2, mcp: 1 }), true)
+  assert.equal(meetsSuggestionGate({ nango: 0, mcp: 3 }), true)
 })
 
 test('meetsSuggestionGate: more than 3 total is met', () => {
-  assert.equal(meetsSuggestionGate({ klavis: 5, nango: 4, mcp: 2 }), true)
+  assert.equal(meetsSuggestionGate({ nango: 4, mcp: 2 }), true)
 })
 
 test('parseSuggestions: parses well-formed JSON', () => {

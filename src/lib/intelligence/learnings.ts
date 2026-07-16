@@ -23,7 +23,6 @@ export function parseSourceRef(sourceRef: string | null | undefined): ParsedSour
 
 const PLANE_LABELS: Record<string, string> = {
   mcp: 'MCP server',
-  klavis: 'Klavis',
   nango: 'Connected account',
 }
 

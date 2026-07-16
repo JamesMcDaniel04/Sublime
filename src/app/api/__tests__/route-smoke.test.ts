@@ -57,10 +57,6 @@ if (TEST_DB) {
     { name: 'GET /api/intelligence/learnings', run: async () => (await import('../intelligence/learnings/route')).GET(req('/api/intelligence/learnings')) },
     { name: 'GET /api/mcp-connections', run: async () => (await import('../mcp-connections/route')).GET(req('/api/mcp-connections')) },
     { name: 'GET /api/mcp-connections/oauth/start', run: async () => (await import('../mcp-connections/oauth/start/route')).GET(req('/api/mcp-connections/oauth/start')) },
-    // mcp/connections: skipped — needs KLAVIS_API_KEY; throws a 503 ApiError
-    // (KLAVIS_UNAVAILABLE) before any network call, same "needs an external
-    // service key" category as the Nango/Granola routes below. (Set in prod.)
-    { name: 'GET /api/mcp/strata-catalog', run: async () => (await import('../mcp/strata-catalog/route')).GET(req('/api/mcp/strata-catalog')) },
     // nango/integrations, nango/status: skipped — no NANGO_SECRET_KEY in the
     // test env, so both deliberately throw a 503 ApiError (NANGO_UNAVAILABLE)
     // before any network call. Correct behavior, but 503 >= 500 trips this
@@ -106,7 +102,6 @@ if (TEST_DB) {
   // test below — so a newly-added route can't silently ship untested (the
   // exact blind spot behind the 2026-07-10 tenant-guard incident).
   const skipped: Array<{ route: string; reason: string }> = [
-    { route: 'mcp/connections', reason: 'needs KLAVIS_API_KEY — throws 503 before any network call' },
     { route: 'nango/integrations', reason: 'needs NANGO_SECRET_KEY — throws 503 before any network call' },
     { route: 'nango/status', reason: 'needs NANGO_SECRET_KEY — throws 503 before any network call' },
     { route: 'granola/notes/[id]', reason: 'needs a Granola key — throws 503 before any network call' },
