@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { AlertCircle, Bell, CheckCircle2, HelpCircle, Info, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { useAuth } from '@/hooks/use-auth'
 import { getSnapshot } from '@/lib/client/snapshot'
 import { notificationHref } from '@/lib/notifications/notification-href'
 import { cn } from '@/lib/utils'
@@ -19,6 +20,8 @@ type NotificationItem = {
   executionId?: string | null
   readAt?: string | null
   createdAt: string
+  /** null = org-wide broadcast — only admins may delete those. */
+  userId?: string | null
 }
 
 type PushState = 'unknown' | 'unavailable' | 'available' | 'enabled'
@@ -44,6 +47,7 @@ function urlBase64ToUint8Array(base64String: string) {
 
 export function NotificationBell({ buttonClassName }: { buttonClassName?: string } = {}) {
   const router = useRouter()
+  const { isAdmin } = useAuth()
   const [open, setOpen] = useState(false)
   const [items, setItems] = useState<NotificationItem[]>([])
   const [unread, setUnread] = useState(0)
@@ -258,15 +262,19 @@ export function NotificationBell({ buttonClassName }: { buttonClassName?: string
                     ) : (
                       <a href={notificationHref(n)} className={rowClass}>{content}</a>
                     )}
-                    <button
-                      type="button"
-                      aria-label="Dismiss notification"
-                      title="Dismiss"
-                      className="mr-2 mt-3 shrink-0 rounded p-0.5 text-gray-300 hover:bg-gray-100 hover:text-gray-500"
-                      onClick={() => void dismiss(n)}
-                    >
-                      <X className="h-3.5 w-3.5" />
-                    </button>
+                    {/* Broadcast rows (userId null) are deletable by admins only —
+                        the DELETE route 404s for everyone else, so don't offer it. */}
+                    {(n.userId !== null || isAdmin) && (
+                      <button
+                        type="button"
+                        aria-label="Dismiss notification"
+                        title="Dismiss"
+                        className="mr-2 mt-3 shrink-0 rounded p-0.5 text-gray-300 hover:bg-gray-100 hover:text-gray-500"
+                        onClick={() => void dismiss(n)}
+                      >
+                        <X className="h-3.5 w-3.5" />
+                      </button>
+                    )}
                   </div>
                 )
               })}

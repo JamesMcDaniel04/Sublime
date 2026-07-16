@@ -59,10 +59,14 @@ type RunDetails = {
 
 export type RunMutation = { id: string; status?: string; deleted?: boolean }
 
-export const groupOrder = ['running', 'cancelling', 'waiting_for_input', 'failed', 'cancelled', 'completed'] as const
+// 'pending' must have a bucket: queue-mode executes and webhook triggers create
+// runs as pending, and a status with no group renders NOWHERE — the run the
+// user just fired would be invisible until a worker flips it to running.
+export const groupOrder = ['running', 'pending', 'cancelling', 'waiting_for_input', 'failed', 'cancelled', 'completed'] as const
 
 export const groupLabels: Record<string, string> = {
   running: 'Running',
+  pending: 'Queued',
   cancelling: 'Cancelling',
   waiting_for_input: 'Needs input',
   failed: 'Error',

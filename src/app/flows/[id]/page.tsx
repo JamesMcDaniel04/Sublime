@@ -988,7 +988,14 @@ function FlowBuilder() {
           toast.error(data.error || 'Could not publish.')
           return
         }
-        if (revert && data.flow?.graph) setGraph(data.flow.graph)
+        if (revert && data.flow?.graph) {
+          // The server revert bumps updatedAt — refresh the optimistic-
+          // concurrency base and the dirty-tracking snapshot (same as
+          // restoreVersion) or the next Save 409s forever.
+          if (data.flow.updatedAt) baseUpdatedAtRef.current = data.flow.updatedAt
+          setGraph(data.flow.graph)
+          setSavedSnapshot(JSON.stringify({ name, description, graph: data.flow.graph, status, errorFlowId }))
+        }
         setVersion(data.flow?.version ?? version)
         setPublished(Boolean(data.flow?.published))
         toast.success(revert ? 'Reverted to the published version.' : `Published v${data.flow?.version}.`)
@@ -996,7 +1003,7 @@ function FlowBuilder() {
         setPublishing(false)
       }
     },
-    [id, save, validation, version],
+    [id, save, validation, version, name, description, status, errorFlowId],
   )
 
   const pollRuns = useCallback(() => {

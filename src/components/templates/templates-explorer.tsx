@@ -455,11 +455,15 @@ export function TemplatesExplorer() {
   }
 
   const jumpToMatch = (match: { id: string; kind: string }, _name: string) => {
+    // Dismiss the suggestions panel so it isn't still open on back-navigation.
+    closeAiResults()
     if (match.kind === 'template') {
       router.push(`/templates/${match.id}`)
       return
     }
-    handleTabChange('skills')
+    // Go to the skill itself — switching tabs left the user hunting through
+    // pagination for a card that was often not even on the visible page.
+    router.push(`/skills/${encodeURIComponent(match.id)}`)
   }
 
   const addSkillToAgent = async (skill: SkillItem, agent: AgentItem) => {

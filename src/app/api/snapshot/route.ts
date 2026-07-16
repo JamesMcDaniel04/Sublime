@@ -60,7 +60,9 @@ export const GET = withAuthenticatedApi(async (_request, auth) => {
 
   return {
     success: true,
-    agents: agents.map(serializeAgent),
+    // Same isOwner attachment as /api/agents — the config form's owner-only
+    // sharing guard reads it, and the snapshot must stay interchangeable.
+    agents: agents.map((agent) => ({ ...serializeAgent(agent), isOwner: agent.userId === auth.dbUser.id })),
     activities,
     usage: {
       since: monthStart.toISOString(),

@@ -160,8 +160,11 @@ export default function TemplateDetails() {
         })
         const data = await response.json().catch(() => ({}))
         if (!response.ok) throw new Error(data.error || `Could not connect this template to a ${targetKind}.`)
+        // An OK response missing its id must still surface — falling through
+        // silently cleared the spinner and stranded the user on this page.
         if (targetKind === 'flow' && data.flowId) router.push(`/flows/${data.flowId}`)
         else if (targetKind === 'agent' && data.agentId) router.push(`/dashboard?agent=${data.agentId}`)
+        else throw new Error(`Provisioning finished but returned no ${targetKind} — please try again.`)
         return
       }
 

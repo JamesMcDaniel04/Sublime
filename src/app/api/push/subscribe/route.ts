@@ -19,7 +19,11 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
       userId: auth.dbUser.id,
       organizationId: auth.organizationId,
     },
-    update: { p256dh: keys.p256dh, auth: keys.auth, userId: auth.dbUser.id },
+    // The update path must rewrite organizationId along with userId: a browser
+    // endpoint reused after switching accounts/workspaces would otherwise pin
+    // the new user's subscription to the previous org (and the org-scoped
+    // DELETE above could then never find it).
+    update: { p256dh: keys.p256dh, auth: keys.auth, userId: auth.dbUser.id, organizationId: auth.organizationId },
   })
   return { success: true }
 })

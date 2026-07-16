@@ -315,6 +315,8 @@ export function Sidebar() {
       } else {
         toast.error(data.error || 'Run failed')
       }
+    } catch {
+      toast.error(`Could not run ${agent.title} — check your connection and try again.`)
     } finally {
       setRunningId(null)
     }

@@ -338,6 +338,10 @@ function AgentHQ() {
       toast.success(`Created "${data.draft?.title || 'agent'}".`)
       await load(true)
       if (data.agentId) setSelectedAgentId(data.agentId)
+    } catch {
+      // A rejected fetch (offline, DNS) must not fail silently — every other
+      // handler on this page toasts.
+      toast.error("Couldn't build the agent — check your connection and try again.")
     } finally {
       setBuilding(false)
     }
@@ -404,6 +408,8 @@ function AgentHQ() {
       } else {
         toast.error(data.error || 'Run failed')
       }
+    } catch {
+      toast.error(`Could not run ${agent.title} — check your connection and try again.`)
     } finally {
       setRunningId(null)
     }
