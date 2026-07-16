@@ -424,30 +424,43 @@ export async function runAgentExecution(
     transcript = coerceToIR(queuedExecution.transcript as unknown[])
     startTurn = Number(executionMetadata.turnCursor) || 0
     completedToolSteps = await loadCompletedToolSteps(queuedExecution.id)
-    const reply = data.reply?.trim() || 'The user did not provide an answer. Use your best judgment.'
-    pendingResults = [
-      ...(pending.collectedResults || []),
-      { toolCallId: pending.toolCallId, content: reply },
-    ]
-    if (pending.stepId) {
-      await prisma.workflowStep.update({
-        where: { id: pending.stepId },
-        data: { status: 'succeeded', output: jsonValue({ answer: reply }), completedAt: new Date() },
+    if (heldApproval) {
+      // Approval resolution is deny-by-default, is NEVER auto-answered from
+      // memory, and the reply is NOT saved as a reusable user_answer memory —
+      // approvals must be collected fresh every time. The held call executes
+      // (or is denied) once tool bindings are loaded below.
+      const reply = data.reply?.trim() || ''
+      approvalToResolve = { ...heldApproval, approved: isApprovalReply(reply), reply }
+      await recordEvent(queuedExecution.id, heldApproval.stepId || null, 'user.replied', {
+        answer: reply || '(no reply)',
+        approval: true,
+      })
+    } else if (pending) {
+      const reply = data.reply?.trim() || 'The user did not provide an answer. Use your best judgment.'
+      pendingResults = [
+        ...(pending.collectedResults || []),
+        { toolCallId: pending.toolCallId, content: reply },
+      ]
+      if (pending.stepId) {
+        await prisma.workflowStep.update({
+          where: { id: pending.stepId },
+          data: { status: 'succeeded', output: jsonValue({ answer: reply }), completedAt: new Date() },
+        })
+      }
+      await recordEvent(queuedExecution.id, pending.stepId || null, 'user.replied', { answer: reply })
+      // Input memory (WS1.9): remember the Q/A so future runs stop re-asking.
+      // Await persistence so a new run started immediately after this resume can
+      // reliably reuse the answer instead of racing the background write.
+      await saveAgentMemory({
+        organizationId,
+        agentId,
+        kind: 'user_answer',
+        title: pending.question.slice(0, 120),
+        content: reply,
+        question: pending.question,
+        sourceExecutionId: queuedExecution.id,
       })
     }
-    await recordEvent(queuedExecution.id, pending.stepId || null, 'user.replied', { answer: reply })
-    // Input memory (WS1.9): remember the Q/A so future runs stop re-asking.
-    // Await persistence so a new run started immediately after this resume can
-    // reliably reuse the answer instead of racing the background write.
-    await saveAgentMemory({
-      organizationId,
-      agentId,
-      kind: 'user_answer',
-      title: pending.question.slice(0, 120),
-      content: reply,
-      question: pending.question,
-      sourceExecutionId: queuedExecution.id,
-    })
   } else if (resumeFromCrash && queuedExecution) {
     transcript = coerceToIR(queuedExecution.transcript as unknown[])
     startTurn = Number(metadataOf(queuedExecution.metadata).turnCursor) || 0
@@ -481,7 +494,7 @@ export async function runAgentExecution(
           status: 'running',
           model: runner.model,
           ...(resuming
-            ? { metadata: jsonValue({ ...metadataOf(queuedExecution.metadata), pendingQuestion: null }) }
+            ? { metadata: jsonValue({ ...metadataOf(queuedExecution.metadata), pendingQuestion: null, pendingApproval: null }) }
             : { startedAt: new Date() }),
         },
       })
@@ -575,6 +588,17 @@ export async function runAgentExecution(
       )
     }
 
+    // Per-run token backstop against a pathological loop (independent of the
+    // monthly ceiling). ONE budget object per run TREE: sub-runs receive this
+    // same object by reference, so recursion cannot multiply the cap. Seeded
+    // with prior spend on crash-resume from the row's persisted totals.
+    const runBudget: RunBudget =
+      data.runBudget ??
+      createRunBudget(
+        process.env.AGENT_MAX_RUN_TOKENS,
+        queuedExecution ? (queuedExecution.inputTokens ?? 0) + (queuedExecution.outputTokens ?? 0) : 0,
+      )
+
     // Typed connector bindings gate tool loading; falls back to
     // metadata.integrations for agents created before the FK existed.
     const providers = await resolveAgentConnectorKeys(agent.id, agentMetadata)
@@ -604,8 +628,9 @@ export async function runAgentExecution(
 
     // Multi-agent handoff: an opted-in agent can delegate to other agents via a
     // run_agent tool (fan-out over a set, or sequential pipeline stages). Bounded
-    // by depth, a per-run count cap, and a cycle guard; sub-runs share the org's
-    // token budget. Only offered to top-level/mid-chain runs under the depth cap.
+    // by depth, a per-run count cap, and a cycle guard; sub-runs spend from THIS
+    // run's token budget (shared runBudget object), so the whole tree is bounded
+    // by one per-run cap. Only offered to runs under the depth cap.
     const depth = data.depth ?? 0
     const chain = [...(data.ancestorAgentIds ?? []), agent.id]
     if (agentMetadata.allowSubagents === true && depth < MAX_SUBAGENT_DEPTH) {
@@ -665,6 +690,7 @@ export async function runAgentExecution(
               input: subInput,
               depth: depth + 1,
               ancestorAgentIds: chain,
+              runBudget,
             })
             // A completed sub-run returns { summary }; a suspended one (asked
             // the user) returns { status: 'waiting_*' }.
@@ -794,15 +820,87 @@ export async function runAgentExecution(
       })
     }
 
+    // Resolve a held write-tool approval (deny-by-default): the held call's
+    // outcome — real output, denial, or execution error — becomes the pending
+    // tool_use's result, exactly like an ask_user reply resolves its call.
+    if (approvalToResolve) {
+      const held = approvalToResolve
+      let content: string
+      let isError = false
+      if (!held.approved) {
+        if (held.stepId) {
+          await prisma.workflowStep.update({
+            where: { id: held.stepId },
+            data: { status: 'failed', error: jsonValue({ message: 'Denied by the user' }), completedAt: new Date() },
+          })
+        }
+        await recordEvent(execution.id, held.stepId || null, 'approval.denied', { name: held.node, reply: held.reply })
+        content = JSON.stringify({
+          error: `The user denied this action${held.reply ? ` and said: ${held.reply}` : ''}. Do not retry it as-is — adjust your plan or finish without it.`,
+        })
+        isError = true
+      } else {
+        const heldBinding = bindings.get(held.toolName)
+        if (!heldBinding) {
+          if (held.stepId) {
+            await prisma.workflowStep.update({
+              where: { id: held.stepId },
+              data: { status: 'failed', error: jsonValue({ message: 'Tool no longer available' }), completedAt: new Date() },
+            })
+          }
+          content = JSON.stringify({ error: `Approved, but the tool ${held.toolName} is no longer available.` })
+          isError = true
+        } else {
+          try {
+            const result = await heldBinding.client.executeTool(heldBinding.serverUrl, heldBinding.toolName, held.input)
+            if (held.stepId) {
+              await prisma.workflowStep.update({
+                where: { id: held.stepId },
+                data: { status: 'succeeded', output: jsonValue(result), completedAt: new Date() },
+              })
+            }
+            await recordEvent(execution.id, held.stepId || null, 'approval.approved', { name: held.node })
+            await recordAudit({
+              organizationId,
+              executionId: execution.id,
+              actorUserId: userId,
+              actorKind: 'agent',
+              action: isWriteProvider(heldBinding.provider) ? 'tool.write' : 'tool.call',
+              tool: held.toolName,
+              resourceType: heldBinding.provider,
+              payload: held.input,
+            })
+            content = serializeToolResult(result)
+          } catch (error) {
+            const message = error instanceof Error ? error.message : String(error)
+            if (held.stepId) {
+              await prisma.workflowStep.update({
+                where: { id: held.stepId },
+                data: { status: 'failed', error: jsonValue({ message }), completedAt: new Date() },
+              })
+            }
+            await recordEvent(execution.id, held.stepId || null, 'tool.failed', { name: held.node, error: message })
+            content = serializeToolResult({ error: message })
+            isError = true
+          }
+        }
+      }
+      pendingResults = [
+        ...(held.collectedResults || []),
+        { toolCallId: held.toolCallId, content, ...(isError ? { isError: true } : {}) },
+      ]
+    }
+
     if (pendingResults) runner.appendToolResults(transcript, pendingResults)
 
     const maxTurns = Number(agentMetadata.maxTurns) || Number(process.env.AGENT_MAX_TURNS) || 16
-    // Per-run token backstop against a pathological loop (independent of the
-    // monthly ceiling). Generous by default; tune via AGENT_MAX_RUN_TOKENS.
-    const perRunTokenCap = Number(process.env.AGENT_MAX_RUN_TOKENS) || 2_000_000
+    const requireApproval = agentMetadata.requireApproval === true
     const monthlyLimit = budget.limit
     let finalText = ''
     let planEmitted = false
+    // Why the run stopped early, if it did — drives the run.capped event and a
+    // distinct (non-success) completion notification.
+    let cappedReason: 'per_run_token_cap' | 'monthly_budget' | 'max_turns' | null = null
 
     for (let turn = startTurn; turn < maxTurns; turn += 1) {
       // Cooperative cancellation: the cancel API flips a running execution's
@@ -821,18 +919,20 @@ export async function runAgentExecution(
       usage.outputTokens += turnResult.usage.outputTokens
 
       // Record this turn's spend on the live cross-process counter, then enforce
-      // both the per-run cap and the (in-flight-aware) monthly ceiling mid-run so
-      // a runaway can't blow far past the budget between the start-of-run check
-      // and completion.
-      const runTotal = usage.inputTokens + usage.outputTokens
+      // both the per-run cap (shared across the whole sub-agent tree) and the
+      // (in-flight-aware) monthly ceiling mid-run so a runaway can't blow far
+      // past the budget between the start-of-run check and completion.
+      const overRunCap = chargeRunBudget(runBudget, turnResult.usage.inputTokens + turnResult.usage.outputTokens)
       const monthTotal = await recordTokenUsage(organizationId, turnResult.usage.inputTokens + turnResult.usage.outputTokens)
-      if (perRunTokenCap > 0 && runTotal >= perRunTokenCap) {
+      if (overRunCap) {
         finalText = turnResult.text || 'Run stopped: it reached its per-run token cap.'
-        await recordEvent(execution.id, null, 'run.capped', { reason: 'per_run_token_cap', runTotal, cap: perRunTokenCap })
+        cappedReason = 'per_run_token_cap'
+        await recordEvent(execution.id, null, 'run.capped', { reason: 'per_run_token_cap', runTotal: runBudget.spent, cap: runBudget.cap })
         break
       }
       if (monthlyLimit > 0 && (monthTotal ?? 0) >= monthlyLimit) {
         finalText = turnResult.text || 'Run stopped: the workspace monthly token budget was reached.'
+        cappedReason = 'monthly_budget'
         await recordEvent(execution.id, null, 'run.capped', { reason: 'monthly_budget', monthTotal, limit: monthlyLimit })
         break
       }
@@ -853,6 +953,7 @@ export async function runAgentExecution(
 
       const results: ToolResult[] = []
       let pendingAsk: { toolCallId: string; question: string } | null = null
+      let pendingApprovalRequest: PendingApproval | null = null
 
       for (const call of turnResult.toolCalls) {
         if (call.name === ASK_USER_TOOL.name) {
@@ -860,8 +961,9 @@ export async function runAgentExecution(
           // one tool_use id unresolved (it becomes pendingQuestion.toolCallId,
           // resolved on resume); a second unresolved id would orphan a tool
           // call and make the persisted transcript unreplayable. So any
-          // further ask gets a covering result.
-          if (pendingAsk) {
+          // further ask gets a covering result. A held approval counts as the
+          // turn's one suspension too.
+          if (pendingAsk || pendingApprovalRequest) {
             results.push({
               toolCallId: call.id,
               content: JSON.stringify({ error: 'You can only pause once per turn (a question is already pending). Ask again after it resolves.' }),
@@ -902,7 +1004,37 @@ export async function runAgentExecution(
               data: { status: 'succeeded', output: jsonValue(cached), completedAt: new Date() },
             })
             await recordEvent(execution.id, step.id, 'tool.replayed', { name: step.node })
-            results.push({ toolCallId: call.id, content: JSON.stringify(cached) })
+            results.push({ toolCallId: call.id, content: serializeToolResult(cached) })
+            continue
+          }
+
+          // Approval gate: on an opted-in agent, a write-plane call suspends
+          // for human approval instead of executing (replayed calls above
+          // already ran and never re-ask). Same one-suspension-per-turn
+          // invariant as ask_user.
+          if (toolNeedsApproval({ requireApproval, provider: binding.provider })) {
+            if (pendingApprovalRequest || pendingAsk) {
+              await prisma.workflowStep.update({
+                where: { id: step.id },
+                data: { status: 'failed', error: jsonValue({ message: 'Deferred: another pause is already pending this turn' }), completedAt: new Date() },
+              })
+              results.push({
+                toolCallId: call.id,
+                content: JSON.stringify({ error: 'Another pause is already pending this turn. Re-issue this action after it resolves.' }),
+                isError: true,
+              })
+              continue
+            }
+            await prisma.workflowStep.update({ where: { id: step.id }, data: { status: 'waiting' } })
+            await recordEvent(execution.id, step.id, 'approval.requested', { name: step.node, args: call.input })
+            pendingApprovalRequest = {
+              toolCallId: call.id,
+              toolName: call.name,
+              node: step.node,
+              input: (call.input ?? {}) as Record<string, unknown>,
+              stepId: step.id,
+              collectedResults: [],
+            }
             continue
           }
 
@@ -912,21 +1044,20 @@ export async function runAgentExecution(
             data: { status: 'succeeded', output: jsonValue(result), completedAt: new Date() },
           })
           await recordEvent(execution.id, step.id, 'tool.completed', { name: step.node })
-          // Immutable audit trail. Delivery/write planes (nango, slack, email,
-          // salesforce) are the consequential ones; the args are
-          // hashed, not stored.
-          const writePlanes = /^(nango|slack|email)/i
+          // Immutable audit trail. Write classification derives from the
+          // connector registry (isWriteProvider) — nango:*, slack, email, AND
+          // the http builtin — never a local regex that can drift from it.
           await recordAudit({
             organizationId,
             executionId: execution.id,
             actorUserId: userId,
             actorKind: 'agent',
-            action: writePlanes.test(binding.provider) ? 'tool.write' : 'tool.call',
+            action: isWriteProvider(binding.provider) ? 'tool.write' : 'tool.call',
             tool: call.name,
             resourceType: binding.provider,
             payload: call.input,
           })
-          results.push({ toolCallId: call.id, content: JSON.stringify(result) })
+          results.push({ toolCallId: call.id, content: serializeToolResult(result) })
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error)
           await prisma.workflowStep.update({
@@ -934,7 +1065,7 @@ export async function runAgentExecution(
             data: { status: 'failed', error: jsonValue({ message }), completedAt: new Date() },
           })
           await recordEvent(execution.id, step.id, 'tool.failed', { name: step.node, error: message })
-          results.push({ toolCallId: call.id, content: JSON.stringify({ error: message }), isError: true })
+          results.push({ toolCallId: call.id, content: serializeToolResult({ error: message }), isError: true })
         }
       }
 
@@ -1037,6 +1168,55 @@ export async function runAgentExecution(
         return { status: 'waiting_for_input', question: pendingAsk.question, executionId: execution.id }
       }
 
+      if (pendingApprovalRequest) {
+        // Suspend for approval, mirroring the ask_user pause: the held call's
+        // tool_use id stays unresolved and this turn's other results ride
+        // along in collectedResults. pendingApproval is the authoritative
+        // marker (checked FIRST on resume); pendingQuestion is written too so
+        // the activity pane renders the question + reply box unchanged.
+        pendingApprovalRequest.collectedResults = results
+        const question = approvalQuestion(pendingApprovalRequest.node, pendingApprovalRequest.input)
+        await prisma.executionMessage.create({
+          data: { executionId: execution.id, role: 'agent', content: question },
+        })
+        await recordEvent(execution.id, pendingApprovalRequest.stepId, 'agent.question', { question, approval: true })
+        // systemPrisma: id-keyed terminal write on worker job data; execution id was
+        // validated against this tenant when execution was loaded/created above.
+        await systemPrisma.agentExecution.update({
+          where: { id: execution.id },
+          data: {
+            status: 'waiting_for_input',
+            transcript: jsonValue(transcript),
+            inputTokens: { increment: usage.inputTokens },
+            outputTokens: { increment: usage.outputTokens },
+            executionTime: { increment: Date.now() - segmentStart },
+            metadata: jsonValue({
+              ...executionMetadata,
+              // Resume continues at the next turn (the approval completes this one).
+              turnCursor: turn + 1,
+              pendingApproval: pendingApprovalRequest,
+              pendingQuestion: {
+                toolCallId: pendingApprovalRequest.toolCallId,
+                question,
+                stepId: pendingApprovalRequest.stepId,
+                collectedResults: [],
+              } satisfies PendingQuestion,
+            }),
+          },
+        })
+        await notify({
+          organizationId,
+          userId,
+          type: 'agent.needs_input',
+          level: 'action',
+          title: `${agentMetadata.title || agent.description} needs your approval`,
+          body: question,
+          agentTaskId: agent.id,
+          executionId: execution.id,
+        })
+        return { status: 'waiting_for_input', question, executionId: execution.id }
+      }
+
       runner.appendToolResults(transcript, results)
 
       // Durable checkpoint at a clean turn boundary (results appended → the
@@ -1067,8 +1247,18 @@ export async function runAgentExecution(
       return await finalizeCancelled(liveBeforeCompletion.status === 'cancelled')
     }
 
-    const summary = finalText || 'Agent reached the maximum number of tool-call turns.'
-    let output: Record<string, unknown> = { summary }
+    // Turn exhaustion is a cap, not a success: the model still wanted to call
+    // tools when the loop ran out. Make it observable (run.capped + a distinct
+    // summary) instead of dressing it up as a normal completion. The turn's
+    // tool work is already checkpointed on the run's steps.
+    if (!finalText) {
+      cappedReason = 'max_turns'
+      await recordEvent(execution.id, null, 'run.capped', { reason: 'max_turns', maxTurns })
+    }
+    const summary =
+      finalText ||
+      `Run stopped at its turn limit (${maxTurns}) before producing a final answer. Work completed so far is preserved in the run's steps.`
+    let output: Record<string, unknown> = { summary, ...(cappedReason ? { capped: cappedReason } : {}) }
     if (structuredFields.length) {
       const parsed = parseStructuredAgentOutput(finalText, structuredFields)
       if (parsed.output) {
@@ -1098,7 +1288,7 @@ export async function runAgentExecution(
           outputTokens: { increment: usage.outputTokens },
           executionTime: { increment: Date.now() - segmentStart },
           completedAt: new Date(),
-          metadata: jsonValue({ ...executionMetadata, pendingQuestion: null, ...(headline ? { headline } : {}) }),
+          metadata: jsonValue({ ...executionMetadata, pendingQuestion: null, pendingApproval: null, ...(headline ? { headline } : {}) }),
         },
       }),
       systemPrisma.agentTask.update({
@@ -1114,8 +1304,10 @@ export async function runAgentExecution(
       organizationId,
       userId,
       type: 'agent.completed',
-      level: 'success',
-      title: `${agentMetadata.title || agent.description} completed`,
+      level: cappedReason ? 'info' : 'success',
+      title: cappedReason
+        ? `${agentMetadata.title || agent.description} stopped at a limit`
+        : `${agentMetadata.title || agent.description} completed`,
       body: headline || summary,
       agentTaskId: agent.id,
       executionId: execution.id,

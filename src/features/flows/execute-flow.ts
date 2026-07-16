@@ -9,6 +9,7 @@ import { validateFlowGraph, validationErrorMessage } from '@/lib/flows/validate'
 import { loadFlowToolCatalog } from '@/lib/flows/tool-catalog'
 import { parseFlowToolConnectionId } from '@/lib/flows/tool-connection-id'
 import { resolveFlowToolExecutor } from '@/features/agents/tool-planes'
+import { isWriteProvider } from '@/lib/connectors/registry'
 import { notify } from '@/lib/notifications/service'
 import { recordAudit } from '@/lib/audit'
 import { assertPublicUrl } from '@/lib/net/ssrf'
@@ -119,10 +120,6 @@ export function resolveAgentContinueExecutionId(args: {
   }
   return { continueExecutionId: undefined, consumed: false }
 }
-
-// Write planes are the consequential audit entries — the same set the agent
-// loop uses for its tool.write / tool.call distinction.
-const WRITE_PLANES = /^(nango|slack|email)/i
 
 /**
  * Terminalize a child FlowRun that a SYNCHRONOUS parent (a subflow node or a
@@ -659,7 +656,10 @@ export async function runFlowExecution(
           executionId: run.id,
           actorUserId: job.userId,
           actorKind: 'agent',
-          action: WRITE_PLANES.test(executor.provider) ? 'tool.write' : 'tool.call',
+          // Write classification derives from the connector registry
+          // (isWriteProvider) — nango:*, slack, email, AND the http builtin —
+          // shared with the agent loop instead of a drifting local regex.
+          action: isWriteProvider(executor.provider) ? 'tool.write' : 'tool.call',
           tool: toolName,
           resourceType: executor.provider,
           payload: args,

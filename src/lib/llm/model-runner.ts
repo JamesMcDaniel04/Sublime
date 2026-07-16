@@ -55,7 +55,11 @@ const ADAPTIVE_THINKING_MODELS = /^claude-(opus-4-[678]|sonnet-(4-6|5)|fable-5|m
 // non-streaming calls; STREAM_DEADLINE_MS is an explicit end-to-end cap passed
 // as an AbortSignal to the streaming turn to bound the body read too.
 const LLM_TIMEOUT_MS = AGENT_MODEL_TURN_TIMEOUT_MS
-const LLM_MAX_RETRIES = 1
+// SDK-level retries for transient failures (429/5xx/529). Defaults to the
+// SDK's own default of 2 — with only one provider configured the chain has no
+// cross-provider fallback, so these retries are the only 529 recovery there is.
+const parsedRetries = Number(process.env.LLM_MAX_RETRIES)
+const LLM_MAX_RETRIES = Number.isFinite(parsedRetries) && parsedRetries >= 0 ? parsedRetries : 2
 const STREAM_DEADLINE_MS = AGENT_MODEL_TURN_TIMEOUT_MS
 
 const CACHE_CONTROL = { type: 'ephemeral' as const }

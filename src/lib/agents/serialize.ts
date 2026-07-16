@@ -36,6 +36,7 @@ export function serializeAgent(agent: {
     // Undefined is the legacy value; remembered blocking answers are now the
     // safe default unless an agent explicitly opts out.
     autoAnswerFromMemory: metadata.autoAnswerFromMemory !== false,
+    requireApproval: metadata.requireApproval === true,
     alwaysStrategize: metadata.alwaysStrategize === true,
     maxTurns: typeof metadata.maxTurns === 'number' ? metadata.maxTurns : 16,
     outputFields: Array.isArray(metadata.outputFields) ? metadata.outputFields : [],

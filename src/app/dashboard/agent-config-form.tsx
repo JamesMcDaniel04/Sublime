@@ -101,6 +101,8 @@ export type AgentDraft = {
   goal: string
   /** When true, a question closely matching a past answer is auto-answered from memory. */
   autoAnswerFromMemory?: boolean
+  /** When true, write-plane tool calls (Slack/Email/HTTP/deliveries) pause for approval. */
+  requireApproval?: boolean
   /** Structured output contract: non-empty = runs must return JSON with these properties. */
   outputFields?: { name: string; type: 'string' | 'number' | 'boolean' | 'object' | 'array'; description?: string }[]
   /** When true, every run starts with an explicit numbered plan before any tool call. */
@@ -156,6 +158,7 @@ const emptyDraft: AgentDraft = {
   subagentIds: [],
   goal: '',
   autoAnswerFromMemory: true,
+  requireApproval: false,
   outputFields: [],
   alwaysStrategize: false,
   maxTurns: 16,
@@ -487,6 +490,7 @@ export function AgentConfigForm({
       subagentIds: Array.isArray(source.subagentIds) ? source.subagentIds : [],
       goal: source.goal || '',
       autoAnswerFromMemory: source.autoAnswerFromMemory !== false,
+      requireApproval: source.requireApproval === true,
       outputFields: Array.isArray(source.outputFields) ? source.outputFields : [],
       alwaysStrategize: source.alwaysStrategize === true,
       maxTurns: typeof source.maxTurns === 'number' ? source.maxTurns : 16,
@@ -658,6 +662,7 @@ export function AgentConfigForm({
           subagentIds: draft.subagentIds ?? [],
           goal: draft.goal,
           autoAnswerFromMemory: draft.autoAnswerFromMemory !== false,
+          requireApproval: draft.requireApproval === true,
           alwaysStrategize: draft.alwaysStrategize === true,
           maxTurns: draft.maxTurns ?? 16,
           outputFields: draft.outputFields ?? [],
@@ -913,6 +918,20 @@ export function AgentConfigForm({
           <Switch
             checked={draft.autoAnswerFromMemory === true}
             onCheckedChange={(on) => setDraft({ ...draft, autoAnswerFromMemory: on })}
+          />
+        </div>
+      </div>
+      <div className="rounded-lg border p-3">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <Label>Require approval for outbound actions</Label>
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              Slack messages, emails, HTTP calls, and other deliveries pause for your approval before they go out.
+            </p>
+          </div>
+          <Switch
+            checked={draft.requireApproval === true}
+            onCheckedChange={(on) => setDraft({ ...draft, requireApproval: on })}
           />
         </div>
       </div>

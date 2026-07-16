@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { Prisma } from '@prisma/client'
 import { prisma } from '@/lib/prisma'
 import { apiLogger } from '@/lib/logger'
 import { generateStructured, DEFAULT_SUMMARY_MODEL } from '@/lib/llm/model-runner'
@@ -172,18 +173,37 @@ export async function reflectAndRemember(
       // The latest critique is ALWAYS injected next run — store it on the task
       // metadata (single slot), not as an accumulating memory row. A proposed
       // goal must persist even when there's no critique this run.
-      const agent = await prisma.agentTask.findFirst({ where: { id: params.agentId, organizationId: params.organizationId }, select: { metadata: true, goal: true } })
-      const metadata = (agent?.metadata && typeof agent.metadata === 'object' && !Array.isArray(agent.metadata) ? agent.metadata : {}) as Record<string, unknown>
-      await prisma.agentTask.update({
-        where: { id: params.agentId, organizationId: params.organizationId },
-        data: {
-          metadata: {
-            ...metadata,
-            ...(critique ? { lastCritique: critique.slice(0, 1500) } : {}),
-            ...(reflection.suggestedGoal && !agent?.goal ? { suggestedGoal: reflection.suggestedGoal.slice(0, 500) } : {}),
+      //
+      // Optimistic write: this background pass races the user's config editor
+      // (both rewrite the whole metadata JSON), so the update only lands when
+      // metadata is still exactly the snapshot we read — a concurrent user
+      // edit wins and this run's critique is dropped (best-effort by design)
+      // instead of silently reverting the user's changes. One re-read retry
+      // absorbs the common single-edit race.
+      for (let attempt = 0; attempt < 2; attempt += 1) {
+        const agent = await prisma.agentTask.findFirst({ where: { id: params.agentId, organizationId: params.organizationId }, select: { metadata: true, goal: true } })
+        if (!agent) break
+        const metadata = (agent.metadata && typeof agent.metadata === 'object' && !Array.isArray(agent.metadata) ? agent.metadata : {}) as Record<string, unknown>
+        const updated = await prisma.agentTask.updateMany({
+          where: {
+            id: params.agentId,
+            organizationId: params.organizationId,
+            metadata: agent.metadata === null ? { equals: Prisma.DbNull } : { equals: agent.metadata as Prisma.InputJsonValue },
           },
-        },
-      })
+          data: {
+            metadata: {
+              ...metadata,
+              ...(critique ? { lastCritique: critique.slice(0, 1500) } : {}),
+              ...(reflection.suggestedGoal && !agent.goal ? { suggestedGoal: reflection.suggestedGoal.slice(0, 500) } : {}),
+            },
+          },
+        })
+        if (updated.count > 0) break
+        apiLogger.warn('reflectAndRemember: metadata changed concurrently, retrying critique write', {
+          agentId: params.agentId,
+          attempt,
+        })
+      }
     }
 
     for (const suggestion of reflection.suggestions.slice(0, 3)) {

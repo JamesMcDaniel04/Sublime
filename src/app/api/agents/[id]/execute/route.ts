@@ -5,13 +5,29 @@ import { ApiError, withAuthenticatedApi } from '@/lib/server/api-handler'
 import { runAgentExecution } from '@/features/agents/execute-agent'
 import { inlineExecution } from '@/lib/queue/execution-mode'
 import { agentReadScope } from '@/lib/server/visibility'
+import { rateLimit } from '@/lib/ratelimit'
 
 export const runtime = 'nodejs'
 export const maxDuration = 1200
 
+async function failExecution(executionId: string, organizationId: string, error: unknown) {
+  await prisma.agentExecution.update({
+    where: { id: executionId, organizationId },
+    data: {
+      status: 'failed',
+      error: error instanceof Error ? error.message : String(error),
+      completedAt: new Date(),
+    },
+  })
+}
+
 export const POST = withAuthenticatedApi(async (request, auth) => {
   const id = request.nextUrl.pathname.split('/').at(-2)
   if (!id) throw new ApiError('Agent id is required')
+  // Same ceiling as the webhook trigger route (60/min), keyed per user: being
+  // authenticated is not a license to mint unbounded 20-minute runs.
+  const limited = await rateLimit(`execute:${auth.dbUser.id}`, { limit: 60, windowMs: 60_000 })
+  if (!limited.ok) throw new ApiError('Rate limit exceeded', 429, 'RATE_LIMITED')
   const { input } = z.object({ input: z.string().optional() }).parse(await request.json())
   const agent = await prisma.agentTask.findFirst({
     where: {
@@ -52,14 +68,7 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
       })
       return { success: true, executionId: execution.id, result }
     } catch (error) {
-      await prisma.agentExecution.update({
-        where: { id: execution.id, organizationId: auth.organizationId },
-        data: {
-          status: 'failed',
-          error: error instanceof Error ? error.message : String(error),
-          completedAt: new Date(),
-        },
-      })
+      await failExecution(execution.id, auth.organizationId, error)
       throw new ApiError('Agent run failed', 500, 'RUN_FAILED')
     }
   } else {
@@ -74,10 +83,7 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
         input: runInput,
       }, { jobId: execution.id })
     } catch (error) {
-      await prisma.agentExecution.update({
-        where: { id: execution.id, organizationId: auth.organizationId },
-        data: { status: 'failed', error: error instanceof Error ? error.message : String(error), completedAt: new Date() },
-      })
+      await failExecution(execution.id, auth.organizationId, error)
       throw new ApiError('Unable to queue agent execution', 503, 'QUEUE_UNAVAILABLE')
     }
     return { success: true, executionId: execution.id, status: 'pending' }

@@ -19,6 +19,10 @@ export type AgentMetadata = {
   /** Legacy plaintext trigger secret (superseded by triggerSecretHash). */
   triggerSecret?: string
   pendingQuestion?: unknown
+  /** A write-plane tool call held for human approval (see features/agents/approval). */
+  pendingApproval?: unknown
+  /** When true, write-plane tool calls pause for human approval before executing. */
+  requireApproval?: boolean
   allowSubagents?: boolean
   subagentIds?: string[]
   /** When true, a question closely matching a past answer is auto-answered from memory. */

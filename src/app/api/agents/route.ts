@@ -68,6 +68,9 @@ const agentSchema = z.object({
   goal: z.string().max(2000).nullable().optional(),
   // When true, a question closely matching a past answer is auto-answered from memory.
   autoAnswerFromMemory: z.boolean().optional(),
+  // When true, write-plane tool calls (Slack/Email/HTTP/nango deliveries) pause
+  // for the user's approval before executing.
+  requireApproval: z.boolean().optional(),
   // When true, every run starts with an explicit numbered plan before any tool call.
   alwaysStrategize: z.boolean().optional(),
   maxTurns: z.number().int().min(1).max(64).optional(),
@@ -123,6 +126,7 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
         allowSubagents: data.allowSubagents === true,
         subagentIds: data.subagentIds ?? [],
         autoAnswerFromMemory: data.autoAnswerFromMemory !== false,
+        requireApproval: data.requireApproval === true,
         alwaysStrategize: data.alwaysStrategize === true,
         maxTurns: data.maxTurns ?? 16,
         ...(data.outputFields?.length ? { outputFields: data.outputFields, responseFormat: 'structured' } : {}),
@@ -170,6 +174,7 @@ export const PUT = withAuthenticatedApi(async (request, auth) => {
         ...(body.allowSubagents !== undefined && { allowSubagents: body.allowSubagents }),
         ...(body.subagentIds !== undefined && { subagentIds: body.subagentIds }),
         ...(body.autoAnswerFromMemory !== undefined && { autoAnswerFromMemory: body.autoAnswerFromMemory }),
+        ...(body.requireApproval !== undefined && { requireApproval: body.requireApproval }),
         ...(body.alwaysStrategize !== undefined && { alwaysStrategize: body.alwaysStrategize }),
         ...(body.maxTurns !== undefined && { maxTurns: body.maxTurns }),
         // Non-empty fields switch the run contract to structured; an explicit

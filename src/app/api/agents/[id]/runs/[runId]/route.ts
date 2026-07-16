@@ -53,9 +53,9 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
           status: 'cancelled',
           completedAt: new Date(),
           error: null,
-          // Clear any stale pendingQuestion so the row stops showing the
-          // question it was waiting on once it's cancelled.
-          metadata: { ...existingMetadata, pendingQuestion: null },
+          // Clear any stale pendingQuestion/pendingApproval so the row stops
+          // showing what it was waiting on once it's cancelled.
+          metadata: { ...existingMetadata, pendingQuestion: null, pendingApproval: null },
         }
       : { status: 'cancelling' }
 

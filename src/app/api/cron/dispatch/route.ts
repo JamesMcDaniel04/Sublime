@@ -20,9 +20,9 @@ import { runAgentExecution } from '@/features/agents/execute-agent'
 import { dispatchFlowExecution } from '@/features/flows/execute-flow'
 import { parseFlowInput } from '@/lib/flows/input'
 import { isDue, type AgentSchedule } from '@/lib/scheduling/due'
-import { workersEnabled } from '@/lib/queue/config'
+import { createQueue, QUEUE_NAMES, workersEnabled } from '@/lib/queue/config'
 import { EXECUTION_MODE } from '@/lib/queue/execution-mode'
-import { AGENT_RUN_TIMEOUT_MS } from '@/lib/agents/timeouts'
+import { AGENT_RUN_TIMEOUT_MS, AGENT_PENDING_TIMEOUT_MS } from '@/lib/agents/timeouts'
 import { reapStuckFlowRuns } from '@/lib/flows/reap'
 import { blocksSchedule } from '@/lib/flows/schedule-blocking'
 import { captureError } from '@/lib/observability/sentry'
@@ -87,6 +87,39 @@ export async function GET(request: Request) {
       data: {
         status: 'failed',
         error: 'Run exceeded time limit',
+        completedAt: new Date(),
+      },
+    })
+
+    // A run stuck 'cancelling' means the worker died before its turn loop
+    // could notice the flag — no live process will ever finalize it, and the
+    // API rejects both a second cancel (not cancellable) and delete (not
+    // terminal). Honor the user's intent and finalize it as cancelled.
+    // systemPrisma: global reaper sweep — runs across all orgs by design (CRON_SECRET-gated).
+    await systemPrisma.agentExecution.updateMany({
+      where: {
+        status: 'cancelling',
+        startedAt: { lt: new Date(Date.now() - STUCK_RUN_TIMEOUT_MS) },
+      },
+      data: {
+        status: 'cancelled',
+        error: null,
+        completedAt: new Date(),
+      },
+    })
+
+    // A run still 'pending' far past the run window never made it onto a
+    // worker (lost queue job) — without this it is uncancellable, undeletable,
+    // and shows as active until the 90-day retention sweep.
+    // systemPrisma: global reaper sweep — runs across all orgs by design (CRON_SECRET-gated).
+    await systemPrisma.agentExecution.updateMany({
+      where: {
+        status: 'pending',
+        startedAt: { lt: new Date(Date.now() - AGENT_PENDING_TIMEOUT_MS) },
+      },
+      data: {
+        status: 'failed',
+        error: 'Run never started (queue job lost)',
         completedAt: new Date(),
       },
     })
@@ -228,13 +261,32 @@ export async function GET(request: Request) {
         })
 
         try {
-          await runAgentExecution({
-            executionId: execution.id,
-            agentId: agent.id,
-            organizationId: agent.organizationId,
-            userId: user.id,
-            input,
-          })
+          if (workerOwnsRecurring) {
+            // Queue mode with a live worker: run on the worker, not inside
+            // this serverless function — a long run here would be killed at
+            // the platform's duration ceiling (Vercel Pro caps below our
+            // 1200s maxDuration) before the internal timeouts can fire.
+            const queue = createQueue(QUEUE_NAMES.AGENT_EXECUTION)
+            await queue.add(
+              'execute-agent',
+              {
+                executionId: execution.id,
+                agentId: agent.id,
+                organizationId: agent.organizationId,
+                userId: user.id,
+                input,
+              },
+              { jobId: execution.id },
+            )
+          } else {
+            await runAgentExecution({
+              executionId: execution.id,
+              agentId: agent.id,
+              organizationId: agent.organizationId,
+              userId: user.id,
+              input,
+            })
+          }
           ranIds.push(agent.id)
         } catch (error) {
           apiLogger.error('cron/dispatch: agent execution failed', {
