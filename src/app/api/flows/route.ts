@@ -5,7 +5,7 @@ import { flowOwnerScope, flowReadScope, flowWriteScope, VISIBILITY } from '@/lib
 import { flowGraphSchema, emptyGraph } from '@/lib/flows/graph'
 import { serializeFlow } from '@/lib/flows/serialize'
 import { hasSaveConflict } from '@/lib/flows/save-conflict'
-import { normalizeFlowTrigger, preserveWebhookSecretHash, triggerFromGraph } from '@/lib/flows/trigger'
+import { FLOW_TRIGGER_TYPES, normalizeFlowTrigger, preserveWebhookSecretHash, triggerFromGraph } from '@/lib/flows/trigger'
 import { countActiveConnections, meetsSuggestionGate } from '@/lib/intelligence/suggest-workflows'
 
 // Strip undefined + narrow to plain JSON so Prisma's InputJsonValue accepts the
@@ -14,7 +14,9 @@ function jsonValue(value: unknown) {
   return JSON.parse(JSON.stringify(value ?? null))
 }
 
-const triggerSchema = z.object({ type: z.enum(['manual', 'schedule', 'webhook', 'signal']).default('manual') }).passthrough()
+// Keep in lockstep with FLOW_TRIGGER_TYPES — omitting a supported type here
+// 400s an explicit `trigger` write for a type the editor happily produces.
+const triggerSchema = z.object({ type: z.enum(FLOW_TRIGGER_TYPES).default('manual') }).passthrough()
 /**
  * Legacy rows/clients carry `visibility: 'shared'` — a value the access rules
  * never honoured, so it never actually shared anything. Treat it as private:

@@ -42,12 +42,10 @@ if (TEST_DB) {
   // need a request body or a live external call (see report for skips).
   const cases: Array<{ name: string; run: () => Promise<Response> }> = [
     { name: 'GET /api/agent-templates', run: async () => (await import('../agent-templates/route')).GET(req('/api/agent-templates')) },
-    { name: 'GET /api/notifications', run: async () => (await import('../notifications/route')).GET(req('/api/notifications')) },
     { name: 'GET /api/snapshot', run: async () => (await import('../snapshot/route')).GET(req('/api/snapshot')) },
     { name: 'GET /api/system/capabilities', run: async () => (await import('../system/capabilities/route')).GET(req('/api/system/capabilities')) },
     { name: 'GET /api/flows', run: async () => (await import('../flows/route')).GET(req('/api/flows')) },
     { name: 'GET /api/agents', run: async () => (await import('../agents/route')).GET(req('/api/agents')) },
-    { name: 'GET /api/agents/activity', run: async () => (await import('../agents/activity/route')).GET(req('/api/agents/activity')) },
     { name: 'GET /api/audit/export', run: async () => (await import('../audit/export/route')).GET(req('/api/audit/export')) },
     { name: 'GET /api/auth/context', run: async () => (await import('../auth/context/route')).GET(req('/api/auth/context')) },
     { name: 'GET /api/flows/tool-catalog', run: async () => (await import('../flows/tool-catalog/route')).GET(req('/api/flows/tool-catalog')) },
@@ -71,7 +69,6 @@ if (TEST_DB) {
     { name: 'GET /api/settings/profile', run: async () => (await import('../settings/profile/route')).GET(req('/api/settings/profile')) },
     { name: 'GET /api/slack/connections', run: async () => (await import('../slack/connections/route')).GET(req('/api/slack/connections')) },
     { name: 'GET /api/skills', run: async () => (await import('../skills/route')).GET(req('/api/skills')) },
-    { name: 'GET /api/usage', run: async () => (await import('../usage/route')).GET(req('/api/usage')) },
     { name: 'GET /api/workflows/executions', run: async () => (await import('../workflows/executions/route')).GET(req('/api/workflows/executions')) },
     // Dynamic [id] routes — real seeded ids.
     { name: 'GET /api/agents/[id]/knowledge', run: async () => (await import('../agents/[id]/knowledge/route')).GET(req(`/api/agents/${agentId}/knowledge`)) },

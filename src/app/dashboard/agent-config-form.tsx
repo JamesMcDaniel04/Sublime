@@ -237,8 +237,29 @@ function cronToTime(cron: string): string {
   return `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}`
 }
 
+/**
+ * Coerce a STORED schedule into the exact shape the pickers render. Rows
+ * written by templates, drafts, or legacy clients carry looser values than
+ * the draft union: an unknown `type` maps to cron when a cron string exists
+ * (else manual), a cron schedule missing its HH:MM derives one from the cron
+ * fields so the time input isn't blank, and timezone/isActive get safe
+ * defaults instead of leaking undefined into controlled inputs.
+ */
 function normalizeSchedule(schedule: AgentDraft['schedule']): AgentDraft['schedule'] {
-  return schedule
+  const KNOWN_TYPES = new Set(['manual', 'hourly', 'daily', 'weekly', 'cron', 'once'])
+  const type = (KNOWN_TYPES.has(schedule.type)
+    ? schedule.type
+    : schedule.cron?.trim() ? 'cron' : 'manual') as AgentDraft['schedule']['type']
+  const time = schedule.time?.trim()
+    || (type === 'cron' && schedule.cron ? cronToTime(schedule.cron) : '')
+    || '09:00'
+  return {
+    ...schedule,
+    type,
+    time,
+    timezone: schedule.timezone?.trim() || 'UTC',
+    isActive: Boolean(schedule.isActive),
+  }
 }
 
 // Curated agent emojis — all ≤4 UTF-16 code units, so they fit the icon cap.

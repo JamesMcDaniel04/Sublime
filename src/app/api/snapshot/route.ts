@@ -43,7 +43,10 @@ export const GET = withAuthenticatedApi(async (_request, auth) => {
       where: { organizationId: auth.organizationId, ...executionVisibilityScope(auth.dbUser.id) },
       omit: { transcript: true, input: true },
       orderBy: { startedAt: 'desc' },
-      take: 50,
+      // Org-wide window sliced per-agent on the client — 50 was small enough
+      // that a quiet agent's pane could look empty next to a chatty one.
+      // Rows are lean (transcript/input omitted), so 150 stays cheap.
+      take: 150,
     }),
     prisma.agentExecution.aggregate({
       where: { organizationId: auth.organizationId, startedAt: { gte: monthStart } },

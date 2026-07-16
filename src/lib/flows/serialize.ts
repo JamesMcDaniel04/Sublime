@@ -16,7 +16,9 @@ export function serializeFlow(flow: {
   updatedAt: Date
 }) {
   const graph = (flow.graph && typeof flow.graph === 'object' ? flow.graph : { nodes: [], edges: [] }) as FlowGraph
-  const stepCount = (graph.nodes || []).filter((node) => node.type === 'agent').length
+  // Every executable node counts as a step — counting only agents made a
+  // tool/http/condition-built flow read "0 steps" on the list card.
+  const stepCount = (graph.nodes || []).filter((node) => node.type !== 'trigger').length
   const published = flow.publishedGraph != null
   const metadata = flow.metadata && typeof flow.metadata === 'object' && !Array.isArray(flow.metadata) ? (flow.metadata as Record<string, unknown>) : {}
   return {
