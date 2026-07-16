@@ -10,10 +10,11 @@
  *     connections: { "<source name>": { main: [ [ { node, type, index } ] ] } } }
  * n8n keys connections by node NAME, not id, so names must be unique.
  *
- * Honest mapping: n8n has no equivalent of our agents. Rather than silently
- * dropping them or pretending an OpenAI node reproduces one, an agent step
- * exports as a NoOp placeholder whose notes carry the full instructions, so the
- * work is visible and portable instead of lost.
+ * Honest mapping: n8n has no native equivalent of our agents, so an agent
+ * step exports as a RUNNABLE HTTP Request node that calls the agent's live
+ * Sublime trigger endpoint (secret filled in by the user) — the imported
+ * workflow executes the real agent instead of a dead placeholder. The full
+ * instructions still travel in the node's notes so the work stays portable.
  */
 import type { PortableFlow } from './portable'
 import type { FlowNode } from '@/lib/flows/graph'
@@ -40,9 +41,27 @@ export type N8nWorkflow = {
 const labelOf = (node: FlowNode) => (node.data as { label?: string }).label?.trim() || node.type
 
 /** Our step → an n8n node type + parameters. */
-function mapNode(node: FlowNode): { type: string; typeVersion: number; parameters: Record<string, unknown>; notes?: string } {
+function mapNode(node: FlowNode, triggerBaseUrl?: string): { type: string; typeVersion: number; parameters: Record<string, unknown>; notes?: string } {
   const data = node.data as Record<string, unknown>
   switch (node.type) {
+    case 'agent': {
+      const agentId = typeof data.agentId === 'string' ? data.agentId : ''
+      if (!triggerBaseUrl || !agentId) break // placeholder fallback below
+      return {
+        type: 'n8n-nodes-base.httpRequest',
+        typeVersion: 4.2,
+        parameters: {
+          method: 'POST',
+          url: `${triggerBaseUrl}/api/agents/${agentId}/trigger`,
+          sendHeaders: true,
+          headerParameters: { parameters: [{ name: 'x-trigger-secret', value: 'REPLACE_WITH_TRIGGER_SECRET' }] },
+          sendBody: true,
+          specifyBody: 'json',
+          jsonBody: '={{ JSON.stringify({ input: $json }) }}',
+        },
+        notes: 'Runs the live Sublime agent. Paste the trigger secret from the agent\u2019s Webhook settings into the x-trigger-secret header.',
+      }
+    }
     case 'trigger':
       return { type: 'n8n-nodes-base.manualTrigger', typeVersion: 1, parameters: {} }
     case 'http':
@@ -73,10 +92,12 @@ function mapNode(node: FlowNode): { type: string; typeVersion: number; parameter
     case 'stop':
       return { type: 'n8n-nodes-base.noOp', typeVersion: 1, parameters: {}, notes: 'Stop step — n8n ends a branch implicitly.' }
     default:
-      // agent / tool / humanReview / subflow / errorShield / parallel / …:
-      // no honest n8n equivalent. Keep it visible as a placeholder.
-      return { type: 'n8n-nodes-base.noOp', typeVersion: 1, parameters: {} }
+      break
   }
+  // tool / humanReview / subflow / errorShield / parallel / … (and agents
+  // without a trigger URL): no honest n8n equivalent. Keep it visible as a
+  // placeholder whose notes carry the work.
+  return { type: 'n8n-nodes-base.noOp', typeVersion: 1, parameters: {} }
 }
 
 /** Notes for a step n8n cannot reproduce — the instructions travel with it. */
@@ -86,7 +107,7 @@ function placeholderNotes(node: FlowNode, portable: PortableFlow): string | unde
     const agent = portable.agents.find((candidate) => candidate.ref === ref)
     if (!agent) return 'AI agent step — the agent definition was unavailable at export.'
     return [
-      `AI agent "${agent.title}" — n8n has no equivalent; rebuild with an AI/LLM node.`,
+      `AI agent "${agent.title}".`,
       agent.model ? `Model: ${agent.model}` : '',
       agent.integrations.length ? `Needs tools: ${agent.integrations.join(', ')}` : '',
       '',
@@ -109,7 +130,7 @@ function placeholderNotes(node: FlowNode, portable: PortableFlow): string | unde
  * because n8n's `connections` map is keyed by name — duplicates would silently
  * merge two steps' wiring.
  */
-export function toN8nWorkflow(portable: PortableFlow): N8nWorkflow {
+export function toN8nWorkflow(portable: PortableFlow, options: { triggerBaseUrl?: string } = {}): N8nWorkflow {
   const nodes = portable.flow.graph.nodes ?? []
   const edges = portable.flow.graph.edges ?? []
   const layout = portable.flow.graph.layout ?? {}
@@ -125,7 +146,7 @@ export function toN8nWorkflow(portable: PortableFlow): N8nWorkflow {
   }
 
   const n8nNodes: N8nNode[] = nodes.map((node, index) => {
-    const mapped = mapNode(node)
+    const mapped = mapNode(node, options.triggerBaseUrl)
     const position = layout[node.id]
     const notes = [placeholderNotes(node, portable), mapped.notes].filter(Boolean).join('\n\n') || undefined
     return {

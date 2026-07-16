@@ -45,6 +45,17 @@ test('normal (non-container) pause is unaffected', () => {
   assert.equal(state.resumeExecutionId, 'exec_9')
 })
 
+test('a paused subflow step surfaces its child run id for the resume to forward into', () => {
+  const priorSteps: PriorStepRow[] = [
+    row({ nodeId: 'sub', status: 'waiting', childFlowRunId: 'child_run_1' }),
+    row({ nodeId: 'loop1', status: 'waiting' }),
+  ]
+  const nodeTypeById = new Map([['sub', 'subflow'], ['loop1', 'loop']])
+  const state = resolveResumeState(priorSteps, nodeTypeById)
+  assert.equal(state.resumeNodeId, 'sub')
+  assert.equal(state.resumeChildFlowRunId, 'child_run_1')
+})
+
 test('BACK-COMPAT: succeeded/skipped steps build the completed map keyed by nodeId when there is no iterationPath', () => {
   const priorSteps: PriorStepRow[] = [
     row({ nodeId: 'a', status: 'succeeded', output: 'first' }),

@@ -413,18 +413,21 @@ export function Sidebar() {
             <>
               <div className="fixed inset-0 z-10" onClick={() => setOrgMenuOpen(false)} />
               <div className="absolute left-3 right-3 z-20 mt-1 origin-top animate-scale-in rounded-xl border bg-white p-1 text-[#062F33] shadow-popover">
+                {/* Membership is single-workspace today, so workspace rows are
+                    a plain listing — no click affordance that goes nowhere.
+                    When multi-workspace membership lands, these become real
+                    switch targets. */}
                 {organizations.map((org) => (
-                  <button
+                  <div
                     key={org.id}
-                    className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-gray-100"
-                    onClick={() => setOrgMenuOpen(false)}
+                    className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm"
                   >
                     {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img src={org.logoUrl || DEFAULT_ORG_LOGO} alt="" className="h-5 w-5 rounded object-cover" />
                     <span className="flex-1 truncate text-left">{org.name}</span>
                     <span className="text-xs text-gray-400">{planLabel(org.plan)}</span>
                     {org.id === activeOrg?.id && <Check className="h-4 w-4 text-indigo-600" />}
-                  </button>
+                  </div>
                 ))}
                 <div className="my-1 border-t" />
                 <button

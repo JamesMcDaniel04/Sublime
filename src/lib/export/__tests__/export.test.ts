@@ -133,10 +133,21 @@ test('n8n: an HTTP step maps to a real httpRequest node with method + url', () =
 
 test('n8n: an agent becomes a visible placeholder carrying its instructions', () => {
   const node = toN8nWorkflow(portable()).nodes.find((candidate) => candidate.name === 'Summarize')!
-  // n8n has no agent equivalent — the work must be visible, never silently dropped.
+  // Without a trigger URL, n8n has no agent equivalent — the work must be
+  // visible, never silently dropped.
   assert.equal(node.type, 'n8n-nodes-base.noOp')
   assert.match(node.notes ?? '', /Summarize the lead\./)
-  assert.match(node.notes ?? '', /no equivalent/i)
+})
+
+test('n8n: with a trigger URL, an agent exports as a RUNNABLE HTTP Request node', () => {
+  const node = toN8nWorkflow(portable(), { triggerBaseUrl: 'https://app.example.com' })
+    .nodes.find((candidate) => candidate.name === 'Summarize')!
+  assert.equal(node.type, 'n8n-nodes-base.httpRequest')
+  assert.equal(node.parameters.method, 'POST')
+  assert.equal(node.parameters.url, 'https://app.example.com/api/agents/agt_1/trigger')
+  // The secret is NEVER exported — only a fill-me-in placeholder header.
+  assert.match(JSON.stringify(node.parameters), /REPLACE_WITH_TRIGGER_SECRET/)
+  assert.match(node.notes ?? '', /Summarize the lead\./, 'instructions still travel')
 })
 
 test('n8n: duplicate step names are disambiguated (connections are keyed by NAME)', () => {

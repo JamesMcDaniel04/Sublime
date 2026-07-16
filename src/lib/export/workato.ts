@@ -34,11 +34,26 @@ export type WorkatoRecipe = {
 const labelOf = (node: FlowNode) => (node.data as { label?: string }).label?.trim() || node.type
 
 /** Our step → the closest Workato connector/action. */
-function mapStep(node: FlowNode): { provider: string; name: string; input: Record<string, unknown> } {
+function mapStep(node: FlowNode, triggerBaseUrl?: string): { provider: string; name: string; input: Record<string, unknown> } {
   const data = node.data as Record<string, unknown>
   switch (node.type) {
     case 'http':
       return { provider: 'http', name: 'get', input: { url: String(data.url ?? ''), method: String(data.method ?? 'GET') } }
+    case 'agent': {
+      const agentId = typeof data.agentId === 'string' ? data.agentId : ''
+      if (!triggerBaseUrl || !agentId) break
+      // Runnable: calls the live Sublime agent's trigger endpoint.
+      return {
+        provider: 'http',
+        name: 'post',
+        input: {
+          url: `${triggerBaseUrl}/api/agents/${agentId}/trigger`,
+          method: 'POST',
+          headers: 'x-trigger-secret: REPLACE_WITH_TRIGGER_SECRET',
+          body: '{"input": "..."}',
+        },
+      }
+    }
     case 'condition':
     case 'filter':
       return { provider: 'workato_control', name: 'if', input: {} }
@@ -46,12 +61,14 @@ function mapStep(node: FlowNode): { provider: string; name: string; input: Recor
     case 'repeatUntil':
       return { provider: 'workato_control', name: 'repeat', input: {} }
     default:
-      // agent / tool / everything else: no honest Workato equivalent.
-      return { provider: 'workato_utils', name: 'noop', input: {} }
+      break
   }
+  // tool / everything else (and agents without a trigger URL): no honest
+  // Workato equivalent — keep the step visible as a no-op carrying its notes.
+  return { provider: 'workato_utils', name: 'noop', input: {} }
 }
 
-export function toWorkatoRecipe(portable: PortableFlow): WorkatoRecipe {
+export function toWorkatoRecipe(portable: PortableFlow, options: { triggerBaseUrl?: string } = {}): WorkatoRecipe {
   const nodes = portable.flow.graph.nodes ?? []
   const edges = portable.flow.graph.edges ?? []
   const order = topoOrder(nodes, edges)
@@ -65,7 +82,7 @@ export function toWorkatoRecipe(portable: PortableFlow): WorkatoRecipe {
     .map((node) => `"${labelOf(node)}" is fed by ${(parents.get(node.id) ?? []).map((id) => `"${nameOf.get(id) ?? id}"`).join(' + ')}`)
 
   const code = order.map((node, index) => {
-    const mapped = mapStep(node)
+    const mapped = mapStep(node, options.triggerBaseUrl)
     const feeders = parents.get(node.id) ?? []
     const notes: string[] = []
     if (feeders.length > 1) {
@@ -73,7 +90,10 @@ export function toWorkatoRecipe(portable: PortableFlow): WorkatoRecipe {
     }
     if (node.type === 'agent') {
       const agent = portable.agents.find((candidate) => candidate.ref === (node.data as { agentId?: string }).agentId)
-      notes.push(agent ? `AI agent "${agent.title}" — rebuild with an LLM connector.\n\n${agent.instructions}` : 'AI agent step — definition unavailable at export.')
+      const runnable = Boolean(options.triggerBaseUrl)
+      notes.push(agent
+        ? `AI agent "${agent.title}"${runnable ? ' — this HTTP action runs the live Sublime agent; paste the trigger secret from the agent\u2019s Webhook settings.' : ' — rebuild with an LLM connector.'}\n\n${agent.instructions}`
+        : 'AI agent step — definition unavailable at export.')
     }
     if (node.type === 'tool') notes.push('Connect the equivalent Workato connector; credentials are never exported.')
     return {

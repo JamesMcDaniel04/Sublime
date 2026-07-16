@@ -68,20 +68,31 @@ test('subflow without a runFlow adapter fails cleanly', async () => {
   assert.equal(result.status, 'failed')
 })
 
-// v1 design: subflows are synchronous-only. A child flow that would itself
-// pause (its own humanReview/ask-user node) is never forwarded to
-// the parent as a pause — the execute-flow.ts `runFlow` adapter translates a
-// child `waiting` result into this plain error message before it ever
-// reaches interpretFlow (see execute-flow.ts's runFlow adapter). These tests
-// exercise the interpreter's handling of that already-translated error: a
-// clean fail (respecting onError), and — critically — the run status must be
-// `failed`, never `waiting`, so the parent is never left pausable on a
-// subflow and no reply can ever be misdirected into an orphaned child run.
-const CHILD_PAUSED_MESSAGE =
-  "A subflow's child flow paused for human input, which subflows don't support — inline the interaction, or call the flow as an agent tool instead."
+// Pausable subflows: a child flow that pauses (ask-user / humanReview /
+// durable Wait) pauses the PARENT on the subflow node. The adapter returns a
+// `waiting` result carrying the child's question or wake time; the
+// interpreter parks the run on that node so a resume can re-enter it and
+// forward the reply into the child.
 
-test('child flow that would pause is a clean subflow failure, never a parent pause', async () => {
-  const runFlow: RunFlowFn = async () => ({ error: CHILD_PAUSED_MESSAGE })
+test('child flow that pauses parks the parent on the subflow node', async () => {
+  const runFlow: RunFlowFn = async () => ({ waiting: { question: 'Which region?' } })
+  const graph: FlowGraph = {
+    nodes: [
+      { id: 'trigger', type: 'trigger', data: {} },
+      { id: 'sub', type: 'subflow', data: { flowId: 'c' } },
+      { id: 'a', type: 'agent', data: { agentId: 'x', input: 'after' } },
+    ],
+    edges: [{ id: 'e0', source: 'trigger', target: 'sub' }, { id: 'e1', source: 'sub', target: 'a' }],
+  }
+  const result = await interpretFlow(graph, '', { runAgent: echo, runFlow })
+  assert.equal(result.status, 'waiting')
+  assert.equal(result.waiting?.nodeId, 'sub')
+  assert.equal(result.waiting?.question, 'Which region?')
+})
+
+test('a time-paused child parks the parent with the wake time', async () => {
+  const wakeAt = new Date(Date.now() + 3_600_000).toISOString()
+  const runFlow: RunFlowFn = async () => ({ waiting: { wakeAt } })
   const graph: FlowGraph = {
     nodes: [
       { id: 'trigger', type: 'trigger', data: {} },
@@ -90,24 +101,36 @@ test('child flow that would pause is a clean subflow failure, never a parent pau
     edges: [{ id: 'e0', source: 'trigger', target: 'sub' }],
   }
   const result = await interpretFlow(graph, '', { runAgent: echo, runFlow })
-  assert.equal(result.status, 'failed')
-  assert.notEqual(result.status, 'waiting')
-  assert.equal(result.error, CHILD_PAUSED_MESSAGE)
+  assert.equal(result.status, 'waiting')
+  assert.equal(result.waiting?.wakeAt, wakeAt)
 })
 
-test('child flow that would pause continues past the subflow under onError=continue', async () => {
-  const runFlow: RunFlowFn = async () => ({ error: CHILD_PAUSED_MESSAGE })
+test('resuming re-enters the paused subflow node and continues with its output', async () => {
+  const calls: Array<{ resume?: boolean }> = []
+  const runFlow: RunFlowFn = async (node) => {
+    calls.push({ resume: node.resume })
+    // On resume the adapter forwards the reply into the child and returns its
+    // final output; a fresh invocation would pause.
+    return node.resume ? { output: { answer: 'east' } } : { waiting: { question: 'Which region?' } }
+  }
   const graph: FlowGraph = {
     nodes: [
       { id: 'trigger', type: 'trigger', data: {} },
-      { id: 'sub', type: 'subflow', data: { flowId: 'c', onError: 'continue' } },
-      { id: 'a', type: 'agent', data: { agentId: 'x', input: 'after' } },
+      { id: 'sub', type: 'subflow', data: { flowId: 'c' } },
+      { id: 'a', type: 'agent', data: { agentId: 'x', input: 'got {{step.sub.output.answer}}' } },
     ],
     edges: [{ id: 'e0', source: 'trigger', target: 'sub' }, { id: 'e1', source: 'sub', target: 'a' }],
   }
-  const result = await interpretFlow(graph, '', { runAgent: echo, runFlow })
+  const result = await interpretFlow(graph, '', {
+    runAgent: echo,
+    runFlow,
+    resumeNodeId: 'sub',
+    resumeKey: 'sub',
+    resumeReply: 'east',
+  })
+  assert.deepEqual(calls, [{ resume: true }])
   assert.equal(result.status, 'succeeded')
-  assert.equal(result.output, 'after')
+  assert.equal(result.output, 'got east')
 })
 
 test('subflow surfaces the child\'s real failure reason, not a generic message', async () => {

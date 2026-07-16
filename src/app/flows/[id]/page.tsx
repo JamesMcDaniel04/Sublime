@@ -240,9 +240,11 @@ function FlowBuilder() {
   // drag the container's click is suppressed so releasing doesn't deselect.
   const [canvasPan, setCanvasPan] = useState({ x: 0, y: 0 })
   // Canvas view: the classic vertical stack, or the free-form DAG canvas (which
-  // can express fan-in/fan-out the stack cannot). Additive — the stack remains
-  // the default until the DAG canvas reaches parity (insert menus, jam cursors,
-  // container bodies).
+  // can express fan-in/fan-out the stack cannot). Both are at parity — insert
+  // menus (AddStepPanel + nested container menus), jam cursors (the wrapper
+  // broadcasts, the overlay renders over either canvas), and container bodies
+  // (editable in the DAG settings drawer). The stack stays the default purely
+  // as the familiar view; users switch per-preference.
   const [canvasMode, setCanvasModeState] = useState<'stack' | 'dag'>(() => {
     if (typeof window === 'undefined') return 'stack'
     return window.localStorage.getItem('flows.canvasMode') === 'dag' ? 'dag' : 'stack'
@@ -1345,8 +1347,8 @@ function FlowBuilder() {
           }}
         />
         {/* Stack ↔ DAG canvas. The DAG view can wire many→many (3 APIs into one
-            agent); the stack view keeps insert menus + jam cursors until the DAG
-            canvas reaches parity. */}
+            agent); both views share insert menus, jam cursors, and container
+            editing — pick whichever reads better for the flow. */}
         <div className="flex items-center rounded-lg border border-slate-200 p-0.5">
           {(['stack', 'dag'] as const).map((mode) => (
             <button

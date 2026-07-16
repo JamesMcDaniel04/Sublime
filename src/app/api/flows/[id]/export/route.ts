@@ -77,11 +77,14 @@ export const GET = withAuthenticatedApi(async (request, auth) => {
     })
   }
   // Each target converts the SAME sanitized portable doc — redaction can never
-  // be skipped by adding a new target.
+  // be skipped by adding a new target. The deployment origin makes agent steps
+  // export as RUNNABLE HTTP calls to their live trigger endpoints (the secret
+  // itself is never exported — the user pastes it in the target tool).
+  const triggerBaseUrl = request.nextUrl.origin
   const BY_TARGET = {
-    n8n: { body: () => toN8nWorkflow(portable), suffix: '.n8n' },
-    workato: { body: () => toWorkatoRecipe(portable), suffix: '.workato' },
-    'power-automate': { body: () => toPowerAutomateFlow(portable), suffix: '.power-automate' },
+    n8n: { body: () => toN8nWorkflow(portable, { triggerBaseUrl }), suffix: '.n8n' },
+    workato: { body: () => toWorkatoRecipe(portable, { triggerBaseUrl }), suffix: '.workato' },
+    'power-automate': { body: () => toPowerAutomateFlow(portable, { triggerBaseUrl }), suffix: '.power-automate' },
     portable: { body: () => portable, suffix: '.sublime' },
   } as const
   const chosen = BY_TARGET[target as keyof typeof BY_TARGET] ?? BY_TARGET.portable

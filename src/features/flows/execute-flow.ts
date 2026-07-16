@@ -155,7 +155,7 @@ export async function terminalizeAbandonedChildRun(organizationId: string, child
  */
 export async function runFlowExecution(
   job: FlowExecutionJob,
-): Promise<{ flowRunId: string; status: string; output: unknown; error?: string; webhookResponse?: { statusCode: number; headers: Record<string, string>; bodyMode: 'json' | 'text' | 'binary' | 'none'; body?: unknown } }> {
+): Promise<{ flowRunId: string; status: string; output: unknown; error?: string; waiting?: { nodeId: string; question?: string; wakeAt?: string }; webhookResponse?: { statusCode: number; headers: Record<string, string>; bodyMode: 'json' | 'text' | 'binary' | 'none'; body?: unknown } }> {
   const flow = await prisma.flow.findFirst({ where: { id: job.flowId, organizationId: job.organizationId } })
   if (!flow) throw new Error('Flow not found')
   if ((job.subflowDepth ?? 0) > MAX_SUBFLOW_DEPTH) {
@@ -894,7 +894,16 @@ export async function runFlowExecution(
       .catch(() => undefined)
   }
 
-  return { flowRunId: run.id, status, output: result.output, error: runError ?? undefined, webhookResponse: result.webhookResponse }
+  return {
+    flowRunId: run.id,
+    status,
+    output: result.output,
+    error: runError ?? undefined,
+    // Pause detail for callers that park on this run (the subflow adapter):
+    // the question a reply must answer, or the wake time of a durable Wait.
+    waiting: status === 'waiting' && result.waiting ? result.waiting : undefined,
+    webhookResponse: result.webhookResponse,
+  }
 }
 
 /**
@@ -911,7 +920,7 @@ export async function runFlowExecution(
 export async function dispatchFlowExecution(
   job: FlowExecutionJob,
   opts: { background?: boolean } = {},
-): Promise<{ flowRunId: string; status: string; output: unknown; error?: string; webhookResponse?: { statusCode: number; headers: Record<string, string>; bodyMode: 'json' | 'text' | 'binary' | 'none'; body?: unknown } } | { queued: true; flowRunId: string }> {
+): Promise<{ flowRunId: string; status: string; output: unknown; error?: string; waiting?: { nodeId: string; question?: string; wakeAt?: string }; webhookResponse?: { statusCode: number; headers: Record<string, string>; bodyMode: 'json' | 'text' | 'binary' | 'none'; body?: unknown } } | { queued: true; flowRunId: string }> {
   if (inlineExecution) {
     // `background` decouples a FRESH run from the caller's request even in inline
     // mode: the manual builder run must survive the user navigating away, so we

@@ -119,3 +119,34 @@ test('power automate: action names are sanitized and de-duplicated', () => {
   assert.deepEqual(names.sort(), ['Call_API', 'Call_API_2'])
   assert.deepEqual(flow.definition.actions.Call_API_2.runAfter, { Call_API: ['Succeeded'] })
 })
+
+// ── Runnable agent exports (triggerBaseUrl) ──────────────────────────────────
+// With a deployment origin, agent steps export as LIVE HTTP calls to the
+// agent's Sublime trigger endpoint — the imported workflow actually runs the
+// agent. The secret itself is never exported.
+
+test('workato: with a trigger URL, an agent exports as a runnable HTTP action', () => {
+  const recipe = toWorkatoRecipe(portable(), { triggerBaseUrl: 'https://app.example.com' })
+  const summarize = recipe.code.find((step) => step.as === 'agent')!
+  assert.equal(summarize.provider, 'http')
+  assert.equal(summarize.name, 'post')
+  assert.equal((summarize.input as { url?: string }).url, 'https://app.example.com/api/agents/agt_1/trigger')
+  assert.match(String((summarize.input as { headers?: string }).headers), /REPLACE_WITH_TRIGGER_SECRET/)
+  assert.match(summarize.description, /Summarize the lead\./, 'instructions still travel')
+})
+
+test('power automate: with a trigger URL, an agent exports as a runnable Http action', () => {
+  const flow = toPowerAutomateFlow(portable(), { triggerBaseUrl: 'https://app.example.com' })
+  const summarize = flow.definition.actions.Summarize
+  assert.equal(summarize.type, 'Http')
+  assert.equal((summarize.inputs as { uri?: string }).uri, 'https://app.example.com/api/agents/agt_1/trigger')
+  assert.match(JSON.stringify(summarize.inputs), /REPLACE_WITH_TRIGGER_SECRET/)
+  assert.deepEqual(summarize.runAfter, { Fetch_CRM: ['Succeeded'], Enrich_Lead: ['Succeeded'] }, 'fan-in still survives')
+})
+
+test('workato/power automate: WITHOUT a trigger URL the placeholder contract is unchanged', () => {
+  const summarize = toWorkatoRecipe(portable()).code.find((step) => step.as === 'agent')!
+  assert.equal(summarize.provider, 'workato_utils')
+  const action = toPowerAutomateFlow(portable()).definition.actions.Summarize
+  assert.equal(action.type, 'Compose')
+})

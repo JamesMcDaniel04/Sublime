@@ -236,6 +236,7 @@ export default function SettingsPage() {
           </CardContent>
         </Card>
         <LearningsPanel />
+        {profile?.role === 'ADMIN' && <PlatformServicesCard />}
         {profile?.role === 'ADMIN' && (
           <Card className="mt-6 max-w-2xl border-red-200">
             <CardHeader><CardTitle>Delete workspace</CardTitle></CardHeader>
@@ -252,4 +253,59 @@ export default function SettingsPage() {
       </TabsContent>
     </Tabs>
   </div>
+}
+
+type Capability = { key: string; label: string; configured: boolean; detail: string }
+
+/**
+ * Admin visibility into the deployment's optional services — several features
+ * silently degrade when unconfigured (semantic search, push, graph memory),
+ * and this card is where that state stops being invisible.
+ */
+function PlatformServicesCard() {
+  const [capabilities, setCapabilities] = useState<Capability[] | null>(null)
+  const [error, setError] = useState('')
+  useEffect(() => {
+    let cancelled = false
+    fetch('/api/system/capabilities', { cache: 'no-store' })
+      .then(async (response) => {
+        const data = await response.json().catch(() => ({}))
+        if (!response.ok || !data.success) throw new Error(data.error || 'Could not load service status.')
+        if (!cancelled) setCapabilities(data.capabilities)
+      })
+      .catch((cause) => { if (!cancelled) setError(cause instanceof Error ? cause.message : 'Could not load service status.') })
+    return () => { cancelled = true }
+  }, [])
+  return (
+    <Card className="mt-6 max-w-2xl">
+      <CardHeader><CardTitle>Platform services</CardTitle></CardHeader>
+      <CardContent>
+        {error ? (
+          <p className="text-sm text-red-700">{error}</p>
+        ) : !capabilities ? (
+          <p className="text-sm text-muted-foreground">Checking service status…</p>
+        ) : (
+          <ul className="divide-y">
+            {capabilities.map((capability) => (
+              <li key={capability.key} className="flex items-start gap-3 py-2.5">
+                <span
+                  className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${capability.configured ? 'bg-emerald-500' : 'bg-gray-300'}`}
+                  aria-hidden
+                />
+                <div className="min-w-0">
+                  <p className="text-sm font-medium">
+                    {capability.label}
+                    <span className={`ml-2 text-xs font-normal ${capability.configured ? 'text-emerald-600' : 'text-muted-foreground'}`}>
+                      {capability.configured ? 'Active' : 'Not configured'}
+                    </span>
+                  </p>
+                  <p className="text-xs text-muted-foreground">{capability.detail}</p>
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
+      </CardContent>
+    </Card>
+  )
 }

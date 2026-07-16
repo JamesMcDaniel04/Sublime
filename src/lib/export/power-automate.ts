@@ -42,7 +42,7 @@ const labelOf = (node: FlowNode) => (node.data as { label?: string }).label?.tri
 /** Power Automate action names can't contain most punctuation. */
 const safeName = (label: string) => label.replace(/[^A-Za-z0-9_ ]/g, '').trim().replace(/\s+/g, '_') || 'Step'
 
-function mapAction(node: FlowNode, portable: PortableFlow): { type: string; inputs: Record<string, unknown>; description?: string } {
+function mapAction(node: FlowNode, portable: PortableFlow, triggerBaseUrl?: string): { type: string; inputs: Record<string, unknown>; description?: string } {
   const data = node.data as Record<string, unknown>
   switch (node.type) {
     case 'http':
@@ -61,6 +61,22 @@ function mapAction(node: FlowNode, portable: PortableFlow): { type: string; inpu
       return { type: 'Wait', inputs: { interval: { count: Number(data.amount ?? 1), unit: String(data.unit ?? 'Minute') } } }
     case 'agent': {
       const agent = portable.agents.find((candidate) => candidate.ref === (data.agentId as string | undefined))
+      const agentId = typeof data.agentId === 'string' ? data.agentId : ''
+      if (triggerBaseUrl && agentId) {
+        // Runnable: an HTTP action that executes the live Sublime agent.
+        return {
+          type: 'Http',
+          inputs: {
+            method: 'POST',
+            uri: `${triggerBaseUrl}/api/agents/${agentId}/trigger`,
+            headers: { 'x-trigger-secret': 'REPLACE_WITH_TRIGGER_SECRET', 'Content-Type': 'application/json' },
+            body: { input: '@{triggerBody()}' },
+          },
+          description: agent
+            ? `Runs the live Sublime agent "${agent.title}". Paste the trigger secret from the agent's Webhook settings.\n\nInstructions:\n${agent.instructions}`
+            : 'Runs a live Sublime agent — paste the trigger secret from the agent\u2019s Webhook settings.',
+        }
+      }
       return {
         type: 'Compose',
         inputs: { agent: agent?.title ?? 'AI agent', instructions: agent?.instructions ?? '' },
@@ -76,7 +92,7 @@ function mapAction(node: FlowNode, portable: PortableFlow): { type: string; inpu
   }
 }
 
-export function toPowerAutomateFlow(portable: PortableFlow): PowerAutomateFlow {
+export function toPowerAutomateFlow(portable: PortableFlow, options: { triggerBaseUrl?: string } = {}): PowerAutomateFlow {
   const nodes = portable.flow.graph.nodes ?? []
   const edges = portable.flow.graph.edges ?? []
   const parents = parentsOf(edges)
@@ -100,7 +116,7 @@ export function toPowerAutomateFlow(portable: PortableFlow): PowerAutomateFlow {
   const actions: Record<string, PowerAction> = {}
   for (const node of nodes) {
     if (node.type === 'trigger') continue
-    const mapped = mapAction(node, portable)
+    const mapped = mapAction(node, portable, options.triggerBaseUrl)
     // runAfter IS the DAG: every feeding action must succeed first, so fan-in
     // survives here (unlike a linear recipe format).
     const runAfter: Record<string, string[]> = {}

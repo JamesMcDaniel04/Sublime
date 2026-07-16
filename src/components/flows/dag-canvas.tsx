@@ -253,6 +253,7 @@ function NodeConfigPanel({
   cardProps,
   onClose,
   onChangeNode,
+  onSelect,
   onReorderContainer,
   onAddContainerStep,
 }: Readonly<{
@@ -265,6 +266,8 @@ function NodeConfigPanel({
   cardProps: { agents: Agent[]; toolCatalog: ToolCatalog; dataFields: DataField[]; variableNames: string[] }
   onClose: () => void
   onChangeNode: (node: FlowNode) => void
+  /** Focus a different node in this panel (e.g. a container child card). */
+  onSelect?: (id: string) => void
   onReorderContainer?: (containerId: string, from: number, to: number, branchIndex?: number) => void
   onAddContainerStep?: (containerId: string, type: EditableType, branchIndex?: number) => void
 }>) {
@@ -336,7 +339,7 @@ function NodeConfigPanel({
                     labelCtx={{} as never}
                     draggable={!readOnly}
                     onChange={readOnly ? () => {} : onChangeNode}
-                    onClick={() => {}}
+                    onClick={() => onSelect?.(child.id)}
                   />
                 </div>
               )
@@ -508,6 +511,7 @@ export function DagCanvas({
           readOnly={readOnly}
           cardProps={cardProps}
           onClose={() => onSelect(null)}
+          onSelect={onSelect}
           onChangeNode={onChangeNode}
           onReorderContainer={onReorderContainer}
           onAddContainerStep={onAddContainerStep}
