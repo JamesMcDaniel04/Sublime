@@ -220,11 +220,18 @@ export function CommentsPanel({
     }
   }, [open])
 
-  // A pin click on the canvas scrolls its thread into view.
+  // A pin click on the canvas scrolls its thread into view. Scroll ONCE per
+  // focus — comments.length is a dep only so a focus set before the list loads
+  // still lands; without the once-guard every new comment would re-yank the
+  // scroll position back to the focused thread.
+  const lastFocusScrolledRef = useRef<string | null>(null)
   useEffect(() => {
     if (!focusThreadId || !open) return
+    if (lastFocusScrolledRef.current === focusThreadId) return
     const element = threadRefs.current.get(focusThreadId)
-    element?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    if (!element) return
+    element.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    lastFocusScrolledRef.current = focusThreadId
   }, [focusThreadId, open, comments.length])
 
   const mentionMatches = mentionQuery === null

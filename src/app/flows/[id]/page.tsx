@@ -438,6 +438,16 @@ function FlowBuilder() {
     document.addEventListener('keydown', onKey)
     return () => document.removeEventListener('keydown', onKey)
   }, [placingPin])
+  // Safety-net poll while the panel is open: the jam channel's
+  // `comments-changed` nudge is the fast path, but a degraded channel must not
+  // freeze the thread list (mirrors the sync engine's poll fallback).
+  useEffect(() => {
+    if (!commentsOpen) return
+    const timer = window.setInterval(() => {
+      if (!document.hidden) void refreshComments()
+    }, 30000)
+    return () => window.clearInterval(timer)
+  }, [commentsOpen, refreshComments])
   const [floatingReactions, setFloatingReactions] = useState<FloatingReaction[]>([])
   const reactionKeyRef = useRef(0)
   const pushReaction = useCallback((emoji: string, name: string) => {
