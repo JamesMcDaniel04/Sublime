@@ -3,6 +3,7 @@ import { withAuthenticatedApi } from '@/lib/server/api-handler'
 import { prisma } from '@/lib/prisma'
 import { recordAudit } from '@/lib/audit'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { invalidateDbUserCache } from '@/lib/supabase/auth-utils'
 import { ApiError } from '@/lib/server/api-handler'
 import { teardownOrganization } from '@/lib/org-teardown'
 
@@ -44,6 +45,9 @@ export const DELETE = withAuthenticatedApi(async (request, auth) => {
   }
   if (memberCount === 1) await teardownOrganization(auth.organizationId)
   else await prisma.user.delete({ where: { id: auth.dbUser.id, organizationId: auth.organizationId } })
+  // Bust the auth-path cache before the identity-provider call: even if that
+  // cleanup fails, no request may keep resolving to the deleted row.
+  invalidateDbUserCache(auth.user.id)
   const { error } = await createAdminClient().auth.admin.deleteUser(auth.user.id)
   if (error) throw new ApiError('Account data was removed, but the identity provider cleanup failed', 502, 'AUTH_DELETE_FAILED', error)
   return { success: true }

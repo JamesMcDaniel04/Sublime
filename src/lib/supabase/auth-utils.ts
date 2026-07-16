@@ -108,9 +108,26 @@ export async function provisionUser(user: User, existing?: NonNullable<DbUserRow
   }
 }
 
+// The identity provider owns the email address — a change (with its double
+// confirmation) happens entirely between the browser and Supabase, so the
+// only place the app learns about it is the token on the next request.
+// Mirror a confirmed new address onto the app row before handing it out;
+// a token without an email claim never clears a stored address.
+async function syncAuthEmail(user: User, existing: NonNullable<DbUserRow>): Promise<NonNullable<DbUserRow>> {
+  const email = user.email?.trim().toLowerCase()
+  if (!email || email === existing.email) return existing
+  const updated = await prisma.user.update({
+    where: { id: existing.id },
+    data: { email },
+    include: { organization: true },
+  })
+  dbUserCache.set(user.id, { row: updated, ts: Date.now() })
+  return updated
+}
+
 export async function ensureWorkspaceMembership(user: User): Promise<DbUserRow> {
   const existing = await findDbUserCached(user.id)
-  if (existing?.organizationId) return existing
+  if (existing?.organizationId) return syncAuthEmail(user, existing)
 
   const provisioned = await provisionUser(user, existing ?? undefined)
   if (provisioned) dbUserCache.set(user.id, { row: provisioned, ts: Date.now() })
