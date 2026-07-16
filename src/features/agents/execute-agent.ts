@@ -5,7 +5,6 @@ import { createQueue, QUEUE_NAMES, workersEnabled } from '@/lib/queue/config'
 import { inlineExecution } from '@/lib/queue/execution-mode'
 import { apiLogger } from '@/lib/logger'
 import { recordAudit } from '@/lib/audit'
-import { createApproval, requiresApproval } from '@/lib/agents/approval'
 import { retrieveContext, renderContext } from '@/lib/rag/retrieve'
 import { createContextAssembler } from '@/lib/context/assemble'
 import { retrieveKnowledge, renderKnowledge } from '@/lib/knowledge/retrieve'
@@ -876,19 +875,18 @@ export async function runAgentExecution(
 
       const results: ToolResult[] = []
       let pendingAsk: { toolCallId: string; question: string } | null = null
-      let pendingApproval: { toolCallId: string; approvalId: string; stepId: string; summary: string } | null = null
 
       for (const call of turnResult.toolCalls) {
         if (call.name === ASK_USER_TOOL.name) {
-          // At most ONE suspension per turn (a question OR an approval). A run
-          // suspends by leaving exactly one tool_use id unresolved (it becomes
-          // pendingQuestion.toolCallId, resolved on resume); a second unresolved
-          // id would orphan a tool call and make the persisted transcript
-          // unreplayable. So any further ask/approval gets a covering result.
-          if (pendingAsk || pendingApproval) {
+          // At most ONE suspension per turn. A run suspends by leaving exactly
+          // one tool_use id unresolved (it becomes pendingQuestion.toolCallId,
+          // resolved on resume); a second unresolved id would orphan a tool
+          // call and make the persisted transcript unreplayable. So any
+          // further ask gets a covering result.
+          if (pendingAsk) {
             results.push({
               toolCallId: call.id,
-              content: JSON.stringify({ error: 'You can only pause once per turn (a question or an approval is already pending). Ask again after it resolves.' }),
+              content: JSON.stringify({ error: 'You can only pause once per turn (a question is already pending). Ask again after it resolves.' }),
               isError: true,
             })
             continue
@@ -927,45 +925,6 @@ export async function runAgentExecution(
             })
             await recordEvent(execution.id, step.id, 'tool.replayed', { name: step.node })
             results.push({ toolCallId: call.id, content: JSON.stringify(cached) })
-            continue
-          }
-
-          // Approval gate: if this agent requires approval and the tool is an
-          // outbound write, queue it instead of executing — an approver runs
-          // it out-of-band, and the RUN SUSPENDS until the decision. On approve,
-          // decideApproval executes the write and resumes this run with its
-          // result injected, so the agent acts on the real outcome (rather than
-          // continuing blind on a "queued" placeholder).
-          if (requiresApproval(agentMetadata, binding.provider)) {
-            // Only ONE suspension per turn: if a question or another approval is
-            // already pending, defer this one with a covering result (and do NOT
-            // create an approval row, so nothing is orphaned) — the model
-            // re-proposes it once the run resumes.
-            if (pendingApproval || pendingAsk) {
-              await prisma.workflowStep.update({
-                where: { id: step.id },
-                data: { status: 'succeeded', output: jsonValue({ deferred: true }), completedAt: new Date() },
-              })
-              results.push({
-                toolCallId: call.id,
-                content: JSON.stringify({ status: 'deferred', message: 'Another action is already pending this turn; re-propose this once it resolves.' }),
-              })
-              continue
-            }
-            const approval = await createApproval({
-              organizationId,
-              executionId: execution.id,
-              userId,
-              provider: binding.provider,
-              tool: call.name,
-              args: (call.input ?? {}) as Record<string, unknown>,
-            })
-            await prisma.workflowStep.update({
-              where: { id: step.id },
-              data: { status: 'waiting', output: jsonValue({ approvalId: approval.id }) },
-            })
-            await recordEvent(execution.id, step.id, 'tool.queued_for_approval', { name: step.node, approvalId: approval.id })
-            pendingApproval = { toolCallId: call.id, approvalId: approval.id, stepId: step.id, summary: step.node }
             continue
           }
 
@@ -1100,45 +1059,6 @@ export async function runAgentExecution(
         return { status: 'waiting_for_input', question: pendingAsk.question, executionId: execution.id }
       }
 
-      // Suspend for approval: persist state (reusing the pendingQuestion marker,
-      // so the existing resume path injects the approver's result) and return.
-      // decideApproval runs the write and resumes this run with the result.
-      if (pendingApproval) {
-        // systemPrisma: id-keyed terminal write on worker job data; execution id was
-        // validated against this tenant when execution was loaded/created above.
-        await systemPrisma.agentExecution.update({
-          where: { id: execution.id },
-          data: {
-            status: 'waiting_for_approval',
-            transcript: jsonValue(transcript),
-            inputTokens: { increment: usage.inputTokens },
-            outputTokens: { increment: usage.outputTokens },
-            executionTime: { increment: Date.now() - segmentStart },
-            metadata: jsonValue({
-              ...executionMetadata,
-              turnCursor: turn + 1,
-              pendingQuestion: {
-                toolCallId: pendingApproval.toolCallId,
-                question: `Awaiting approval: ${pendingApproval.summary}`,
-                stepId: pendingApproval.stepId,
-                collectedResults: results,
-              } satisfies PendingQuestion,
-            }),
-          },
-        })
-        await notify({
-          organizationId,
-          userId,
-          type: 'agent.needs_approval',
-          level: 'action',
-          title: `${agentMetadata.title || agent.description} needs approval`,
-          body: `Approve or reject: ${pendingApproval.summary}`,
-          agentTaskId: agent.id,
-          executionId: execution.id,
-        })
-        return { status: 'waiting_for_approval', approvalId: pendingApproval.approvalId, executionId: execution.id }
-      }
-
       runner.appendToolResults(transcript, results)
 
       // Durable checkpoint at a clean turn boundary (results appended → the
@@ -1230,7 +1150,6 @@ export async function runAgentExecution(
       organizationId,
       agentTaskId: agent.id,
       agentTitle: (agentMetadata.title as string) || agent.description,
-      signalId: (queuedExecution?.input as { signal?: { id?: string } } | null)?.signal?.id ?? null,
       input: queuedExecution?.input ?? { prompt: data.input },
       output,
       status: 'completed',

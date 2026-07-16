@@ -16,11 +16,6 @@ test('other flow notifications go to the flow activity page', () => {
   assert.equal(notificationHref({ type: 'flow.run.failed', executionId: 'flow1' }), '/flows/flow1/activity')
 })
 
-test('approval notifications open the decision inbox', () => {
-  assert.equal(notificationHref({ type: 'agent.needs_approval', executionId: 'run1' }), '/approvals')
-  assert.equal(notificationHref({ type: 'flow.needs_approval', executionId: 'flow1' }), '/approvals')
-})
-
 test('a run notification without a flow id goes to the dashboard run view', () => {
   assert.equal(notificationHref({ type: 'agent.run', executionId: 'run1' }), '/dashboard?run=run1')
 })

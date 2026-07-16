@@ -1,7 +1,7 @@
 /**
  * /api/cron/retention — daily pruning of unbounded-growth tables.
  *
- * Deletes agent executions and signals older than RETENTION_DAYS (default 90).
+ * Deletes agent executions older than RETENTION_DAYS (default 90).
  * Deleting an execution cascades its workflow steps/events/messages. Audit
  * events are intentionally NOT pruned (append-only for compliance). Capped per
  * run so a backlog is worked down over successive days rather than in one huge
@@ -47,25 +47,15 @@ export async function GET(request: Request) {
     const staleExecutions = await systemPrisma.agentExecution.findMany({
       where: { startedAt: { lt: cutoff } }, select: { id: true, organizationId: true }, take: CAP,
     })
-    // systemPrisma: global retention sweep — prunes across all orgs by design (CRON_SECRET-gated).
-    const staleSignals = await systemPrisma.signal.findMany({
-      where: { receivedAt: { lt: cutoff } }, select: { id: true, organizationId: true }, take: CAP,
-    })
-
-    // Graph parity: prune the run:/signal: nodes for the rows this sweep is
+    // Graph parity: prune the run: nodes for the rows this sweep is
     // about to delete — graph-first, because after the Postgres delete the
     // ids are gone and a missed node would linger forever (audit: deleted
     // PII resurfacing in RAG context).
-    const graphGroups = new Map<string, { organizationId: string; executionIds: string[]; signalIds: string[] }>()
+    const graphGroups = new Map<string, { organizationId: string; executionIds: string[] }>()
     for (const e of staleExecutions) {
-      const group = graphGroups.get(e.organizationId) ?? { organizationId: e.organizationId, executionIds: [], signalIds: [] }
+      const group = graphGroups.get(e.organizationId) ?? { organizationId: e.organizationId, executionIds: [] }
       group.executionIds.push(e.id)
       graphGroups.set(e.organizationId, group)
-    }
-    for (const s of staleSignals) {
-      const group = graphGroups.get(s.organizationId) ?? { organizationId: s.organizationId, executionIds: [], signalIds: [] }
-      group.signalIds.push(s.id)
-      graphGroups.set(s.organizationId, group)
     }
     try {
       await removeRetiredFromGraph(Array.from(graphGroups.values()))
@@ -76,11 +66,6 @@ export async function GET(request: Request) {
     // systemPrisma: global retention sweep — prunes across all orgs by design (CRON_SECRET-gated).
     const executionsDeleted = staleExecutions.length
       ? (await systemPrisma.agentExecution.deleteMany({ where: { id: { in: staleExecutions.map((e) => e.id) } } })).count
-      : 0
-
-    // systemPrisma: global retention sweep — prunes across all orgs by design (CRON_SECRET-gated).
-    const signalsDeleted = staleSignals.length
-      ? (await systemPrisma.signal.deleteMany({ where: { id: { in: staleSignals.map((s) => s.id) } } })).count
       : 0
 
     // Transcripts are the fattest column (provider message JSON, growing per
@@ -107,8 +92,8 @@ export async function GET(request: Request) {
         })).count
       : 0
 
-    apiLogger.info('cron/retention complete', { days, executionsDeleted, signalsDeleted, transcriptsPruned })
-    return Response.json({ success: true, days, executionsDeleted, signalsDeleted, transcriptsPruned })
+    apiLogger.info('cron/retention complete', { days, executionsDeleted, transcriptsPruned })
+    return Response.json({ success: true, days, executionsDeleted, transcriptsPruned })
   } catch (error) {
     apiLogger.error('cron/retention failed', { error: error instanceof Error ? error.message : String(error) })
     return Response.json({ success: false, error: 'Internal server error' }, { status: 500 })

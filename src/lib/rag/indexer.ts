@@ -3,7 +3,6 @@
  *
  * Turns platform data into embedded nodes + typed edges so retrieval can
  * correlate across sources:
- *   - Signals (workspace events)         → signal nodes + account/opp/stakeholder nodes + edges
  *   - Executions (runs + tool outputs)   → run nodes carrying MCP/integration results + edges
  *   - Agents                             → agent nodes
  *
@@ -24,7 +23,6 @@ export const nodeIds = {
   account: (id: string) => `account:${id}`,
   opportunity: (id: string) => `opp:${id}`,
   stakeholder: (id: string) => `stakeholder:${id}`,
-  signal: (id: string) => `signal:${id}`,
   run: (id: string) => `run:${id}`,
   agent: (id: string) => `agent:${id}`,
   activity: (id: string) => `activity:${id}`,
@@ -71,71 +69,11 @@ async function commit(organizationId: string, nodes: PendingNode[], edges: Graph
   if (edges.length) await store.upsertEdges(edges)
 }
 
-// Entity nodes referenced by a signal/run. These generic join nodes let graph
-// retrieval correlate events and executions without depending on a provider.
-function entityNodesFor(
-  refs: { accountId?: string | null; opportunityId?: string | null; stakeholderId?: string | null },
-): { nodes: PendingNode[]; edgesFromSignal: Array<{ to: string; rel: EdgeRelation }>; belongsTo: GraphEdge[] } {
-  const nodes: PendingNode[] = []
-  const edgesFromSignal: Array<{ to: string; rel: EdgeRelation }> = []
-  const belongsTo: GraphEdge[] = []
-
-  if (refs.accountId) {
-    nodes.push({ id: nid.account(refs.accountId), type: 'account', text: `Account ${refs.accountId}`, props: { accountId: refs.accountId } })
-    edgesFromSignal.push({ to: nid.account(refs.accountId), rel: 'about_account' })
-  }
-  if (refs.opportunityId) {
-    nodes.push({ id: nid.opportunity(refs.opportunityId), type: 'opportunity', text: `Opportunity ${refs.opportunityId}`, props: { opportunityId: refs.opportunityId } })
-    edgesFromSignal.push({ to: nid.opportunity(refs.opportunityId), rel: 'about_opportunity' })
-  }
-  if (refs.stakeholderId) {
-    nodes.push({ id: nid.stakeholder(refs.stakeholderId), type: 'stakeholder', text: `Stakeholder ${refs.stakeholderId}`, props: { stakeholderId: refs.stakeholderId } })
-    edgesFromSignal.push({ to: nid.stakeholder(refs.stakeholderId), rel: 'about_stakeholder' })
-  }
-  return { nodes, edgesFromSignal, belongsTo }
-}
-
-export interface SignalRecord {
-  id: string
-  organizationId: string
-  type: string
-  accountId: string | null
-  opportunityId: string | null
-  stakeholderId: string | null
-  payload: unknown
-}
-
-export async function indexSignal(signal: SignalRecord): Promise<void> {
-  if (!ragEnabled()) return
-  try {
-    const org = signal.organizationId
-    const payloadText = safeJson(signal.payload).slice(0, 1500)
-    const nodes: PendingNode[] = [
-      {
-        id: nid.signal(signal.id), type: 'signal',
-        text: `Workspace signal: ${signal.type}. ${payloadText}`,
-        props: { signalType: signal.type, accountId: signal.accountId, opportunityId: signal.opportunityId },
-      },
-    ]
-    const edges: GraphEdge[] = []
-    const { nodes: entityNodes, edgesFromSignal } = entityNodesFor(signal)
-    nodes.push(...entityNodes)
-    for (const e of edgesFromSignal) edges.push({ organizationId: org, from: nid.signal(signal.id), to: e.to, rel: e.rel })
-    if (signal.accountId && signal.opportunityId) {
-      edges.push({ organizationId: org, from: nid.opportunity(signal.opportunityId), to: nid.account(signal.accountId), rel: 'belongs_to' })
-    }
-    await commit(org, nodes, edges)
-  } catch (error) {
-    warn('indexSignal', error)
-  }
-}
-
 export interface ExecutionRecord {
   id: string
   organizationId: string
   agentTaskId: string | null
   agentTitle?: string | null
-  signalId: string | null
   input: unknown
   output: unknown
   status: string
@@ -165,13 +103,6 @@ export async function indexExecution(execution: ExecutionRecord): Promise<void> 
     if (execution.agentTaskId) {
       edges.push({ organizationId: org, from: nid.run(execution.id), to: nid.agent(execution.agentTaskId), rel: 'ran_agent' })
     }
-    if (execution.signalId) {
-      edges.push({ organizationId: org, from: nid.signal(execution.signalId), to: nid.run(execution.id), rel: 'triggered_run' })
-    }
-    // Correlate the run to the account/opp carried on its triggering signal input.
-    const signal = (execution.input as { signal?: { accountId?: string; opportunityId?: string } } | null)?.signal
-    if (signal?.accountId) edges.push({ organizationId: org, from: nid.run(execution.id), to: nid.account(signal.accountId), rel: 'about_account' })
-    if (signal?.opportunityId) edges.push({ organizationId: org, from: nid.run(execution.id), to: nid.opportunity(signal.opportunityId), rel: 'about_opportunity' })
     await commit(org, nodes, edges)
   } catch (error) {
     warn('indexExecution', error)
@@ -326,19 +257,19 @@ export async function removeConnectionScanFromGraph(params: {
 }
 
 /**
- * Bulk graph cleanup for the retention job: delete the run:/signal: nodes for
+ * Bulk graph cleanup for the retention job: delete the run: nodes for
  * rows Postgres is about to (or just did) prune, grouped per org because the
  * store API scopes deletes by organizationId. Best-effort — retention must
  * never fail on graph cleanup; a missed node is re-swept the next day only if
  * ids are still known, so callers should delete graph-first or tolerate loss.
  */
 export async function removeRetiredFromGraph(
-  groups: Array<{ organizationId: string; executionIds: string[]; signalIds: string[] }>,
+  groups: Array<{ organizationId: string; executionIds: string[] }>,
 ): Promise<void> {
   if (!graphRagPersistent()) return
   const store = getGraphRagStore()
   for (const group of groups) {
-    const ids = [...group.executionIds.map((id) => nid.run(id)), ...group.signalIds.map((id) => nid.signal(id))]
+    const ids = group.executionIds.map((id) => nid.run(id))
     if (ids.length === 0) continue
     try {
       await store.deleteNodes(group.organizationId, ids)

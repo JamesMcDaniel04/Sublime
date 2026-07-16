@@ -5,7 +5,7 @@
  * preceded_by (state-history chains on the same entity).
  *
  * activityGraphParts is pure (unit-testable without a store); indexActivity
- * is the best-effort side-effecting wrapper, mirroring indexSignal.
+ * is the best-effort side-effecting wrapper, mirroring indexExecution.
  */
 import { prisma } from '@/lib/prisma'
 import { apiLogger } from '@/lib/logger'

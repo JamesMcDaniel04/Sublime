@@ -19,8 +19,6 @@ import {
   Plug,
   Plus,
   Search,
-  Radio,
-  ShieldCheck,
   Trash2,
   Workflow,
 } from 'lucide-react'
@@ -91,8 +89,6 @@ export function notifyAgentsChanged() {
 
 const navigation = [
   { name: 'Home', href: '/dashboard', icon: Brain },
-  { name: 'Approvals', href: '/approvals', icon: ShieldCheck },
-  { name: 'Signals', href: '/signals', icon: Radio },
   { name: 'Integrations', href: '/integrations', icon: Plug },
   { name: 'Flows', href: '/flows', icon: Workflow },
   { name: 'Templates', href: '/templates', icon: FileText },

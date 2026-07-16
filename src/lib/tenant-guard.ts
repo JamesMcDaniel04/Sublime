@@ -29,8 +29,8 @@
 // from user-facing code.
 export const ORG_SCOPED_MODELS: ReadonlySet<string> = new Set([
   'AgentTask', 'AgentConnector', 'AgentMemory', 'AgentChatMessage', 'AgentChatSession',
-  'Signal', 'SignalSubscription', 'AgentExecution', 'Notification',
-  'PushSubscription', 'AuditEvent', 'ApprovalRequest', 'AgentTemplate', 'Integration',
+  'AgentExecution', 'Notification',
+  'PushSubscription', 'AuditEvent', 'AgentTemplate', 'Integration',
   'MCPAgent', 'McpConnection', 'NangoConnection', 'IntegrationSecret',
   'Flow', 'FlowVersion', 'FlowRun', 'KnowledgeDocument', 'KnowledgeChunk', 'SharedSkill',
 ])
