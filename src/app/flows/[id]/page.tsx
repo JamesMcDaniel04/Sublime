@@ -11,6 +11,8 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel,
 import { emptyGraph, type FlowGraph, type FlowNode, type OutputField } from '@/lib/flows/graph'
 import { insertNodeAfter, appendToBranch, duplicateNode, updateNode, deleteNode, changeNodeType, addContainerStep, moveNodeAfter, moveContainerStep, pasteNodeAfter, addNodeAt } from '@/lib/flows/mutate'
 import { writeFlowClipboard, readFlowClipboard } from '@/lib/flows/clipboard'
+import { diffFlowGraphs, patchIsEmpty, type FlowCollaborationPatch } from '@/lib/flows/collaboration'
+import { applyPatchStrict, invertPatch } from '@/lib/flows/undo'
 import { applyCopilotOps, type CopilotOp } from '@/lib/flows/copilot-ops'
 import { remediationForFailedRun, type FlowFailureRemediation } from '@/lib/flows/failure-remediation'
 import { buildDataTree } from '@/lib/flows/datatree'
@@ -546,32 +548,44 @@ function FlowBuilder() {
     return () => window.removeEventListener('beforeunload', onBeforeUnload)
   }, [dirty])
 
-  // Undo/redo history over structural graph edits (not per-keystroke field edits).
-  const undoStack = useRef<FlowGraph[]>([])
-  const redoStack = useRef<FlowGraph[]>([])
+  // Undo/redo history over structural graph edits (not per-keystroke field
+  // edits). PATCH-based, not snapshot-based: each entry is the forward patch of
+  // YOUR operation plus its inverse, and undo/redo apply strictly onto the
+  // CURRENT graph — so ⌘Z after a teammate's concurrent edit reverts only your
+  // change, never resurrects a step they deleted or clobbers their field edit.
+  const undoStack = useRef<{ forward: FlowCollaborationPatch; inverse: FlowCollaborationPatch }[]>([])
+  const redoStack = useRef<{ forward: FlowCollaborationPatch; inverse: FlowCollaborationPatch }[]>([])
+  const undoSeq = useRef(0)
   const commitGraph = useCallback(
     (next: FlowGraph) => {
       if (next === graph) return
-      undoStack.current.push(graph)
+      const seq = ++undoSeq.current
+      const forward = diffFlowGraphs(graph, next, `local:${seq}`)
+      setGraph(next)
+      if (patchIsEmpty(forward)) return
+      undoStack.current.push({ forward, inverse: invertPatch(forward, `local:${seq}:inverse`) })
       if (undoStack.current.length > 50) undoStack.current.shift()
       redoStack.current = []
-      setGraph(next)
     },
     [graph],
   )
   const undo = useCallback(() => {
-    const prev = undoStack.current.pop()
-    if (!prev) return
-    redoStack.current.push(graph)
-    setGraph(prev)
-    setSelectedId(null)
-  }, [graph])
-  const redo = useCallback(() => {
-    const next = redoStack.current.pop()
-    if (!next) return
-    undoStack.current.push(graph)
+    const entry = undoStack.current.pop()
+    if (!entry) return
+    const { graph: next, skipped } = applyPatchStrict(graph, entry.inverse)
+    redoStack.current.push(entry)
     setGraph(next)
     setSelectedId(null)
+    if (skipped.length > 0) toast('Some changes were kept — a teammate edited them after you.')
+  }, [graph])
+  const redo = useCallback(() => {
+    const entry = redoStack.current.pop()
+    if (!entry) return
+    const { graph: next, skipped } = applyPatchStrict(graph, entry.forward)
+    undoStack.current.push(entry)
+    setGraph(next)
+    setSelectedId(null)
+    if (skipped.length > 0) toast('Some changes could not be redone — a teammate edited them.')
   }, [graph])
   const agentsById = useMemo(() => new Map(agents.map((a) => [a.id, a.title])), [agents])
   // Friendly labels for {{token}} chips in the drawer's editors and for the

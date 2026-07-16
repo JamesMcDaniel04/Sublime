@@ -522,6 +522,9 @@ model Flow {
   collaborationRevision       Int      @default(0)
   // Rotates the private Realtime topic whenever the collaborator allow-list changes.
   collaborationAccessRevision Int      @default(0)
+  // Recently applied patch mutation ids (bounded string array) — makes patch
+  // POSTs idempotent so a timed-out retry can't double-apply.
+  collaborationMutationLog    Json     @default("[]")
   createdAt                   DateTime @default(now())
   updatedAt                   DateTime @updatedAt
 

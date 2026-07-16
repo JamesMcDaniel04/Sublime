@@ -8,7 +8,7 @@
  * catches graph edits up. Local graph changes become id-addressed patches so a
  * teammate editing another node is preserved instead of whole-graph-clobbered.
  */
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import type { FlowGraph } from '@/lib/flows/graph'
 import {
@@ -18,6 +18,9 @@ import {
   patchIsEmpty,
   patchChangesTopology,
 } from '@/lib/flows/collaboration'
+import { reduceJamConnection, type JamConnectionEvent, type JamConnectionState } from '@/lib/flows/jam-connection'
+
+export type { JamConnectionState } from '@/lib/flows/jam-connection'
 
 export type JamCursor = { x: number; y: number }
 export type JamPeer = {
@@ -27,7 +30,6 @@ export type JamPeer = {
   selectedNodeId: string | null
   cursor: JamCursor | null
 }
-export type JamConnectionState = 'connecting' | 'connected' | 'degraded' | 'offline'
 
 type CollaborationSnapshot = {
   success: boolean
@@ -44,7 +46,10 @@ type CollaborationSnapshot = {
 const PATCH_DEBOUNCE_MS = 160
 const PREVIEW_THROTTLE_MS = 32
 const CURSOR_THROTTLE_MS = 33
-const CONNECTED_POLL_MS = 5000
+// With realtime live, every durable change also broadcasts the FULL graph, so
+// the poll is only a safety net for a missed final broadcast — 30s is plenty.
+// (Tab-return and revision gaps trigger immediate snapshots on top of this.)
+const CONNECTED_POLL_MS = 30000
 const DEGRADED_POLL_MS = 1000
 
 export function normalizeJamCursor(x: number, y: number): JamCursor {
@@ -106,6 +111,12 @@ export function useFlowJam(options: {
     connectionStateRef.current = connectionState
   }, [connectionState])
 
+  // Every transition goes through the pure reducer — no ad-hoc state writes,
+  // so the connection can never drift into an ambiguous silent state.
+  const dispatchConnection = useCallback((event: JamConnectionEvent) => {
+    setConnectionState((current) => reduceJamConnection(current, event))
+  }, [])
+
   const disconnectRealtime = () => {
     const channel = channelRef.current
     const supabase = supabaseRef.current
@@ -115,11 +126,9 @@ export function useFlowJam(options: {
     setPeers([])
   }
 
-  const markRealtimeDelivery = (status: string) => {
-    if (status !== 'ok') {
-      setConnectionState((current) => current === 'connected' ? 'degraded' : current)
-    }
-  }
+  const markRealtimeDelivery = useCallback((status: string) => {
+    if (status !== 'ok') dispatchConnection('delivery-failed')
+  }, [dispatchConnection])
 
   const sendPreview = () => {
     previewTimerRef.current = null
@@ -208,7 +217,7 @@ export function useFlowJam(options: {
         if (response.status === 403 || response.status === 404) {
           accessDeniedRef.current = true
           disconnectRealtime()
-          setConnectionState('offline')
+          dispatchConnection('access-denied')
         }
         if (data.graph && typeof data.revision === 'number') {
           baselineRef.current = data.graph
@@ -255,7 +264,7 @@ export function useFlowJam(options: {
     } catch (error) {
       if (error instanceof DOMException && error.name === 'AbortError') return
       retryDelay = 1500
-      setConnectionState((current) => current === 'connected' ? 'degraded' : 'offline')
+      dispatchConnection('delivery-failed')
       callbacksRef.current.onConflict('Live sync was interrupted. Your edit is queued and will retry.')
     } finally {
       if (patchAbortRef.current === abortController) patchAbortRef.current = null
@@ -281,18 +290,22 @@ export function useFlowJam(options: {
         if (response.status === 403 || response.status === 404) {
           accessDeniedRef.current = true
           disconnectRealtime()
+          if (!disposed) dispatchConnection('access-denied')
         }
         // A deployment without ENCRYPTION_KEY/SUPABASE_SERVICE_ROLE_KEY can't
         // mint channel topics. Tell the user ONCE why Jam is dead instead of
         // showing an eternal silent "Reconnecting" dot, and stop the channel
         // retry loop (regular saves are unaffected).
-        if (data.code === 'COLLABORATION_NOT_CONFIGURED' && !misconfiguredRef.current) {
-          misconfiguredRef.current = true
-          accessDeniedRef.current = true
-          disconnectRealtime()
-          callbacksRef.current.onConflict(
-            'Live collaboration is not configured on this server (missing ENCRYPTION_KEY). Flow edits still save normally.',
-          )
+        if (data.code === 'COLLABORATION_NOT_CONFIGURED') {
+          if (!misconfiguredRef.current) {
+            misconfiguredRef.current = true
+            accessDeniedRef.current = true
+            disconnectRealtime()
+            callbacksRef.current.onConflict(
+              'Live collaboration is not configured on this server (missing ENCRYPTION_KEY). Flow edits still save normally.',
+            )
+          }
+          if (!disposed) dispatchConnection('not-configured')
         }
         if (!response.ok || !data.success) throw new Error(data.error || 'Collaboration unavailable')
         const topicChanged = Boolean(topicRef.current && topicRef.current !== data.topic)
@@ -302,7 +315,7 @@ export function useFlowJam(options: {
           const regained = accessDeniedRef.current
           accessDeniedRef.current = false
           acceptServerGraph(data)
-          if (connectionStateRef.current !== 'connected') setConnectionState('degraded')
+          dispatchConnection('snapshot-ok')
           if (topicChanged) {
             topicRef.current = data.topic
             reconnectRef.current()
@@ -312,7 +325,7 @@ export function useFlowJam(options: {
         }
         return data
       } catch {
-        if (!disposed) setConnectionState('offline')
+        if (!disposed && !accessDeniedRef.current) dispatchConnection('snapshot-failed')
         return null
       }
     }
@@ -347,7 +360,7 @@ export function useFlowJam(options: {
     reconnectRef.current = scheduleReconnect
 
     const connect = async () => {
-      setConnectionState('connecting')
+      dispatchConnection('connect-started')
       const snapshot = await loadSnapshot()
       if (disposed || !snapshot) {
         if (!disposed && !accessDeniedRef.current) retryTimer = setTimeout(() => void connect(), 3000)
@@ -412,6 +425,13 @@ export function useFlowJam(options: {
         .on('broadcast', { event: 'graph' }, ({ payload }) => {
           if (!payload || payload.clientId === clientId) return
           if (typeof payload.revision !== 'number' || !payload.graph || typeof payload.updatedAt !== 'string') return
+          // Revision gap = we missed at least one broadcast. The full graph in
+          // THIS payload self-heals the data, but any preview-patches we applied
+          // meanwhile sat on a stale baseline — resync via snapshot to be sure.
+          if (revisionRef.current > 0 && payload.revision > revisionRef.current + 1) {
+            dispatchConnection('revision-gap')
+            refreshAccessRef.current()
+          }
           acceptServerGraph({
             success: true,
             topic: snapshot.topic,
@@ -428,7 +448,7 @@ export function useFlowJam(options: {
         .subscribe(async (status) => {
           if (disposed) return
           if (status === 'SUBSCRIBED') {
-            setConnectionState('connected')
+            dispatchConnection('channel-subscribed')
             await channel.track({
               clientId,
               userId: snapshot.actor.userId,
@@ -437,9 +457,9 @@ export function useFlowJam(options: {
               cursor: cursorRef.current,
             })
           } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
-            setConnectionState('degraded')
+            dispatchConnection('channel-error')
           } else if (status === 'CLOSED') {
-            setConnectionState('offline')
+            dispatchConnection('channel-closed')
             scheduleReconnect()
           }
         })
@@ -452,7 +472,33 @@ export function useFlowJam(options: {
       if (!channelRef.current) scheduleReconnect()
       else refreshAccessRef.current()
     }
+    // Leaving the tab: flush any unsent edits via sendBeacon — the ONLY
+    // transport the browser guarantees to finish after the page is gone.
+    // Duplicate delivery is safe: the beacon and a later flushPatch produce
+    // value-identical patches (server no-ops the second) and true retries of
+    // the same mutationId are deduped by the server's mutation log.
+    const flushOnLeave = () => {
+      if (accessDeniedRef.current) return
+      const baseline = baselineRef.current
+      const desired = latestLocalRef.current
+      if (!baseline || !desired) return
+      const patch = diffFlowGraphs(baseline, desired, `${clientId}:beacon:${++mutationCounterRef.current}`)
+      if (patchIsEmpty(patch)) return
+      const body = new Blob(
+        [JSON.stringify({ baseRevision: revisionRef.current, patch })],
+        { type: 'application/json' },
+      )
+      navigator.sendBeacon?.(`/api/flows/${flowId}/collaboration`, body)
+    }
+    const handleVisibility = () => {
+      if (document.visibilityState === 'hidden') flushOnLeave()
+      // Coming back to the tab: catch up immediately instead of waiting out
+      // the (now 30s) live poll.
+      else if (!accessDeniedRef.current) refreshAccessRef.current()
+    }
     window.addEventListener('online', handleOnline)
+    window.addEventListener('pagehide', flushOnLeave)
+    document.addEventListener('visibilitychange', handleVisibility)
     return () => {
       disposed = true
       sessionActiveRef.current = false
@@ -467,6 +513,8 @@ export function useFlowJam(options: {
       reconnectRef.current = () => {}
       topicRef.current = null
       window.removeEventListener('online', handleOnline)
+      window.removeEventListener('pagehide', flushOnLeave)
+      document.removeEventListener('visibilitychange', handleVisibility)
       disconnectRealtime()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -488,7 +536,7 @@ export function useFlowJam(options: {
       event: 'cursor',
       payload: { clientId, cursor: cursorRef.current, selectedNodeId },
     }).then(markRealtimeDelivery)
-  }, [clientId, connectionState, selectedNodeId])
+  }, [clientId, connectionState, selectedNodeId, markRealtimeDelivery])
 
   const broadcastGraph = (graph: FlowGraph) => {
     latestLocalRef.current = graph

@@ -26,8 +26,19 @@ export function jamAvatarTone(userId: string) {
 const CONNECTION_LABEL: Record<JamConnectionState, string> = {
   connecting: 'Connecting',
   connected: 'Live',
+  'catching-up': 'Catching up…',
   degraded: 'Live edits via fallback',
-  offline: 'Reconnecting',
+  offline: 'Offline — reconnecting',
+  denied: 'No access to this jam',
+  unconfigured: 'Not configured on this server',
+}
+
+/** Status dot tone per state: green = live, amber = working on it, red = broken. */
+function connectionTone(state: JamConnectionState): string {
+  if (state === 'connected') return 'bg-emerald-500'
+  if (state === 'connecting' || state === 'catching-up') return 'animate-pulse bg-amber-400'
+  if (state === 'degraded') return 'bg-amber-400'
+  return 'bg-rose-500'
 }
 
 export function JamButton({ flowId, peers, connectionState, canManage = false, onAccessChanged }: { flowId: string; peers: JamPeer[]; connectionState: JamConnectionState; canManage?: boolean; onAccessChanged?: () => void }) {
@@ -96,14 +107,13 @@ export function JamButton({ flowId, peers, connectionState, canManage = false, o
           {peers.length > 4 && <span className="flex h-6 w-6 items-center justify-center rounded-full border-2 border-white bg-slate-400 text-[10px] font-bold text-white">+{peers.length - 4}</span>}
         </div>
       )}
-      <Button variant="outline" size="sm" onClick={() => canManage && setOpen((value) => !value)} title={canManage ? 'Manage Flow Jam access' : 'You are collaborating on this flow'}>
-        <span
-          className={cn(
-            'h-2 w-2 rounded-full',
-            connectionState === 'connected' ? 'bg-emerald-500' : connectionState === 'connecting' ? 'animate-pulse bg-amber-400' : 'bg-rose-500',
-          )}
-          aria-hidden="true"
-        />
+      <Button
+        variant="outline"
+        size="sm"
+        onClick={() => canManage && setOpen((value) => !value)}
+        title={`${CONNECTION_LABEL[connectionState]}${canManage ? ' — manage Flow Jam access' : ''}`}
+      >
+        <span className={cn('h-2 w-2 rounded-full', connectionTone(connectionState))} aria-hidden="true" />
         <Users className="h-4 w-4" /> Jam
       </Button>
       {open && canManage && (
@@ -113,7 +123,7 @@ export function JamButton({ flowId, peers, connectionState, canManage = false, o
             <p className="text-sm font-semibold text-slate-900">Start a Flow Jam</p>
             <p className="mt-0.5 text-xs text-slate-500">Choose exactly who can open and edit this flow with you.</p>
             <p className="mt-2 flex items-center gap-1.5 text-xs text-slate-600">
-              <span className={cn('h-2 w-2 rounded-full', connectionState === 'connected' ? 'bg-emerald-500' : 'bg-amber-400')} />
+              <span className={cn('h-2 w-2 rounded-full', connectionTone(connectionState))} />
               {CONNECTION_LABEL[connectionState]}
             </p>
             <div className="mt-2 max-h-56 space-y-1 overflow-y-auto">

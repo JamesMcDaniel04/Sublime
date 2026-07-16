@@ -30,7 +30,7 @@ test('node edits apply without replacing unrelated concurrent edits', () => {
   assert.deepEqual(merged.conflicts, [])
 })
 
-test('same-node concurrent edits report a conflict and incoming edit wins', () => {
+test('same-node concurrent edits report a per-field conflict and incoming edit wins', () => {
   const base = insertNodeAfter(emptyGraph(), 'trigger', 'stop').graph
   const stop = base.nodes.find((node) => node.type === 'stop')!
   const alice = updateNode(base, { ...stop, data: { ...stop.data, reason: 'Alice' } })
@@ -38,7 +38,7 @@ test('same-node concurrent edits report a conflict and incoming edit wins', () =
   const afterAlice = applyFlowCollaborationPatch(base, diffFlowGraphs(base, alice, 'alice')).graph
   const merged = applyFlowCollaborationPatch(afterAlice, diffFlowGraphs(base, bob, 'bob'))
 
-  assert.deepEqual(merged.conflicts, [`node:${stop.id}`])
+  assert.deepEqual(merged.conflicts, [`node:${stop.id}.reason`])
   const mergedStop = merged.graph.nodes.find((node) => node.id === stop.id)
   assert.equal(mergedStop?.type === 'stop' ? mergedStop.data.reason : undefined, 'Bob')
 })
@@ -186,7 +186,8 @@ test('removing a data key falls back to a whole-node change', () => {
   const http = base.nodes.find((node) => node.type === 'http')!
   const withLabel = updateNode(base, { ...http, data: { ...http.data, label: 'temp' } })
   const labelNode = withLabel.nodes.find((node) => node.id === http.id)!
-  const { label: _dropped, ...rest } = labelNode.data as Record<string, unknown>
+  const rest = { ...(labelNode.data as Record<string, unknown>) }
+  delete rest.label
   const removed = updateNode(withLabel, { ...labelNode, data: rest } as never)
 
   const patch = diffFlowGraphs(withLabel, removed, 'm1')

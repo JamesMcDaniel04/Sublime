@@ -10,6 +10,7 @@ import {
   flowCollaborationPatchSchema,
   patchChangesTopology,
 } from '@/lib/flows/collaboration'
+import { appendMutation, hasAppliedMutation } from '@/lib/flows/mutation-log'
 
 export const runtime = 'nodejs'
 
@@ -50,6 +51,7 @@ async function collaborationFlow(id: string, organizationId: string, userId: str
       graph: true,
       collaborationRevision: true,
       collaborationAccessRevision: true,
+      collaborationMutationLog: true,
       updatedAt: true,
     },
   })
@@ -88,6 +90,19 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
     const flow = await collaborationFlow(id, auth.organizationId, auth.dbUser.id, 'write')
     const graph = flowGraphSchema.parse(flow.graph)
 
+    // Idempotent replay: a retried POST (client timeout, flaky network) whose
+    // patch already landed returns the current state without re-applying it —
+    // no double-apply, no duplicate conflict reports.
+    if (hasAppliedMutation(flow.collaborationMutationLog, input.patch.mutationId)) {
+      return {
+        success: true,
+        graph,
+        revision: flow.collaborationRevision,
+        updatedAt: flow.updatedAt.toISOString(),
+        conflicts: [],
+      }
+    }
+
     if (input.baseRevision !== flow.collaborationRevision && patchChangesTopology(input.patch)) {
       return NextResponse.json(
         {
@@ -123,6 +138,7 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
       data: {
         graph: JSON.parse(JSON.stringify(applied.graph)),
         collaborationRevision: { increment: 1 },
+        collaborationMutationLog: appendMutation(flow.collaborationMutationLog, input.patch.mutationId),
       },
       select: {
         graph: true,
