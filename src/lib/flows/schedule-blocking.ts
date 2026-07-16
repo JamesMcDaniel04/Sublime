@@ -3,7 +3,7 @@
  * flow's tick while its latest run is still active so a slow flow never stacks
  * concurrent scheduled executions. Pure companion to the reaper in ./reap:
  * `running` runs are reaped after 30 min, so they always block here; `waiting`
- * runs are a legitimate pause (approval / ask-user) the reaper must not touch
+ * runs are a legitimate pause (ask-user) the reaper must not touch
  * — but an unanswered one must not wedge the schedule forever, so after 24h it
  * stops blocking while the run itself stays answerable.
  */

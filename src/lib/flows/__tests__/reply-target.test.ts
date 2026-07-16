@@ -4,14 +4,9 @@ import { resolveReplyTarget } from '../reply-target'
 import { deriveRunWaiting } from '../run-waiting'
 
 const waitingInput = { nodeId: 'n2', kind: 'input' as const, question: 'Which region?' }
-const waitingApproval = { nodeId: 'n2', kind: 'approval' as const }
 
 test('waiting run + input kind + live step resumes the flow', () => {
   assert.equal(resolveReplyTarget({ status: 'waiting' }, { nodeId: 'n2' }, waitingInput), 'flow')
-})
-
-test('waiting run + approval kind blocks the reply', () => {
-  assert.equal(resolveReplyTarget({ status: 'waiting' }, { nodeId: 'n2' }, waitingApproval), 'approval-block')
 })
 
 test('a run that is no longer waiting falls through to the bare agent resume', () => {

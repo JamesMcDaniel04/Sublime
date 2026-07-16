@@ -59,13 +59,12 @@ type RunDetails = {
 
 export type RunMutation = { id: string; status?: string; deleted?: boolean }
 
-export const groupOrder = ['running', 'cancelling', 'waiting_for_input', 'waiting_for_approval', 'failed', 'cancelled', 'completed'] as const
+export const groupOrder = ['running', 'cancelling', 'waiting_for_input', 'failed', 'cancelled', 'completed'] as const
 
 export const groupLabels: Record<string, string> = {
   running: 'Running',
   cancelling: 'Cancelling',
   waiting_for_input: 'Needs input',
-  waiting_for_approval: 'Needs approval',
   failed: 'Error',
   cancelled: 'Cancelled',
   completed: 'Success',
@@ -89,7 +88,6 @@ function runStatusIcon(status: string) {
     case 'cancelling':
       return <CircleDashed className="h-4 w-4 shrink-0 animate-spin text-gray-400" aria-label="Cancelling" />
     case 'waiting_for_input':
-    case 'waiting_for_approval':
       return <HelpCircle className="h-4 w-4 shrink-0 text-amber-500" aria-label="Needs input" />
     case 'cancelled':
       return <XCircle className="h-4 w-4 shrink-0 text-gray-400" aria-label="Cancelled" />
@@ -579,7 +577,7 @@ function RunRow({
   const [replying, setReplying] = useState(false)
   const [actionBusy, setActionBusy] = useState(false)
   const status = activityStatus(activity)
-  const isActive = ['running', 'pending', 'cancelling', 'waiting_for_input', 'waiting_for_approval'].includes(status)
+  const isActive = ['running', 'pending', 'cancelling', 'waiting_for_input'].includes(status)
   const isCancellable = isCancellableRunStatus(status)
   const isTerminal = isTerminalRunStatus(status)
   const { items: timeline, suggestions } = buildProcessTimeline(details?.events ?? [], details?.steps ?? [])
@@ -893,7 +891,7 @@ export function AgentActivityPane({
               {groupStatus === 'completed' ? <CheckCircle2 className="h-4 w-4 text-green-600" /> :
                 groupStatus === 'running' ? <CircleDashed className="h-4 w-4 animate-spin text-blue-600" /> :
                 groupStatus === 'cancelling' ? <CircleDashed className="h-4 w-4 animate-spin text-gray-400" /> :
-                groupStatus === 'waiting_for_input' || groupStatus === 'waiting_for_approval' ? <HelpCircle className="h-4 w-4 text-amber-500" /> :
+                groupStatus === 'waiting_for_input' ? <HelpCircle className="h-4 w-4 text-amber-500" /> :
                 groupStatus === 'cancelled' ? <XCircle className="h-4 w-4 text-gray-400" /> :
                 <AlertCircle className="h-4 w-4 text-red-600" />}
               {groupLabels[groupStatus]} <span className="font-mono text-xs tabular-nums text-gray-400">{items.length}</span>

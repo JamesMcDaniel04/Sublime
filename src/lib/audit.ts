@@ -1,6 +1,6 @@
 /**
  * Append-only audit log. Every consequential action (tool write, config
- * change, connection, approval decision) records an immutable AuditEvent.
+ * change, connection) records an immutable AuditEvent.
  * Writing must never break the action it records — failures are swallowed and
  * reported, not thrown.
  */

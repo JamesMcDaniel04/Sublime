@@ -54,7 +54,7 @@ export const GET = withAuthenticatedApi(async (request, auth) => {
     trigger: run.trigger,
     ...(summary ? {} : { input: run.input, output: run.output }),
     error: run.error,
-    // What the run is blocked on (agent question / approval), non-null only
+    // What the run is blocked on (agent question / durable wait), non-null only
     // when the run is waiting — reply UIs key off this.
     waiting: deriveRunWaiting(run.status, run.steps),
     steps: summary ? run.steps.map(({ nodeId, status, order, error }) => ({ nodeId, status, order, error })) : run.steps,

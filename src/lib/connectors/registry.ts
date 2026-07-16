@@ -11,7 +11,7 @@
  * Now every built-in plane is one typed descriptor: its canonical key, how a
  * stored selection activates it (`matches`), whether it is an outbound-write
  * plane, its env availability, and its UI presentation. loadTools, the
- * available-integrations endpoint, and the approval/audit write classification
+ * available-integrations endpoint, and the audit write classification
  * all derive from here.
  *
  * Dynamic planes (Klavis-provisioned MCP servers, per-org MCP connections) are
@@ -30,7 +30,7 @@ export type ConnectorDescriptor = {
   /** Simple Icons slug for the UI chip. */
   slug: string
   kind: ConnectorKind
-  /** True for outbound/delivery planes (writes) — reserved cap budget + approval. */
+  /** True for outbound/delivery planes (writes) — reserved cap budget. */
   isWrite: boolean
   /** The runtime `binding.provider` this plane produces (e.g. 'nango:slack'). */
   providerId: string
@@ -129,7 +129,7 @@ export function isSelected(descriptor: ConnectorDescriptor, selected: string[]):
 
 /**
  * Whether a runtime provider id is an outbound-WRITE plane (reserved cap budget,
- * audit `tool.write`, approval gate). Derived from the registry for built-ins;
+ * audit `tool.write`). Derived from the registry for built-ins;
  * any `nango:*` provider is a write plane by construction.
  */
 export function isWriteProvider(providerId: string): boolean {

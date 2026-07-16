@@ -48,11 +48,6 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
       select: { nodeId: true, status: true, output: true },
     })
     target = resolveReplyTarget(flowStep.run, flowStep, deriveRunWaiting(flowStep.run.status, steps))
-    // The reply endpoint never decides approvals — those resume only through
-    // the approvals route with an explicit approve/reject decision.
-    if (target === 'approval-block') {
-      throw new ApiError('This step is waiting for an approval decision.', 400, 'FLOW_RUN_AWAITING_APPROVAL')
-    }
     // target 'agent' includes the swept-run case: an ABANDONED (timed-out)
     // execution may later go waiting_for_input inside a run that already
     // `failed` — falling through to the bare agent resume still lets the
@@ -72,8 +67,7 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
 
   if (target === 'flow' && flowStep) {
     const run = flowStep.run
-    // Non-manual runs executed the published graph; resume against the same
-    // (mirrors the approvals route's derivation).
+    // Non-manual runs executed the published graph; resume against the same.
     const triggerType = (run.trigger as { type?: string } | null)?.type
     try {
       // Queue mode resumes on the worker (result = { queued: true, flowRunId });

@@ -9,8 +9,6 @@ import { validateFlowGraph, validationErrorMessage } from '@/lib/flows/validate'
 import { loadFlowToolCatalog } from '@/lib/flows/tool-catalog'
 import { parseFlowToolConnectionId } from '@/lib/flows/tool-connection-id'
 import { resolveFlowToolExecutor } from '@/features/agents/tool-planes'
-import { createApproval, capabilityFromProvider } from '@/lib/agents/approval'
-import { parseApprovalDecision, shouldConsumeApprovalDecision } from '@/lib/flows/approval-decision'
 import { notify } from '@/lib/notifications/service'
 import { recordAudit } from '@/lib/audit'
 import { assertPublicUrl } from '@/lib/net/ssrf'
@@ -131,24 +129,19 @@ const WRITE_PLANES = /^(nango|slack|email)/i
  * flow-as-tool call) abandoned while the child was paused. Subflows/flow-tools
  * are synchronous-only in v1: the parent already recorded a clean failure, so
  * the child must not linger. The reaper only sweeps `running`, so a `waiting`
- * child would otherwise persist forever, keep its ApprovalRequest actionable,
- * and re-run its side effects (real writes, flow.completed) if a human resumed
- * it. Mark it failed and supersede its pending approval, mirroring the
- * resume-path supersede. Best-effort — never throws into the parent.
+ * child would otherwise persist forever and re-run its side effects (real
+ * writes, flow.completed) if a human resumed it. Mark it failed.
+ * Best-effort — never throws into the parent.
  */
 export async function terminalizeAbandonedChildRun(organizationId: string, childFlowRunId: string): Promise<void> {
   try {
     await prisma.flowRun.updateMany({
-      where: { id: childFlowRunId, status: 'waiting' },
+      where: { id: childFlowRunId, organizationId, status: 'waiting' },
       data: {
         status: 'failed',
         error: 'Abandoned — the parent subflow / flow-tool call does not support pausing for human input.',
         finishedAt: new Date(),
       },
-    })
-    await prisma.approvalRequest.updateMany({
-      where: { organizationId, executionId: childFlowRunId, status: 'pending' },
-      data: { status: 'superseded' },
     })
   } catch {
     // best-effort: terminalization failure must never mask the primary error.
@@ -171,13 +164,12 @@ export async function runFlowExecution(
   const resuming = Boolean(job.flowRunId && (job.reply !== undefined || job.resumeReason === 'time'))
 
   // Resume: atomically claim the run — only a genuinely `waiting` run may be
-  // resumed. A concurrent resume (e.g. the reply route and the approvals
-  // route racing), a run the reaper already terminalized, or a duplicate
-  // reply delivery all lose cleanly here instead of re-interpreting an
-  // already-moving or already-dead run. Mirrors execute-agent.ts's
-  // waiting_* -> running atomic claim. Refresh startedAt so reapStuckFlowRuns
+  // resumed. A concurrent resume, a run the reaper already terminalized, or a
+  // duplicate reply delivery all lose cleanly here instead of re-interpreting
+  // an already-moving or already-dead run. Mirrors execute-agent.ts's
+  // waiting -> running atomic claim. Refresh startedAt so reapStuckFlowRuns
   // does not mark the run failed the moment it is legitimately resumed after
-  // a long approval pause.
+  // a long pause.
   let existingRun: Awaited<ReturnType<typeof prisma.flowRun.findFirst>> = null
   if (resuming) {
     const claimed = await prisma.flowRun.updateMany({
@@ -197,7 +189,7 @@ export async function runFlowExecution(
   // `waiting` before rethrowing. Otherwise the run would be stuck `running`
   // with no executor, and the user's reply would be unretryable until the
   // reaper terminalizes it after 30 minutes. The later resume-state block
-  // (marking the waiting step resumed, superseding stale approvals) sits
+  // (marking the waiting step resumed) sits
   // OUTSIDE this wrap: those writes are destructive, so a blind rollback
   // could not restore them anyway — a throw there strands the run until the
   // reaper sweeps it (rare: plain DB writes). Once interpretFlow begins,
@@ -338,15 +330,10 @@ export async function runFlowExecution(
   let resumeNodeId: string | undefined
   let resumeExecutionId: string | undefined
   let resumeKey: string | undefined
-  // Approval ids persisted on the run's waiting step rows. A resuming tool
-  // step may only consume a decision reply whose approvalId is in this set —
-  // and each id is consumed at most once — so in loops/parallel one item's
-  // decision is never reported as another item's result.
-  let pausedApprovalIds = new Set<string>()
   let order = 0
   if (resuming) {
     const priorSteps = await prisma.flowRunStep.findMany({ where: { flowRunId: run.id }, orderBy: { order: 'asc' } })
-    ;({ completed, resumeNodeId, resumeExecutionId, resumeKey, pausedApprovalIds } = resolveResumeState(priorSteps, nodeTypeById))
+    ;({ completed, resumeNodeId, resumeExecutionId, resumeKey } = resolveResumeState(priorSteps, nodeTypeById))
     // Resuming creates NEW step rows for the re-run node — resolve every stale
     // waiting row now so it can never shadow a later pause in deriveRunWaiting,
     // and continue the order counter after all prior rows so new steps always
@@ -354,15 +341,6 @@ export async function runFlowExecution(
     await prisma.flowRunStep.updateMany({
       where: { flowRunId: run.id, status: 'waiting' },
       data: { status: 'resumed', finishedAt: new Date() },
-    })
-    // A resumed run's un-decided approvals are stale: any step that doesn't
-    // consume THIS decision falls through and re-queues a fresh approval, so
-    // an old pending one must never stay actionable (approving both would run
-    // the write twice). decideApproval refuses non-pending requests, so a
-    // superseded approval is inert — deciding it just reports its state.
-    await prisma.approvalRequest.updateMany({
-      where: { organizationId: job.organizationId, executionId: run.id, status: 'pending' },
-      data: { status: 'superseded' },
     })
     if (priorSteps.length) order = Math.max(...priorSteps.map((step) => step.order)) + 1
   }
@@ -486,11 +464,10 @@ export async function runFlowExecution(
         // Persist the pause reason on the step so the runs API can surface it.
         // The resume scan only reuses output for succeeded/skipped steps, so
         // this waiting-info output never leaks into resumed step data.
-        const kind = result.status === 'waiting_for_approval' ? 'approval' : 'input'
         await finishStep({
           status: 'waiting',
           agentExecutionId: result.executionId ?? null,
-          output: jsonValue({ waiting: { kind, question: result.question, approvalId: (result as { approvalId?: string }).approvalId } }),
+          output: jsonValue({ waiting: { kind: 'input', question: result.question } }),
           finishedAt: new Date(),
         })
         return { waiting: { status: result.status, question: result.question } }
@@ -534,15 +511,15 @@ export async function runFlowExecution(
       })
       if (res.status === 'waiting') {
         // Synchronous subflow, v1: a child that itself pauses (its own
-        // humanReview/approval/ask-user node) is a clean subflow error, never
-        // a parent pause — full pausable-subflow resume (re-entering the
-        // paused child, forwarding the reply) is deferred to a later
-        // iteration. The parent FlowRun must NEVER be set to `waiting` for a
-        // subflow, so this always finishes the step `failed`, never `waiting`.
+        // humanReview/ask-user node) is a clean subflow error, never a parent
+        // pause — full pausable-subflow resume (re-entering the paused child,
+        // forwarding the reply) is deferred to a later iteration. The parent
+        // FlowRun must NEVER be set to `waiting` for a subflow, so this
+        // always finishes the step `failed`, never `waiting`.
         const message =
           "A subflow's child flow paused for human input, which subflows don't support — inline the interaction, or call the flow as an agent tool instead."
-        // Terminalize the abandoned paused child so it can't linger 'waiting',
-        // keep its approval actionable, or re-run its side effects if resumed.
+        // Terminalize the abandoned paused child so it can't linger 'waiting'
+        // or re-run its side effects if resumed.
         await terminalizeAbandonedChildRun(job.organizationId, res.flowRunId)
         await finishStep({ status: 'failed', childFlowRunId: res.flowRunId, error: message, finishedAt: new Date() })
         return { error: message }
@@ -599,35 +576,6 @@ export async function runFlowExecution(
         const { plane, ref } = parseFlowToolConnectionId(connectionId)
         const toolName = String(node.config.toolName)
 
-        // Re-entering a step paused on an approval: the reply carries the
-        // decision (decideApproval already executed an approved write, exactly
-        // as it does for agent runs) — consume it, never re-execute the write.
-        // CORRELATED consume only: the decision must name an approvalId this
-        // run actually paused on, and each decision is consumed once. A step
-        // whose approval the decision does NOT match (another loop item's
-        // pause) falls through and re-queues its own approval below.
-        let approvalGranted = false
-        if (node.resume && typeof job.reply === 'string') {
-          const decision = parseApprovalDecision(job.reply)
-          if (decision && shouldConsumeApprovalDecision(decision, pausedApprovalIds)) {
-            pausedApprovalIds.delete(String(decision.approvalId))
-            if (decision.status === 'approved') {
-              if (decision.executed === true) {
-                const output = decision.result ?? { status: 'approved', executed: true }
-                await finish({ status: 'succeeded', output })
-                return { output }
-              }
-              // Generic MCP/Klavis writes are not executed by the approval
-              // service (it has no live client). Approval resumes this exact
-              // step, which executes once below without queuing another gate.
-              approvalGranted = true
-            }
-            const message = 'The approver rejected this action.'
-            await finish({ status: 'failed', error: message })
-            return { error: message }
-          }
-        }
-
         const args = prepareToolArgs(node.config.args)
         const executor = await resolveFlowToolExecutor({
           organizationId: job.organizationId,
@@ -636,40 +584,6 @@ export async function runFlowExecution(
           ref,
           toolName,
         })
-
-        // Approval gate — the same semantics as agent tool calls: an outbound
-        // write plane (Nango delivery) is queued for approval instead of
-        // executed, and the run pauses `waiting` (kind 'approval'). The
-        // decision resumes this run via the approvals route.
-        const configuredRisk = node.config.risk === 'write' || node.config.risk === 'destructive'
-        if (!approvalGranted && (configuredRisk || executor.isWrite || capabilityFromProvider(executor.provider))) {
-          const approval = await createApproval({
-            organizationId: job.organizationId,
-            executionId: run.id,
-            userId: job.userId,
-            provider: executor.provider,
-            tool: toolName,
-            args,
-          })
-          const question = `Approve ${toolName}?`
-          await finish({ status: 'waiting', output: { waiting: { kind: 'approval', approvalId: approval.id, question } } })
-          // Mirror the agent path: surface the pending approval to the user
-          // (in-app + push). notify never throws into the run. Flow
-          // notifications carry the FLOW id (the bell and push deep-link to
-          // the flow's activity page — a flow RUN id is not resolvable by the
-          // dashboard); the run id still rides in the body for reference.
-          await notify({
-            organizationId: job.organizationId,
-            userId: job.userId,
-            type: 'flow.needs_approval',
-            level: 'action',
-            title: `Flow "${flow.name}" needs approval`,
-            body: `Approve or reject: ${toolName} (run ${run.id})`,
-            executionId: flow.id,
-            link: `/flows/${flow.id}/activity`,
-          })
-          return { waiting: { status: 'waiting_for_approval', question } }
-        }
 
         const retries = flowActionRetries(node.config.retries)
         const timeoutMs = flowActionTimeoutMs(node.config.timeoutMs)
@@ -827,8 +741,8 @@ export async function runFlowExecution(
   // FlowRunStep row was persisted by the interpreter's onStep path (the
   // outcome carries `{ waiting: { kind: 'input', question } }`), so the only
   // side effect owed here is telling the assignee — or the run owner when no
-  // assignee is set — that the flow is waiting on them. Mirrors the
-  // flow.needs_approval notify above; notify never throws into the run.
+  // assignee is set — that the flow is waiting on them. notify never throws
+  // into the run.
   if (status === 'waiting' && result.waiting) {
     const waitingNode = graph.nodes.find((node) => node.id === result.waiting?.nodeId)
     if (waitingNode?.type === 'humanReview') {
@@ -955,7 +869,7 @@ export async function dispatchFlowExecution(
     // pre-create the row and run detached on this process's event loop instead
     // of awaiting inside the /execute request (which dies with it). Resumes keep
     // the awaited path — their atomic waiting→running claim can reject
-    // (FLOW_RUN_NOT_WAITING / approval / time), and that must surface to the
+    // (FLOW_RUN_NOT_WAITING / time), and that must surface to the
     // reply UI, not vanish into a detached promise. Queue mode already decouples
     // every run, so `background` is a no-op there.
     const resuming = Boolean(job.flowRunId && (job.reply !== undefined || job.resumeReason === 'time'))

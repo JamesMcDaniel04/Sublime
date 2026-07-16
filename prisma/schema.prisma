@@ -31,12 +31,9 @@ model Organization {
   mcpConnections            McpConnection[]
   nangoConnections          NangoConnection[]
   integrationSecrets        IntegrationSecret[]
-  signals                   Signal[]
-  signalSubscriptions       SignalSubscription[]
   activityEvents            ActivityEvent[]
   activityBackfills         ActivityBackfill[]
   auditEvents               AuditEvent[]
-  approvalRequests          ApprovalRequest[]
   agentMemories             AgentMemory[]
   flowVersions              FlowVersion[]
   flows                     Flow[]
@@ -118,7 +115,6 @@ model AgentTask {
   organization        Organization         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   owner               User?                @relation(fields: [userId], references: [id], onDelete: SetNull)
   executions          AgentExecution[]
-  signalSubscriptions SignalSubscription[]
   chatMessages        AgentChatMessage[]
   chatSessions        AgentChatSession[]
   connectors          AgentConnector[]
@@ -243,63 +239,13 @@ model AgentChatSession {
   @@map("agent_chat_sessions")
 }
 
-// Inbound workspace event. Immutable once written; the router turns matching
-// signals into agent executions.
-model Signal {
-  id             String    @id @default(cuid())
-  organizationId String    @db.Uuid
-  type           String
-  accountId      String?
-  opportunityId  String?
-  stakeholderId  String?
-  payload        Json
-  // Replay guard: provider event id (or a content hash fallback). Unique PER
-  // ORG (see @@unique below), not globally — a raw provider event id from one
-  // tenant must never dedupe-drop another tenant's signal.
-  dedupeKey      String
-  provenanceUrl  String?
-  receivedAt     DateTime  @default(now())
-  processedAt    DateTime?
-
-  organization     Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  subscriptionRuns AgentExecution[]
-
-  @@unique([organizationId, dedupeKey])
-  @@index([organizationId, receivedAt])
-  @@index([organizationId, type])
-  @@map("signals")
-}
-
-// Routing rule: signal type + JSON filter → run an agent, with the signal
-// injected as structured context.
-model SignalSubscription {
-  id             String   @id @default(cuid())
-  organizationId String   @db.Uuid
-  signalType     String
-  // Shallow equality filter over signal payload/entity fields, e.g.
-  // {"risk_level": "high"}. Empty object matches everything.
-  filter         Json     @default("{}")
-  agentTaskId    String
-  isActive       Boolean  @default(true)
-  createdById    String?
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
-
-  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  agentTask    AgentTask    @relation(fields: [agentTaskId], references: [id], onDelete: Cascade)
-
-  @@index([organizationId, signalType, isActive])
-  @@map("signal_subscriptions")
-}
-
 model AgentExecution {
   id              String    @id @default(cuid())
   agentType       String
   agentTemplateId String?
   agentTaskId     String?
-  // Replay/duplicate guard for signal-triggered runs (signalId:agentId).
+  // Replay/duplicate guard for externally triggered runs.
   idempotencyKey  String?
-  signalId        String?
   status          String    @default("pending")
   input           Json
   output          Json?
@@ -320,7 +266,6 @@ model AgentExecution {
   organization  Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   agentTemplate AgentTemplate?     @relation(fields: [agentTemplateId], references: [id], onDelete: SetNull)
   agentTask     AgentTask?         @relation(fields: [agentTaskId], references: [id], onDelete: SetNull)
-  signal        Signal?            @relation(fields: [signalId], references: [id], onDelete: SetNull)
   workflowSteps WorkflowStep[]
   events        WorkflowEvent[]
   messages      ExecutionMessage[]
@@ -439,26 +384,6 @@ model AuditEvent {
   @@index([organizationId, createdAt])
   @@index([organizationId, action])
   @@map("audit_events")
-}
-
-// A pending outbound-write approval. The run parks (waiting_for_input) until an
-// approver decides; on approval the write proceeds, on rejection it is skipped.
-model ApprovalRequest {
-  id             String    @id @default(cuid())
-  organizationId String    @db.Uuid
-  executionId    String
-  tool           String
-  summary        String    @db.Text
-  payload        Json
-  status         String    @default("pending") // 'pending' | 'approving' | 'approved' | 'rejected' | 'failed' | 'superseded'
-  decidedById    String?
-  decidedAt      DateTime?
-  createdAt      DateTime  @default(now())
-
-  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-
-  @@index([organizationId, status])
-  @@map("approval_requests")
 }
 
 model AgentTemplate {
@@ -797,7 +722,7 @@ model ActivityEvent {
   ingestedAt      DateTime  @default(now())
   ingestKind      String // 'backfill' | 'webhook' | 'sync'
   // Replay guard, unique PER ORG (a provider id from one tenant must never
-  // dedupe-drop another tenant's event) — same rule as Signal.dedupeKey.
+  // dedupe-drop another tenant's event).
   dedupeKey       String
   indexedAt       DateTime? // null until graph indexing succeeds; re-index sweeps nulls
 

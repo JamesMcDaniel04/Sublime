@@ -8,15 +8,13 @@
 
 import type { RunWaiting } from './run-waiting'
 
-export type ReplyTarget = 'flow' | 'agent' | 'approval-block'
+export type ReplyTarget = 'flow' | 'agent'
 
 /**
  * Decide what a reply to an agent execution should resume.
  *
  * - 'flow': the execution is the live waiting step (kind 'input') of a
  *   `waiting` flow run — resume the flow so run and step advance together.
- * - 'approval-block': the run's live wait is an approval — the reply endpoint
- *   must never decide approvals, so the caller rejects with a clear error.
  * - 'agent': no flow owns this pause (pure agent run), the run already moved
  *   on (not `waiting` — resumed elsewhere, or terminally swept: an abandoned
  *   execution can go waiting_for_input inside a run that already `failed`,
@@ -32,5 +30,5 @@ export function resolveReplyTarget(
   if (!run || !step) return 'agent'
   if (run.status !== 'waiting') return 'agent'
   if (!waiting || waiting.nodeId !== step.nodeId) return 'agent'
-  return waiting.kind === 'approval' ? 'approval-block' : 'flow'
+  return 'flow'
 }

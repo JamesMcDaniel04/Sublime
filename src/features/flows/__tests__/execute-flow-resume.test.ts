@@ -76,7 +76,7 @@ if (TEST_DB) {
     const claimed = await prisma.flowRun.findUnique({ where: { id: run.id, organizationId: ids.org } })
     assert.notEqual(claimed.status, 'waiting')
     // Resume claim must refresh startedAt so reapStuckFlowRuns does not mark
-    // the run failed the instant it resumes after a long approval pause.
+    // the run failed the instant it resumes after a long pause.
     assert.ok(claimed?.startedAt)
     assert.ok(claimed.startedAt > staleStartedAt, 'startedAt must be refreshed on resume')
 

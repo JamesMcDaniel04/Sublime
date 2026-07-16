@@ -43,7 +43,7 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
   }
 
   // Waiting runs have no live turn loop to notice a flag — resume only happens
-  // via a user reply/approval decision, so finalize them directly. Running
+  // via a user reply, so finalize them directly. Running
   // runs are flagged 'cancelling' for the turn loop to notice and exit cleanly.
   const nextStatus = isWaitingRunStatus(run.status) ? 'cancelled' : 'cancelling'
   const existingMetadata = run.metadata && typeof run.metadata === 'object' ? (run.metadata as Record<string, unknown>) : {}

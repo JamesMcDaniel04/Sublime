@@ -1972,7 +1972,7 @@ function ToolBody({
           labelCtx={tokenWiring.labelCtx}
         />
       )}
-      {node.data.risk && node.data.risk !== 'read' && <p className="rounded-lg bg-amber-50 p-2 text-xs text-amber-800">This action is classified as {node.data.risk} and requires approval before it runs.</p>}
+      {node.data.risk && node.data.risk !== 'read' && <p className="rounded-lg bg-amber-50 p-2 text-xs text-amber-800">This action is classified as {node.data.risk} — it performs an external write when the flow runs.</p>}
       <AdvancedParamsSection node={node} onChange={update} />
     </div>
   )

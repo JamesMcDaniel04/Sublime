@@ -45,17 +45,6 @@ test('normal (non-container) pause is unaffected', () => {
   assert.equal(state.resumeExecutionId, 'exec_9')
 })
 
-test('approval id collection is unaffected by the container filter', () => {
-  const priorSteps: PriorStepRow[] = [
-    row({ nodeId: 'toolLeaf', status: 'waiting', output: { waiting: { approvalId: 'ap_1' } } }),
-    row({ nodeId: 'loop1', status: 'waiting' }),
-  ]
-  const nodeTypeById = new Map([['toolLeaf', 'tool'], ['loop1', 'loop']])
-  const state = resolveResumeState(priorSteps, nodeTypeById)
-  assert.ok(state.pausedApprovalIds.has('ap_1'))
-  assert.equal(state.resumeNodeId, 'toolLeaf')
-})
-
 test('BACK-COMPAT: succeeded/skipped steps build the completed map keyed by nodeId when there is no iterationPath', () => {
   const priorSteps: PriorStepRow[] = [
     row({ nodeId: 'a', status: 'succeeded', output: 'first' }),

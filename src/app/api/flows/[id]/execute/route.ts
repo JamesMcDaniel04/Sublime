@@ -47,10 +47,7 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
       select: { id: true, status: true },
     })
     if (!owned) throw new ApiError('Run not found', 404, 'NOT_FOUND')
-    // A run paused on a tool-step APPROVAL resumes only through the approvals
-    // route (which dispatches the flow execution with the decision payload,
-    // never through this endpoint). A user-supplied reply here must never be
-    // interpreted as — or race with — an approval decision.
+    // A durable Wait pause resumes on the scheduler, never via a user reply.
     if (parsed.reply !== undefined && owned.status === 'waiting') {
       const steps = await prisma.flowRunStep.findMany({
         where: { flowRunId: owned.id },
@@ -58,9 +55,6 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
         select: { nodeId: true, status: true, output: true },
       })
       const waiting = deriveRunWaiting(owned.status, steps)
-      if (waiting?.kind === 'approval') {
-        throw new ApiError('This run is waiting for an approval decision, not a reply.', 400, 'FLOW_RUN_AWAITING_APPROVAL')
-      }
       if (waiting?.kind === 'time') throw new ApiError('This run is waiting for its scheduled resume time.', 400, 'FLOW_RUN_AWAITING_TIME')
     }
   }

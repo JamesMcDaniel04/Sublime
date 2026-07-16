@@ -2,8 +2,7 @@
 
 import { Suspense } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
-import { Bot, Cable, Server } from 'lucide-react'
-import { MCPIntegrationCards } from '@/components/integrations/mcp-integration-cards'
+import { Cable, Server } from 'lucide-react'
 import { McpServersPanel } from '@/components/connections/mcp-servers-panel'
 import { PageHeader } from '@/components/ui/page-header'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
@@ -16,21 +15,19 @@ function IntegrationsTabs() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const tabParam = searchParams.get('tab')
-  const activeTab = tabParam === 'accounts' ? 'accounts' : tabParam === 'mcp' ? 'mcp' : 'tools'
+  const activeTab = tabParam === 'mcp' ? 'mcp' : 'accounts'
   const { isAdmin } = useAuth()
 
   const handleTabChange = (value: string) => {
-    router.replace(value === 'tools' ? '/integrations' : `/integrations?tab=${value}`, { scroll: false })
+    router.replace(value === 'accounts' ? '/integrations' : `/integrations?tab=${value}`, { scroll: false })
   }
 
   return (
     <Tabs value={activeTab} onValueChange={handleTabChange}>
       <TabsList>
-        <TabsTrigger value="tools"><Bot className="mr-2 h-4 w-4" />Agent tools</TabsTrigger>
-        <TabsTrigger value="accounts"><Cable className="mr-2 h-4 w-4" />Connected accounts</TabsTrigger>
+        <TabsTrigger value="accounts"><Cable className="mr-2 h-4 w-4" />Integrations</TabsTrigger>
         <TabsTrigger value="mcp"><Server className="mr-2 h-4 w-4" />MCP Servers</TabsTrigger>
       </TabsList>
-      <TabsContent value="tools" className="mt-6"><MCPIntegrationCards /></TabsContent>
       <TabsContent value="accounts" className="mt-6 space-y-6">
         <Suspense fallback={<p className="text-sm text-gray-500">Loading integrations...</p>}>
           <OAuthIntegrationsGrid />

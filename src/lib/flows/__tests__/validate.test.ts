@@ -208,39 +208,7 @@ test('no field-ref warning for structured agents or whole-output references', ()
   assert.equal(result.warnings.some((w) => w.code === 'TEXT_AGENT_FIELD_REF'), false)
 })
 
-test('blocks an approval-gated (nango) tool inside a loop body', () => {
-  const graph = {
-    nodes: [
-      { id: 'trigger', type: 'trigger', data: {} },
-      { id: 'loop', type: 'loop', data: { over: '{{trigger.input}}', body: ['send'] } },
-      { id: 'send', type: 'tool', data: { label: 'Post message', connectionId: 'nango:slack', toolName: 'slack_post_message', args: '{}' } },
-    ],
-    edges: [{ id: 'e1', source: 'trigger', target: 'loop' }],
-  } as FlowGraph
-  const result = validateFlowGraph(graph)
-  assert.equal(result.ok, false)
-  const issue = result.errors.find((entry) => entry.code === 'APPROVAL_IN_CONTAINER')
-  assert.ok(issue)
-  assert.equal(issue?.nodeId, 'send')
-  assert.match(issue?.message ?? '', /Post message needs an approval to send/)
-  assert.match(issue?.message ?? '', /Move it after the loop/)
-})
-
-test('blocks an approval-gated (nango) tool inside a parallel branch', () => {
-  const graph = {
-    nodes: [
-      { id: 'trigger', type: 'trigger', data: {} },
-      { id: 'par', type: 'parallel', data: { branches: [['send'], ['other']] } },
-      { id: 'send', type: 'tool', data: { connectionId: 'nango:gmail', toolName: 'gmail_send_email', args: '{}' } },
-      { id: 'other', type: 'http', data: { method: 'GET', url: 'https://example.test' } },
-    ],
-    edges: [{ id: 'e1', source: 'trigger', target: 'par' }],
-  } as FlowGraph
-  const result = validateFlowGraph(graph)
-  assert.ok(result.errors.some((entry) => entry.code === 'APPROVAL_IN_CONTAINER' && entry.nodeId === 'send'))
-})
-
-test('allows the same nango tool on the spine, outside any container', () => {
+test('allows a nango tool on the spine', () => {
   const graph = {
     nodes: [
       { id: 'trigger', type: 'trigger', data: {} },
@@ -249,21 +217,6 @@ test('allows the same nango tool on the spine, outside any container', () => {
     edges: [{ id: 'e1', source: 'trigger', target: 'send' }],
   } as FlowGraph
   const result = validateFlowGraph(graph)
-  assert.equal(result.errors.some((entry) => entry.code === 'APPROVAL_IN_CONTAINER'), false)
-  assert.equal(result.ok, true)
-})
-
-test('allows a non-approval (mcp) tool inside a loop body', () => {
-  const graph = {
-    nodes: [
-      { id: 'trigger', type: 'trigger', data: {} },
-      { id: 'loop', type: 'loop', data: { over: '{{trigger.input}}', body: ['read'] } },
-      { id: 'read', type: 'tool', data: { connectionId: 'mcp-row-1', toolName: 'search_things', args: '{}' } },
-    ],
-    edges: [{ id: 'e1', source: 'trigger', target: 'loop' }],
-  } as FlowGraph
-  const result = validateFlowGraph(graph)
-  assert.equal(result.errors.some((entry) => entry.code === 'APPROVAL_IN_CONTAINER'), false)
   assert.equal(result.ok, true)
 })
 

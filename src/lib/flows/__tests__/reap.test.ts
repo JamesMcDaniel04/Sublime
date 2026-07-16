@@ -91,7 +91,7 @@ if (TEST_DB) {
 
     // racingRun IS a `running` candidate at read time — it enters runIds —
     // but the onAfterRead hook flips it to `waiting` (simulating a legitimate
-    // approval pause) before the transaction's write executes. This is the
+    // ask-user pause) before the transaction's write executes. This is the
     // exact race the re-query step in reapStuckFlowRuns exists to handle.
     const reaped = await reapStuckFlowRuns(new Date(), async () => {
       await prisma.flowRun.update({ where: { id: racingRun.id, organizationId: ids.org }, data: { status: 'waiting' } })

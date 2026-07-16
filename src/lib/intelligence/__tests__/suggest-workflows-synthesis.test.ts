@@ -6,7 +6,7 @@
  * its suggestion memory still is.
  *
  * DB-gated like the rest of this codebase's integration tests (see
- * src/lib/agents/__tests__/approval.test.ts) — self-skips (0 tests reported)
+ * other DB-backed suites) — self-skips (0 tests reported)
  * when TEST_DATABASE_URL isn't set. `generate`/`generateGraph` are injected
  * via `synthesizeWorkflowSuggestions`'s overrides seam so no LLM call is ever
  * made; everything else (gate, cooldown claim/release, memory/flow

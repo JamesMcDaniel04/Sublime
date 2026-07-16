@@ -69,7 +69,7 @@ test('subflow without a runFlow adapter fails cleanly', async () => {
 })
 
 // v1 design: subflows are synchronous-only. A child flow that would itself
-// pause (its own humanReview/approval/ask-user node) is never forwarded to
+// pause (its own humanReview/ask-user node) is never forwarded to
 // the parent as a pause — the execute-flow.ts `runFlow` adapter translates a
 // child `waiting` result into this plain error message before it ever
 // reaches interpretFlow (see execute-flow.ts's runFlow adapter). These tests

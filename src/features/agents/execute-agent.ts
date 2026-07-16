@@ -336,9 +336,8 @@ function transcriptSummaryForReflection(transcript: unknown): string {
 }
 
 /**
- * Resume a suspended run (ask_user reply or approval decision) — inline in dev,
- * enqueued on the worker in prod. Shared by the reply route and the approval
- * decision route.
+ * Resume a suspended run (ask_user reply) — inline in dev, enqueued on the
+ * worker in prod. Used by the reply route.
  */
 export async function resumeAgentExecution(params: {
   executionId: string
@@ -418,21 +417,21 @@ export async function runAgentExecution(
   if (resuming && queuedExecution) {
     const executionMetadata = metadataOf(queuedExecution.metadata)
     const pending = executionMetadata.pendingQuestion as PendingQuestion | undefined
-    const waiting = queuedExecution.status === 'waiting_for_input' || queuedExecution.status === 'waiting_for_approval'
+    const waiting = queuedExecution.status === 'waiting_for_input'
     if (!waiting || !pending || !Array.isArray(queuedExecution.transcript)) {
-      throw new Error('Execution is not waiting for input or approval')
+      throw new Error('Execution is not waiting for input')
     }
-    // Atomic claim (same pattern as approval decide): two concurrent replies —
-    // e.g. builder and Activity page both open — must not both resume. Exactly
-    // one caller flips waiting_* -> running; the loser errors cleanly here.
+    // Atomic claim: two concurrent replies — e.g. builder and Activity page
+    // both open — must not both resume. Exactly one caller flips
+    // waiting_for_input -> running; the loser errors cleanly here.
     // systemPrisma: id-keyed terminal write on worker job data; execution id was
     // validated against this tenant when queuedExecution was loaded above.
     const claimed = await systemPrisma.agentExecution.updateMany({
-      where: { id: queuedExecution.id, status: { in: ['waiting_for_input', 'waiting_for_approval'] } },
+      where: { id: queuedExecution.id, status: 'waiting_for_input' },
       data: { status: 'running' },
     })
     if (claimed.count === 0) {
-      throw new Error('Execution is not waiting for input or approval')
+      throw new Error('Execution is not waiting for input')
     }
     // Normalize to the provider-neutral IR so a run persisted in a native shape
     // (pre-IR, or by the other provider) resumes on whatever provider routes now.
@@ -689,7 +688,7 @@ export async function runAgentExecution(
               ancestorAgentIds: chain,
             })
             // A completed sub-run returns { summary }; a suspended one (asked
-            // the user / awaiting approval) returns { status: 'waiting_*' }.
+            // the user) returns { status: 'waiting_*' }.
             const sub = result as { summary?: string; status?: string; question?: string }
             if (typeof sub?.summary === 'string') return { agent: nameOf(target.metadata) || target.description, output: sub.summary }
             if (typeof sub?.status === 'string' && sub.status.startsWith('waiting')) {

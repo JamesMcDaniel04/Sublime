@@ -4,7 +4,7 @@
  * This is a faithful, side-effect-free extraction of the turn loop in
  * execute-agent.ts: call the model, dispatch its tool calls, feed results back,
  * repeat until the model answers without calling a tool (or maxTurns). It omits
- * everything the runtime layers ON TOP (Prisma persistence, approvals, RAG,
+ * everything the runtime layers ON TOP (Prisma persistence, RAG,
  * budgets, notifications) so it can run offline in CI. Because it drives the
  * same ModelRunner interface, a fixture that passes here pins the loop's
  * behavior across refactors of the runner internals.

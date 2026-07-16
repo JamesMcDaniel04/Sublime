@@ -15,7 +15,7 @@ import type { FlowGraph } from '@/lib/flows/graph'
 import { cn } from '@/lib/utils'
 
 type RunStepSummary = { nodeId: string; status: string; order: number; error?: string | null }
-type RunWaiting = { nodeId: string; kind: 'input' | 'approval' | 'time'; question?: string; wakeAt?: string }
+type RunWaiting = { nodeId: string; kind: 'input' | 'time'; question?: string; wakeAt?: string }
 type RunSummary = {
   id: string
   status: string
@@ -113,12 +113,7 @@ function WaitingBanner({
   }
   return (
     <div className="rounded-md border border-blue-200 bg-blue-50 p-3 dark:border-blue-900/40 dark:bg-blue-950/40">
-      {waiting.kind === 'approval' ? (
-        <>
-          <p className="text-sm font-semibold text-blue-900 dark:text-blue-200">Waiting for an approval decision</p>
-          <p className="mt-1 text-xs text-blue-800 dark:text-blue-300">A step needs an approval before this run can continue.</p>
-        </>
-      ) : waiting.kind === 'time' ? (
+      {waiting.kind === 'time' ? (
         <>
           <p className="text-sm font-semibold text-blue-900 dark:text-blue-200">Paused until the scheduled time</p>
           <p className="mt-1 text-xs text-blue-800 dark:text-blue-300">
@@ -325,7 +320,7 @@ export default function FlowActivityPage() {
                               // The paused step reads as what it needs, never the bare status word.
                               const waitingKind = step.status === 'waiting' && run.waiting?.nodeId === step.nodeId ? run.waiting.kind : undefined
                               const statusLabel = waitingKind
-                                ? waitingKind === 'input' ? 'Waiting for your reply' : waitingKind === 'approval' ? 'Waiting for approval' : 'Resumes automatically'
+                                ? waitingKind === 'input' ? 'Waiting for your reply' : 'Resumes automatically'
                                 : step.status
                               return (
                                 <div key={`${step.nodeId}-${i}`} className="flex items-center gap-2 px-4 py-1.5">

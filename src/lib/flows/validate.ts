@@ -606,11 +606,6 @@ export function validateFlowGraph(graph: FlowGraph, context: FlowValidationConte
     add(issues, 'error', 'MULTIPLE_OUTPUT_NODES', 'A flow can have only one Output step.', dup.id)
   }
 
-  // Approval-gated writes (the Nango delivery plane) pause the whole run on
-  // ONE approval at a time. Inside a loop/parallel every item needs its own
-  // decision, and the resume machinery can't yet keep N in-flight approvals
-  // straight (one item's decision could be misattributed to another), so a
-  // graph that nests one in a container is blocked outright.
   const containerMemberIds = new Set(
     graph.nodes.flatMap((node) =>
       node.type === 'loop' ? node.data.body
@@ -623,15 +618,6 @@ export function validateFlowGraph(graph: FlowGraph, context: FlowValidationConte
   for (const memberId of containerMemberIds) {
     const member = byId.get(memberId)
     if (!member) continue
-    if (member.type === 'tool' && member.data.connectionId && (parseFlowToolConnectionId(member.data.connectionId).plane === 'nango' || member.data.risk === 'write' || member.data.risk === 'destructive')) {
-      add(
-        issues,
-        'error',
-        'APPROVAL_IN_CONTAINER',
-        `${nodeLabel(member)} needs an approval to send — approvals aren't supported inside loops or parallel branches yet. Move it after the loop.`,
-        member.id,
-      )
-    }
     // Input/Output declare the flow's callable signature and belong at the top
     // level only. `subflow` is INTENTIONALLY allowed inside a container — a
     // subflow-per-item is the supported nested-iteration pattern (spec §3.3).

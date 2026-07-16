@@ -286,7 +286,7 @@ export async function GET(request: Request) {
         // Overlap guard: a still-active previous run means skip this tick —
         // a slow flow must never stack concurrent scheduled executions. A
         // `waiting` run older than 24h stops blocking (blocksSchedule): it
-        // stays answerable, but an unanswered approval/question must not
+        // stays answerable, but an unanswered question must not
         // wedge the schedule forever.
         const lastRun = flow.runs[0]
         if (lastRun && blocksSchedule(lastRun, now)) {

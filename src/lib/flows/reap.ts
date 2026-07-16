@@ -39,7 +39,7 @@ export async function reapStuckFlowRuns(now = new Date(), onAfterRead?: () => Pr
   // systemPrisma: global reaper sweep — runs across all orgs by design.
   return systemPrisma.$transaction(async (tx) => {
     // Status re-checked here so a run that legitimately left `running`
-    // (e.g. paused for approval) between the read above and this write is
+    // (e.g. paused on a question) between the read above and this write is
     // left alone.
     const reaped = await tx.flowRun.updateMany({
       where: { id: { in: runIds }, status: 'running' },

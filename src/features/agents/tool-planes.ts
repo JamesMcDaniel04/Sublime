@@ -66,7 +66,7 @@ export type ToolPlaneGroup = {
   id: string
   plane: FlowToolPlane
   name: string
-  /** Runtime binding provider (agent tool naming, audit, approval gating). */
+  /** Runtime binding provider (agent tool naming, audit). */
   provider: string
   serverUrl: string
   isWrite: boolean
@@ -348,7 +348,7 @@ export async function loadNativePlaneGroups(
  * Nango delivery planes (Slack/Gmail/Salesforce writes as the acting user),
  * one group per capability with a resolvable connection. When `providers` is
  * given (the agent path) a capability additionally requires a matching
- * selection. These are WRITE planes — execution goes through the approval gate.
+ * selection. These are WRITE planes.
  */
 export async function loadNangoPlaneGroups(
   organizationId: string,
@@ -469,7 +469,7 @@ export async function loadFlowPlaneGroups(
 // ── Flow tool-step execution ──────────────────────────────────────────────────
 
 export type FlowToolExecutor = {
-  /** Runtime provider id (approval gating via capabilityFromProvider, audit). */
+  /** Runtime provider id (audit classification). */
   provider: string
   isWrite: boolean
   execute: (toolName: string, args: Record<string, unknown>) => Promise<unknown>
@@ -571,7 +571,7 @@ export async function resolveFlowToolExecutor(params: {
     }
   }
 
-  // nango — outbound delivery as the acting user (write plane; approval-gated).
+  // nango — outbound delivery as the acting user (write plane).
   if (!nangoConfigured()) throw new Error('Delivery integrations are not configured for this workspace.')
   const spec = DELIVERY_TOOLS.find((tool) => tool.capability === (ref as DeliveryCapability))
   if (!spec) throw new Error(`Unknown delivery capability "${ref}" — pick another in the step config.`)

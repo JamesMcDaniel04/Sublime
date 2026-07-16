@@ -25,7 +25,6 @@ export type ResumeState = {
   // bare `resumeNodeId`). For a non-loop pause (no iterationPath) this is
   // byte-identical to `resumeNodeId`.
   resumeKey?: string
-  pausedApprovalIds: Set<string>
 }
 
 // Same parse the completed-map side uses (below) — so the two sides' keys
@@ -52,14 +51,11 @@ export function resolveResumeState(priorSteps: PriorStepRow[], nodeTypeById: Map
   let resumeNodeId: string | undefined
   let resumeExecutionId: string | undefined
   let resumeKey: string | undefined
-  const pausedApprovalIds = new Set<string>()
   for (const step of priorSteps) {
     if (step.status === 'succeeded' || step.status === 'skipped') {
       completed[completedKey(step.nodeId, parseIterationPath(step.iterationPath))] = step.output
     }
     if (step.status === 'waiting') {
-      const approvalId = (step.output as { waiting?: { approvalId?: string } } | null)?.waiting?.approvalId
-      if (typeof approvalId === 'string' && approvalId) pausedApprovalIds.add(approvalId)
       if (resumeKey === undefined && !CONTAINER_NODE_TYPES.has(nodeTypeById.get(step.nodeId) ?? '')) {
         resumeNodeId = step.nodeId
         resumeExecutionId = step.agentExecutionId ?? undefined
@@ -67,5 +63,5 @@ export function resolveResumeState(priorSteps: PriorStepRow[], nodeTypeById: Map
       }
     }
   }
-  return { completed, resumeNodeId, resumeExecutionId, resumeKey, pausedApprovalIds }
+  return { completed, resumeNodeId, resumeExecutionId, resumeKey }
 }
