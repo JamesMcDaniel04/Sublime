@@ -267,7 +267,11 @@ export function Sidebar() {
     if (!agent) return
     const current = normalizeShareValue(agent.visibility)
     const isShared = current !== 'private'
+    // Legacy `'shared'` rows normalize to private but still carry the old raw
+    // value; dropping one on Private used to no-op silently. Persist the real
+    // `'private'` so the row matches what the user just did.
     const sharingChanges = (target.share === 'org') !== isShared
+      || (target.share === 'private' && agent.visibility !== 'private')
     if ((agent.folder || null) === target.folder && !sharingChanges) return
 
     // Dropping onto Workspace shares at the safest role (view). Promoting to
@@ -528,6 +532,13 @@ export function Sidebar() {
               <Plus className="h-3.5 w-3.5" />
             </Button>
           </div>
+          {/* Keep the section's footprint even when empty — otherwise PRIVATE
+              slides up under the WORKSPACE header and its folders read as
+              workspace folders, making a successful "move to private" look
+              like nothing happened. */}
+          {sections.workspace.length === 0 && (
+            <p className="px-2 py-1 text-xs text-[#7DACA8]">Drag agents here to share them with your workspace.</p>
+          )}
           {sections.workspace.map(([folder, folderAgents]) => {
             const key = `ws:${folder}`
             const isCollapsed = collapsed[key]
@@ -562,8 +573,10 @@ export function Sidebar() {
           <div className="flex items-center gap-1.5 px-2 pb-1 pt-3 font-mono text-[11px] font-bold uppercase tracking-wider text-[#7DACA8]">
             <Lock className="h-3 w-3" /> Private
           </div>
+          {/* Indent private folders under the header so they read as INSIDE
+              Private, not as more workspace folders. */}
           {sections.private.length > 0
-            ? sections.private.map(([folder, folderAgents]) => {
+            ? <div className="ml-2 border-l border-white/10 pl-1">{sections.private.map(([folder, folderAgents]) => {
                 const key = `pv:${folder}`
                 const isCollapsed = collapsed[key]
                 const isGeneral = folder === 'General'
@@ -585,7 +598,7 @@ export function Sidebar() {
                     {!isCollapsed && <div className="ml-3 border-l border-white/10 pl-1">{folderAgents.map(renderAgent)}</div>}
                   </div>
                 )
-              })
+              })}</div>
             : <p className="px-2 py-1 text-xs text-[#7DACA8]">Drag agents here to make them private.</p>}
           </div>
         </div>
