@@ -7,6 +7,7 @@ import { AlertCircle, FileText, List, Loader2, Play, Plus, Settings2, Sparkles, 
 import { AgentActivityPane, resultText, type RunMutation } from './agent-activity-pane'
 import { AgentConfigForm, type AgentDraft } from './agent-config-form'
 import { AssistantPanel } from './assistant-panel'
+import { TemplatesExplorer } from '@/components/templates/templates-explorer'
 import { Button } from '@/components/ui/button'
 import { EmptyState } from '@/components/ui/empty-state'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -14,6 +15,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { AGENTS_CHANGED_EVENT, notifyAgentsChanged } from '@/components/layout/sidebar'
 import { useAuth } from '@/hooks/use-auth'
 import { getSnapshot, peekSnapshot, SnapshotError } from '@/lib/client/snapshot'
+import { getCachedJson } from '@/lib/client/use-cached-json'
 import { cn } from '@/lib/utils'
 
 import type { Agent, Activity } from '@/lib/types'
@@ -46,6 +48,13 @@ function AgentHQ() {
   const { user } = useAuth()
   const router = useRouter()
   const searchParams = useSearchParams()
+  // Which top-level view is showing: the agent HQ panes or the templates
+  // library (folded in from the old /templates page). URL-driven so the
+  // command palette and legacy /templates links deep-link straight into it.
+  const view: 'agents' | 'templates' = searchParams.get('view') === 'templates' ? 'templates' : 'agents'
+  const setView = (next: 'agents' | 'templates') => {
+    router.replace(next === 'templates' ? '/dashboard?view=templates' : '/dashboard', { scroll: false })
+  }
   const initialSnapshot = useMemo(() => peekSnapshot(), [])
   const [agents, setAgents] = useState<Agent[]>(() => initialSnapshot?.agents || [])
   const [activities, setActivities] = useState<Activity[]>(() => initialSnapshot?.activities || [])
@@ -70,6 +79,17 @@ function AgentHQ() {
     return saved ? clampAssistantWidth(saved) : ASSISTANT_WIDTH_DEFAULT
   })
   const assistantWidthRef = useRef(assistantWidth)
+  // Count for the Templates toggle badge. Cheap: the sidebar already warms
+  // /api/agent-templates in the shared client cache. Re-read on view switches
+  // so templates created or deleted inside the library update the badge.
+  const [templatesCount, setTemplatesCount] = useState<number | null>(null)
+  useEffect(() => {
+    let cancelled = false
+    getCachedJson<{ templates?: unknown[] }>('/api/agent-templates')
+      .then((data) => { if (!cancelled) setTemplatesCount(data.templates?.length ?? 0) })
+      .catch(() => undefined)
+    return () => { cancelled = true }
+  }, [view])
 
   // Drag-to-resize for the assistant pane's left edge. Grid layout (not the
   // flex row `ResizablePanel` assumes), so the drag math is inlined here and
@@ -390,12 +410,57 @@ function AgentHQ() {
   }
 
   return (
-    <>
+    <div className="flex flex-col lg:h-screen lg:overflow-hidden">
+      {/* Agents ↔ Templates segmented toggle — the template library lives
+          inside HQ now instead of its own sidebar destination. */}
+      <div className="flex shrink-0 justify-center border-b bg-slate-50 px-4 py-3">
+        <div className="flex items-center rounded-full bg-white p-1 shadow-md ring-1 ring-slate-900/5">
+          <button
+            type="button"
+            aria-pressed={view === 'agents'}
+            onClick={() => setView('agents')}
+            className={cn(
+              'rounded-full px-5 py-1.5 text-sm font-semibold transition-colors duration-150',
+              view === 'agents' ? 'bg-[#24426B] text-white shadow-sm' : 'text-slate-500 hover:text-slate-800',
+            )}
+          >
+            Agents
+          </button>
+          <button
+            type="button"
+            aria-pressed={view === 'templates'}
+            onClick={() => setView('templates')}
+            className={cn(
+              'flex items-center gap-2 rounded-full px-5 py-1.5 text-sm font-semibold transition-colors duration-150',
+              view === 'templates' ? 'bg-[#24426B] text-white shadow-sm' : 'text-slate-500 hover:text-slate-800',
+            )}
+          >
+            Templates
+            {templatesCount !== null && (
+              <span
+                className={cn(
+                  'rounded-full px-1.5 py-0.5 text-xs font-medium leading-none',
+                  view === 'templates' ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-500',
+                )}
+              >
+                {templatesCount}
+              </span>
+            )}
+          </button>
+        </div>
+      </div>
+
+      {view === 'templates' ? (
+        <div className="min-h-0 flex-1 lg:overflow-y-auto">
+          <TemplatesExplorer />
+        </div>
+      ) : (
+      <>
       {/* lg: rows locked to the viewport (minmax(0,1fr)) — an implicit auto row
           would grow with content and clip each pane's bottom (form buttons,
           chat composer) behind the grid's overflow-hidden. */}
       <div
-        className="flex flex-col lg:grid lg:h-screen lg:grid-rows-[minmax(0,1fr)] lg:overflow-hidden"
+        className="flex min-h-0 flex-col lg:grid lg:flex-1 lg:grid-rows-[minmax(0,1fr)] lg:overflow-hidden"
         style={{ gridTemplateColumns: `minmax(420px,1fr) ${assistantWidth}px` }}
       >
         {/* ── Left pane: activity for the selected agent, or the setup flow ── */}
@@ -620,7 +685,9 @@ function AgentHQ() {
           />
         </section>
       </div>
-    </>
+      </>
+      )}
+    </div>
   )
 }
 

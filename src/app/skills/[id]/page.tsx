@@ -95,7 +95,7 @@ export default function SkillDetailsPage() {
   return (
     <div className="mx-auto max-w-6xl space-y-6 p-6">
       <Button variant="ghost" size="sm" asChild className="-ml-2 w-fit">
-        <Link href="/templates?tab=skills"><ArrowLeft className="mr-1.5 h-4 w-4" />Back to skills</Link>
+        <Link href="/dashboard?view=templates&tab=skills"><ArrowLeft className="mr-1.5 h-4 w-4" />Back to skills</Link>
       </Button>
 
       {loading ? (

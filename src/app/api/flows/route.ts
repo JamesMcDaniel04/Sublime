@@ -55,6 +55,9 @@ export const GET = withAuthenticatedApi(async (_request, auth) => {
     flows: flows.map((flow) => ({
       ...serializeFlow(flow),
       canManageJam: flow.userId === auth.dbUser.id,
+      // In the list via a Jam invite or an org share, not ownership — the
+      // flows page badges these so an invitee can find the flow again later.
+      sharedWithYou: flow.userId !== auth.dbUser.id,
     })),
     // Behavioral-intelligence: drives the flows-page "Suggested for you" rail
     // vs. its below-gate progress copy.

@@ -211,7 +211,7 @@ export default function TemplateDetails() {
     <>
       <div className="mx-auto max-w-6xl space-y-5 p-6">
         <Button variant="ghost" size="sm" asChild className="-ml-2 w-fit">
-          <Link href="/templates"><ArrowLeft className="mr-1.5 h-4 w-4" />Back to templates</Link>
+          <Link href="/dashboard?view=templates"><ArrowLeft className="mr-1.5 h-4 w-4" />Back to templates</Link>
         </Button>
         {loading ? (
           <div className="space-y-4">
@@ -224,7 +224,7 @@ export default function TemplateDetails() {
             <h1 className="text-lg font-semibold">Could not open template</h1>
             <p className="mt-2 text-sm text-muted-foreground">{loadError || 'This template could not be found.'}</p>
             <div className="mt-4 flex justify-center gap-2">
-              <Button variant="outline" asChild><Link href="/templates">Back to templates</Link></Button>
+              <Button variant="outline" asChild><Link href="/dashboard?view=templates">Back to templates</Link></Button>
               <Button onClick={() => setReloadKey((key) => key + 1)}>Try again</Button>
             </div>
           </div>

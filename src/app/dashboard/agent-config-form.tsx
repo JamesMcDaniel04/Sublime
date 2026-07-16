@@ -1253,8 +1253,8 @@ export function AgentConfigForm({
         )}
         <p className="mt-1.5 text-xs text-muted-foreground">
           Add skills from the{' '}
-          <Link href="/templates" className="text-primary hover:underline">
-            Templates page
+          <Link href="/dashboard?view=templates&tab=skills" className="text-primary hover:underline">
+            Templates library
           </Link>
           .
         </p>

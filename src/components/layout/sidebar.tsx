@@ -9,7 +9,6 @@ import {
   ChevronDown,
   ChevronRight,
   ChevronsUpDown,
-  FileText,
   Folder,
   ImagePlus,
   Loader2,
@@ -87,11 +86,12 @@ export function notifyAgentsChanged() {
   window.dispatchEvent(new CustomEvent(AGENTS_CHANGED_EVENT))
 }
 
+// Templates has no nav entry — the library lives inside Agent HQ
+// (/dashboard?view=templates), toggled at the top of that page.
 const navigation = [
   { name: 'Home', href: '/dashboard', icon: Brain },
   { name: 'Integrations', href: '/integrations', icon: Plug },
   { name: 'Flows', href: '/flows', icon: Workflow },
-  { name: 'Templates', href: '/templates', icon: FileText },
 ]
 
 function planLabel(plan: string) {

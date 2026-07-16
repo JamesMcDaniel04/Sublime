@@ -20,9 +20,11 @@ import {
 } from '@/lib/flows/collaboration'
 import { reduceJamConnection, type JamConnectionEvent, type JamConnectionState } from '@/lib/flows/jam-connection'
 import { diffPeers, jamCursorSchema, type JamCursor } from '@/lib/flows/jam-presence'
+import { huddleSignalSchema, type HuddleSignal } from '@/lib/flows/jam-huddle'
 
 export type { JamConnectionState } from '@/lib/flows/jam-connection'
 export type { JamCursor } from '@/lib/flows/jam-presence'
+export type { HuddleSignal } from '@/lib/flows/jam-huddle'
 
 export type JamPeer = {
   clientId: string
@@ -30,6 +32,9 @@ export type JamPeer = {
   name: string
   selectedNodeId: string | null
   cursor: JamCursor | null
+  /** Voice huddle membership + mic state, carried on the presence payload. */
+  inHuddle: boolean
+  huddleMuted: boolean
 }
 
 type CollaborationSnapshot = {
@@ -75,6 +80,8 @@ export function useFlowJam(options: {
   onConflict: (message: string) => void
   /** Presence roster changes (joins/leaves) — the page turns these into toasts. */
   onPeersChanged?: (change: { joined: JamPeer[]; left: JamPeer[] }) => void
+  /** Directed WebRTC signaling addressed to THIS client (voice huddle). */
+  onHuddleSignal?: (signal: HuddleSignal) => void
 }) {
   const { flowId, enabled, selectedNodeId } = options
   const [peers, setPeers] = useState<JamPeer[]>([])
@@ -96,6 +103,9 @@ export function useFlowJam(options: {
   const previewTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const cursorTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const cursorRef = useRef<JamCursor | null>(null)
+  // This client's huddle membership — folded into every presence track() so a
+  // late joiner learns the huddle roster from the presence sync alone.
+  const huddleStateRef = useRef<{ inHuddle: boolean; muted: boolean }>({ inHuddle: false, muted: false })
   const lastCursorSentAtRef = useRef(0)
   const lastPreviewSentAtRef = useRef(0)
   const mutationCounterRef = useRef(0)
@@ -398,6 +408,8 @@ export function useFlowJam(options: {
                   name: entry.name,
                   selectedNodeId: entry.selectedNodeId ?? null,
                   cursor: parsePeerCursor(entry.cursor),
+                  inHuddle: entry.inHuddle === true,
+                  huddleMuted: entry.huddleMuted === true,
                 })
               }
             }
@@ -459,6 +471,13 @@ export function useFlowJam(options: {
           if (payload?.clientId === clientId) return
           refreshAccessRef.current()
         })
+        .on('broadcast', { event: 'huddle-signal' }, ({ payload }) => {
+          // Signaling is directed: the broadcast fans out to everyone, but only
+          // the addressee acts. Malformed payloads are dropped, never thrown.
+          const parsed = huddleSignalSchema.safeParse(payload)
+          if (!parsed.success || parsed.data.to !== clientId || parsed.data.from === clientId) return
+          callbacksRef.current.onHuddleSignal?.(parsed.data)
+        })
         .subscribe(async (status) => {
           if (disposed) return
           if (status === 'SUBSCRIBED') {
@@ -469,6 +488,8 @@ export function useFlowJam(options: {
               name: snapshot.actor.name,
               selectedNodeId: callbacksRef.current.selectedNodeId,
               cursor: cursorRef.current,
+              inHuddle: huddleStateRef.current.inHuddle,
+              huddleMuted: huddleStateRef.current.muted,
             })
           } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
             dispatchConnection('channel-error')
@@ -544,6 +565,8 @@ export function useFlowJam(options: {
       name: actor.name,
       selectedNodeId,
       cursor: cursorRef.current,
+      inHuddle: huddleStateRef.current.inHuddle,
+      huddleMuted: huddleStateRef.current.muted,
     })
     void channel.send({
       type: 'broadcast',

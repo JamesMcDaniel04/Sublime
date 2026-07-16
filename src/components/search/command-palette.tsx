@@ -21,7 +21,7 @@ const NAV_ITEMS: NavResult[] = [
   { label: 'Home', href: '/dashboard', icon: Brain },
   { label: 'Flows', href: '/flows', icon: Workflow },
   { label: 'Integrations', href: '/integrations', icon: Plug },
-  { label: 'Explore', href: '/templates', icon: FileText },
+  { label: 'Templates', href: '/dashboard?view=templates', icon: FileText },
   { label: 'MCP Servers', href: '/integrations?tab=mcp', icon: Server },
   { label: 'Settings', href: '/settings', icon: Settings },
 ]

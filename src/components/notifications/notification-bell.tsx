@@ -1,6 +1,7 @@
 'use client'
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { useRouter } from 'next/navigation'
 import { AlertCircle, Bell, CheckCircle2, HelpCircle, Info, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { getSnapshot } from '@/lib/client/snapshot'
@@ -42,6 +43,7 @@ function urlBase64ToUint8Array(base64String: string) {
 }
 
 export function NotificationBell({ buttonClassName }: { buttonClassName?: string } = {}) {
+  const router = useRouter()
   const [open, setOpen] = useState(false)
   const [items, setItems] = useState<NotificationItem[]>([])
   const [unread, setUnread] = useState(0)
@@ -49,18 +51,40 @@ export function NotificationBell({ buttonClassName }: { buttonClassName?: string
   const [detail, setDetail] = useState<NotificationDetail | null>(null)
   const [detailLoading, setDetailLoading] = useState(false)
   const [detailError, setDetailError] = useState<string | null>(null)
+  // Jam invites already seen this session — null until the first snapshot so
+  // invites that predate opening the app surface only in the bell, not as a
+  // burst of stale toasts.
+  const seenJamInvitesRef = useRef<Set<string> | null>(null)
 
   const load = useCallback(async () => {
     // Shared app-shell snapshot (deduped with the dashboard + sidebar) rather
     // than a dedicated notifications request each tick.
     try {
       const snapshot = await getSnapshot()
-      setItems((snapshot.notifications || []) as NotificationItem[])
+      const notifications = (snapshot.notifications || []) as NotificationItem[]
+      setItems(notifications)
       setUnread(snapshot.unread || 0)
+      // A Flow Jam invite is a live "come work with me NOW" signal, not archive
+      // material — surface new ones as an actionable toast that takes the
+      // invitee straight into the flow they were invited to.
+      const invites = notifications.filter((n) => n.type === 'flow.jam.invite' && !n.readAt)
+      if (seenJamInvitesRef.current === null) {
+        seenJamInvitesRef.current = new Set(invites.map((n) => n.id))
+      } else {
+        for (const invite of invites) {
+          if (seenJamInvitesRef.current.has(invite.id)) continue
+          seenJamInvitesRef.current.add(invite.id)
+          toast(invite.title, {
+            description: invite.body || undefined,
+            duration: 15000,
+            action: { label: 'Join jam', onClick: () => router.push(notificationHref(invite)) },
+          })
+        }
+      }
     } catch {
       // leave the last-known list on a transient failure
     }
-  }, [])
+  }, [router])
 
   useEffect(() => {
     load().catch(() => {})
