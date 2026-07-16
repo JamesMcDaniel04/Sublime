@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useState } from 'react'
-import { AlertCircle, Bell, CheckCircle2, HelpCircle, Info } from 'lucide-react'
+import { AlertCircle, Bell, CheckCircle2, HelpCircle, Info, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { getSnapshot } from '@/lib/client/snapshot'
 import { notificationHref } from '@/lib/notifications/notification-href'
@@ -153,6 +153,21 @@ export function NotificationBell({ buttonClassName }: { buttonClassName?: string
     }
   }
 
+  const dismiss = async (notification: NotificationItem) => {
+    const previous = items
+    setItems((current) => current.filter((n) => n.id !== notification.id))
+    try {
+      const response = await fetch(`/api/notifications/${encodeURIComponent(notification.id)}`, { method: 'DELETE' })
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}))
+        throw new Error(data.error)
+      }
+    } catch (cause) {
+      setItems(previous)
+      toast.error(cause instanceof Error && cause.message ? cause.message : 'Could not dismiss the notification.')
+    }
+  }
+
   const openDetail = async (notification: NotificationItem) => {
     setOpen(false)
     setDetail({ notification, processes: [] })
@@ -211,11 +226,24 @@ export function NotificationBell({ buttonClassName }: { buttonClassName?: string
                     <div className="mt-0.5 text-[11px] text-gray-400">{new Date(n.createdAt).toLocaleString()}</div>
                   </div>
                 </>
-                const rowClass = cn('flex w-full gap-2 border-b px-3 py-2.5 text-left hover:bg-gray-50', !n.readAt && 'bg-indigo-50/40')
-                return n.type === 'intelligence.scan' ? (
-                  <button key={n.id} type="button" onClick={() => openDetail(n)} className={rowClass}>{content}</button>
-                ) : (
-                  <a key={n.id} href={notificationHref(n)} className={rowClass}>{content}</a>
+                const rowClass = 'flex min-w-0 flex-1 gap-2 px-3 py-2.5 text-left'
+                return (
+                  <div key={n.id} className={cn('flex w-full items-start border-b hover:bg-gray-50', !n.readAt && 'bg-indigo-50/40')}>
+                    {n.type === 'intelligence.scan' ? (
+                      <button type="button" onClick={() => openDetail(n)} className={rowClass}>{content}</button>
+                    ) : (
+                      <a href={notificationHref(n)} className={rowClass}>{content}</a>
+                    )}
+                    <button
+                      type="button"
+                      aria-label="Dismiss notification"
+                      title="Dismiss"
+                      className="mr-2 mt-3 shrink-0 rounded p-0.5 text-gray-300 hover:bg-gray-100 hover:text-gray-500"
+                      onClick={() => void dismiss(n)}
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
                 )
               })}
             </div>

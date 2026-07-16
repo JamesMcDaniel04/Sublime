@@ -330,10 +330,11 @@ export async function runFlowExecution(
   let resumeNodeId: string | undefined
   let resumeExecutionId: string | undefined
   let resumeKey: string | undefined
+  let resumeChildFlowRunId: string | undefined
   let order = 0
   if (resuming) {
     const priorSteps = await prisma.flowRunStep.findMany({ where: { flowRunId: run.id }, orderBy: { order: 'asc' } })
-    ;({ completed, resumeNodeId, resumeExecutionId, resumeKey } = resolveResumeState(priorSteps, nodeTypeById))
+    ;({ completed, resumeNodeId, resumeExecutionId, resumeKey, resumeChildFlowRunId } = resolveResumeState(priorSteps, nodeTypeById))
     // Resuming creates NEW step rows for the re-run node — resolve every stale
     // waiting row now so it can never shadow a later pause in deriveRunWaiting,
     // and continue the order counter after all prior rows so new steps always

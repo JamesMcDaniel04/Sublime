@@ -11,6 +11,7 @@ export type PriorStepRow = {
   status: string
   output: unknown
   agentExecutionId: string | null
+  childFlowRunId?: string | null
   iterationPath: string | null
 }
 
@@ -25,6 +26,8 @@ export type ResumeState = {
   // bare `resumeNodeId`). For a non-loop pause (no iterationPath) this is
   // byte-identical to `resumeNodeId`.
   resumeKey?: string
+  /** The paused subflow step's child run id — a resume forwards the reply into it. */
+  resumeChildFlowRunId?: string
 }
 
 // Same parse the completed-map side uses (below) — so the two sides' keys
@@ -51,6 +54,7 @@ export function resolveResumeState(priorSteps: PriorStepRow[], nodeTypeById: Map
   let resumeNodeId: string | undefined
   let resumeExecutionId: string | undefined
   let resumeKey: string | undefined
+  let resumeChildFlowRunId: string | undefined
   for (const step of priorSteps) {
     if (step.status === 'succeeded' || step.status === 'skipped') {
       completed[completedKey(step.nodeId, parseIterationPath(step.iterationPath))] = step.output
@@ -59,9 +63,10 @@ export function resolveResumeState(priorSteps: PriorStepRow[], nodeTypeById: Map
       if (resumeKey === undefined && !CONTAINER_NODE_TYPES.has(nodeTypeById.get(step.nodeId) ?? '')) {
         resumeNodeId = step.nodeId
         resumeExecutionId = step.agentExecutionId ?? undefined
+        resumeChildFlowRunId = step.childFlowRunId ?? undefined
         resumeKey = completedKey(step.nodeId, parseIterationPath(step.iterationPath))
       }
     }
   }
-  return { completed, resumeNodeId, resumeExecutionId, resumeKey }
+  return { completed, resumeNodeId, resumeExecutionId, resumeKey, resumeChildFlowRunId }
 }

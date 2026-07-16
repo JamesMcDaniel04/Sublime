@@ -8,7 +8,7 @@ import { flowReadScope, flowRunVisibilityScope } from '@/lib/server/visibility'
 // row out from under either would strand them. Scope mirrors run visibility —
 // you can delete the runs you can see: your own, plus ownerless legacy runs
 // when you own the flow.
-const DELETABLE_STATUSES = ['succeeded', 'failed']
+const DELETABLE_STATUSES = new Set(['succeeded', 'failed'])
 
 export const DELETE = withAuthenticatedApi(async (request, auth) => {
   const parts = request.nextUrl.pathname.split('/')
@@ -27,7 +27,7 @@ export const DELETE = withAuthenticatedApi(async (request, auth) => {
     select: { id: true, status: true },
   })
   if (!run) throw new ApiError('Run not found', 404, 'NOT_FOUND')
-  if (!DELETABLE_STATUSES.includes(run.status)) {
+  if (!DELETABLE_STATUSES.has(run.status)) {
     throw new ApiError('Only finished runs can be deleted — stop or resume this run first.', 409, 'RUN_NOT_SETTLED')
   }
 

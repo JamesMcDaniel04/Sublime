@@ -3,7 +3,7 @@
 import { Fragment, useEffect, useState } from 'react'
 import { useParams } from 'next/navigation'
 import Link from 'next/link'
-import { ChevronRight, RefreshCw, ScrollText } from 'lucide-react'
+import { ChevronRight, RefreshCw, ScrollText, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -204,6 +204,19 @@ export default function FlowActivityPage() {
     }
   }, [id, filter, refreshKey])
 
+  // Delete a settled run from history, then refetch (keeps the filter).
+  const deleteRun = async (flowRunId: string) => {
+    if (!window.confirm('Delete this run and its step history? This cannot be undone.')) return
+    const response = await fetch(`/api/flows/${id}/runs/${flowRunId}`, { method: 'DELETE' })
+    const data = await response.json().catch(() => ({}))
+    if (!response.ok) {
+      toast.error(data.error || 'Could not delete the run.')
+      return
+    }
+    setRuns((current) => current.filter((run) => run.id !== flowRunId))
+    toast.success('Run deleted.')
+  }
+
   // Resume a paused run with the user's reply, then refetch (keeps the filter).
   const replyToRun = async (flowRunId: string, reply: string) => {
     const response = await fetch(`/api/flows/${id}/execute`, {
@@ -293,13 +306,26 @@ export default function FlowActivityPage() {
                     <TableCell className="text-sm text-muted-foreground">{triggerLabel(run)}</TableCell>
                     <TableCell className="max-w-xs truncate text-sm text-red-600">{run.error || ''}</TableCell>
                     <TableCell className="text-right">
-                      <Link
-                        href={`/flows/${id}?run=${run.id}`}
-                        onClick={(e) => e.stopPropagation()}
-                        className="whitespace-nowrap text-xs font-medium text-primary hover:underline"
-                      >
-                        Open in builder
-                      </Link>
+                      <span className="flex items-center justify-end gap-2">
+                        <Link
+                          href={`/flows/${id}?run=${run.id}`}
+                          onClick={(e) => e.stopPropagation()}
+                          className="whitespace-nowrap text-xs font-medium text-primary hover:underline"
+                        >
+                          Open in builder
+                        </Link>
+                        {(run.status === 'succeeded' || run.status === 'failed') && (
+                          <button
+                            type="button"
+                            aria-label="Delete run"
+                            title="Delete run"
+                            className="rounded p-1 text-muted-foreground hover:bg-red-50 hover:text-red-600"
+                            onClick={(e) => { e.stopPropagation(); void deleteRun(run.id) }}
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
+                        )}
+                      </span>
                     </TableCell>
                   </TableRow>
                   {run.status === 'waiting' && run.waiting && (

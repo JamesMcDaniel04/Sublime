@@ -54,3 +54,22 @@ export const GET = withAuthenticatedApi(async (request, auth) => {
     processes,
   }
 })
+
+// DELETE /api/notifications/[id] — dismiss a notification. A user may delete
+// notifications addressed to them; org-wide broadcasts (userId null) are
+// visible to everyone, so deleting one removes it for the whole workspace —
+// admin-only.
+export const DELETE = withAuthenticatedApi(async (request, auth) => {
+  const id = new URL(request.url).pathname.split('/').at(-1)
+  if (!id) throw new ApiError('Notification id is required')
+  const isAdmin = auth.dbUser.role === 'ADMIN'
+  const result = await prisma.notification.deleteMany({
+    where: {
+      id,
+      organizationId: auth.organizationId,
+      OR: isAdmin ? [{ userId: auth.dbUser.id }, { userId: null }] : [{ userId: auth.dbUser.id }],
+    },
+  })
+  if (!result.count) throw new ApiError('Notification not found', 404, 'NOT_FOUND')
+  return { success: true }
+})
