@@ -46,6 +46,8 @@ if (TEST_DB) {
     { name: 'GET /api/system/capabilities', run: async () => (await import('../system/capabilities/route')).GET(req('/api/system/capabilities')) },
     { name: 'GET /api/flows', run: async () => (await import('../flows/route')).GET(req('/api/flows')) },
     { name: 'GET /api/agents', run: async () => (await import('../agents/route')).GET(req('/api/agents')) },
+    { name: 'GET /api/assistant/chat', run: async () => (await import('../assistant/chat/route')).GET(req('/api/assistant/chat')) },
+    { name: 'GET /api/assistant/chat/sessions', run: async () => (await import('../assistant/chat/sessions/route')).GET(req('/api/assistant/chat/sessions')) },
     { name: 'GET /api/audit/export', run: async () => (await import('../audit/export/route')).GET(req('/api/audit/export')) },
     { name: 'GET /api/auth/context', run: async () => (await import('../auth/context/route')).GET(req('/api/auth/context')) },
     { name: 'GET /api/flows/tool-catalog', run: async () => (await import('../flows/tool-catalog/route')).GET(req('/api/flows/tool-catalog')) },
