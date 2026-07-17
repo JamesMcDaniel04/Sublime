@@ -44,6 +44,7 @@ model Organization {
   flowComments              FlowComment[]
   slackWorkspaceConnections SlackWorkspaceConnection[]
   slackThreadSessions       SlackThreadSession[]
+  userEvents                UserEvent[]
 
   @@map("organizations")
 }
@@ -781,6 +782,29 @@ model ActivityEvent {
   @@index([organizationId, source, action])
   @@index([organizationId, indexedAt])
   @@map("activity_events")
+}
+
+/// In-app behavior ledger (user behavior learning spec §1). Immutable rows,
+/// references-only context (never raw prompt/message text). indexedAt is the
+/// graph-projection gate: null until indexed, so sweeps make the graph
+/// rebuildable from this ledger.
+model UserEvent {
+  id             String    @id @default(cuid())
+  organizationId String    @db.Uuid
+  userId         String
+  kind           String // bounded list — see USER_EVENT_KINDS in src/lib/behavior/record-event.ts
+  resourceType   String? // 'agent' | 'flow' | 'suggestion' | ...
+  resourceId     String?
+  context        Json      @default("{}")
+  occurredAt     DateTime  @default(now()) @db.Timestamptz(6)
+  indexedAt      DateTime?
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, occurredAt])
+  @@index([userId, occurredAt])
+  @@index([organizationId, indexedAt])
+  @@map("user_events")
 }
 
 /// One historical backfill run for a connected source. Cursor-checkpointed so
