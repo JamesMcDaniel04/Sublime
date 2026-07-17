@@ -2,6 +2,7 @@ import { z } from 'zod'
 import { prisma } from '@/lib/prisma'
 import { DEFAULT_AGENT_MODEL } from '@/lib/llm/model-runner'
 import { ApiError, withAuthenticatedApi } from '@/lib/server/api-handler'
+import { recordUserEvent } from '@/lib/behavior/record-event'
 import { agentOwnerScope, agentReadScope, agentWriteScope, VISIBILITY } from '@/lib/server/visibility'
 import { readAgentMetadata } from '@/lib/agents/metadata'
 import { serializeAgent } from '@/lib/agents/serialize'
@@ -137,6 +138,11 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
   // has no rows yet, so the very next run must see them, not the fallback).
   await syncAgentConnectors(agent.id, auth.organizationId, auth.dbUser.id, data.integrations)
   void indexAgentRow(agent)
+  await recordUserEvent({
+    organizationId: auth.organizationId, userId: auth.dbUser.id,
+    kind: 'agent_created', resourceType: 'agent', resourceId: agent.id,
+    context: { name: data.title || agent.description },
+  })
   return { success: true, agent: { ...serializeAgent(agent), isOwner: agent.userId === auth.dbUser.id } }
 })
 
@@ -195,6 +201,11 @@ export const PUT = withAuthenticatedApi(async (request, auth) => {
     await syncAgentConnectors(agent.id, auth.organizationId, auth.dbUser.id, body.integrations)
   }
   void indexAgentRow(agent)
+  await recordUserEvent({
+    organizationId: auth.organizationId, userId: auth.dbUser.id,
+    kind: 'agent_edited', resourceType: 'agent', resourceId: agent.id,
+    context: { name: (agent.metadata as { title?: string } | null)?.title || agent.description },
+  })
   return { success: true, agent: { ...serializeAgent(agent), isOwner: agent.userId === auth.dbUser.id } }
 })
 

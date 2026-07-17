@@ -5,6 +5,7 @@ import { flowReadScope } from '@/lib/server/visibility'
 import { dispatchFlowExecution } from '@/features/flows/execute-flow'
 import { parseFlowInput } from '@/lib/flows/input'
 import { deriveRunWaiting } from '@/lib/flows/run-waiting'
+import { recordUserEvent } from '@/lib/behavior/record-event'
 
 export const runtime = 'nodejs'
 export const maxDuration = 1200
@@ -69,6 +70,12 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
         }
       }
     }
+  }
+  if (!parsed.flowRunId) {
+    await recordUserEvent({
+      organizationId: auth.organizationId, userId: auth.dbUser.id,
+      kind: 'flow_run_manual', resourceType: 'flow', resourceId: flow.id,
+    })
   }
   // `background: true` decouples a fresh manual run from THIS request so it
   // keeps running when the user navigates away from the builder (queue mode

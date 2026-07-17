@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import { prisma } from '@/lib/prisma'
 import { ApiError, withAuthenticatedApi } from '@/lib/server/api-handler'
+import { recordUserEvent } from '@/lib/behavior/record-event'
 import { flowOwnerScope, flowReadScope, flowWriteScope, VISIBILITY } from '@/lib/server/visibility'
 import { flowGraphSchema, emptyGraph } from '@/lib/flows/graph'
 import { serializeFlow } from '@/lib/flows/serialize'
@@ -83,6 +84,11 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
       userId: auth.dbUser.id,
     },
   })
+  await recordUserEvent({
+    organizationId: auth.organizationId, userId: auth.dbUser.id,
+    kind: 'flow_created', resourceType: 'flow', resourceId: flow.id,
+    context: { name: flow.name },
+  })
   return { success: true, flow: serializeFlow(flow) }
 })
 
@@ -160,6 +166,11 @@ export const PUT = withAuthenticatedApi(async (request, auth) => {
     where: { id: body.id, organizationId: auth.organizationId, ...flowReadScope(auth.dbUser.id) },
   })
   if (!flow) throw new ApiError('Flow not found after save', 404, 'NOT_FOUND')
+  await recordUserEvent({
+    organizationId: auth.organizationId, userId: auth.dbUser.id,
+    kind: 'flow_edited', resourceType: 'flow', resourceId: flow.id,
+    context: { name: flow.name, graphChanged: body.graph !== undefined },
+  })
   return { success: true, flow: serializeFlow(flow) }
 })
 

@@ -6,6 +6,7 @@ import { runAgentExecution } from '@/features/agents/execute-agent'
 import { inlineExecution } from '@/lib/queue/execution-mode'
 import { agentReadScope } from '@/lib/server/visibility'
 import { rateLimit } from '@/lib/ratelimit'
+import { recordUserEvent } from '@/lib/behavior/record-event'
 
 export const runtime = 'nodejs'
 export const maxDuration = 1200
@@ -55,6 +56,12 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
       userId: auth.dbUser.id,
       organizationId: auth.organizationId,
     },
+  })
+
+  await recordUserEvent({
+    organizationId: auth.organizationId, userId: auth.dbUser.id,
+    kind: 'agent_run_manual', resourceType: 'agent', resourceId: agent.id,
+    context: { executionId: execution.id, name: (agent.metadata as { title?: string } | null)?.title || agent.description },
   })
 
   if (inlineExecution) {

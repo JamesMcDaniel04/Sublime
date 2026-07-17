@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import { prisma } from '@/lib/prisma'
 import { ApiError, withAuthenticatedApi } from '@/lib/server/api-handler'
+import { recordUserEvent } from '@/lib/behavior/record-event'
 import { agentReadScope, flowOwnerScope } from '@/lib/server/visibility'
 import { serializeFlow } from '@/lib/flows/serialize'
 import { flowGraphSchema } from '@/lib/flows/graph'
@@ -83,5 +84,20 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
     resourceId: id,
     detail: { version: flow.version },
   }).catch(() => undefined)
+  await recordUserEvent({
+    organizationId: auth.organizationId, userId: auth.dbUser.id,
+    kind: 'flow_published', resourceType: 'flow', resourceId: id,
+    context: { name: existing.name, version: nextVersion },
+  })
+  // Activating a suggested draft = accepting the suggestion (spec §4 feedback loop).
+  const publishedMeta = existing.metadata && typeof existing.metadata === 'object' && !Array.isArray(existing.metadata)
+    ? (existing.metadata as Record<string, unknown>) : {}
+  if (publishedMeta.suggested === true) {
+    await recordUserEvent({
+      organizationId: auth.organizationId, userId: auth.dbUser.id,
+      kind: 'suggestion_accepted', resourceType: 'flow', resourceId: id,
+      context: { name: existing.name },
+    })
+  }
   return { success: true, flow: serializeFlow(flow) }
 })

@@ -1,5 +1,6 @@
 import { prisma } from '@/lib/prisma'
 import { ApiError, withAuthenticatedApi } from '@/lib/server/api-handler'
+import { recordUserEvent } from '@/lib/behavior/record-event'
 import { flowWriteScope } from '@/lib/server/visibility'
 
 /**
@@ -40,5 +41,10 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
   }
 
   await prisma.flow.deleteMany({ where: { id, organizationId: auth.organizationId } })
+  await recordUserEvent({
+    organizationId: auth.organizationId, userId: auth.dbUser.id,
+    kind: 'suggestion_dismissed', resourceType: 'flow', resourceId: id,
+    context: { sourceMemoryId },
+  })
   return { success: true }
 })
