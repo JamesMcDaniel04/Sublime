@@ -132,3 +132,41 @@ test('a container child selected on its own does not open a stray top-level pane
   // `inner` is contained — it is edited via the loop's panel, never its own.
   assert.equal(container.querySelector('aside'), null)
 })
+
+test('every widget offers a quick-add "+" — the n8n append-a-step affordance', () => {
+  const { container } = render(React.createElement(DagCanvas, props as never))
+  const buttons = container.querySelectorAll('[aria-label="Add a connected step"]')
+  // Trigger, both APIs AND the leaf agent — any node can fan out to a new step.
+  assert.equal(buttons.length, 4)
+})
+
+test('a read-only canvas (version viewing) offers no quick-add', () => {
+  const { container } = render(React.createElement(DagCanvas, { ...props, readOnly: true } as never))
+  assert.equal(container.querySelectorAll('[aria-label="Add a connected step"]').length, 0)
+})
+
+test('quick-add opens the picker, and the pick lands WIRED to that node', () => {
+  const calls: { type: string; seed?: { agentId?: string }; position: { x: number; y: number }; connectFrom?: string }[] = []
+  const { container } = render(
+    React.createElement(DagCanvas, {
+      ...props,
+      onAddNode: (type: string, seed: { agentId?: string } | undefined, position: { x: number; y: number }, connectFrom?: string) =>
+        calls.push({ type, seed, position, connectFrom }),
+    } as never),
+  )
+  const agentNode = [...container.querySelectorAll('.react-flow__node')].find(
+    (el) => el.getAttribute('data-id') === 'agent',
+  )
+  const plus = agentNode?.querySelector('[aria-label="Add a connected step"]') as HTMLButtonElement
+  assert.ok(plus, 'the agent widget has its own quick-add')
+  act(() => plus.click())
+  assert.match(container.textContent ?? '', /AI capabilities/, 'the step picker opens')
+  const row = [...container.querySelectorAll('button')].find((el) => el.textContent?.includes('Summarizer'))
+  assert.ok(row, 'the picker lists the agent to add')
+  act(() => row!.click())
+  assert.equal(calls.length, 1, 'one node is added')
+  assert.equal(calls[0].type, 'agent')
+  assert.equal(calls[0].seed?.agentId, 'a')
+  assert.equal(calls[0].connectFrom, 'agent', 'the new step arrives wired FROM the node whose + was clicked')
+  assert.equal(typeof calls[0].position.x, 'number')
+})

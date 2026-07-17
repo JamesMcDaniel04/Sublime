@@ -299,7 +299,10 @@ export function JamButton({
           Following {followedPeer.name} — stop
         </button>
       )}
-      {huddle && connectionState === 'connected' && <HuddleControl peers={peers} huddle={huddle} />}
+      {/* An ACTIVE huddle always keeps its controls — a transient transport blip
+          must never strand a hot mic with no mute/leave. Joining, by contrast,
+          needs the live channel (it is the signaling rail). */}
+      {huddle && (huddle.active || connectionState === 'connected') && <HuddleControl peers={peers} huddle={huddle} />}
       {onReact && connectionState === 'connected' && (
         <ReactionPicker onReact={onReact} onSpotlight={peers.length > 0 ? onSpotlight : undefined} />
       )}

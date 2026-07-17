@@ -35,6 +35,7 @@ import {
   useViewport,
   type Connection,
   type Edge,
+  type FinalConnectionState,
   type Node,
   type NodeProps,
   type ReactFlowInstance,
@@ -132,8 +133,18 @@ type WidgetData = {
   selected: boolean
   jamEditors: JamPeer[]
   childCount: number
+  /** Whether any wire already leaves this node — leaves show their "+" always. */
+  hasOutgoing: boolean
   onOpen: (id: string) => void
+  /** Open the quick-add picker wired from this node (absent when read-only). */
+  onQuickAdd?: (id: string) => void
 }
+
+/** Gap between a node and its quick-added successor (≈ dagre's RANK_SEP). */
+const QUICK_ADD_GAP = 110
+/** Vertical fan step for a source that already has children — the new node
+ *  lands below its siblings instead of on top of them, n8n style. */
+const QUICK_ADD_FAN_STEP = 96
 
 const STATUS_DOT: Partial<Record<StepStatus, string>> = {
   running: 'bg-blue-500 animate-pulse',
@@ -153,7 +164,7 @@ function StepWidget({ data }: Readonly<NodeProps>) {
   const Icon = nodeIconOf(step.node.type)
   const errors = step.issues?.errors ?? 0
   return (
-    <div style={{ width: WIDGET_WIDTH }}>
+    <div className="group relative" style={{ width: WIDGET_WIDTH }}>
       {step.node.type !== 'trigger' && (
         <Handle type="target" position={Position.Left} className="!h-3 !w-3 !border-2 !border-white !bg-slate-400 hover:!bg-blue-500" />
       )}
@@ -202,6 +213,32 @@ function StepWidget({ data }: Readonly<NodeProps>) {
         </div>
       )}
       <Handle type="source" position={Position.Right} className="!h-3 !w-3 !border-2 !border-white !bg-slate-400 hover:!bg-blue-500" />
+      {/* Quick-add: the n8n end-of-node "+" — appends a step already wired from
+          here. Always visible on a leaf (the natural "what's next?" spot);
+          hover-revealed once the node has children, so fanned graphs stay calm. */}
+      {step.onQuickAdd && (
+        <div
+          className={cn(
+            'absolute top-1/2 flex -translate-y-1/2 items-center',
+            step.hasOutgoing && 'opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100',
+          )}
+          style={{ left: WIDGET_WIDTH + 6 }}
+        >
+          <span className="h-px w-4 bg-slate-300" aria-hidden="true" />
+          <button
+            type="button"
+            aria-label="Add a connected step"
+            title="Add a connected step"
+            onClick={(event) => {
+              event.stopPropagation()
+              step.onQuickAdd?.(step.node.id)
+            }}
+            className="nodrag nopan flex h-6 w-6 items-center justify-center rounded-full border border-slate-300 bg-white text-slate-500 shadow-sm hover:border-blue-400 hover:text-blue-600"
+          >
+            <Plus className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      )}
     </div>
   )
 }
@@ -511,7 +548,9 @@ export function DagCanvas({
   onChangeNode: (node: FlowNode) => void
   /** Structural change (wire added/removed, widget moved). */
   onChangeGraph: (graph: FlowGraph) => void
-  onAddNode: (type: StepType, seed: FlowInsertSeed | undefined, position: { x: number; y: number }) => void
+  /** Add a step at `position`; `connectFrom` (quick-add / drag-to-canvas) also
+   *  wires it from that node in the same commit. */
+  onAddNode: (type: StepType, seed: FlowInsertSeed | undefined, position: { x: number; y: number }, connectFrom?: string) => void
   onReorderContainer?: (containerId: string, from: number, to: number, branchIndex?: number) => void
   onAddContainerStep?: (containerId: string, type: EditableType, branchIndex?: number) => void
   /** Local pointer position in FLOW coordinates + current viewport (Jam cursor). */
@@ -536,6 +575,33 @@ export function DagCanvas({
   // A container child is edited in its container's panel, never as a top-level widget.
   const panelNode = selectedNode && !contained.has(selectedNode.id) ? selectedNode : undefined
 
+  // Quick-add: which node the picked step will be wired FROM, and where it lands.
+  const [quickAdd, setQuickAdd] = useState<{ sourceId: string; position: { x: number; y: number } } | null>(null)
+
+  const outgoingCount = useMemo(() => {
+    const counts = new Map<string, number>()
+    for (const edge of graph.edges) {
+      if (!contained.has(edge.source) && !contained.has(edge.target)) {
+        counts.set(edge.source, (counts.get(edge.source) ?? 0) + 1)
+      }
+    }
+    return counts
+  }, [graph.edges, contained])
+
+  // The "+" drops the new step one rank to the right, fanned below any children
+  // the source already has — so repeated quick-adds build a visible fan-out.
+  const openQuickAdd = useCallback(
+    (sourceId: string) => {
+      const source = layout[sourceId] ?? { x: 0, y: 0 }
+      const fan = outgoingCount.get(sourceId) ?? 0
+      setQuickAdd({
+        sourceId,
+        position: { x: source.x + WIDGET_WIDTH + QUICK_ADD_GAP, y: source.y + fan * QUICK_ADD_FAN_STEP },
+      })
+    },
+    [layout, outgoingCount],
+  )
+
   const rfNodes: Node[] = useMemo(
     () =>
       graph.nodes
@@ -554,10 +620,12 @@ export function DagCanvas({
             selected: selectedId === node.id,
             jamEditors: jamPeers?.filter((peer) => peer.selectedNodeId === node.id) ?? [],
             childCount: containerChildIds(node).length,
+            hasOutgoing: (outgoingCount.get(node.id) ?? 0) > 0,
             onOpen: onSelect,
+            onQuickAdd: readOnly ? undefined : openQuickAdd,
           } satisfies WidgetData as unknown as Record<string, unknown>,
         })),
-    [graph.nodes, contained, layout, readOnly, labelOf, statusByNode, issuesByNode, highlightIds, jamPeers, selectedId, onSelect],
+    [graph.nodes, contained, layout, readOnly, labelOf, statusByNode, issuesByNode, highlightIds, jamPeers, selectedId, onSelect, outgoingCount, openQuickAdd],
   )
 
   const rfEdges: Edge[] = useMemo(
@@ -574,6 +642,10 @@ export function DagCanvas({
         })),
     [graph.edges, contained, readOnly],
   )
+
+  // The instance powers cursor capture (screenToFlowPosition) locally and
+  // follow mode (setViewport) up at the page level via onRfInit.
+  const rfInstance = useRef<ReactFlowInstance | null>(null)
 
   const onConnect = useCallback(
     (connection: Connection) => {
@@ -598,6 +670,25 @@ export function DagCanvas({
     [graph, readOnly, onChangeGraph],
   )
 
+  // n8n's other add gesture: drag a wire out of a source handle and release it
+  // over empty canvas — the picker opens at the drop point and the picked step
+  // arrives wired from where the drag started. Drops on a node (valid or
+  // refused by connectNodes) are NOT an ask to add.
+  const onConnectEnd = useCallback(
+    (event: MouseEvent | TouchEvent, connectionState: FinalConnectionState) => {
+      if (readOnly || connectionState.isValid) return
+      if (!connectionState.fromNode || connectionState.fromHandle?.type !== 'source' || connectionState.toNode) return
+      const instance = rfInstance.current
+      if (!instance) return
+      const point = 'changedTouches' in event ? event.changedTouches[0] : event
+      setQuickAdd({
+        sourceId: connectionState.fromNode.id,
+        position: instance.screenToFlowPosition({ x: point.clientX, y: point.clientY }),
+      })
+    },
+    [readOnly],
+  )
+
   // Persist on drag END only — committing every intermediate frame would spam
   // the graph (and Flow Jam) with hundreds of updates per drag.
   const onNodeDragStop = useCallback(
@@ -612,10 +703,6 @@ export function DagCanvas({
     () => ({ agents, toolCatalog, dataFields, variableNames }),
     [agents, toolCatalog, dataFields, variableNames],
   )
-
-  // The instance powers cursor capture (screenToFlowPosition) locally and
-  // follow mode (setViewport) up at the page level via onRfInit.
-  const rfInstance = useRef<ReactFlowInstance | null>(null)
 
   return (
     <div className="flex h-full w-full">
@@ -637,8 +724,12 @@ export function DagCanvas({
           edges={rfEdges}
           nodeTypes={nodeTypes}
           onConnect={onConnect}
+          onConnectEnd={onConnectEnd}
           onEdgesDelete={onEdgesDelete}
           onNodeDragStop={onNodeDragStop}
+          // Wires snap from further away — the 12px handles are precise enough
+          // to read but too small to demand pixel-perfect drops.
+          connectionRadius={36}
           onPaneClick={(event) => {
             const instance = rfInstance.current
             if (placingPin && onPlacePin && instance) {
@@ -668,6 +759,26 @@ export function DagCanvas({
           <JamDagCursors peers={jamPeers ?? []} />
           <JamDagCommentPins pins={commentPins ?? []} onPinClick={onPinClick} />
         </ReactFlow>
+        {/* Quick-add picker: one overlay shared by every node's "+" and the
+            drag-to-canvas gesture. The picked step is added at the captured
+            position AND wired from the source in a single commit. */}
+        {quickAdd && !readOnly && (
+          <>
+            <button type="button" aria-label="Close" className="fixed inset-0 z-30 cursor-default" onClick={() => setQuickAdd(null)} />
+            <div className="fixed left-1/2 top-24 z-40 max-h-[72vh] w-[34rem] max-w-[90vw] -translate-x-1/2 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-[0_20px_60px_rgba(15,23,42,0.18)]">
+              <FlowPicker
+                mode="action"
+                agents={agents}
+                toolCatalog={toolCatalog}
+                onPick={(type, seed) => {
+                  onAddNode(type as StepType, seed, quickAdd.position, quickAdd.sourceId)
+                  setQuickAdd(null)
+                }}
+                onClose={() => setQuickAdd(null)}
+              />
+            </div>
+          </>
+        )}
       </div>
       {panelNode && (
         <NodeConfigPanel

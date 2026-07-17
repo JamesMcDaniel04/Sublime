@@ -34,6 +34,22 @@ export type JamConnectionEvent =
 /** States that ignore ordinary transport noise until access/config resolves. */
 const STICKY: ReadonlySet<JamConnectionState> = new Set(['denied', 'unconfigured'])
 
+/**
+ * What a failed realtime send may do to the channel (root cause R2 of the
+ * jam-stability incident): DURABLE broadcasts (graph, access-changed,
+ * comments-changed) prove the pipe is broken when they fail — degrade and
+ * rebuild. EPHEMERAL sends (cursor, preview, reaction, spotlight, huddle
+ * signaling) fire tens of times per second; a dropped one is self-evident on
+ * screen and must NEVER tear down the channel — doing so wiped the presence
+ * roster and restarted the join on nearly every mouse move.
+ */
+export type JamDeliveryKind = 'durable' | 'ephemeral'
+
+export function deliveryAction(kind: JamDeliveryKind, status: string): 'none' | 'reconnect' {
+  if (status === 'ok') return 'none'
+  return kind === 'durable' ? 'reconnect' : 'none'
+}
+
 export function reduceJamConnection(
   state: JamConnectionState,
   event: JamConnectionEvent,

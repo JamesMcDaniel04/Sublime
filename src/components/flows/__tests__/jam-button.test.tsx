@@ -1,0 +1,49 @@
+/**
+ * The huddle controls' mount rules. The critical invariant: once the mic is
+ * live, the mute/leave controls may NEVER disappear — a transient transport
+ * degradation (one timed-out broadcast ack does it) must not strand the user
+ * in a hot-mic huddle with no way out.
+ */
+import '@/test-support/jsdom-env'
+import { test, afterEach } from 'node:test'
+import assert from 'node:assert/strict'
+import React from 'react'
+import { render, cleanup } from '@testing-library/react'
+import { JamButton, type JamHuddleControls } from '../jam-button'
+
+afterEach(() => cleanup())
+
+const huddleOf = (active: boolean): JamHuddleControls => ({
+  active,
+  joining: false,
+  muted: false,
+  speaking: {},
+  join: async () => true,
+  leave: () => {},
+  toggleMute: () => {},
+})
+
+const baseProps = { flowId: 'f1', peers: [], canManage: false }
+
+test('an ACTIVE huddle keeps its mute/leave controls even when the jam degrades', () => {
+  const { container } = render(
+    React.createElement(JamButton, { ...baseProps, connectionState: 'degraded', huddle: huddleOf(true) } as never),
+  )
+  assert.ok(
+    container.querySelector('[aria-label="Leave huddle"]'),
+    'the mic is hot — leave must stay reachable through transport blips',
+  )
+  assert.ok(container.querySelector('[aria-label="Mute microphone"]'), 'mute stays reachable too')
+})
+
+test('joining a huddle is only offered while the jam is live (signaling needs the channel)', () => {
+  const degraded = render(
+    React.createElement(JamButton, { ...baseProps, connectionState: 'degraded', huddle: huddleOf(false) } as never),
+  )
+  assert.doesNotMatch(degraded.container.textContent ?? '', /Huddle/, 'no join button without a signaling rail')
+  cleanup()
+  const connected = render(
+    React.createElement(JamButton, { ...baseProps, connectionState: 'connected', huddle: huddleOf(false) } as never),
+  )
+  assert.match(connected.container.textContent ?? '', /Huddle/, 'join appears once the channel is live')
+})

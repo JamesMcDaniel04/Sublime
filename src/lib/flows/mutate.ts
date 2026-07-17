@@ -182,6 +182,25 @@ export function addNodeAt(
 }
 
 /**
+ * Quick-add (the per-node "+" and drag-to-canvas gestures): drop a step at
+ * `position` AND wire it from `sourceId` in one mutation. Fan-out by design —
+ * existing outgoing wires are kept, never spliced (contrast insertNodeAfter).
+ * A vanished source (a Jam peer deleted it mid-gesture) degrades to addNodeAt.
+ */
+export function addConnectedNodeAt(
+  graph: FlowGraph,
+  sourceId: string,
+  type: StepType,
+  position: { x: number; y: number },
+  agentId?: string,
+): { graph: FlowGraph; nodeId: string } {
+  const added = addNodeAt(graph, type, position, agentId)
+  if (!graph.nodes.some((node) => node.id === sourceId)) return added
+  const edge = { id: edgeId(sourceId, added.nodeId), source: sourceId, target: added.nodeId }
+  return { graph: { ...added.graph, edges: [...added.graph.edges, edge] }, nodeId: added.nodeId }
+}
+
+/**
  * Append a step to a condition's true/false branch: at the tail of the existing
  * branch chain, or as the branch's first node when the branch is empty.
  */
@@ -348,17 +367,23 @@ export function duplicateNode(graph: FlowGraph, id: string): { graph: FlowGraph;
 }
 
 /**
- * Delete a node, healing the chain: its predecessor connects to its successor,
- * preserving the incoming edge's branch flag (so deleting the first node of a
- * condition branch keeps the branch wired).
+ * Delete a node, healing around it: EVERY predecessor connects to EVERY plain
+ * successor (a DAG node may have several of each — dropping any pairing would
+ * silently sever a fan-in/fan-out path). Incoming branch flags are preserved
+ * (so deleting the first node of a condition branch keeps the branch wired),
+ * and a pairing that already exists as a direct wire is not duplicated.
  */
 export function deleteNode(graph: FlowGraph, id: string): FlowGraph {
   if (id === 'trigger') return graph
-  const incoming = graph.edges.find((edge) => edge.target === id)
-  const outgoing = graph.edges.find((edge) => edge.source === id && !edge.branch)
+  const incoming = graph.edges.filter((edge) => edge.target === id)
+  const outgoing = graph.edges.filter((edge) => edge.source === id && !edge.branch)
   const edges = graph.edges.filter((edge) => edge.source !== id && edge.target !== id)
-  if (incoming && outgoing) {
-    edges.push({ id: edgeId(incoming.source, outgoing.target, incoming.branch), source: incoming.source, target: outgoing.target, ...(incoming.branch ? { branch: incoming.branch } : {}) })
+  for (const inEdge of incoming) {
+    for (const outEdge of outgoing) {
+      if (inEdge.source === outEdge.target) continue // healing must not mint a self-loop
+      if (edges.some((edge) => edge.source === inEdge.source && edge.target === outEdge.target && edge.branch === inEdge.branch)) continue
+      edges.push({ id: edgeId(inEdge.source, outEdge.target, inEdge.branch), source: inEdge.source, target: outEdge.target, ...(inEdge.branch ? { branch: inEdge.branch } : {}) })
+    }
   }
   const nodes = graph.nodes
     .filter((node) => node.id !== id)

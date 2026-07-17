@@ -88,6 +88,62 @@ export function jamCursorColor(userId: string): string {
   return `hsl(${Math.abs(hash) % 360} 72% 46%)`
 }
 
+/**
+ * A cursor broadcast, carrying enough identity to UPSERT its sender into the
+ * roster. Root cause R3 of the jam-stability incident: presence `track()` was
+ * fired once with no retry, and the cursor handler could only UPDATE peers the
+ * presence sync had already delivered — one lost track() made a teammate
+ * permanently invisible. Cursor events now self-heal the roster.
+ */
+export type JamPeerLike = {
+  clientId: string
+  userId: string
+  name: string
+  selectedNodeId: string | null
+  cursor: JamCursor | null
+  inHuddle: boolean
+  huddleMuted: boolean
+}
+
+export function applyCursorEvent<T extends JamPeerLike>(
+  peers: T[],
+  payload: {
+    clientId?: unknown
+    userId?: unknown
+    name?: unknown
+    cursor?: unknown
+    selectedNodeId?: unknown
+  },
+  selfClientId: string,
+): T[] {
+  const clientId = typeof payload.clientId === 'string' ? payload.clientId : null
+  if (!clientId || clientId === selfClientId) return peers
+  const parsedCursor = jamCursorSchema.safeParse(payload.cursor)
+  const cursor = parsedCursor.success ? parsedCursor.data : null
+  const selectedNodeId = typeof payload.selectedNodeId === 'string' ? payload.selectedNodeId : null
+
+  const known = peers.find((peer) => peer.clientId === clientId)
+  if (known) {
+    return peers.map((peer) =>
+      peer.clientId === clientId ? { ...peer, cursor, selectedNodeId: selectedNodeId ?? peer.selectedNodeId } : peer,
+    )
+  }
+  // Upsert requires identity — without it we'd mint ghost "Teammate" entries.
+  if (typeof payload.userId !== 'string' || !payload.userId || typeof payload.name !== 'string' || !payload.name) {
+    return peers
+  }
+  const upserted: JamPeerLike = {
+    clientId,
+    userId: payload.userId,
+    name: payload.name,
+    selectedNodeId,
+    cursor,
+    inHuddle: false,
+    huddleMuted: false,
+  }
+  return [...peers, upserted as T]
+}
+
 /** Presence roster changes between two syncs, keyed by clientId. */
 export function diffPeers<T extends { clientId: string }>(
   previous: T[],

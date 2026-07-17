@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { addNodeAt, connectNodes, disconnectEdge, moveNodeTo, wouldCreateCycle } from '../mutate'
+import { addConnectedNodeAt, addNodeAt, connectNodes, deleteNode, disconnectEdge, moveNodeTo, wouldCreateCycle } from '../mutate'
 import type { FlowGraph } from '../graph'
 
 const agent = (id: string) => ({ id, type: 'agent' as const, data: { agentId: id } })
@@ -85,4 +85,76 @@ test('moveNodeTo records a rounded position without touching other layout', () =
   const graph = moveNodeTo({ ...base(), layout: { a: { x: 1, y: 2 } } }, 'b', { x: 10.4, y: 20.6 })
   assert.deepEqual(graph.layout?.b, { x: 10, y: 21 })
   assert.deepEqual(graph.layout?.a, { x: 1, y: 2 }, 'other positions are preserved')
+})
+
+test('addConnectedNodeAt drops a node at a position AND wires it from the source', () => {
+  const before = base()
+  const { graph, nodeId } = addConnectedNodeAt(before, 'b', 'http', { x: 400.4, y: 120.6 })
+  assert.equal(graph.nodes.length, before.nodes.length + 1)
+  assert.deepEqual(graph.layout?.[nodeId], { x: 400, y: 121 })
+  assert.ok(
+    graph.edges.some((e) => e.source === 'b' && e.target === nodeId && !e.branch),
+    'the quick-added step arrives already wired from its source (contrast addNodeAt)',
+  )
+})
+
+test('addConnectedNodeAt keeps existing outgoing wires — quick-add fans OUT, never splices', () => {
+  const before = base() // a→b already exists
+  const { graph, nodeId } = addConnectedNodeAt(before, 'a', 'agent', { x: 0, y: 0 }, 'agt_1')
+  assert.ok(graph.edges.some((e) => e.source === 'a' && e.target === 'b'), 'the old wire survives')
+  assert.ok(graph.edges.some((e) => e.source === 'a' && e.target === nodeId), 'the new wire sits beside it')
+})
+
+test('addConnectedNodeAt on a container type still seeds a runnable body step', () => {
+  const { graph, nodeId } = addConnectedNodeAt(base(), 'b', 'loop', { x: 0, y: 0 })
+  const loop = graph.nodes.find((n) => n.id === nodeId)
+  assert.equal(loop?.type, 'loop')
+  assert.equal(loop?.type === 'loop' ? loop.data.body.length : 0, 1, 'containers are born runnable')
+})
+
+test('addConnectedNodeAt with a vanished source adds the node unwired instead of throwing', () => {
+  // A Jam peer can delete the source between the gesture and the pick.
+  const before = base()
+  const { graph, nodeId } = addConnectedNodeAt(before, 'ghost', 'http', { x: 10, y: 10 })
+  assert.ok(graph.nodes.some((n) => n.id === nodeId), 'the node is still added')
+  assert.equal(graph.edges.length, before.edges.length, 'no edge to a node that no longer exists')
+})
+
+test('deleteNode heals EVERY fan-in path into EVERY successor, not just the first', () => {
+  // p1→m, p2→m (fan-in), m→c1, m→c2 (fan-out): deleting m must keep all four paths alive.
+  const graph: FlowGraph = {
+    nodes: [{ id: 'trigger', type: 'trigger', data: {} }, agent('p1'), agent('p2'), agent('m'), agent('c1'), agent('c2')],
+    edges: [
+      { id: 't->p1', source: 'trigger', target: 'p1' },
+      { id: 't->p2', source: 'trigger', target: 'p2' },
+      { id: 'p1->m', source: 'p1', target: 'm' },
+      { id: 'p2->m', source: 'p2', target: 'm' },
+      { id: 'm->c1', source: 'm', target: 'c1' },
+      { id: 'm->c2', source: 'm', target: 'c2' },
+    ],
+  }
+  const healed = deleteNode(graph, 'm')
+  for (const parent of ['p1', 'p2']) {
+    for (const child of ['c1', 'c2']) {
+      assert.ok(
+        healed.edges.some((e) => e.source === parent && e.target === child),
+        `${parent}→${child} is healed — no silently dropped branch of the diamond`,
+      )
+    }
+  }
+})
+
+test('deleteNode healing never duplicates a wire that already exists', () => {
+  // p→m→c plus a direct p→c shortcut: healing must not add a second p→c.
+  const graph: FlowGraph = {
+    nodes: [{ id: 'trigger', type: 'trigger', data: {} }, agent('p'), agent('m'), agent('c')],
+    edges: [
+      { id: 't->p', source: 'trigger', target: 'p' },
+      { id: 'p->m', source: 'p', target: 'm' },
+      { id: 'm->c', source: 'm', target: 'c' },
+      { id: 'p->c', source: 'p', target: 'c' },
+    ],
+  }
+  const healed = deleteNode(graph, 'm')
+  assert.equal(healed.edges.filter((e) => e.source === 'p' && e.target === 'c').length, 1)
 })

@@ -9,7 +9,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { Badge } from '@/components/ui/badge'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { emptyGraph, type FlowGraph, type FlowNode, type OutputField } from '@/lib/flows/graph'
-import { insertNodeAfter, appendToBranch, duplicateNode, updateNode, deleteNode, changeNodeType, addContainerStep, moveNodeAfter, moveContainerStep, pasteNodeAfter, addNodeAt } from '@/lib/flows/mutate'
+import { insertNodeAfter, appendToBranch, duplicateNode, updateNode, deleteNode, changeNodeType, addContainerStep, moveNodeAfter, moveContainerStep, pasteNodeAfter, addNodeAt, addConnectedNodeAt } from '@/lib/flows/mutate'
 import { writeFlowClipboard, readFlowClipboard } from '@/lib/flows/clipboard'
 import { diffFlowGraphs, patchIsEmpty, type FlowCollaborationPatch } from '@/lib/flows/collaboration'
 import { applyPatchStrict, invertPatch } from '@/lib/flows/undo'
@@ -1720,10 +1720,15 @@ function FlowBuilder() {
               onAddNode={
                 viewingVersion
                   ? () => {}
-                  : (type, seed, position) => {
+                  : (type, seed, position, connectFrom) => {
                       // Same seed handling as the stack's insert path, minus the
-                      // chain splice — on the canvas the user wires it up.
-                      const { graph: added, nodeId } = addNodeAt(graph, type, position, type === 'agent' ? seed?.agentId ?? agents[0]?.id ?? '' : undefined)
+                      // chain splice — on the canvas the user wires it up. The
+                      // quick-add gestures pass connectFrom so the new step
+                      // arrives already wired from its source.
+                      const agentId = type === 'agent' ? seed?.agentId ?? agents[0]?.id ?? '' : undefined
+                      const { graph: added, nodeId } = connectFrom
+                        ? addConnectedNodeAt(graph, connectFrom, type, position, agentId)
+                        : addNodeAt(graph, type, position, agentId)
                       commitGraph(applyInsertSeed(added, nodeId, seed))
                       setSelectedId(nodeId)
                     }

@@ -18,8 +18,8 @@ import {
   patchIsEmpty,
   patchChangesTopology,
 } from '@/lib/flows/collaboration'
-import { reduceJamConnection, type JamConnectionEvent, type JamConnectionState } from '@/lib/flows/jam-connection'
-import { diffPeers, jamCursorSchema, type JamCursor } from '@/lib/flows/jam-presence'
+import { deliveryAction, reduceJamConnection, type JamConnectionEvent, type JamConnectionState, type JamDeliveryKind } from '@/lib/flows/jam-connection'
+import { applyCursorEvent, diffPeers, jamCursorSchema, type JamCursor } from '@/lib/flows/jam-presence'
 import { huddleSignalSchema, type HuddleSignal } from '@/lib/flows/jam-huddle'
 
 export type { JamConnectionState } from '@/lib/flows/jam-connection'
@@ -147,16 +147,18 @@ export function useFlowJam(options: {
     setPeers([])
   }
 
-  const markRealtimeDelivery = useCallback((status: string) => {
-    if (status !== 'ok') {
+  // Delivery policy (see deliveryAction): a failed DURABLE broadcast degrades
+  // and rebuilds the channel; a failed EPHEMERAL send (cursor/preview at tens
+  // per second) is dropped silently — reconnecting on those tore the channel
+  // down on nearly every mouse move, wiping presence and killing the jam.
+  const markRealtimeDelivery = useCallback((kind: JamDeliveryKind) => (status: string) => {
+    if (deliveryAction(kind, status) === 'reconnect') {
       dispatchConnection('delivery-failed')
-      // A joined channel whose sends stop acking is broken in a way only a
-      // rebuild fixes — without this, one failed delivery pins 'degraded'
-      // forever (the reducer only returns to 'connected' via a fresh
-      // channel-subscribed).
       reconnectRef.current()
     }
   }, [dispatchConnection])
+  const markDurable = useMemo(() => markRealtimeDelivery('durable'), [markRealtimeDelivery])
+  const markEphemeral = useMemo(() => markRealtimeDelivery('ephemeral'), [markRealtimeDelivery])
 
   const sendPreview = () => {
     previewTimerRef.current = null
@@ -172,7 +174,7 @@ export function useFlowJam(options: {
       type: 'broadcast',
       event: 'preview-patch',
       payload: { clientId, baseRevision: revisionRef.current, patch },
-    }).then(markRealtimeDelivery)
+    }).then(markEphemeral)
   }
 
   const schedulePreview = () => {
@@ -195,8 +197,16 @@ export function useFlowJam(options: {
     const pendingLocal = latestLocalRef.current
     let next = snapshot.graph
     if (previousBaseline && pendingLocal && !sameGraph(previousBaseline, pendingLocal)) {
-      const pendingPatch = diffFlowGraphs(previousBaseline, pendingLocal, `${clientId}:rebase`)
-      next = applyFlowCollaborationPatch(snapshot.graph, pendingPatch).graph
+      // A rebase across diverged states can produce a schema-invalid graph and
+      // THROW — accept the server graph as-is rather than dying mid-handler
+      // (the unsent local delta retries on the next flush from a clean base).
+      try {
+        const pendingPatch = diffFlowGraphs(previousBaseline, pendingLocal, `${clientId}:rebase`)
+        next = applyFlowCollaborationPatch(snapshot.graph, pendingPatch).graph
+      } catch (error) {
+        console.warn('[flow-jam] local rebase rejected; accepting server graph:', error instanceof Error ? error.message : error)
+        next = snapshot.graph
+      }
     }
 
     baselineRef.current = snapshot.graph
@@ -288,7 +298,7 @@ export function useFlowJam(options: {
           revision: data.revision,
           updatedAt: data.updatedAt,
         },
-      }).then(markRealtimeDelivery)
+      }).then(markDurable)
     } catch (error) {
       if (error instanceof DOMException && error.name === 'AbortError') return
       retryDelay = 1500
@@ -403,6 +413,19 @@ export function useFlowJam(options: {
       topicRef.current = snapshot.topic
       const supabase = createClient()
       supabaseRef.current = supabase
+      // Private-channel joins are authorized via RLS against the CURRENT
+      // realtime auth token. On a fresh client the token loads async — a join
+      // sent before it lands is rejected as anon, and each rejection doubled
+      // the reconnect backoff (the "green dot takes forever" bug). Block the
+      // join on the session token instead of racing it.
+      try {
+        const { data: sessionData } = await supabase.auth.getSession()
+        const token = sessionData.session?.access_token
+        if (token) await supabase.realtime.setAuth(token)
+      } catch {
+        // No session yet — the join will fail and retry on backoff as before.
+      }
+      if (disposed) return
       const channel = supabase.channel(snapshot.topic, {
         config: {
           private: true,
@@ -441,11 +464,10 @@ export function useFlowJam(options: {
         .on('broadcast', { event: 'cursor' }, ({ payload }) => {
           if (!payload?.clientId || payload.clientId === clientId) return
           setPeers((current) => {
-            const next = current.map((peer) =>
-              peer.clientId === payload.clientId
-                ? { ...peer, cursor: parsePeerCursor(payload.cursor), selectedNodeId: payload.selectedNodeId ?? peer.selectedNodeId }
-                : peer,
-            )
+            // UPSERT, not update: a peer whose presence track() was lost would
+            // otherwise stay invisible forever (cursor events carry identity —
+            // the roster self-heals from them).
+            const next = applyCursorEvent(current, payload, clientId)
             peersRef.current = next
             return next
           })
@@ -461,9 +483,19 @@ export function useFlowJam(options: {
           if (patchChangesTopology(parsed.data) && payload.baseRevision !== revisionRef.current) return
           const current = latestLocalRef.current ?? baselineRef.current
           if (!current) return
-          const preview = applyFlowCollaborationPatch(current, parsed.data).graph
-          latestLocalRef.current = preview
-          if (!sameGraph(preview, current)) callbacksRef.current.onRemoteGraph(preview)
+          // Applying onto a diverged local baseline can produce a graph the
+          // schema rejects — applyFlowCollaborationPatch THROWS in that case.
+          // An uncaught throw here silently stopped the jam applying anything;
+          // instead, drop the preview and resync from the server snapshot.
+          try {
+            const preview = applyFlowCollaborationPatch(current, parsed.data).graph
+            latestLocalRef.current = preview
+            if (!sameGraph(preview, current)) callbacksRef.current.onRemoteGraph(preview)
+          } catch (error) {
+            console.warn('[flow-jam] preview patch rejected; resyncing:', error instanceof Error ? error.message : error)
+            dispatchConnection('revision-gap')
+            refreshAccessRef.current()
+          }
         })
         .on('broadcast', { event: 'graph' }, ({ payload }) => {
           if (!payload || payload.clientId === clientId) return
@@ -524,7 +556,10 @@ export function useFlowJam(options: {
           if (status === 'SUBSCRIBED') {
             channelFailures = 0
             dispatchConnection('channel-subscribed')
-            await channel.track({
+            // track() with retry: a single lost track used to make this client
+            // permanently invisible to peers (nothing ever re-tracked). Retry
+            // a few times, and let the roster's cursor-upsert self-heal the rest.
+            const presencePayload = () => ({
               clientId,
               userId: snapshot.actor.userId,
               name: snapshot.actor.name,
@@ -533,6 +568,11 @@ export function useFlowJam(options: {
               inHuddle: huddleStateRef.current.inHuddle,
               huddleMuted: huddleStateRef.current.muted,
             })
+            for (let attempt = 0; attempt < 3; attempt += 1) {
+              const tracked = await channel.track(presencePayload())
+              if (tracked === 'ok' || disposed || channelRef.current !== channel) break
+              await new Promise((resolve) => setTimeout(resolve, 500 * (attempt + 1)))
+            }
           } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
             // A join ERROR reply is terminal in realtime-js — unlike socket
             // errors and join timeouts it never schedules a rejoin, so without
@@ -620,9 +660,9 @@ export function useFlowJam(options: {
     void channel.send({
       type: 'broadcast',
       event: 'cursor',
-      payload: { clientId, cursor: cursorRef.current, selectedNodeId },
-    }).then(markRealtimeDelivery)
-  }, [clientId, connectionState, selectedNodeId, markRealtimeDelivery])
+      payload: { clientId, userId: actor.userId, name: actor.name, cursor: cursorRef.current, selectedNodeId },
+    }).then(markEphemeral)
+  }, [clientId, connectionState, selectedNodeId, markEphemeral])
 
   const broadcastGraph = (graph: FlowGraph) => {
     latestLocalRef.current = graph
@@ -637,13 +677,17 @@ export function useFlowJam(options: {
   const sendCursor = () => {
     cursorTimerRef.current = null
     const channel = channelRef.current
-    if (!channel) return
+    const actor = actorRef.current
+    // Gate on a live channel: an unjoined channel reroutes broadcasts over
+    // per-message HTTP (slow, and rejected for private channels) — at cursor
+    // rates that was a request storm feeding the reconnect loop.
+    if (!channel || !actor || connectionStateRef.current !== 'connected') return
     lastCursorSentAtRef.current = Date.now()
     void channel.send({
       type: 'broadcast',
       event: 'cursor',
-      payload: { clientId, cursor: cursorRef.current, selectedNodeId },
-    }).then(markRealtimeDelivery)
+      payload: { clientId, userId: actor.userId, name: actor.name, cursor: cursorRef.current, selectedNodeId },
+    }).then(markEphemeral)
   }
 
   const updateCursor = (cursor: JamCursor | null) => {
@@ -663,11 +707,21 @@ export function useFlowJam(options: {
       type: 'broadcast',
       event: 'access-changed',
       payload: { clientId },
-    }).then(markRealtimeDelivery)
+    }).then(markDurable)
     refreshAccessRef.current()
   }
 
-  /** Send directed WebRTC signaling to a huddle peer over the jam channel. */
+  /**
+   * Send directed WebRTC signaling to a huddle peer over the jam channel.
+   *
+   * Fire-and-forget BY DESIGN — deliberately NOT chained to
+   * markRealtimeDelivery. A huddle join bursts an offer plus trickle-ICE
+   * through this channel; one timed-out ack would otherwise degrade the jam
+   * and force a full channel rebuild, tearing down the signaling rail MID
+   * HANDSHAKE (remaining answers/ICE silently dropped, no audio, huddle UI
+   * churn). Voice signaling has its own recovery: the reconcile pass redials
+   * when a peer connection fails, so a lost signal costs a retry, not the jam.
+   */
   const sendHuddleSignal = (signal: HuddleSignal) => {
     const channel = channelRef.current
     if (!channel) return
@@ -675,7 +729,7 @@ export function useFlowJam(options: {
       type: 'broadcast',
       event: 'huddle-signal',
       payload: signal,
-    }).then(markRealtimeDelivery)
+    })
   }
 
   /** Fire an ephemeral emoji reaction at every peer (never persisted). */
