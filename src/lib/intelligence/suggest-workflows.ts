@@ -135,7 +135,7 @@ function truncate(value: string, max: number): string {
 type FlowSummary = { id: string; name: string; description: string; triggerType: string; recentRunStatuses: string[] }
 type AgentSummary = { id: string; title: string; objective: string; recentRunHeadlines: string[] }
 
-async function loadExistingFlows(organizationId: string): Promise<FlowSummary[]> {
+export async function loadExistingFlows(organizationId: string): Promise<FlowSummary[]> {
   const flows = await prisma.flow.findMany({
     where: { organizationId },
     orderBy: { updatedAt: 'desc' },
@@ -154,7 +154,7 @@ async function loadExistingFlows(organizationId: string): Promise<FlowSummary[]>
   })
 }
 
-async function loadExistingAgents(organizationId: string): Promise<AgentSummary[]> {
+export async function loadExistingAgents(organizationId: string): Promise<AgentSummary[]> {
   const agents = await prisma.agentTask.findMany({
     where: { organizationId, status: 'ACTIVE', agentType: { not: 'SYSTEM' } },
     orderBy: { updatedAt: 'desc' },
