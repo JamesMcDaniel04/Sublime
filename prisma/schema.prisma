@@ -239,6 +239,42 @@ model AgentChatSession {
   @@map("agent_chat_sessions")
 }
 
+// Workspace-level Home assistant chat (not agent-scoped). Sessions are per
+// user; messages carry metadata for attachments, created agents, and runs.
+model AssistantChatSession {
+  id             String   @id @default(cuid())
+  organizationId String   @db.Uuid
+  userId         String
+  // Auto-derived from the first user message.
+  title          String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  messages AssistantChatMessage[]
+
+  @@index([organizationId, userId, updatedAt])
+  @@map("assistant_chat_sessions")
+}
+
+model AssistantChatMessage {
+  id             String   @id @default(cuid())
+  organizationId String   @db.Uuid
+  userId         String
+  sessionId      String
+  role           String
+  content        String   @db.Text
+  // attachment { filename, text, truncated? } | createdAgent { id, title,
+  // icon, description } | executedRun { executionId, agentId, status } |
+  // action { type, agentId }
+  metadata       Json?
+  createdAt      DateTime @default(now())
+
+  session AssistantChatSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([sessionId, createdAt])
+  @@map("assistant_chat_messages")
+}
+
 model AgentExecution {
   id              String    @id @default(cuid())
   agentType       String
