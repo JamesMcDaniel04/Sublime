@@ -6,7 +6,7 @@
  * shared (they are org objects that already exist in the graph).
  * Mirrors indexActivity: pure parts + best-effort side-effecting wrapper.
  */
-import { prisma } from '@/lib/prisma'
+import { systemPrisma } from '@/lib/prisma'
 import { apiLogger } from '@/lib/logger'
 import { commitGraph, nodeIds, type PendingNode } from '@/lib/rag/indexer'
 import { getGraphRagStore, graphRagPersistent, ragEnabled } from '@/lib/rag/get-store'
@@ -85,8 +85,10 @@ export function userEventGraphParts(
   return { nodes, edges }
 }
 
-/** Best-effort projection; stamps indexedAt so the sweep skips done rows. */
-export async function indexUserEvents(events: PersistedUserEvent[], db = prisma): Promise<void> {
+/** Best-effort projection; stamps indexedAt so the sweep skips done rows.
+ * systemPrisma: worker/cron-internal id-keyed writes on rows the sweep just
+ * read — never called from user-facing request paths. */
+export async function indexUserEvents(events: PersistedUserEvent[], db = systemPrisma): Promise<void> {
   if (!ragEnabled() || events.length === 0) return
   for (const event of events) {
     try {
@@ -97,15 +99,16 @@ export async function indexUserEvents(events: PersistedUserEvent[], db = prisma)
       })
       const { nodes, edges } = userEventGraphParts(event, prior?.id ?? null)
       await commitGraph(event.organizationId, nodes, edges)
-      await db.userEvent.update({ where: { id: event.id }, data: { indexedAt: new Date() } })
+      await db.userEvent.update({ where: { id: event.id, organizationId: event.organizationId }, data: { indexedAt: new Date() } })
     } catch (error) {
       apiLogger.warn('behavior.indexUserEvents failed', { eventId: event.id, error: error instanceof Error ? error.message : String(error) })
     }
   }
 }
 
-/** Re-index sweep over unprojected rows (indexedAt IS NULL). Returns count attempted. */
-export async function sweepUnindexedUserEvents(db = prisma, cap = 200): Promise<number> {
+/** Re-index sweep over unprojected rows (indexedAt IS NULL). Returns count attempted.
+ * systemPrisma: global cron sweep — reads across all tenants by design. */
+export async function sweepUnindexedUserEvents(db = systemPrisma, cap = 200): Promise<number> {
   if (!ragEnabled()) return 0
   const rows = await db.userEvent.findMany({
     where: { indexedAt: null },

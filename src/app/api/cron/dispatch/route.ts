@@ -28,6 +28,8 @@ import { blocksSchedule } from '@/lib/flows/schedule-blocking'
 import { captureError } from '@/lib/observability/sentry'
 import { pruneSlackProcessedEvents } from '@/lib/slack/dedup'
 import { inferActivityPatterns } from '@/lib/intelligence/infer-patterns'
+import { runBehaviorIntelligence } from '@/lib/behavior/run-behavior-intelligence'
+import { sweepUnindexedUserEvents } from '@/lib/behavior/index-user-event'
 
 export const runtime = 'nodejs'
 export const maxDuration = 1200
@@ -148,6 +150,8 @@ export async function GET(request: Request) {
     await pruneSlackProcessedEvents().catch((error) => {
       apiLogger.error('cron/dispatch: slack dedup prune failed', { error: capError(error) })
     })
+    // Behavior-ledger graph parity: project any rows the write-time indexer missed.
+    void sweepUnindexedUserEvents().catch(() => undefined)
     const now = new Date()
 
     // Durable Wait nodes release their worker and resume on the first cron
@@ -405,6 +409,16 @@ export async function GET(request: Request) {
       void inferActivityPatterns(organizationId).catch(() => undefined)
     }
 
+    // Same cadence for in-app behavior: orgs whose users acted in the last
+    // day get a per-user inference + (self-throttled) synthesis pass.
+    const recentBehaviorOrgs = await systemPrisma.userEvent.groupBy({
+      by: ['organizationId'],
+      where: { occurredAt: { gte: dayAgo } },
+    })
+    for (const { organizationId } of recentBehaviorOrgs) {
+      void runBehaviorIntelligence(organizationId).catch(() => undefined)
+    }
+
     return Response.json({
       success: true,
       due: dueCount,
@@ -412,6 +426,7 @@ export async function GET(request: Request) {
       ranFlows: ranFlowIds,
       suggestionOrgsChecked,
       activityOrgsChecked: recentActivityOrgs.length,
+      behaviorOrgsChecked: recentBehaviorOrgs.length,
     })
   } catch (error) {
     apiLogger.error('cron/dispatch: unhandled error', {

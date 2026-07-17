@@ -5,7 +5,7 @@
  * embedding-similar (>= MEMORY_SIMILARITY_THRESHOLD) to a dismissed summary,
  * is dropped before it can be written. Never throws.
  */
-import { prisma } from '@/lib/prisma'
+import { systemPrisma } from '@/lib/prisma'
 import { apiLogger } from '@/lib/logger'
 import { embedTexts, embeddingsConfigured, cosineSimilarity } from '@/lib/rag/embeddings'
 import { MEMORY_SIMILARITY_THRESHOLD } from '@/lib/memory/agent-memory'
@@ -17,7 +17,7 @@ const MAX_EVENTS = 500
 const MIN_EVENTS = 10
 
 export type InferOverrides = {
-  db?: typeof prisma
+  db?: typeof systemPrisma
   embed?: (texts: string[]) => Promise<number[][]>
   now?: () => Date
 }
@@ -27,7 +27,9 @@ export async function inferUserBehaviorPatterns(
   userId: string,
   overrides: InferOverrides = {},
 ): Promise<{ patterns: number } | { skipped: string }> {
-  const db = overrides.db ?? prisma
+  // systemPrisma: cron-only job; the userId_slug upsert has no org key in its
+  // unique where (queries themselves stay org+user scoped).
+  const db = overrides.db ?? systemPrisma
   try {
     const now = overrides.now ? overrides.now() : new Date()
     const since = new Date(now.getTime() - WINDOW_DAYS * 24 * 60 * 60 * 1000)

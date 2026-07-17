@@ -15,6 +15,7 @@ import { Prisma } from '@prisma/client'
 import { systemPrisma } from '@/lib/prisma'
 import { apiLogger } from '@/lib/logger'
 import { removeRetiredFromGraph } from '@/lib/rag/indexer'
+import { removeUserEventNodesFromGraph } from '@/lib/behavior/index-user-event'
 
 export const runtime = 'nodejs'
 export const maxDuration = 300
@@ -92,8 +93,30 @@ export async function GET(request: Request) {
         })).count
       : 0
 
-    apiLogger.info('cron/retention complete', { days, executionsDeleted, transcriptsPruned })
-    return Response.json({ success: true, days, executionsDeleted, transcriptsPruned })
+    // user_events: 180-day ledger (patterns/graph distillations persist on
+    // their own). Graph-first, same reasoning as executions above.
+    const behaviorDays = Number(process.env.BEHAVIOR_RETENTION_DAYS) || 180
+    const behaviorCutoff = new Date(Date.now() - behaviorDays * 24 * 60 * 60 * 1000)
+    // systemPrisma: global retention sweep — prunes across all orgs by design (CRON_SECRET-gated).
+    const staleUserEvents = await systemPrisma.userEvent.findMany({
+      where: { occurredAt: { lt: behaviorCutoff } }, select: { id: true, organizationId: true }, take: CAP,
+    })
+    let userEventsDeleted = 0
+    if (staleUserEvents.length > 0) {
+      const eventGroups = new Map<string, { organizationId: string; eventIds: string[] }>()
+      for (const e of staleUserEvents) {
+        const group = eventGroups.get(e.organizationId) ?? { organizationId: e.organizationId, eventIds: [] }
+        group.eventIds.push(e.id)
+        eventGroups.set(e.organizationId, group)
+      }
+      await removeUserEventNodesFromGraph(Array.from(eventGroups.values()))
+      userEventsDeleted = (await systemPrisma.userEvent.deleteMany({
+        where: { id: { in: staleUserEvents.map((e) => e.id) } },
+      })).count
+    }
+
+    apiLogger.info('cron/retention complete', { days, executionsDeleted, transcriptsPruned, userEventsDeleted })
+    return Response.json({ success: true, days, executionsDeleted, transcriptsPruned, userEventsDeleted })
   } catch (error) {
     apiLogger.error('cron/retention failed', { error: error instanceof Error ? error.message : String(error) })
     return Response.json({ success: false, error: 'Internal server error' }, { status: 500 })
