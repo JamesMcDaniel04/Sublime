@@ -83,7 +83,7 @@ export function Sidebar() {
   const router = useRouter()
   const { user, signOut, isAdmin } = useAuth()
   const [mobileOpen, setMobileOpen] = useState(false)
-  const [collapsed, setCollapsed] = useState<boolean>(() => {
+  const [sidebarCollapsed, setSidebarCollapsed] = useState<boolean>(() => {
     if (typeof window === 'undefined') return false
     try {
       return window.localStorage.getItem(COLLAPSED_KEY) === '1'
@@ -92,7 +92,7 @@ export function Sidebar() {
     }
   })
   const toggleCollapsed = useCallback(() => {
-    setCollapsed((current) => {
+    setSidebarCollapsed((current) => {
       const next = !current
       try {
         if (next) window.localStorage.setItem(COLLAPSED_KEY, '1')
@@ -196,7 +196,7 @@ export function Sidebar() {
 
   // The rail applies on desktop only: the mobile drawer (mobileOpen) always
   // renders expanded, and when closed it is off-canvas anyway.
-  const rail = collapsed && !mobileOpen
+  const rail = sidebarCollapsed && !mobileOpen
 
   const saveOrgLogo = async (logoUrl: string | null) => {
     setUploadingLogo(true)
