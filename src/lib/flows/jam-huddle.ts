@@ -53,14 +53,36 @@ export function huddleConnectionPlan(
 }
 
 /**
- * STUN-only ICE: fine for most office/home networks. Symmetric-NAT pairs that
- * need a relay (TURN) will fail to connect — the hook surfaces that as a
- * per-peer "couldn't connect" rather than a dead-silent huddle.
+ * Client-side STUN fallback, used until /api/rtc/ice answers (and forever when
+ * the deployment configures no TURN relay — see lib/rtc/ice). TURN is what
+ * lets symmetric-NAT / corporate-VPN pairs connect at all.
  */
 export const HUDDLE_ICE_SERVERS: { urls: string }[] = [
   { urls: 'stun:stun.l.google.com:19302' },
   { urls: 'stun:stun1.l.google.com:19302' },
 ]
+
+/**
+ * Mesh ceiling: every member holds N-1 connections and uploads audio to each,
+ * so cost grows quadratically. Past ~8 members ordinary uplinks audibly
+ * degrade for everyone — refuse the 9th instead (an SFU is the real fix
+ * beyond this scale).
+ */
+export const HUDDLE_MAX_PARTICIPANTS = 8
+
+/** May another member join a huddle that currently has `memberCount` people? */
+export function huddleHasRoom(memberCount: number): boolean {
+  return memberCount < HUDDLE_MAX_PARTICIPANTS
+}
+
+/** A handshake that hasn't reached `connected` by this deadline is torn down
+ *  and redialed — a lost offer/answer otherwise parks the pair in `new`
+ *  forever (connectionState only fails after a connectivity ATTEMPT). */
+export const HUDDLE_SETUP_TIMEOUT_MS = 25_000
+
+/** How long a `disconnected` connection may linger before we redial. Browsers
+ *  can take 30s+ to promote it to `failed` on their own. */
+export const HUDDLE_DISCONNECT_GRACE_MS = 5_000
 
 /** RMS speech gate — mirrors typical voice-activity thresholds for an 8-bit analyser. */
 export function isSpeakingLevel(rms: number): boolean {

@@ -664,6 +664,32 @@ export function validateFlowGraph(graph: FlowGraph, context: FlowValidationConte
     }
   }
 
+  // The engine follows a PLAIN (unlabelled) edge from a branch node only as a
+  // fallback — when the chosen output has no labeled wire of its own. Once
+  // every possible output is wired, a plain edge can never light and its
+  // subtree silently never runs.
+  for (const node of graph.nodes) {
+    const possibleLabels =
+      node.type === 'condition' ? ['true', 'false']
+      : node.type === 'switch' ? [...node.data.cases.map((entry) => entry.id), 'default']
+      : node.type === 'router' ? [...node.data.branches.map((entry) => entry.id), 'default']
+      : null
+    if (!possibleLabels) continue
+    const outgoing = graph.edges.filter((edge) => edge.source === node.id)
+    const hasPlain = outgoing.some((edge) => !edge.branch)
+    if (!hasPlain) continue
+    const everyOutputWired = possibleLabels.every((label) => outgoing.some((edge) => edge.branch === label))
+    if (everyOutputWired) {
+      add(
+        issues,
+        'warning',
+        'UNREACHABLE_PLAIN_EDGE',
+        `${nodeLabel(node)} has an unlabelled connection that can never run — every output already has its own wire. Reconnect it to a specific output.`,
+        node.id,
+      )
+    }
+  }
+
   const errors = issues.filter((issue) => issue.level === 'error')
   const warnings = issues.filter((issue) => issue.level === 'warning')
   return { ok: errors.length === 0, errors, warnings, issues }

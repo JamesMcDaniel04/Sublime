@@ -549,8 +549,9 @@ export function DagCanvas({
   /** Structural change (wire added/removed, widget moved). */
   onChangeGraph: (graph: FlowGraph) => void
   /** Add a step at `position`; `connectFrom` (quick-add / drag-to-canvas) also
-   *  wires it from that node in the same commit. */
-  onAddNode: (type: StepType, seed: FlowInsertSeed | undefined, position: { x: number; y: number }, connectFrom?: string) => void
+   *  wires it from that node in the same commit, `connectBranch` labelling the
+   *  wire with a branch node's chosen output. */
+  onAddNode: (type: StepType, seed: FlowInsertSeed | undefined, position: { x: number; y: number }, connectFrom?: string, connectBranch?: string) => void
   onReorderContainer?: (containerId: string, from: number, to: number, branchIndex?: number) => void
   onAddContainerStep?: (containerId: string, type: EditableType, branchIndex?: number) => void
   /** Local pointer position in FLOW coordinates + current viewport (Jam cursor). */
@@ -575,8 +576,39 @@ export function DagCanvas({
   // A container child is edited in its container's panel, never as a top-level widget.
   const panelNode = selectedNode && !contained.has(selectedNode.id) ? selectedNode : undefined
 
-  // Quick-add: which node the picked step will be wired FROM, and where it lands.
-  const [quickAdd, setQuickAdd] = useState<{ sourceId: string; position: { x: number; y: number } } | null>(null)
+  // Quick-add: which node the picked step will be wired FROM, and where it
+  // lands. Branch nodes (If/else, Switch, AI router) must first answer "which
+  // output?" — the engine treats a PLAIN edge from them as a fallback that
+  // never runs once every output is wired, so `options` renders a chooser and
+  // `branch` carries the answer onto the new wire.
+  const [quickAdd, setQuickAdd] = useState<{
+    sourceId: string
+    position: { x: number; y: number }
+    branch?: string
+    options?: { value: string; label: string }[]
+  } | null>(null)
+
+  /** The outputs a branch node can emit — null for ordinary nodes. */
+  const branchOptionsOf = (node: FlowNode | undefined): { value: string; label: string }[] | null => {
+    if (!node) return null
+    if (node.type === 'condition') return [{ value: 'true', label: 'True' }, { value: 'false', label: 'False' }]
+    if (node.type === 'switch') {
+      return [...node.data.cases.map((entry) => ({ value: entry.id, label: entry.id })), { value: 'default', label: 'Default' }]
+    }
+    if (node.type === 'router') {
+      return [...node.data.branches.map((entry) => ({ value: entry.id, label: entry.label?.trim() || entry.id })), { value: 'default', label: 'Default' }]
+    }
+    return null
+  }
+
+  const startQuickAdd = useCallback(
+    (sourceId: string, position: { x: number; y: number }) => {
+      const options = branchOptionsOf(byId.get(sourceId))
+      setQuickAdd(options ? { sourceId, position, options } : { sourceId, position })
+    },
+     
+    [byId],
+  )
 
   const outgoingCount = useMemo(() => {
     const counts = new Map<string, number>()
@@ -594,12 +626,9 @@ export function DagCanvas({
     (sourceId: string) => {
       const source = layout[sourceId] ?? { x: 0, y: 0 }
       const fan = outgoingCount.get(sourceId) ?? 0
-      setQuickAdd({
-        sourceId,
-        position: { x: source.x + WIDGET_WIDTH + QUICK_ADD_GAP, y: source.y + fan * QUICK_ADD_FAN_STEP },
-      })
+      startQuickAdd(sourceId, { x: source.x + WIDGET_WIDTH + QUICK_ADD_GAP, y: source.y + fan * QUICK_ADD_FAN_STEP })
     },
-    [layout, outgoingCount],
+    [layout, outgoingCount, startQuickAdd],
   )
 
   const rfNodes: Node[] = useMemo(
@@ -622,7 +651,9 @@ export function DagCanvas({
             childCount: containerChildIds(node).length,
             hasOutgoing: (outgoingCount.get(node.id) ?? 0) > 0,
             onOpen: onSelect,
-            onQuickAdd: readOnly ? undefined : openQuickAdd,
+            // A Stop step halts the run — a successor could never execute, so
+            // it gets no append affordance.
+            onQuickAdd: readOnly || node.type === 'stop' ? undefined : openQuickAdd,
           } satisfies WidgetData as unknown as Record<string, unknown>,
         })),
     [graph.nodes, contained, layout, readOnly, labelOf, statusByNode, issuesByNode, highlightIds, jamPeers, selectedId, onSelect, outgoingCount, openQuickAdd],
@@ -681,12 +712,9 @@ export function DagCanvas({
       const instance = rfInstance.current
       if (!instance) return
       const point = 'changedTouches' in event ? event.changedTouches[0] : event
-      setQuickAdd({
-        sourceId: connectionState.fromNode.id,
-        position: instance.screenToFlowPosition({ x: point.clientX, y: point.clientY }),
-      })
+      startQuickAdd(connectionState.fromNode.id, instance.screenToFlowPosition({ x: point.clientX, y: point.clientY }))
     },
-    [readOnly],
+    [readOnly, startQuickAdd],
   )
 
   // Persist on drag END only — committing every intermediate frame would spam
@@ -759,24 +787,41 @@ export function DagCanvas({
           <JamDagCursors peers={jamPeers ?? []} />
           <JamDagCommentPins pins={commentPins ?? []} onPinClick={onPinClick} />
         </ReactFlow>
-        {/* Quick-add picker: one overlay shared by every node's "+" and the
-            drag-to-canvas gesture. The picked step is added at the captured
-            position AND wired from the source in a single commit. */}
+        {/* Quick-add: one overlay shared by every node's "+" and the
+            drag-to-canvas gesture. Branch nodes interpose an output chooser;
+            then the picked step is added at the captured position AND wired
+            from the source (with the chosen output label) in a single commit. */}
         {quickAdd && !readOnly && (
           <>
             <button type="button" aria-label="Close" className="fixed inset-0 z-30 cursor-default" onClick={() => setQuickAdd(null)} />
-            <div className="fixed left-1/2 top-24 z-40 max-h-[72vh] w-[34rem] max-w-[90vw] -translate-x-1/2 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-[0_20px_60px_rgba(15,23,42,0.18)]">
-              <FlowPicker
-                mode="action"
-                agents={agents}
-                toolCatalog={toolCatalog}
-                onPick={(type, seed) => {
-                  onAddNode(type as StepType, seed, quickAdd.position, quickAdd.sourceId)
-                  setQuickAdd(null)
-                }}
-                onClose={() => setQuickAdd(null)}
-              />
-            </div>
+            {quickAdd.options ? (
+              <div className="fixed left-1/2 top-24 z-40 w-64 -translate-x-1/2 rounded-2xl border border-slate-200 bg-white p-3 shadow-[0_20px_60px_rgba(15,23,42,0.18)]">
+                <p className="mb-2 text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Connect from which output?</p>
+                {quickAdd.options.map((option) => (
+                  <button
+                    key={option.value}
+                    type="button"
+                    onClick={() => setQuickAdd({ sourceId: quickAdd.sourceId, position: quickAdd.position, branch: option.value })}
+                    className="flex w-full items-center rounded-lg px-2 py-1.5 text-left text-sm text-slate-700 hover:bg-slate-100"
+                  >
+                    {option.label}
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <div className="fixed left-1/2 top-24 z-40 max-h-[72vh] w-[34rem] max-w-[90vw] -translate-x-1/2 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-[0_20px_60px_rgba(15,23,42,0.18)]">
+                <FlowPicker
+                  mode="action"
+                  agents={agents}
+                  toolCatalog={toolCatalog}
+                  onPick={(type, seed) => {
+                    onAddNode(type as StepType, seed, quickAdd.position, quickAdd.sourceId, quickAdd.branch)
+                    setQuickAdd(null)
+                  }}
+                  onClose={() => setQuickAdd(null)}
+                />
+              </div>
+            )}
           </>
         )}
       </div>

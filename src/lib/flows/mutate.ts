@@ -186,6 +186,11 @@ export function addNodeAt(
  * `position` AND wire it from `sourceId` in one mutation. Fan-out by design —
  * existing outgoing wires are kept, never spliced (contrast insertNodeAfter).
  * A vanished source (a Jam peer deleted it mid-gesture) degrades to addNodeAt.
+ *
+ * `branch` labels the wire with a branch-node output (condition true/false,
+ * switch/router case id or 'default') — the engine only follows a PLAIN edge
+ * from a branch node as a fallback, so quick-adds from those nodes must name
+ * the output or the new step may never run.
  */
 export function addConnectedNodeAt(
   graph: FlowGraph,
@@ -193,10 +198,11 @@ export function addConnectedNodeAt(
   type: StepType,
   position: { x: number; y: number },
   agentId?: string,
+  branch?: string,
 ): { graph: FlowGraph; nodeId: string } {
   const added = addNodeAt(graph, type, position, agentId)
   if (!graph.nodes.some((node) => node.id === sourceId)) return added
-  const edge = { id: edgeId(sourceId, added.nodeId), source: sourceId, target: added.nodeId }
+  const edge = { id: edgeId(sourceId, added.nodeId, branch), source: sourceId, target: added.nodeId, ...(branch ? { branch } : {}) }
   return { graph: { ...added.graph, edges: [...added.graph.edges, edge] }, nodeId: added.nodeId }
 }
 

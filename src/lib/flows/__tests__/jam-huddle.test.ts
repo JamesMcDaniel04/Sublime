@@ -1,7 +1,9 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
+  HUDDLE_MAX_PARTICIPANTS,
   huddleConnectionPlan,
+  huddleHasRoom,
   huddleSignalSchema,
   isHuddleCaller,
   isSpeakingLevel,
@@ -55,6 +57,14 @@ test('signal schema accepts offer/answer/ice and rejects unknown kinds', () => {
   )
   assert.equal(huddleSignalSchema.safeParse({ kind: 'hangup', from: 'a', to: 'b' }).success, false)
   assert.equal(huddleSignalSchema.safeParse({ kind: 'offer', from: 'a', sdp: 'v=0…' }).success, false)
+})
+
+test('the mesh has a hard participant ceiling — joining a full huddle is refused', () => {
+  // A full mesh is N×(N-1)/2 connections with one audio uplink per peer;
+  // beyond ~8 members ordinary uplinks audibly degrade for everyone.
+  assert.equal(huddleHasRoom(0), true)
+  assert.equal(huddleHasRoom(HUDDLE_MAX_PARTICIPANTS - 1), true, 'the last seat is joinable')
+  assert.equal(huddleHasRoom(HUDDLE_MAX_PARTICIPANTS), false, 'a full huddle refuses the next joiner')
 })
 
 test('speech gate passes voice-level RMS and rejects silence-level noise', () => {

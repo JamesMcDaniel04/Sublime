@@ -9,10 +9,11 @@
  */
 import { useEffect, useState } from 'react'
 import { toast } from 'sonner'
-import { Headphones, Loader2, Megaphone, Mic, MicOff, PhoneOff, SmilePlus, UserPlus } from 'lucide-react'
+import { ChevronDown, Headphones, Loader2, Megaphone, Mic, MicOff, PhoneOff, SmilePlus, UserPlus } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { jamCursorColor } from '@/lib/flows/jam-presence'
+import { HUDDLE_MAX_PARTICIPANTS, huddleHasRoom } from '@/lib/flows/jam-huddle'
 import { cn } from '@/lib/utils'
 import { JAM_REACTION_EMOJI } from './flow-comments'
 import type { JamConnectionState, JamPeer } from './use-flow-jam'
@@ -25,9 +26,14 @@ export type JamHuddleControls = {
   muted: boolean
   /** clientId → speaking (plus 'self' for the local mic). */
   speaking: Record<string, boolean>
+  /** Available microphones; labels populate once mic permission is granted. */
+  mics: { deviceId: string; label: string }[]
+  activeMicId: string | null
   join: () => Promise<boolean>
   leave: () => void
   toggleMute: () => void
+  /** Switch microphones mid-huddle (replaceTrack — no renegotiation). */
+  setMic: (deviceId: string) => Promise<boolean>
 }
 
 const CONNECTION_LABEL: Record<JamConnectionState, string> = {
@@ -87,24 +93,28 @@ function JamAvatar({
 function HuddleControl({ peers, huddle }: { peers: JamPeer[]; huddle: JamHuddleControls }) {
   const huddlePeers = peers.filter((peer) => peer.inHuddle)
 
-  const join = async () => {
-    const ok = await huddle.join()
-    if (!ok) toast.error('Could not start the huddle — microphone unavailable or permission denied.')
-  }
+  // Join failures (mic blocked, no mic, huddle full) are toasted by the hook,
+  // which knows the specific reason — no generic double-toast here.
+  const join = () => void huddle.join()
 
   if (!huddle.active) {
     const othersIn = huddlePeers.length > 0
+    const full = !huddleHasRoom(huddlePeers.length)
     return (
       <Button
         variant="outline"
         size="sm"
-        disabled={huddle.joining}
+        disabled={huddle.joining || full}
         onClick={join}
-        title={othersIn ? `${huddlePeers.map((peer) => peer.name).join(', ')} — join the huddle` : 'Start a voice huddle'}
-        className={cn(othersIn && 'border-emerald-300 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 hover:text-emerald-800')}
+        title={
+          full ? `The huddle is full (${HUDDLE_MAX_PARTICIPANTS} people max)`
+          : othersIn ? `${huddlePeers.map((peer) => peer.name).join(', ')} — join the huddle`
+          : 'Start a voice huddle'
+        }
+        className={cn(othersIn && !full && 'border-emerald-300 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 hover:text-emerald-800')}
       >
         {huddle.joining ? <Loader2 className="h-4 w-4 animate-spin" /> : <Headphones className="h-4 w-4" />}
-        {othersIn ? `Join huddle · ${huddlePeers.length}` : 'Huddle'}
+        {full ? `Huddle full · ${huddlePeers.length}` : othersIn ? `Join huddle · ${huddlePeers.length}` : 'Huddle'}
       </Button>
     )
   }
@@ -124,6 +134,37 @@ function HuddleControl({ peers, huddle }: { peers: JamPeer[]; huddle: JamHuddleC
       >
         {huddle.muted ? <MicOff className="h-3.5 w-3.5" /> : <Mic className="h-3.5 w-3.5" />}
       </button>
+      {/* Mic picker — only worth the pixels when there is actually a choice. */}
+      {huddle.mics.length > 1 && (
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <button
+              type="button"
+              aria-label="Choose microphone"
+              title="Choose microphone"
+              className="flex h-6 w-5 items-center justify-center rounded-full text-emerald-700 hover:bg-emerald-100"
+            >
+              <ChevronDown className="h-3 w-3" />
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-64 rounded-xl border-slate-200 bg-white p-1 shadow-xl">
+            {huddle.mics.map((mic) => (
+              <button
+                key={mic.deviceId}
+                type="button"
+                onClick={() => void huddle.setMic(mic.deviceId)}
+                className={cn(
+                  'flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-xs hover:bg-slate-50',
+                  mic.deviceId === huddle.activeMicId && 'font-semibold text-emerald-700',
+                )}
+              >
+                <Mic className="h-3 w-3 shrink-0" />
+                <span className="truncate">{mic.label}</span>
+              </button>
+            ))}
+          </DropdownMenuContent>
+        </DropdownMenu>
+      )}
       <span className="px-0.5 text-xs font-semibold text-emerald-800" title={`You${huddlePeers.length ? ` + ${huddlePeers.map((peer) => peer.name).join(', ')}` : ''}`}>
         {huddlePeers.length + 1}
       </span>

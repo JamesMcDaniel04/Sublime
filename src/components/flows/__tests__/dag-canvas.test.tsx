@@ -140,9 +140,53 @@ test('every widget offers a quick-add "+" — the n8n append-a-step affordance',
   assert.equal(buttons.length, 4)
 })
 
+test('a Stop step offers no quick-add — nothing can run after it', () => {
+  const withStop: FlowGraph = {
+    nodes: [
+      { id: 'trigger', type: 'trigger', data: {} },
+      { id: 'halt', type: 'stop', data: { reason: '' } },
+    ],
+    edges: [{ id: 'e0', source: 'trigger', target: 'halt' }],
+  }
+  const { container } = render(React.createElement(DagCanvas, { ...props, graph: withStop } as never))
+  const stopNode = [...container.querySelectorAll('.react-flow__node')].find((el) => el.getAttribute('data-id') === 'halt')
+  assert.equal(stopNode?.querySelector('[aria-label="Add a connected step"]'), null)
+})
+
 test('a read-only canvas (version viewing) offers no quick-add', () => {
   const { container } = render(React.createElement(DagCanvas, { ...props, readOnly: true } as never))
   assert.equal(container.querySelectorAll('[aria-label="Add a connected step"]').length, 0)
+})
+
+test('quick-add on an If/else asks which output first, and the pick carries that branch', () => {
+  const withCondition: FlowGraph = {
+    nodes: [
+      { id: 'trigger', type: 'trigger', data: {} },
+      { id: 'cond', type: 'condition', data: { match: 'all', clauses: [{ left: 'x', op: 'contains', right: 'y' }] } },
+    ],
+    edges: [{ id: 'e0', source: 'trigger', target: 'cond' }],
+  }
+  const calls: { connectFrom?: string; connectBranch?: string }[] = []
+  const { container } = render(
+    React.createElement(DagCanvas, {
+      ...props,
+      graph: withCondition,
+      onAddNode: (_type: string, _seed: unknown, _position: unknown, connectFrom?: string, connectBranch?: string) =>
+        calls.push({ connectFrom, connectBranch }),
+    } as never),
+  )
+  const condNode = [...container.querySelectorAll('.react-flow__node')].find((el) => el.getAttribute('data-id') === 'cond')
+  const plus = condNode?.querySelector('[aria-label="Add a connected step"]') as HTMLButtonElement
+  act(() => plus.click())
+  // A plain edge from an If/else whose outputs are wired would NEVER run — so
+  // the canvas asks which output the new step hangs off before the picker.
+  const trueOption = [...container.querySelectorAll('button')].find((el) => el.textContent?.trim() === 'True')
+  assert.ok(trueOption, 'the output chooser lists True/False, not the step picker')
+  act(() => trueOption!.click())
+  assert.match(container.textContent ?? '', /AI capabilities/, 'the picker opens after the output is chosen')
+  const row = [...container.querySelectorAll('button')].find((el) => el.textContent?.includes('Summarizer'))
+  act(() => row!.click())
+  assert.deepEqual(calls, [{ connectFrom: 'cond', connectBranch: 'true' }])
 })
 
 test('quick-add opens the picker, and the pick lands WIRED to that node', () => {

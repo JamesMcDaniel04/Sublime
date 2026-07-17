@@ -120,6 +120,21 @@ test('addConnectedNodeAt with a vanished source adds the node unwired instead of
   assert.equal(graph.edges.length, before.edges.length, 'no edge to a node that no longer exists')
 })
 
+test('addConnectedNodeAt can wire from a specific branch output of an If/else', () => {
+  const graph: FlowGraph = {
+    nodes: [
+      { id: 'trigger', type: 'trigger', data: {} },
+      { id: 'cond', type: 'condition', data: { match: 'all', clauses: [{ left: 'x', op: 'contains', right: 'y' }] } },
+    ],
+    edges: [{ id: 't->cond', source: 'trigger', target: 'cond' }],
+  }
+  const { graph: next, nodeId } = addConnectedNodeAt(graph, 'cond', 'agent', { x: 0, y: 0 }, 'a1', 'true')
+  assert.ok(
+    next.edges.some((e) => e.source === 'cond' && e.target === nodeId && e.branch === 'true'),
+    'the wire carries the chosen output label — a plain edge from an If/else with both outputs wired would never run',
+  )
+})
+
 test('deleteNode heals EVERY fan-in path into EVERY successor, not just the first', () => {
   // p1→m, p2→m (fan-in), m→c1, m→c2 (fan-out): deleting m must keep all four paths alive.
   const graph: FlowGraph = {

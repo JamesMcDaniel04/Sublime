@@ -18,9 +18,12 @@ const huddleOf = (active: boolean): JamHuddleControls => ({
   joining: false,
   muted: false,
   speaking: {},
+  mics: [],
+  activeMicId: null,
   join: async () => true,
   leave: () => {},
   toggleMute: () => {},
+  setMic: async () => true,
 })
 
 const baseProps = { flowId: 'f1', peers: [], canManage: false }
@@ -48,6 +51,24 @@ test('an amber dot explains itself — the failure reason surfaces in the Jam bu
     el.getAttribute('title')?.includes('Realtime is disabled for this project'),
   )
   assert.ok(jamButton, 'hovering the dot answers WHY realtime is down, not just that it is')
+})
+
+test('a full huddle disables Join instead of overloading the mesh', () => {
+  const peers = Array.from({ length: 8 }, (_, index) => ({
+    clientId: `c${index}`,
+    userId: `u${index}`,
+    name: `Peer ${index}`,
+    selectedNodeId: null,
+    cursor: null,
+    inHuddle: true,
+    huddleMuted: false,
+  }))
+  const { container } = render(
+    React.createElement(JamButton, { ...baseProps, peers, connectionState: 'connected', huddle: huddleOf(false) } as never),
+  )
+  const button = [...container.querySelectorAll('button')].find((el) => el.textContent?.includes('full'))
+  assert.ok(button, 'the join button reads as full')
+  assert.equal((button as HTMLButtonElement).disabled, true, 'and cannot be clicked')
 })
 
 test('joining a huddle is only offered while the jam is live (signaling needs the channel)', () => {

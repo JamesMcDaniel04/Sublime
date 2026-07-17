@@ -548,3 +548,58 @@ test('inline agent with a prompt and no agentId is valid', () => {
   assert.equal(r.errors.some((e) => e.code === 'MISSING_AGENT'), false)
   assert.equal(r.errors.some((e) => e.code === 'MISSING_AGENT_OR_PROMPT'), false)
 })
+
+test('warns when a plain edge from an If/else can never run (both outputs already wired)', () => {
+  const agent = (id: string) => ({ id, type: 'agent' as const, data: { agentId: 'a1', input: 'x' } })
+  const r = validateFlowGraph({
+    nodes: [
+      { id: 'trigger', type: 'trigger', data: {} },
+      { id: 'cond', type: 'condition', data: { match: 'all', clauses: [{ left: 'x', op: 'contains', right: 'y' }] } },
+      agent('yes'), agent('no'), agent('dead'),
+    ],
+    edges: [
+      { id: 'e0', source: 'trigger', target: 'cond' },
+      { id: 'e1', source: 'cond', target: 'yes', branch: 'true' },
+      { id: 'e2', source: 'cond', target: 'no', branch: 'false' },
+      // The engine only follows plain edges when the chosen branch has no
+      // labeled wire — with both outputs covered, this edge never lights.
+      { id: 'e3', source: 'cond', target: 'dead' },
+    ],
+  }, { agents: [{ id: 'a1', title: 'A' }] })
+  assert.ok(r.warnings.some((w) => w.code === 'UNREACHABLE_PLAIN_EDGE' && w.nodeId === 'cond'))
+})
+
+test('a plain edge from an If/else with an uncovered output is a live fallback — no warning', () => {
+  const agent = (id: string) => ({ id, type: 'agent' as const, data: { agentId: 'a1', input: 'x' } })
+  const r = validateFlowGraph({
+    nodes: [
+      { id: 'trigger', type: 'trigger', data: {} },
+      { id: 'cond', type: 'condition', data: { match: 'all', clauses: [{ left: 'x', op: 'contains', right: 'y' }] } },
+      agent('yes'), agent('fallback'),
+    ],
+    edges: [
+      { id: 'e0', source: 'trigger', target: 'cond' },
+      { id: 'e1', source: 'cond', target: 'yes', branch: 'true' },
+      { id: 'e2', source: 'cond', target: 'fallback' }, // runs whenever the condition is false
+    ],
+  }, { agents: [{ id: 'a1', title: 'A' }] })
+  assert.equal(r.warnings.some((w) => w.code === 'UNREACHABLE_PLAIN_EDGE'), false)
+})
+
+test('warns on a dead plain edge from a Switch whose cases and default are all wired', () => {
+  const agent = (id: string) => ({ id, type: 'agent' as const, data: { agentId: 'a1', input: 'x' } })
+  const r = validateFlowGraph({
+    nodes: [
+      { id: 'trigger', type: 'trigger', data: {} },
+      { id: 'sw', type: 'switch', data: { cases: [{ id: 'case1', left: 'x', op: 'contains', right: 'y' }] } },
+      agent('c1'), agent('dflt'), agent('dead'),
+    ],
+    edges: [
+      { id: 'e0', source: 'trigger', target: 'sw' },
+      { id: 'e1', source: 'sw', target: 'c1', branch: 'case1' },
+      { id: 'e2', source: 'sw', target: 'dflt', branch: 'default' },
+      { id: 'e3', source: 'sw', target: 'dead' },
+    ],
+  }, { agents: [{ id: 'a1', title: 'A' }] })
+  assert.ok(r.warnings.some((w) => w.code === 'UNREACHABLE_PLAIN_EDGE' && w.nodeId === 'sw'))
+})

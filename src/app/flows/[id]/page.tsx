@@ -10,6 +10,7 @@ import { Badge } from '@/components/ui/badge'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { emptyGraph, type FlowGraph, type FlowNode, type OutputField } from '@/lib/flows/graph'
 import { insertNodeAfter, appendToBranch, duplicateNode, updateNode, deleteNode, changeNodeType, addContainerStep, moveNodeAfter, moveContainerStep, pasteNodeAfter, addNodeAt, addConnectedNodeAt } from '@/lib/flows/mutate'
+import { stackCompatible } from '@/lib/flows/stack-compat'
 import { writeFlowClipboard, readFlowClipboard } from '@/lib/flows/clipboard'
 import { diffFlowGraphs, patchIsEmpty, type FlowCollaborationPatch } from '@/lib/flows/collaboration'
 import { applyPatchStrict, invertPatch } from '@/lib/flows/undo'
@@ -274,6 +275,13 @@ function FlowBuilder() {
     setCanvasModeState(mode)
     if (typeof window !== 'undefined') window.localStorage.setItem('flows.canvasMode', mode)
   }, [])
+  // A non-linear graph (fan-out/fan-in) locks to the canvas: the stack's
+  // single-chain walk would silently hide wires — including ones a Jam peer
+  // just drew, which is why this also force-switches an open stack view.
+  const stackOk = useMemo(() => stackCompatible(graph), [graph])
+  useEffect(() => {
+    if (!stackOk && canvasMode === 'stack') setCanvasMode('dag')
+  }, [stackOk, canvasMode, setCanvasMode])
   const [snapToGrid, setSnapToGrid] = useState(() => {
     if (typeof window === 'undefined') return false
     return window.localStorage.getItem('flows.snapToGrid') === 'true'
@@ -1583,18 +1591,25 @@ function FlowBuilder() {
         />
         {/* Stack ↔ DAG canvas. The DAG view can wire many→many (3 APIs into one
             agent); both views share insert menus, jam cursors, and container
-            editing — pick whichever reads better for the flow. */}
+            editing. A non-linear graph LOCKS to the canvas — the stack's
+            single-chain walk would silently hide fan-out/fan-in wires. */}
         <div className="flex items-center rounded-lg border border-slate-200 p-0.5">
           {(['stack', 'dag'] as const).map((mode) => (
             <button
               key={mode}
               type="button"
+              disabled={mode === 'stack' && !stackOk}
               onClick={() => setCanvasMode(mode)}
               className={cn(
                 'rounded-md px-2.5 py-1 text-xs font-semibold transition-colors',
                 canvasMode === mode ? 'bg-slate-900 text-white' : 'text-slate-500 hover:text-slate-900',
+                mode === 'stack' && !stackOk && 'cursor-not-allowed opacity-40 hover:text-slate-500',
               )}
-              title={mode === 'dag' ? 'Free-form canvas — wire multiple steps into one' : 'Classic stack view'}
+              title={
+                mode === 'dag' ? 'Free-form canvas — wire multiple steps into one'
+                : stackOk ? 'Classic stack view'
+                : 'This flow uses multi-connections — the stack view cannot show them'
+              }
             >
               {mode === 'stack' ? 'Stack' : 'Canvas'}
             </button>
@@ -1729,14 +1744,15 @@ function FlowBuilder() {
               onAddNode={
                 viewingVersion
                   ? () => {}
-                  : (type, seed, position, connectFrom) => {
+                  : (type, seed, position, connectFrom, connectBranch) => {
                       // Same seed handling as the stack's insert path, minus the
                       // chain splice — on the canvas the user wires it up. The
-                      // quick-add gestures pass connectFrom so the new step
-                      // arrives already wired from its source.
+                      // quick-add gestures pass connectFrom (and, for branch
+                      // nodes, the chosen output) so the new step arrives
+                      // already wired from its source.
                       const agentId = type === 'agent' ? seed?.agentId ?? agents[0]?.id ?? '' : undefined
                       const { graph: added, nodeId } = connectFrom
-                        ? addConnectedNodeAt(graph, connectFrom, type, position, agentId)
+                        ? addConnectedNodeAt(graph, connectFrom, type, position, agentId, connectBranch)
                         : addNodeAt(graph, type, position, agentId)
                       commitGraph(applyInsertSeed(added, nodeId, seed))
                       setSelectedId(nodeId)
