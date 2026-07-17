@@ -45,6 +45,8 @@ model Organization {
   slackWorkspaceConnections SlackWorkspaceConnection[]
   slackThreadSessions       SlackThreadSession[]
   userEvents                UserEvent[]
+  userPatterns              UserPattern[]
+  userSuggestions           UserSuggestion[]
 
   @@map("organizations")
 }
@@ -805,6 +807,54 @@ model UserEvent {
   @@index([userId, occurredAt])
   @@index([organizationId, indexedAt])
   @@map("user_events")
+}
+
+/// Durable per-user behavior pattern (spec §3). Postgres is the source of
+/// truth (the graph projection is a retrieval view). status 'dismissed'
+/// permanently suppresses the slug and similar summaries.
+model UserPattern {
+  id              String   @id @default(cuid())
+  organizationId  String   @db.Uuid
+  userId          String
+  slug            String // deterministic, from the miner
+  kind            String // 'sequence' | 'temporal' | 'friction' | 'intent'
+  summary         String
+  occurrenceCount Int
+  firstSeenAt     DateTime @db.Timestamptz(6)
+  lastSeenAt      DateTime @db.Timestamptz(6)
+  evidence        Json     @default("[]") // supporting user_event ids
+  status          String   @default("open") // open | dismissed
+  createdAt       DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt       DateTime @updatedAt @db.Timestamptz(6)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, slug])
+  @@index([organizationId, userId, status])
+  @@map("user_patterns")
+}
+
+/// One quiet, evidence-cited suggestion per user at a time (spec §4).
+model UserSuggestion {
+  id                 String   @id @default(cuid())
+  organizationId     String   @db.Uuid
+  userId             String
+  kind               String // 'new_flow' | 'enhancement'
+  title              String
+  description        String
+  flowId             String? // draft flow created for new_flow suggestions
+  targetType         String? // 'agent' | 'flow' (enhancements)
+  targetId           String?
+  sourcePatternSlugs Json     @default("[]")
+  evidence           Json     @default("[]") // rendered "why this exists" lines
+  status             String   @default("open") // open | accepted | dismissed
+  createdAt          DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt          DateTime @updatedAt @db.Timestamptz(6)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, userId, status])
+  @@map("user_suggestions")
 }
 
 /// One historical backfill run for a connected source. Cursor-checkpointed so
