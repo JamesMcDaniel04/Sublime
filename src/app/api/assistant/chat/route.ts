@@ -10,6 +10,7 @@ import { checkMonthlyTokenBudget, recordTokenUsage } from '@/lib/usage/budget'
 import { BUILTIN_CONNECTORS } from '@/lib/connectors/registry'
 import { createAgentFromDraft, type AgentDraft } from '@/features/agents/create-from-draft'
 import { buildWorkspaceContext } from '@/features/assistant/workspace-context'
+import { buildAssistantIntelligence } from '@/features/assistant/intelligence-context'
 import { recordUserEvent } from '@/lib/behavior/record-event'
 import { deriveTitle, serializeMessage } from './shared'
 
@@ -29,6 +30,7 @@ const PROVIDERS = [...new Map(BUILTIN_CONNECTORS.map((c) => [c.key.toLowerCase()
 const SYSTEM_PROMPT = [
   'You are the Sublime home assistant for a team workspace. You oversee the workspace: its agents, their recent runs, connected integrations, and flows.',
   'Ground every statement in the provided context. If the context does not contain the answer, say so plainly.',
+  'The payload may include an "intelligence" section: retrieved workspace knowledge, OBSERVED usage patterns (evidence-gated facts with real counts and dates), and at most one pending suggestion. Use it to extrapolate from how this user actually works — reference patterns naturally when relevant, never as prescriptions. Mention the pending suggestion only when it relates to the question; the user accepts or dismisses it in the UI, not here.',
   'When the user shares an assignment (as text or an attached file) and wants it handled, turn it into an agent. First check the delivery requirements: output format, cadence or schedule, destinations or integrations, and scope. If any of these are genuinely ambiguous, ask ONE batch of short clarifying questions in the reply and set agentDraft to null. Once requirements are clear — or the assignment already answers them — set agentDraft to the complete configuration. Never ask clarifying questions and emit agentDraft in the same turn.',
   `Available integrations: ${PROVIDERS.join(', ')}. Include only the ones the task needs; an agent with no integrations is fine.`,
   'agentDraft.instructions must be complete operating instructions in second person: the goal, the steps, which tools to use, and what the final output must contain. If minor details remain open, instruct the agent to ask the user via its ask_user tool at run time.',
@@ -158,8 +160,9 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
     })
   }
 
-  const [context, historyRows] = await Promise.all([
+  const [context, intelligence, historyRows] = await Promise.all([
     buildWorkspaceContext(auth),
+    buildAssistantIntelligence({ organizationId: auth.organizationId, userId: auth.dbUser.id, query: message }),
     prisma.assistantChatMessage.findMany({
       where: { organizationId: auth.organizationId, userId: auth.dbUser.id, sessionId: session.id },
       orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
@@ -188,6 +191,7 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
       system: SYSTEM_PROMPT,
       user: JSON.stringify({
         context,
+        ...(intelligence ? { intelligence } : {}),
         conversation,
         question: message,
         ...(attachment ? { attachment } : {}),
