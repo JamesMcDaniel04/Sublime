@@ -31,7 +31,7 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
   if (!suggestion) throw new ApiError('Suggestion not found', 404, 'NOT_FOUND')
 
   await prisma.userSuggestion.update({
-    where: { id: suggestion.id },
+    where: { id: suggestion.id, organizationId: auth.organizationId },
     data: { status: action === 'accept' ? 'accepted' : 'dismissed' },
   })
 
