@@ -1,11 +1,10 @@
 import { z } from 'zod'
-import { prisma } from '@/lib/prisma'
-import { syncAgentConnectors } from '@/lib/connectors/agent-connectors'
 import { BUILTIN_CONNECTORS } from '@/lib/connectors/registry'
-import { DEFAULT_AGENT_MODEL, generateStructured } from '@/lib/llm/model-runner'
+import { generateStructured } from '@/lib/llm/model-runner'
 import { qwenConfigured } from '@/lib/llm/qwen'
 import { ApiError, withAuthenticatedApi } from '@/lib/server/api-handler'
 import { checkMonthlyTokenBudget, recordTokenUsage } from '@/lib/usage/budget'
+import { createAgentFromDraft, normalizeDraft, type AgentDraft } from '@/features/agents/create-from-draft'
 
 // The integration vocabulary the model may pick from: every registry key
 // (deduped case-insensitively — the builtin 'Slack' and the nango 'slack'
@@ -44,15 +43,6 @@ const DRAFT_SCHEMA = {
   required: ['title', 'icon', 'description', 'instructions', 'integrations', 'schedule'],
 } as const
 
-type Draft = {
-  title: string
-  icon: string
-  description: string
-  instructions: string
-  integrations: string[]
-  schedule: { type: string; time: string; cron: string; timezone: string; isActive: boolean }
-}
-
 // Den-style natural-language agent builder: describe the job, get a ready
 // agent config. Pass { create: true } to save it immediately.
 export const POST = withAuthenticatedApi(async (request, auth) => {
@@ -83,47 +73,15 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
   if (!text) throw new ApiError('The model returned no draft', 502, 'DRAFT_FAILED')
   // Rough metering (~chars/4) since generateStructured returns no token usage.
   void recordTokenUsage(auth.organizationId, Math.ceil((description.length + text.length) / 4)).catch(() => undefined)
-  const draft = JSON.parse(text) as Draft
+  const draft = JSON.parse(text) as AgentDraft
 
-  const schedule = {
-    type: draft.schedule.type,
-    timezone: draft.schedule.timezone || 'UTC',
-    isActive: draft.schedule.isActive && draft.schedule.type !== 'manual',
-    ...(draft.schedule.time ? { time: draft.schedule.time } : {}),
-    ...(draft.schedule.cron ? { cron: draft.schedule.cron } : {}),
-  }
-
-  // The model sometimes returns a word (e.g. "test") instead of an emoji for
-  // `icon`; that then shows as broken text. Accept it only if it looks like an
-  // emoji (no ASCII letters/digits, short), else fall back to a default mark.
-  const rawIcon = draft.icon?.trim() || ''
-  const icon = rawIcon && !/[A-Za-z0-9]/.test(rawIcon) && [...rawIcon].length <= 4 ? rawIcon : '🤖'
-  const enrichedDraft = { ...draft, icon, schedule, model: DEFAULT_AGENT_MODEL, visibility: 'private' as const, folder: null }
   if (!create) {
-    return { success: true, draft: enrichedDraft }
+    return { success: true, draft: normalizeDraft(draft) }
   }
 
-  const agent = await prisma.agentTask.create({
-    data: {
-      agentType: 'CUSTOM',
-      description: draft.description || draft.title,
-      objective: draft.instructions,
-      schedule,
-      status: 'ACTIVE',
-      visibility: 'private',
-      organizationId: auth.organizationId,
-      userId: auth.dbUser.id,
-      metadata: {
-        title: draft.title,
-        description: draft.description,
-        model: DEFAULT_AGENT_MODEL,
-        integrations: draft.integrations,
-        icon,
-      },
-    },
+  const { agent, draft: enrichedDraft } = await createAgentFromDraft(draft, {
+    organizationId: auth.organizationId,
+    userId: auth.dbUser.id,
   })
-  // Same typed connector bindings as POST /api/agents — without this, a
-  // draft-built agent's first run falls back to metadata-string matching.
-  await syncAgentConnectors(agent.id, auth.organizationId, auth.dbUser.id, draft.integrations)
   return { success: true, draft: enrichedDraft, agentId: agent.id }
 })
