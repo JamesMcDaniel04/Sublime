@@ -28,6 +28,8 @@ export const nodeIds = {
   activity: (id: string) => `activity:${id}`,
   actor: (source: string, ref: string) => `actor:${source}:${ref}`,
   entity: (source: string, type: string, ref: string) => `entity:${source}:${type}:${ref}`,
+  flow: (id: string) => `flow:${id}`,
+  userEvent: (id: string) => `uevent:${id}`,
 }
 const nid = nodeIds
 
