@@ -11,6 +11,7 @@ import {
 import { assertPublicUrl, SsrfError } from '@/lib/net/ssrf'
 import { cacheDelete } from '@/lib/cache'
 import { scanConnection, purgeConnectionLearnings } from '@/lib/intelligence/connection-scan'
+import { recordUserEvent } from '@/lib/behavior/record-event'
 
 // Mirror of execute-agent's toolDiscoveryCacheKey (org-scoped) — kept in sync
 // deliberately; busting it makes a connection edit take effect before the TTL.
@@ -129,6 +130,12 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
       authConfig: authConfig as Prisma.InputJsonValue,
       isActive: data.isActive ?? true,
     },
+  })
+
+  await recordUserEvent({
+    organizationId: auth.organizationId, userId: auth.dbUser.id,
+    kind: 'connection_added', resourceType: 'connection', resourceId: connection.id,
+    context: { provider: connection.provider ?? connection.name },
   })
 
   // Fire-and-forget usage scan (api-key/none connections are already fully

@@ -22,6 +22,7 @@ import { apiLogger } from '@/lib/logger'
 import { decryptSecret, encryptSecret } from '@/lib/crypto/secrets'
 import { exchangeCode, safeReturnToPath } from '@/lib/mcp/oauth-authcode'
 import { scanConnection } from '@/lib/intelligence/connection-scan'
+import { recordUserEvent } from '@/lib/behavior/record-event'
 import { OAUTH_COOKIE } from '../cookie'
 
 interface OAuthCookiePayload {
@@ -120,6 +121,11 @@ export async function GET(request: NextRequest) {
         },
       })
       connectionRef = created.id
+      await recordUserEvent({
+        organizationId: payload.organizationId, userId: payload.userId,
+        kind: 'connection_added', resourceType: 'connection', resourceId: created.id,
+        context: { provider: created.name },
+      })
     }
 
     // Fire-and-forget usage scan now that the connection is authorized.

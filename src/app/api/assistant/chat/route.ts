@@ -10,6 +10,7 @@ import { checkMonthlyTokenBudget, recordTokenUsage } from '@/lib/usage/budget'
 import { BUILTIN_CONNECTORS } from '@/lib/connectors/registry'
 import { createAgentFromDraft, type AgentDraft } from '@/features/agents/create-from-draft'
 import { buildWorkspaceContext } from '@/features/assistant/workspace-context'
+import { recordUserEvent } from '@/lib/behavior/record-event'
 import { deriveTitle, serializeMessage } from './shared'
 
 export const runtime = 'nodejs'
@@ -220,6 +221,11 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
         icon: created.draft.icon,
         description: created.draft.description,
       }
+      await recordUserEvent({
+        organizationId: auth.organizationId, userId: auth.dbUser.id,
+        kind: 'agent_created', resourceType: 'agent', resourceId: created.agent.id,
+        context: { via: 'assistant', name: created.draft.title },
+      })
     } catch {
       reply = `${reply}\n\nI could not save the agent just now — ask me to create it again.`
     }
@@ -257,6 +263,11 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
       content: message,
       ...(attachment ? { metadata: { attachment } as unknown as Prisma.InputJsonValue } : {}),
     },
+  })
+  await recordUserEvent({
+    organizationId: auth.organizationId, userId: auth.dbUser.id,
+    kind: 'assistant_prompt', resourceType: 'assistant_message', resourceId: userMessage.id,
+    context: { sessionId: userMessage.sessionId },
   })
   const assistantMetadata: Record<string, unknown> = {}
   if (createdAgent) assistantMetadata.createdAgent = createdAgent

@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { ApiError, withAuthenticatedApi } from '@/lib/server/api-handler'
+import { recordUserEvent } from '@/lib/behavior/record-event'
 import { rateLimit } from '@/lib/ratelimit'
 import { checkMonthlyTokenBudget } from '@/lib/usage/budget'
 import { generateStructured } from '@/lib/llm/model-runner'
@@ -65,6 +66,12 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
   const budget = await checkMonthlyTokenBudget(auth.organizationId, auth.dbUser.id)
   if (budget.over) throw new ApiError('Monthly token budget reached for this workspace.', 429, 'BUDGET_EXCEEDED')
   const { messages, graph: rawGraph } = requestSchema.parse(await request.json())
+  // Behavior capture: the ask itself, by reference only (no prompt text).
+  await recordUserEvent({
+    organizationId: auth.organizationId, userId: auth.dbUser.id,
+    kind: 'copilot_prompt', resourceType: 'flow', resourceId: null,
+    context: { turns: messages.length },
+  })
   const { roster, toolCatalog, contextBlock, graphRules } = await buildCopilotGrounding(auth.organizationId, auth.dbUser.id)
 
   // An invalid/missing graph means we're chatting over a blank canvas.
