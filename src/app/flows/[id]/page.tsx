@@ -37,6 +37,7 @@ import { ResizablePanel } from '@/components/flows/resizable-panel'
 import { TestPanel } from '@/components/flows/test-panel'
 import { VersionsPanel } from '@/components/flows/versions-panel'
 import { useFlowJam, type HuddleSignal, type JamPeer } from '@/components/flows/use-flow-jam'
+import { CanvasErrorBoundary } from '@/components/flows/canvas-error-boundary'
 import { useJamHuddle } from '@/components/flows/use-jam-huddle'
 import { CommentsPanel, JamReactionsOverlay, JamStackCommentPins, commentPinsFor, useFlowComments, type CommentAnchorPoint, type FloatingReaction } from '@/components/flows/flow-comments'
 import { contentPointFromClient, jamCursorColor, type JamCursor } from '@/lib/flows/jam-presence'
@@ -465,7 +466,7 @@ function FlowBuilder() {
   // which itself needs useFlowJam's transport — a ref breaks the circle (same
   // pattern as jamCursorUpdateRef).
   const huddleSignalRef = useRef<(signal: HuddleSignal) => void>(() => {})
-  const { peers, connectionState, clientId, broadcastGraph, updateCursor, broadcastAccessChange, sendHuddleSignal, setHuddlePresence, sendReaction, requestSpotlight, broadcastCommentsChanged } = useFlowJam({
+  const { peers, connectionState, connectionDetail, graphSyncLive, clientId, broadcastGraph, updateCursor, broadcastAccessChange, sendHuddleSignal, setHuddlePresence, sendReaction, requestSpotlight, broadcastCommentsChanged } = useFlowJam({
     flowId: id,
     enabled: !loading && !loadError,
     selectedNodeId: selectedId,
@@ -948,10 +949,16 @@ function FlowBuilder() {
     }
     setSaving(true)
     try {
+      // While the jam is durably persisting the graph (patch-sequenced by the
+      // collaboration endpoint), Save must NOT send its whole-graph overwrite:
+      // the jam keeps baseUpdatedAt fresh, so the optimistic-concurrency check
+      // would pass while this client's graph copy may lack teammates' latest
+      // work — a wholesale PUT then clobbers (or blanks) the shared flow.
+      // Metadata still saves; the graph is already saved, patch by patch.
       const response = await fetch('/api/flows', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id, name, description, graph, status: status.toUpperCase(), errorFlowId: errorFlowId || null, baseUpdatedAt: baseUpdatedAtRef.current }),
+        body: JSON.stringify({ id, name, description, ...(graphSyncLive ? {} : { graph }), status: status.toUpperCase(), errorFlowId: errorFlowId || null, baseUpdatedAt: baseUpdatedAtRef.current }),
       })
       const data = await response.json().catch(() => ({}))
       if (!response.ok) {
@@ -967,7 +974,7 @@ function FlowBuilder() {
     } finally {
       setSaving(false)
     }
-  }, [id, name, description, graph, status, errorFlowId, loadError, savedSnapshot])
+  }, [id, name, description, graph, status, errorFlowId, loadError, savedSnapshot, graphSyncLive])
 
   const publish = useCallback(
     async (revert = false) => {
@@ -1597,6 +1604,7 @@ function FlowBuilder() {
           flowId={id}
           peers={peers}
           connectionState={connectionState}
+          connectionDetail={connectionDetail}
           canManage={canManageJam}
           onAccessChanged={broadcastAccessChange}
           followingClientId={followingClientId}
@@ -1687,6 +1695,7 @@ function FlowBuilder() {
       <div className="relative flex min-h-0 flex-1">
         {/* DAG mode owns its own pan/zoom/background (React Flow), so it renders
             OUTSIDE the stack canvas's scroll + transform wrapper. */}
+        <CanvasErrorBoundary>
         {canvasMode === 'dag' ? (
           // Cursor capture happens inside DagCanvas (it needs React Flow's
           // screenToFlowPosition); peers' cursors render there too, in flow
@@ -1887,6 +1896,7 @@ function FlowBuilder() {
           </div>
         </div>
         )}
+        </CanvasErrorBoundary>
 
         {/* Zoom/pan rail drives the stack canvas only — React Flow ships its own. */}
         {canvasMode === 'stack' && (

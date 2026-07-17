@@ -187,6 +187,7 @@ export function JamButton({
   flowId,
   peers,
   connectionState,
+  connectionDetail = null,
   canManage = false,
   onAccessChanged,
   followingClientId = null,
@@ -198,6 +199,9 @@ export function JamButton({
   flowId: string
   peers: JamPeer[]
   connectionState: JamConnectionState
+  /** WHY the connection is amber/red (last realtime failure) — an unexplained
+   *  status dot is undebuggable from the UI. */
+  connectionDetail?: string | null
   canManage?: boolean
   onAccessChanged?: () => void
   /** Peer currently being followed (viewport tracking), if any. */
@@ -313,7 +317,7 @@ export function JamButton({
           <Button
             variant="outline"
             size="sm"
-            title={`${CONNECTION_LABEL[connectionState]}${canManage ? ' — manage Flow Jam access' : ''}`}
+            title={`${CONNECTION_LABEL[connectionState]}${connectionDetail ? ` — ${connectionDetail}` : ''}${canManage ? ' — manage Flow Jam access' : ''}`}
           >
             <span className={cn('h-2 w-2 rounded-full', connectionTone(connectionState))} aria-hidden="true" />
             <UserPlus className="h-4 w-4" /> Jam
@@ -329,6 +333,9 @@ export function JamButton({
               {CONNECTION_LABEL[connectionState]}
               {peers.length > 0 && <span className="text-slate-400">· {peers.length} here now</span>}
             </p>
+            {connectionDetail && connectionState !== 'connected' && (
+              <p className="mt-1 text-[11px] leading-snug text-slate-500">{connectionDetail}</p>
+            )}
             <div className="mt-2 max-h-56 space-y-0.5 overflow-y-auto">
               {loading && <Loader2 className="mx-auto my-3 h-4 w-4 animate-spin text-slate-400" />}
               {!loading && members.length === 0 && (

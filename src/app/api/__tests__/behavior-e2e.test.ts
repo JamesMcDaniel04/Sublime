@@ -155,7 +155,7 @@ if (TEST_DB) {
     // Inference is fired void — poll the pattern table for the mined routine.
     const weekday = new Date(now - 7 * DAY).getUTCDay()
     const slug = `routine:agent_run_manual:agent:${ROUTINE_AGENT}:${weekday}`
-    const pattern = await waitFor(() => prisma.userPattern.findFirst({ where: { organizationId, userId, slug } }))
+    const pattern: any = await waitFor(() => prisma.userPattern.findFirst({ where: { organizationId, userId, slug } }))
     assert.ok(pattern, `mined pattern ${slug} not found`)
     assert.equal(pattern.occurrenceCount, 3)
     assert.equal(pattern.status, 'open')

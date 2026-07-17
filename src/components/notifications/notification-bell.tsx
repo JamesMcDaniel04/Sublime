@@ -72,18 +72,23 @@ export function NotificationBell({ buttonClassName }: { buttonClassName?: string
       // material — surface new ones as an actionable toast that takes the
       // invitee straight into the flow they were invited to.
       const invites = notifications.filter((n) => n.type === 'flow.jam.invite' && !n.readAt)
-      if (seenJamInvitesRef.current === null) {
-        seenJamInvitesRef.current = new Set(invites.map((n) => n.id))
-      } else {
-        for (const invite of invites) {
-          if (seenJamInvitesRef.current.has(invite.id)) continue
-          seenJamInvitesRef.current.add(invite.id)
-          toast(invite.title, {
-            description: invite.body || undefined,
-            duration: 15000,
-            action: { label: 'Join jam', onClick: () => router.push(notificationHref(invite)) },
-          })
-        }
+      // First load must NOT silently seed unread invites as "seen" — an invite
+      // that landed before this page session (the teammate clicked Invite while
+      // you were navigating or opening the app) would then never prompt at all.
+      // Prompt for any unread invite still fresh enough to be a live session;
+      // older unread ones stay visible in the bell list.
+      const isFirstLoad = seenJamInvitesRef.current === null
+      const seen = (seenJamInvitesRef.current ??= new Set<string>())
+      const FRESH_INVITE_MS = 30 * 60 * 1000
+      for (const invite of invites) {
+        if (seen.has(invite.id)) continue
+        seen.add(invite.id)
+        if (isFirstLoad && Date.now() - new Date(invite.createdAt).getTime() > FRESH_INVITE_MS) continue
+        toast(invite.title, {
+          description: invite.body || undefined,
+          duration: 15000,
+          action: { label: 'Join jam', onClick: () => router.push(notificationHref(invite)) },
+        })
       }
     } catch {
       // leave the last-known list on a transient failure

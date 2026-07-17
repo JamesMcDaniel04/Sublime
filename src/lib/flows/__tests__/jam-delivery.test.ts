@@ -48,7 +48,8 @@ test('updates the cursor of a known peer', () => {
 })
 
 test('UPSERTS an unknown peer from a cursor event (presence self-heal)', () => {
-  const next = applyCursorEvent([], { clientId: 'c2', userId: 'u2', name: 'Grace', cursor, selectedNodeId: null }, 'self')
+  const none: JamPeerLike[] = []
+  const next = applyCursorEvent(none, { clientId: 'c2', userId: 'u2', name: 'Grace', cursor, selectedNodeId: null }, 'self')
   assert.equal(next.length, 1)
   assert.equal(next[0].clientId, 'c2')
   assert.equal(next[0].name, 'Grace')
@@ -56,8 +57,9 @@ test('UPSERTS an unknown peer from a cursor event (presence self-heal)', () => {
 })
 
 test('ignores self and identity-less payloads (no ghost peers)', () => {
-  assert.equal(applyCursorEvent([], { clientId: 'self', userId: 'u', name: 'Me', cursor, selectedNodeId: null }, 'self').length, 0)
-  assert.equal(applyCursorEvent([], { clientId: 'c9', cursor, selectedNodeId: null }, 'self').length, 0)
+  const none: JamPeerLike[] = []
+  assert.equal(applyCursorEvent(none, { clientId: 'self', userId: 'u', name: 'Me', cursor, selectedNodeId: null }, 'self').length, 0)
+  assert.equal(applyCursorEvent(none, { clientId: 'c9', cursor, selectedNodeId: null }, 'self').length, 0)
 })
 
 test('malformed cursor payloads clear the cursor but never throw', () => {

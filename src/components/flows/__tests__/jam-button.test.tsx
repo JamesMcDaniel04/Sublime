@@ -36,6 +36,20 @@ test('an ACTIVE huddle keeps its mute/leave controls even when the jam degrades'
   assert.ok(container.querySelector('[aria-label="Mute microphone"]'), 'mute stays reachable too')
 })
 
+test('an amber dot explains itself — the failure reason surfaces in the Jam button title', () => {
+  const { container } = render(
+    React.createElement(JamButton, {
+      ...baseProps,
+      connectionState: 'degraded',
+      connectionDetail: 'Realtime channel failed: Realtime is disabled for this project',
+    } as never),
+  )
+  const jamButton = [...container.querySelectorAll('button')].find((el) =>
+    el.getAttribute('title')?.includes('Realtime is disabled for this project'),
+  )
+  assert.ok(jamButton, 'hovering the dot answers WHY realtime is down, not just that it is')
+})
+
 test('joining a huddle is only offered while the jam is live (signaling needs the channel)', () => {
   const degraded = render(
     React.createElement(JamButton, { ...baseProps, connectionState: 'degraded', huddle: huddleOf(false) } as never),

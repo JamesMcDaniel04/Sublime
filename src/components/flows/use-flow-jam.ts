@@ -93,6 +93,14 @@ export function useFlowJam(options: {
   const [peers, setPeers] = useState<JamPeer[]>([])
   const peersRef = useRef<JamPeer[]>([])
   const [connectionState, setConnectionState] = useState<JamConnectionState>('connecting')
+  /** WHY realtime last failed, for the status UI — null while healthy. An
+   *  amber dot with no reason is undebuggable from the browser. */
+  const [connectionDetail, setConnectionDetail] = useState<string | null>(null)
+  // True once the collaboration endpoint is durably persisting this session's
+  // graph (a snapshot landed and access holds). While live, the page's Save
+  // must NOT send its whole-graph PUT — the jam patches are the graph's source
+  // of truth, and a wholesale overwrite can clobber teammates' work.
+  const [graphSyncLive, setGraphSyncLive] = useState(false)
   const clientId = useMemo(() => globalThis.crypto?.randomUUID?.() || Math.random().toString(36).slice(2), [])
   const channelRef = useRef<ReturnType<ReturnType<typeof createClient>['channel']> | null>(null)
   const supabaseRef = useRef<ReturnType<typeof createClient> | null>(null)
@@ -213,6 +221,7 @@ export function useFlowJam(options: {
     latestLocalRef.current = next
     revisionRef.current = snapshot.revision
     updatedAtRef.current = snapshot.updatedAt
+    setGraphSyncLive(true)
     callbacksRef.current.onRemoteSaved(snapshot.updatedAt)
     if (!sameGraph(next, pendingLocal)) callbacksRef.current.onRemoteGraph(next)
   }
@@ -254,6 +263,7 @@ export function useFlowJam(options: {
       if (!response.ok) {
         if (response.status === 403 || response.status === 404) {
           accessDeniedRef.current = true
+          setGraphSyncLive(false)
           disconnectRealtime()
           dispatchConnection('access-denied')
         }
@@ -327,6 +337,7 @@ export function useFlowJam(options: {
         const data = (await response.json().catch(() => ({}))) as CollaborationSnapshot
         if (response.status === 403 || response.status === 404) {
           accessDeniedRef.current = true
+          setGraphSyncLive(false)
           disconnectRealtime()
           if (!disposed) dispatchConnection('access-denied')
         }
@@ -338,6 +349,7 @@ export function useFlowJam(options: {
           if (!misconfiguredRef.current) {
             misconfiguredRef.current = true
             accessDeniedRef.current = true
+            setGraphSyncLive(false)
             disconnectRealtime()
             callbacksRef.current.onConflict(
               'Live collaboration is not configured on this server (missing ENCRYPTION_KEY). Flow edits still save normally.',
@@ -411,7 +423,28 @@ export function useFlowJam(options: {
 
       actorRef.current = snapshot.actor
       topicRef.current = snapshot.topic
-      const supabase = createClient()
+      // A build without the PUBLIC Supabase env can never do realtime, though
+      // server snapshots work fine (the server has its own env). createClient
+      // THROWS on missing env — uncaught it escaped `void connect()` as an
+      // unhandled rejection, stranding the jam on a silent amber 'connecting'
+      // with no poll loop at all. Explain once, settle honestly in 'degraded'
+      // (HTTP sync IS working), keep polling, and don't dial again.
+      let supabase: ReturnType<typeof createClient>
+      try {
+        supabase = createClient()
+      } catch {
+        if (disposed) return
+        if (!misconfiguredRef.current) {
+          misconfiguredRef.current = true
+          callbacksRef.current.onConflict(
+            'Live collaboration is off: this deployment is missing NEXT_PUBLIC_SUPABASE_URL / NEXT_PUBLIC_SUPABASE_ANON_KEY. Flow edits still save normally.',
+          )
+        }
+        setConnectionDetail('Realtime is off — NEXT_PUBLIC_SUPABASE_URL / NEXT_PUBLIC_SUPABASE_ANON_KEY are not set in this deployment.')
+        dispatchConnection('channel-error')
+        schedulePoll()
+        return
+      }
       supabaseRef.current = supabase
       // Private-channel joins are authorized via RLS against the CURRENT
       // realtime auth token. On a fresh client the token loads async — a join
@@ -555,6 +588,7 @@ export function useFlowJam(options: {
           if (disposed || channelRef.current !== channel) return
           if (status === 'SUBSCRIBED') {
             channelFailures = 0
+            setConnectionDetail(null)
             dispatchConnection('channel-subscribed')
             // track() with retry: a single lost track used to make this client
             // permanently invisible to peers (nothing ever re-tracked). Retry
@@ -579,10 +613,19 @@ export function useFlowJam(options: {
             // this reconnect one rejected join leaves the jam on the HTTP
             // fallback (amber dot) for the rest of the session.
             if (err) console.warn('[flow-jam] realtime channel failed:', err.message)
+            // Keep the REASON, not just the fact — "amber forever" is usually a
+            // rejected private-channel join (RLS/auth) and the server's error
+            // message says so.
+            setConnectionDetail(
+              err ? `Realtime channel failed: ${err.message}`
+                : status === 'TIMED_OUT' ? 'Realtime join timed out — retrying.'
+                : 'Realtime channel failed — retrying.',
+            )
             channelFailures += 1
             dispatchConnection('channel-error')
             scheduleReconnect()
           } else if (status === 'CLOSED') {
+            setConnectionDetail('Realtime connection closed — reconnecting.')
             dispatchConnection('channel-closed')
             scheduleReconnect()
           }
@@ -740,7 +783,7 @@ export function useFlowJam(options: {
       type: 'broadcast',
       event: 'reaction',
       payload: { clientId, name: actorRef.current?.name ?? 'Teammate', emoji },
-    }).then(markRealtimeDelivery)
+    }).then(markEphemeral)
   }
 
   /** Ask every peer to follow this client's viewport (they get a consent toast). */
@@ -751,7 +794,7 @@ export function useFlowJam(options: {
       type: 'broadcast',
       event: 'spotlight',
       payload: { clientId, name: actorRef.current?.name ?? 'Teammate' },
-    }).then(markRealtimeDelivery)
+    }).then(markEphemeral)
   }
 
   /** Tell peers the comment list changed so they refetch (fast path vs. bell). */
@@ -762,7 +805,7 @@ export function useFlowJam(options: {
       type: 'broadcast',
       event: 'comments-changed',
       payload: { clientId },
-    }).then(markRealtimeDelivery)
+    }).then(markDurable)
   }
 
   /** Publish this client's huddle membership/mute so peers' rosters update. */
@@ -785,6 +828,8 @@ export function useFlowJam(options: {
   return {
     peers,
     connectionState,
+    connectionDetail,
+    graphSyncLive,
     clientId,
     broadcastGraph,
     updateCursor,
