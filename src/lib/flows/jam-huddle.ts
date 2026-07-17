@@ -31,16 +31,24 @@ export function isHuddleCaller(selfClientId: string, peerClientId: string): bool
  * Reconcile open peer connections against the huddle roster from presence:
  * `open` = in the huddle but not yet connected, `close` = connected but no
  * longer in the huddle (left it, or left the jam entirely).
+ *
+ * `pending` = peers whose OFFER arrived before the presence sync announcing
+ * them. The offer itself proves huddle membership, so those connections are
+ * exempt from `close` until presence confirms them or the connection dies —
+ * without the grace, reconcile tore down the in-flight handshake and
+ * simultaneous joiners sat silent until the ~30s ICE-failure redial.
  */
 export function huddleConnectionPlan(
   connected: Iterable<string>,
   roster: Iterable<string>,
+  pending: Iterable<string> = [],
 ): { open: string[]; close: string[] } {
   const current = new Set(connected)
   const target = new Set(roster)
+  const grace = new Set(pending)
   return {
     open: [...target].filter((clientId) => !current.has(clientId)),
-    close: [...current].filter((clientId) => !target.has(clientId)),
+    close: [...current].filter((clientId) => !target.has(clientId) && !grace.has(clientId)),
   }
 }
 

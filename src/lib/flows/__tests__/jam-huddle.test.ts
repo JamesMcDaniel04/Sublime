@@ -29,6 +29,23 @@ test('huddleConnectionPlan closes everything when the roster empties', () => {
   assert.deepEqual(huddleConnectionPlan(['a', 'b'], []), { open: [], close: ['a', 'b'] })
 })
 
+test('a pending offer-created connection survives reconcile while presence lags', () => {
+  // 'b' dialed us — their offer PROVES they are in the huddle — but their
+  // inHuddle presence flag has not landed yet. Closing that in-flight
+  // handshake silenced simultaneous joins until the ~30s ICE timeout redial.
+  const plan = huddleConnectionPlan(['a', 'b'], ['a'], ['b'])
+  assert.deepEqual(plan, { open: [], close: [] })
+})
+
+test('pending is a grace for the offer sender only — other absentees still close', () => {
+  const plan = huddleConnectionPlan(['a', 'b', 'c'], ['a'], ['b'])
+  assert.deepEqual(plan, { open: [], close: ['c'] }, 'c left the huddle; b is mid-handshake')
+})
+
+test('a pending peer confirmed by the roster needs no special treatment', () => {
+  assert.deepEqual(huddleConnectionPlan(['a', 'b'], ['a', 'b'], ['b']), { open: [], close: [] })
+})
+
 test('signal schema accepts offer/answer/ice and rejects unknown kinds', () => {
   assert.equal(huddleSignalSchema.safeParse({ kind: 'offer', from: 'a', to: 'b', sdp: 'v=0…' }).success, true)
   assert.equal(huddleSignalSchema.safeParse({ kind: 'answer', from: 'a', to: 'b', sdp: 'v=0…' }).success, true)

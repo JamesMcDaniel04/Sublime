@@ -62,6 +62,9 @@ export function useJamHuddle(options: {
   const mutedRef = useRef(false)
   const localStreamRef = useRef<MediaStream | null>(null)
   const connectionsRef = useRef(new Map<string, PeerEntry>())
+  // Peers whose offer beat the presence sync announcing them — exempt from the
+  // reconcile close until presence confirms them (see huddleConnectionPlan).
+  const pendingOffersRef = useRef(new Set<string>())
   const audioContextRef = useRef<AudioContext | null>(null)
   const selfAnalyserRef = useRef<AnalyserNode | null>(null)
   const sendSignalRef = useRef(options.sendSignal)
@@ -82,6 +85,7 @@ export function useJamHuddle(options: {
   }
 
   const closeConnection = (peerId: string) => {
+    pendingOffersRef.current.delete(peerId)
     const entry = connectionsRef.current.get(peerId)
     if (!entry) return
     connectionsRef.current.delete(peerId)
@@ -150,6 +154,11 @@ export function useJamHuddle(options: {
     if (!activeRef.current) return
     // An offer may beat the presence sync that announces the peer — create the
     // connection on demand; answers/ICE for unknown peers are stale, drop them.
+    // Mark on-demand creations pending so the reconcile pass (which trusts the
+    // presence roster) doesn't close this handshake in the propagation gap.
+    if (signal.kind === 'offer' && !connectionsRef.current.has(signal.from)) {
+      pendingOffersRef.current.add(signal.from)
+    }
     const entry = signal.kind === 'offer' ? createConnection(signal.from) : connectionsRef.current.get(signal.from)
     if (!entry) return
     try {
@@ -179,7 +188,9 @@ export function useJamHuddle(options: {
   useEffect(() => {
     if (!active) return
     const roster = peers.filter((peer) => peer.inHuddle).map((peer) => peer.clientId)
-    const plan = huddleConnectionPlan(connectionsRef.current.keys(), roster)
+    // Presence has caught up for these peers — their grace period is over.
+    for (const peerId of roster) pendingOffersRef.current.delete(peerId)
+    const plan = huddleConnectionPlan(connectionsRef.current.keys(), roster, pendingOffersRef.current)
     for (const peerId of plan.close) closeConnection(peerId)
     for (const peerId of plan.open) {
       if (!isHuddleCaller(clientId, peerId)) continue
