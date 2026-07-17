@@ -164,7 +164,7 @@ export default function TemplateDetails() {
         // An OK response missing its id must still surface — falling through
         // silently cleared the spinner and stranded the user on this page.
         if (targetKind === 'flow' && data.flowId) router.push(`/flows/${data.flowId}`)
-        else if (targetKind === 'agent' && data.agentId) router.push(`/dashboard?agent=${data.agentId}`)
+        else if (targetKind === 'agent' && data.agentId) router.push(`/agents?agent=${data.agentId}`)
         else throw new Error(`Provisioning finished but returned no ${targetKind} — please try again.`)
         return
       }
@@ -175,7 +175,7 @@ export default function TemplateDetails() {
       const agentId = await createLegacyAgent()
       createdAgentId = agentId
       if (targetKind === 'agent') {
-        router.push(`/dashboard?agent=${agentId}`)
+        router.push(`/agents?agent=${agentId}`)
         return
       }
       const trigger = template.trigger ?? { type: 'manual' }
@@ -215,7 +215,7 @@ export default function TemplateDetails() {
     <>
       <div className="mx-auto max-w-6xl space-y-5 p-6">
         <Button variant="ghost" size="sm" asChild className="-ml-2 w-fit">
-          <Link href="/dashboard?view=templates"><ArrowLeft className="mr-1.5 h-4 w-4" />Back to templates</Link>
+          <Link href="/agents?view=templates"><ArrowLeft className="mr-1.5 h-4 w-4" />Back to templates</Link>
         </Button>
         {loading ? (
           <div className="space-y-4">
@@ -228,7 +228,7 @@ export default function TemplateDetails() {
             <h1 className="text-lg font-semibold">Could not open template</h1>
             <p className="mt-2 text-sm text-muted-foreground">{loadError || 'This template could not be found.'}</p>
             <div className="mt-4 flex justify-center gap-2">
-              <Button variant="outline" asChild><Link href="/dashboard?view=templates">Back to templates</Link></Button>
+              <Button variant="outline" asChild><Link href="/agents?view=templates">Back to templates</Link></Button>
               <Button onClick={() => setReloadKey((key) => key + 1)}>Try again</Button>
             </div>
           </div>

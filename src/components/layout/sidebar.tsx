@@ -18,6 +18,7 @@ import {
   Plug,
   Plus,
   Search,
+  Sparkles,
   Trash2,
   Workflow,
 } from 'lucide-react'
@@ -59,9 +60,10 @@ export function notifyAgentsChanged() {
 }
 
 // Templates has no nav entry — the library lives inside Agent HQ
-// (/dashboard?view=templates), toggled at the top of that page.
+// (/agents?view=templates), toggled at the top of that page.
 const navigation = [
-  { name: 'Home', href: '/dashboard', icon: Brain },
+  { name: 'Home', href: '/dashboard', icon: Sparkles },
+  { name: 'Agents', href: '/agents', icon: Brain },
   { name: 'Integrations', href: '/integrations', icon: Plug },
   { name: 'Flows', href: '/flows', icon: Workflow },
 ]
@@ -283,7 +285,7 @@ export function Sidebar() {
           toast.success(`${agent.title} ran`)
         }
         notifyAgentsChanged()
-        router.push('/dashboard')
+        router.push('/agents')
       } else {
         toast.error(data.error || 'Run failed')
       }
@@ -341,7 +343,7 @@ export function Sidebar() {
       <button
         className="flex-1 truncate text-left text-sm"
         title={agent.description || agent.title}
-        onClick={() => router.push(`/dashboard?agent=${agent.id}`)}
+        onClick={() => router.push(`/agents?agent=${agent.id}`)}
       >
         {agent.title}
       </button>
@@ -506,7 +508,7 @@ export function Sidebar() {
               size="icon"
               variant="ghost"
               className="h-5 w-5 text-[#B9D3D2] hover:bg-white/10 hover:text-white"
-              onClick={() => router.push('/dashboard?agent=new')}
+              onClick={() => router.push('/agents?agent=new')}
               aria-label="New agent"
             >
               <Plus className="h-3.5 w-3.5" />

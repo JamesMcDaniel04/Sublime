@@ -11,6 +11,7 @@ import { useEffect, useState } from 'react'
 import { toast } from 'sonner'
 import { Headphones, Loader2, Megaphone, Mic, MicOff, PhoneOff, SmilePlus, UserPlus } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { jamCursorColor } from '@/lib/flows/jam-presence'
 import { cn } from '@/lib/utils'
 import { JAM_REACTION_EMOJI } from './flow-comments'
@@ -139,44 +140,46 @@ function HuddleControl({ peers, huddle }: { peers: JamPeer[]; huddle: JamHuddleC
   )
 }
 
-/** Ephemeral emoji picker + spotlight request, shown while the jam is live. */
+/**
+ * Ephemeral emoji picker + spotlight request, shown while the jam is live.
+ * Rendered in a portal (Radix) because the builder toolbar is an overflow-x
+ * scroll container — an absolutely-positioned panel inside it gets clipped
+ * under the canvas.
+ */
 function ReactionPicker({ onReact, onSpotlight }: { onReact: (emoji: string) => void; onSpotlight?: () => void }) {
   const [open, setOpen] = useState(false)
   return (
-    <div className="relative">
-      <Button variant="outline" size="icon" className="h-8 w-8" aria-label="React" title="Send a reaction" onClick={() => setOpen((value) => !value)}>
-        <SmilePlus className="h-4 w-4" />
-      </Button>
-      {open && (
-        <>
-          <div className="fixed inset-0 z-30" onClick={() => setOpen(false)} />
-          <div className="absolute right-0 top-full z-40 mt-2 w-max rounded-xl border border-slate-200 bg-white p-1.5 shadow-xl">
-            <div className="flex gap-0.5">
-              {JAM_REACTION_EMOJI.map((emoji) => (
-                <button
-                  key={emoji}
-                  type="button"
-                  aria-label={`React ${emoji}`}
-                  className="flex h-8 w-8 items-center justify-center rounded-lg text-lg transition-transform hover:scale-125 hover:bg-slate-50"
-                  onClick={() => { onReact(emoji); setOpen(false) }}
-                >
-                  {emoji}
-                </button>
-              ))}
-            </div>
-            {onSpotlight && (
-              <button
-                type="button"
-                className="mt-1 flex w-full items-center gap-1.5 rounded-lg px-2 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50 hover:text-indigo-700"
-                onClick={() => { onSpotlight(); setOpen(false) }}
-              >
-                <Megaphone className="h-3.5 w-3.5" /> Spotlight me — ask everyone to follow
-              </button>
-            )}
-          </div>
-        </>
-      )}
-    </div>
+    <DropdownMenu open={open} onOpenChange={setOpen}>
+      <DropdownMenuTrigger asChild>
+        <Button variant="outline" size="icon" className="h-8 w-8" aria-label="React" title="Send a reaction">
+          <SmilePlus className="h-4 w-4" />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="w-max rounded-xl border-slate-200 bg-white p-1.5 shadow-xl">
+        <div className="flex gap-0.5">
+          {JAM_REACTION_EMOJI.map((emoji) => (
+            <button
+              key={emoji}
+              type="button"
+              aria-label={`React ${emoji}`}
+              className="flex h-8 w-8 items-center justify-center rounded-lg text-lg transition-transform hover:scale-125 hover:bg-slate-50"
+              onClick={() => { onReact(emoji); setOpen(false) }}
+            >
+              {emoji}
+            </button>
+          ))}
+        </div>
+        {onSpotlight && (
+          <button
+            type="button"
+            className="mt-1 flex w-full items-center gap-1.5 rounded-lg px-2 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50 hover:text-indigo-700"
+            onClick={() => { onSpotlight(); setOpen(false) }}
+          >
+            <Megaphone className="h-3.5 w-3.5" /> Spotlight me — ask everyone to follow
+          </button>
+        )}
+      </DropdownMenuContent>
+    </DropdownMenu>
   )
 }
 
@@ -300,19 +303,20 @@ export function JamButton({
       {onReact && connectionState === 'connected' && (
         <ReactionPicker onReact={onReact} onSpotlight={peers.length > 0 ? onSpotlight : undefined} />
       )}
-      <Button
-        variant="outline"
-        size="sm"
-        onClick={() => canManage && setOpen((value) => !value)}
-        title={`${CONNECTION_LABEL[connectionState]}${canManage ? ' — manage Flow Jam access' : ''}`}
-      >
-        <span className={cn('h-2 w-2 rounded-full', connectionTone(connectionState))} aria-hidden="true" />
-        <UserPlus className="h-4 w-4" /> Jam
-      </Button>
-      {open && canManage && (
-        <>
-          <div className="fixed inset-0 z-30" onClick={() => setOpen(false)} />
-          <div className="absolute right-0 top-full z-40 mt-2 w-80 rounded-xl border border-slate-200 bg-white p-3 shadow-xl">
+      {/* The invite picker portals out (Radix) — the toolbar's overflow-x
+          scroll container would otherwise clip it behind the canvas. */}
+      <DropdownMenu open={open && canManage} onOpenChange={(next) => canManage && setOpen(next)}>
+        <DropdownMenuTrigger asChild>
+          <Button
+            variant="outline"
+            size="sm"
+            title={`${CONNECTION_LABEL[connectionState]}${canManage ? ' — manage Flow Jam access' : ''}`}
+          >
+            <span className={cn('h-2 w-2 rounded-full', connectionTone(connectionState))} aria-hidden="true" />
+            <UserPlus className="h-4 w-4" /> Jam
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" className="w-80 rounded-xl border-slate-200 bg-white p-3 shadow-xl">
             <p className="text-sm font-semibold text-slate-900">Start a Flow Jam</p>
             <p className="mt-0.5 text-xs text-slate-500">
               Invited teammates get a live prompt that drops them straight into this flow.
@@ -361,9 +365,8 @@ export function JamButton({
             <Button className="mt-2 w-full" size="sm" disabled={sending} onClick={invite} loading={sending}>
               Save access {selected.size > 0 ? `(${selected.size})` : ''}
             </Button>
-          </div>
-        </>
-      )}
+        </DropdownMenuContent>
+      </DropdownMenu>
     </div>
   )
 }

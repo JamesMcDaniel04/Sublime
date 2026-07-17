@@ -73,7 +73,7 @@ function AgentHQ() {
   // command palette and legacy /templates links deep-link straight into it.
   const view: 'agents' | 'templates' = searchParams.get('view') === 'templates' ? 'templates' : 'agents'
   const setView = (next: 'agents' | 'templates') => {
-    router.replace(next === 'templates' ? '/dashboard?view=templates' : '/dashboard', { scroll: false })
+    router.replace(next === 'templates' ? '/agents?view=templates' : '/agents', { scroll: false })
   }
   const initialSnapshot = useMemo(() => peekSnapshot(), [])
   const [agents, setAgents] = useState<Agent[]>(() => initialSnapshot?.agents || [])
@@ -218,7 +218,7 @@ function AgentHQ() {
       setSelectedAgentId(NEW_AGENT)
       setConfigureOpen(false)
       setFocusRunId(null)
-      router.replace('/dashboard')
+      router.replace('/agents')
       return
     }
     if (!agents.length) return
@@ -227,7 +227,7 @@ function AgentHQ() {
       setConfigureOpen(false)
       setFocusRunId(null)
     }
-    router.replace('/dashboard')
+    router.replace('/agents')
   }, [searchParams, agents, router])
 
   useEffect(() => {
@@ -241,7 +241,7 @@ function AgentHQ() {
     const activity = activities.find((candidate) => candidate.id === runParam)
     if (activity) {
       openRun(activity)
-      router.replace('/dashboard')
+      router.replace('/agents')
       return
     }
     fetch(`/api/workflows/executions?executionId=${runParam}`, { cache: 'no-store' })
@@ -251,7 +251,7 @@ function AgentHQ() {
         if (execution) openRun(execution)
       })
       .catch(() => undefined)
-      .finally(() => router.replace('/dashboard'))
+      .finally(() => router.replace('/agents'))
   }, [searchParams, activities, loading, router])
 
   // Escape closes the Granola meeting picker (keyboard parity with the close button).

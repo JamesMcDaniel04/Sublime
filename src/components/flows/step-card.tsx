@@ -1570,7 +1570,7 @@ function AgentBody({
             </button>
           )}
           <a
-            href="/dashboard"
+            href="/agents"
             target="_blank"
             rel="noreferrer"
             className="flex h-10 shrink-0 items-center gap-1.5 rounded-md border border-slate-300 px-3 text-sm font-semibold text-slate-700 hover:bg-slate-50"

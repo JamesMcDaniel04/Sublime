@@ -252,11 +252,9 @@ export default function FlowsPage() {
                       <div className="flex items-center gap-2">
                         {flow.sharedWithYou && (
                           <Badge variant="outline" className="border-violet-200 bg-violet-50 text-[10px] font-medium text-violet-700 dark:border-violet-500/30 dark:bg-violet-500/10 dark:text-violet-300">
-                            Shared with you
+                            Shared
                           </Badge>
                         )}
-                        {flow.unpublishedChanges && <Badge variant="warn" className="text-[10px]">Unpublished changes</Badge>}
-                        <span className="text-xs text-muted-foreground">{flow.stepCount} step{flow.stepCount === 1 ? '' : 's'}</span>
                         {/* Swallow clicks here so opening the menu never follows the card Link. */}
                         <div onClick={(event) => { event.preventDefault(); event.stopPropagation() }}>
                           <DropdownMenu>

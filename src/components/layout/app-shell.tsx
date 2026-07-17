@@ -18,11 +18,12 @@ import { ErrorBoundary } from '@/components/ui/error-boundary'
 
 // Route prefixes that get the app chrome. Everything else (/, /auth/*, /connect,
 // /privacy, /terms, /auth-code-error) renders bare.
-const APP_PREFIXES = ['/dashboard', '/integrations', '/connections', '/templates', '/flows', '/settings']
+const APP_PREFIXES = ['/dashboard', '/agents', '/integrations', '/connections', '/templates', '/flows', '/settings']
 
-// Only the agent HQ + the flow builder want an edge-to-edge (fullscreen) content
-// area; the rest (incl. the /flows list) use the centered container.
-const FULLSCREEN_ROUTES = new Set(['/dashboard'])
+// Only Home (the assistant), agent HQ, and the flow builder want an
+// edge-to-edge (fullscreen) content area; the rest (incl. the /flows list)
+// use the centered container.
+const FULLSCREEN_ROUTES = new Set(['/dashboard', '/agents'])
 
 export function AppShell({ children }: { children: ReactNode }) {
   const pathname = usePathname() ?? ''

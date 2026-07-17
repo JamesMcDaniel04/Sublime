@@ -16,10 +16,10 @@ test('other flow notifications go to the flow activity page', () => {
   assert.equal(notificationHref({ type: 'flow.run.failed', executionId: 'flow1' }), '/flows/flow1/activity')
 })
 
-test('a run notification without a flow id goes to the dashboard run view', () => {
-  assert.equal(notificationHref({ type: 'agent.run', executionId: 'run1' }), '/dashboard?run=run1')
+test('a run notification without a flow id goes to the agents run view', () => {
+  assert.equal(notificationHref({ type: 'agent.run', executionId: 'run1' }), '/agents?run=run1')
 })
 
-test('a notification with no execution id falls back to the dashboard', () => {
-  assert.equal(notificationHref({ type: 'flow.jam.invite', executionId: null }), '/dashboard')
+test('a notification with no execution id falls back to the agents page', () => {
+  assert.equal(notificationHref({ type: 'flow.jam.invite', executionId: null }), '/agents')
 })

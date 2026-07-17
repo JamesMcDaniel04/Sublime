@@ -148,7 +148,14 @@ export function useFlowJam(options: {
   }
 
   const markRealtimeDelivery = useCallback((status: string) => {
-    if (status !== 'ok') dispatchConnection('delivery-failed')
+    if (status !== 'ok') {
+      dispatchConnection('delivery-failed')
+      // A joined channel whose sends stop acking is broken in a way only a
+      // rebuild fixes — without this, one failed delivery pins 'degraded'
+      // forever (the reducer only returns to 'connected' via a fresh
+      // channel-subscribed).
+      reconnectRef.current()
+    }
   }, [dispatchConnection])
 
   const sendPreview = () => {
@@ -370,13 +377,17 @@ export function useFlowJam(options: {
       }, delay)
     }
 
+    // Consecutive channel failures back the reconnect off (1s → 30s cap) so a
+    // persistently rejected join (e.g. Realtime RLS misconfiguration) retries
+    // gently instead of hammering the socket once per second.
+    let channelFailures = 0
     const scheduleReconnect = () => {
       if (disposed || retryTimer || accessDeniedRef.current) return
       retryTimer = setTimeout(() => {
         retryTimer = null
         disconnectRealtime()
         void connect()
-      }, 1000)
+      }, Math.min(30000, 1000 * 2 ** channelFailures))
     }
     reconnectRef.current = scheduleReconnect
 
@@ -504,9 +515,14 @@ export function useFlowJam(options: {
           if (payload?.clientId === clientId) return
           callbacksRef.current.onCommentsChanged?.()
         })
-        .subscribe(async (status) => {
-          if (disposed) return
+        .subscribe(async (status, err) => {
+          // Stale-channel guard: deliberately replacing a channel (reconnect,
+          // topic rotation) fires its CLOSED callback — without this check that
+          // stale CLOSED would schedule a reconnect against the NEW channel and
+          // the teardown/rejoin cycle would repeat forever.
+          if (disposed || channelRef.current !== channel) return
           if (status === 'SUBSCRIBED') {
+            channelFailures = 0
             dispatchConnection('channel-subscribed')
             await channel.track({
               clientId,
@@ -518,7 +534,14 @@ export function useFlowJam(options: {
               huddleMuted: huddleStateRef.current.muted,
             })
           } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+            // A join ERROR reply is terminal in realtime-js — unlike socket
+            // errors and join timeouts it never schedules a rejoin, so without
+            // this reconnect one rejected join leaves the jam on the HTTP
+            // fallback (amber dot) for the rest of the session.
+            if (err) console.warn('[flow-jam] realtime channel failed:', err.message)
+            channelFailures += 1
             dispatchConnection('channel-error')
+            scheduleReconnect()
           } else if (status === 'CLOSED') {
             dispatchConnection('channel-closed')
             scheduleReconnect()

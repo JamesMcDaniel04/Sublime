@@ -176,7 +176,7 @@ export default function SkillDetailsPage() {
       if (!response.ok) throw new Error(data.error || 'Could not remove the skill.')
       invalidateCachedJson('/api/skills')
       toast.success('Removed')
-      router.push('/dashboard?view=templates&tab=skills')
+      router.push('/agents?view=templates&tab=skills')
     } catch (cause) {
       toast.error(cause instanceof Error ? cause.message : 'Could not remove the skill.')
       setDeleting(false)
@@ -187,7 +187,7 @@ export default function SkillDetailsPage() {
   return (
     <div className="mx-auto max-w-6xl space-y-6 p-6">
       <Button variant="ghost" size="sm" asChild className="-ml-2 w-fit">
-        <Link href="/dashboard?view=templates&tab=skills"><ArrowLeft className="mr-1.5 h-4 w-4" />Back to skills</Link>
+        <Link href="/agents?view=templates&tab=skills"><ArrowLeft className="mr-1.5 h-4 w-4" />Back to skills</Link>
       </Button>
 
       {loading ? (
@@ -237,7 +237,7 @@ export default function SkillDetailsPage() {
                   <Button onClick={addToAgent} loading={adding}><Plus className="mr-1 h-4 w-4" />Add</Button>
                 </div>
               ) : (
-                <Button asChild variant="outline" className="mt-3 w-full"><Link href="/dashboard">Create an agent first</Link></Button>
+                <Button asChild variant="outline" className="mt-3 w-full"><Link href="/agents">Create an agent first</Link></Button>
               )}
             </div>
           </div>

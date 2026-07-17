@@ -263,7 +263,7 @@ export function TemplatesExplorer() {
   }
 
   const handleTabChange = (value: string) => {
-    router.replace(value === 'skills' ? '/dashboard?view=templates&tab=skills' : '/dashboard?view=templates', { scroll: false })
+    router.replace(value === 'skills' ? '/agents?view=templates&tab=skills' : '/agents?view=templates', { scroll: false })
   }
 
   useEffect(() => {

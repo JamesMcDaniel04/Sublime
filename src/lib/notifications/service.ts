@@ -38,7 +38,7 @@ export async function notify(input: NotifyInput) {
       void sendPushToUser(input.userId, {
         title: input.title,
         body: input.body,
-        url: input.link ?? (input.executionId ? `/dashboard?run=${input.executionId}` : '/dashboard'),
+        url: input.link ?? (input.executionId ? `/agents?run=${input.executionId}` : '/agents'),
       }).catch(() => {})
     }
     return notification

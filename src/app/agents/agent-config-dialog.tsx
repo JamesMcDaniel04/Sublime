@@ -42,7 +42,7 @@ export function AgentConfigDialog({
           runningId={runningId}
           onOpenRun={(runId) => {
             onOpenChange(false)
-            router.push(`/dashboard?run=${runId}`)
+            router.push(`/agents?run=${runId}`)
           }}
           onSave={async (draft) => {
             await onCreateAgent(draft)
