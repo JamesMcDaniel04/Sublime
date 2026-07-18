@@ -65,6 +65,13 @@ export default function SettingsPage() {
   const [savingScanToggle, setSavingScanToggle] = useState(false)
   const [loadingSettings, setLoadingSettings] = useState(true)
   const [loadError, setLoadError] = useState('')
+  const [orgPlan, setOrgPlan] = useState('TRIAL')
+  // Deep-linkable tabs (e.g. /settings?tab=billing from the Stripe portal return URL).
+  const [initialTab] = useState(() => {
+    if (typeof window === 'undefined') return 'profile'
+    const tab = new URLSearchParams(window.location.search).get('tab')
+    return tab && ['profile', 'security', 'members', 'workspace', 'billing'].includes(tab) ? tab : 'profile'
+  })
 
   async function load() {
     setLoadingSettings(true)
@@ -86,6 +93,7 @@ export default function SettingsPage() {
       setFactors((factorResult.data?.totp || []) as Factor[])
       setMembers(memberData.members); setInvitations(memberData.invitations || [])
       setOrgSettings((orgData.organizations?.[0]?.settings || {}) as OrgSettings)
+      setOrgPlan(orgData.organizations?.[0]?.plan || 'TRIAL')
       setOrgName(orgData.organizations?.[0]?.name || '')
       setSavedOrgName(orgData.organizations?.[0]?.name || '')
     } catch (cause) {
@@ -249,7 +257,7 @@ export default function SettingsPage() {
         <Skeleton className="h-40 max-w-2xl rounded-xl" />
       </div>
     ) : (
-    <Tabs defaultValue="profile"><TabsList className="flex h-auto flex-wrap"><TabsTrigger value="profile">Profile</TabsTrigger><TabsTrigger value="security">Security</TabsTrigger><TabsTrigger value="members">Members</TabsTrigger><TabsTrigger value="workspace">Workspace</TabsTrigger></TabsList>
+    <Tabs defaultValue={initialTab}><TabsList className="flex h-auto flex-wrap"><TabsTrigger value="profile">Profile</TabsTrigger><TabsTrigger value="security">Security</TabsTrigger><TabsTrigger value="members">Members</TabsTrigger><TabsTrigger value="workspace">Workspace</TabsTrigger><TabsTrigger value="billing">Billing</TabsTrigger></TabsList>
       <TabsContent value="profile" className="mt-6">{profile && <Card className="max-w-2xl"><CardHeader><CardTitle>Profile</CardTitle></CardHeader><CardContent><form className="space-y-4" onSubmit={saveProfile}>
         <div className="flex items-center gap-4">
           {profile.imageUrl ? (
@@ -344,6 +352,32 @@ export default function SettingsPage() {
             </CardContent>
           </Card>
         )}
+      </TabsContent>
+      <TabsContent value="billing" className="mt-6">
+        <Card className="max-w-2xl"><CardHeader><CardTitle>Plan &amp; billing</CardTitle></CardHeader><CardContent className="space-y-4">
+          <div className="flex items-center justify-between rounded-md border p-3">
+            <div>
+              <p className="text-sm font-medium">Current plan</p>
+              <p className="text-xs text-muted-foreground">
+                {({ TRIAL: 'Trial', STARTER: 'Individual — $29.99/mo', PROFESSIONAL: 'Team — $299/mo', BUSINESS: 'Business — $2,999/mo', ENTERPRISE: 'Enterprise' } as Record<string, string>)[orgPlan] || orgPlan}
+              </p>
+            </div>
+            {orgPlan !== 'TRIAL' && <Button variant="outline" onClick={() => { window.location.href = '/api/stripe/portal' }}>Manage billing</Button>}
+          </div>
+          {orgPlan === 'TRIAL' ? (
+            <div className="space-y-2">
+              <p className="text-sm text-muted-foreground">Pick a plan to unlock the full platform. Checkout and invoicing are handled securely by Stripe.</p>
+              <div className="flex flex-wrap gap-2">
+                <Button onClick={() => { window.location.href = '/api/stripe/checkout?plan=individual' }}>Individual — $29.99/mo</Button>
+                <Button onClick={() => { window.location.href = '/api/stripe/checkout?plan=team' }}>Team — $299/mo</Button>
+                <Button onClick={() => { window.location.href = '/api/stripe/checkout?plan=business' }}>Business — $2,999/mo</Button>
+                <Button variant="outline" onClick={() => { window.location.href = 'mailto:sales@trysublime.io?subject=Sublime%20Enterprise' }}>Enterprise — contact sales</Button>
+              </div>
+            </div>
+          ) : (
+            <p className="text-sm text-muted-foreground">Upgrades, downgrades, payment methods, and cancellation are all handled in the Stripe billing portal via “Manage billing”.</p>
+          )}
+        </CardContent></Card>
       </TabsContent>
     </Tabs>
     )}

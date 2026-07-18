@@ -183,6 +183,9 @@ export function LandingPage() {
             <span className="text-[14px] font-bold text-foreground tracking-[0.08em] uppercase">Sublime</span>
           </Link>
           <div className="flex items-center gap-2">
+            <Link href="/#pricing" className="text-[13px] text-foreground/70 hover:text-foreground transition-colors h-8 px-3 flex items-center">
+              Pricing
+            </Link>
             <button
               onClick={() => setTheme(isDark ? 'light' : 'dark')}
               className="relative h-8 w-8 flex items-center justify-center text-foreground/70 hover:text-foreground transition-colors"
@@ -578,6 +581,109 @@ export function LandingPage() {
               </div>
             </div>
           </div>
+        </div>
+      </section>
+
+      {/* Full-width divider */}
+      <div className="relative z-10 w-full border-t border-border" />
+
+      {/* Pricing */}
+      <section id="pricing" className="relative z-10 pt-24 pb-24 px-6 overflow-hidden">
+        <div className="mx-auto max-w-[1200px] relative">
+          <p className="text-[13px] uppercase tracking-[0.15em] text-muted-foreground mb-4">
+            Pricing
+          </p>
+          <h2 className="text-[clamp(1.8rem,3vw,2.5rem)] font-[500] tracking-[-0.03em] text-foreground max-w-[500px] leading-[1.15]">
+            Plans that scale<br />with your team.
+          </h2>
+
+          <div className="mt-16 border border-border">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4">
+              {[
+                {
+                  name: 'Individual',
+                  price: '$29.99',
+                  cadence: '/ month',
+                  desc: 'For solo builders getting real work out of AI.',
+                  features: ['Full agent & flow builder', 'Core integrations', 'Evidence-backed run logs'],
+                  href: '/api/stripe/checkout?plan=individual',
+                  cta: 'Start with Individual',
+                  featured: false,
+                },
+                {
+                  name: 'Team',
+                  price: '$299',
+                  cadence: '/ month',
+                  desc: 'For teams running shared agents and workflows.',
+                  features: ['Everything in Individual', 'Shared workspaces & collaboration', 'Expanded integration catalog'],
+                  href: '/api/stripe/checkout?plan=team',
+                  cta: 'Start with Team',
+                  featured: true,
+                },
+                {
+                  name: 'Business',
+                  price: '$2,999',
+                  cadence: '/ month',
+                  desc: 'For companies scaling AI across departments.',
+                  features: ['Everything in Team', 'Advanced controls & higher limits', 'Priority support'],
+                  href: '/api/stripe/checkout?plan=business',
+                  cta: 'Start with Business',
+                  featured: false,
+                },
+                {
+                  name: 'Enterprise',
+                  price: 'Custom',
+                  cadence: '',
+                  desc: 'For organizations with bespoke security and scale needs.',
+                  features: ['Everything in Business', 'Custom integrations & SLAs', 'Dedicated onboarding'],
+                  href: 'mailto:sales@trysublime.io?subject=Sublime%20Enterprise',
+                  cta: 'Contact sales',
+                  featured: false,
+                },
+              ].map((tier, i) => (
+                <div
+                  key={tier.name}
+                  className={`p-8 flex flex-col ${i < 3 ? 'lg:border-r border-border' : ''} ${i > 0 ? 'border-t lg:border-t-0 border-border' : ''} ${tier.featured ? 'bg-accent/40' : ''}`}
+                >
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-[13px] uppercase tracking-[0.15em] text-muted-foreground">{tier.name}</h3>
+                    {tier.featured && (
+                      <span className="text-[10px] uppercase tracking-[0.12em] border border-foreground/30 px-2 py-0.5 text-foreground/70">
+                        Popular
+                      </span>
+                    )}
+                  </div>
+                  <div className="mt-4 flex items-baseline gap-1.5">
+                    <span className="text-[2rem] font-[500] tracking-[-0.03em] text-foreground">{tier.price}</span>
+                    {tier.cadence && <span className="text-[13px] text-muted-foreground">{tier.cadence}</span>}
+                  </div>
+                  <p className="mt-3 text-[13px] leading-[1.6] text-muted-foreground">{tier.desc}</p>
+                  <ul className="mt-6 space-y-2.5 flex-1">
+                    {tier.features.map((feature) => (
+                      <li key={feature} className="flex items-start gap-2 text-[13px] text-foreground/80">
+                        <span className="mt-[7px] h-1 w-1 rounded-full bg-primary shrink-0" />
+                        {feature}
+                      </li>
+                    ))}
+                  </ul>
+                  <a
+                    href={tier.href}
+                    className={`mt-8 inline-flex items-center justify-center gap-2 px-4 py-2.5 text-[13px] font-medium transition-colors ${
+                      tier.featured
+                        ? 'bg-foreground text-background hover:bg-foreground/90'
+                        : 'border border-foreground/40 text-foreground hover:bg-foreground hover:text-background'
+                    }`}
+                  >
+                    {tier.cta}
+                    <ArrowRight className="h-3.5 w-3.5" />
+                  </a>
+                </div>
+              ))}
+            </div>
+          </div>
+          <p className="mt-4 text-[12px] text-muted-foreground">
+            All paid plans start through secure Stripe checkout. Cancel anytime from your billing settings.
+          </p>
         </div>
       </section>
 

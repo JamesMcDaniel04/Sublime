@@ -21,7 +21,7 @@ type SupabaseContext = {
   user: User | null
   loading: boolean
   signIn: (email: string, password: string) => ReturnType<typeof supabase.auth.signInWithPassword>
-  signUp: (email: string, password: string, options?: { data?: Record<string, unknown> }) => ReturnType<typeof supabase.auth.signUp>
+  signUp: (email: string, password: string, options?: { data?: Record<string, unknown>; next?: string }) => ReturnType<typeof supabase.auth.signUp>
   signOut: () => Promise<void>
 }
 
@@ -116,16 +116,21 @@ export function SupabaseProvider({ children }: { children: React.ReactNode }) {
       email: email.trim().toLowerCase(),
       password,
     }),
-    signUp: (email, password, options) => supabase.auth.signUp({
-      email: email.trim().toLowerCase(),
-      password,
-      options: {
-        data: options?.data,
-        // Prefer the configured production URL so confirmation links never point
-        // at localhost or a preview origin; fall back to the current origin.
-        emailRedirectTo: `${appOrigin()}/auth/callback`,
-      },
-    }),
+    signUp: (email, password, options) => {
+      // Prefer the configured production URL so confirmation links never point
+      // at localhost or a preview origin; fall back to the current origin.
+      // `next` carries a post-confirmation destination (e.g. a plan checkout)
+      // through the email link; /auth/callback sanitizes it.
+      const nextParam = options?.next ? `?next=${encodeURIComponent(options.next)}` : ''
+      return supabase.auth.signUp({
+        email: email.trim().toLowerCase(),
+        password,
+        options: {
+          data: options?.data,
+          emailRedirectTo: `${appOrigin()}/auth/callback${nextParam}`,
+        },
+      })
+    },
     signOut: async () => {
       const { error } = await supabase.auth.signOut()
       if (error) throw error

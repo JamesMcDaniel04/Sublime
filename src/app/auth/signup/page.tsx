@@ -9,6 +9,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { toast } from 'sonner'
+import { safeReturnToPath } from '@/lib/auth/redirect'
+import { GoogleSignInButton } from '@/components/auth/google-signin-button'
 
 export default function SignUpPage() {
   const [email, setEmail] = useState('')
@@ -22,6 +24,9 @@ export default function SignUpPage() {
   
   const { signUp } = useSupabase()
   const router = useRouter()
+  // Carries a destination (e.g. a plan checkout) through signup: into the
+  // confirmation email link, the Google OAuth round-trip, and the login link.
+  const returnTo = typeof window === 'undefined' ? '/dashboard' : safeReturnToPath(new URLSearchParams(window.location.search).get('return_to'))
 
   const handleEmailSignUp = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -44,7 +49,8 @@ export default function SignUpPage() {
           first_name: firstName,
           last_name: lastName,
           full_name: `${firstName} ${lastName}`.trim()
-        }
+        },
+        next: returnTo,
       })
       
       if (error) {
@@ -96,6 +102,13 @@ export default function SignUpPage() {
                 {success}
               </div>
             )}
+
+            <GoogleSignInButton returnTo={returnTo} />
+            <div className="flex items-center gap-3">
+              <div className="h-px flex-1 bg-border" />
+              <span className="text-xs uppercase tracking-wide text-muted-foreground">or</span>
+              <div className="h-px flex-1 bg-border" />
+            </div>
 
             <form onSubmit={handleEmailSignUp} className="space-y-4">
               <div className="grid grid-cols-2 gap-4">
@@ -166,7 +179,7 @@ export default function SignUpPage() {
             <div className="text-center">
               <p className="text-sm text-muted-foreground">
                 Already have an account?{' '}
-                <Link href="/auth/login" className="font-medium text-primary hover:underline">
+                <Link href={`/auth/login?return_to=${encodeURIComponent(returnTo)}`} className="font-medium text-primary hover:underline">
                   Sign in
                 </Link>
               </p>

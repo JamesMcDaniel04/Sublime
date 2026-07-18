@@ -11,6 +11,7 @@ import { useRouter } from 'next/navigation'
 import { toast } from 'sonner'
 import { safeReturnToPath } from '@/lib/auth/redirect'
 import { createClient } from '@/lib/supabase/client'
+import { GoogleSignInButton } from '@/components/auth/google-signin-button'
 
 export default function LoginPage() {
   const [email, setEmail] = useState('')
@@ -133,6 +134,17 @@ export default function LoginPage() {
               </div>
             )}
 
+            {!mfa && (
+              <>
+                <GoogleSignInButton returnTo={returnTo} />
+                <div className="flex items-center gap-3">
+                  <div className="h-px flex-1 bg-border" />
+                  <span className="text-xs uppercase tracking-wide text-muted-foreground">or</span>
+                  <div className="h-px flex-1 bg-border" />
+                </div>
+              </>
+            )}
+
             {mfa ? <form onSubmit={verifyMfa} className="space-y-4">
               <div className="space-y-2"><Label htmlFor="mfaCode">Authentication code</Label><Input id="mfaCode" inputMode="numeric" autoComplete="one-time-code" pattern="[0-9]{6}" maxLength={6} value={mfaCode} onChange={(e) => setMfaCode(e.target.value.replace(/\D/g, ''))} required /></div>
               <Button type="submit" className="w-full" loading={loading}>Verify</Button>
@@ -173,7 +185,7 @@ export default function LoginPage() {
             <div className="text-center">
               <p className="text-sm text-muted-foreground">
                 Don&apos;t have an account?{' '}
-                <Link href="/auth/signup" className="font-medium text-primary hover:underline">
+                <Link href={`/auth/signup?return_to=${encodeURIComponent(returnTo)}`} className="font-medium text-primary hover:underline">
                   Sign up
                 </Link>
               </p>
