@@ -112,7 +112,7 @@ const PRESETS: Array<{ label: string; icon: typeof FileText; prompt: string; sen
 // (assignment conversion, run reporting, connection health, scheduling, runs).
 const HEADLINE_CTAS = [
   'What should we take on?',
-  'Hand me an assignment — I’ll build the agent.',
+  'Hand me an assignment and I’ll build the agent.',
   'Ask what your agents did this week.',
   'Check which connections need attention.',
   'Schedule a daily briefing of your workspace.',
@@ -644,7 +644,7 @@ export function HomeAssistant() {
       {empty ? (
         /* Hero: greeting + composer + presets, vertically centered. */
         <div className="flex min-h-0 flex-1 items-center justify-center p-4">
-          <div className="w-full max-w-2xl">
+          <div className="w-full max-w-4xl">
             <p className="eyebrow text-center">
               <span className="text-indigo-400">{'///'}</span> {salutation}
               {user?.firstName ? `, ${user.firstName}` : ''}
@@ -652,10 +652,6 @@ export function HomeAssistant() {
             <div className="mt-2">
               <TypedHeadline phrases={HEADLINE_CTAS} />
             </div>
-            <p className="mt-2 text-center text-sm text-gray-500">
-              Ask about anything happening in your workspace, or hand me an assignment and I&apos;ll turn it into an
-              agent.
-            </p>
             <div className="mt-6">{composer}</div>
             <div className="mt-4 flex flex-wrap justify-center gap-2">
               {PRESETS.map((preset) => (
