@@ -16,6 +16,10 @@ model Organization {
   // resizes to 128px before upload) so no external storage is required.
   logoUrl   String?
   plan      Plan     @default(TRIAL)
+  // Stripe billing linkage. Customer is created lazily on first checkout;
+  // subscription id tracks the single active subscription for the org.
+  stripeCustomerId     String? @unique
+  stripeSubscriptionId String?
   // Freeform org-level settings grab-bag (e.g. `disableConnectionScans`).
   settings  Json     @default("{}")
   createdAt DateTime @default(now()) @db.Timestamptz(6)
@@ -970,6 +974,7 @@ enum Plan {
   TRIAL
   STARTER
   PROFESSIONAL
+  BUSINESS
   ENTERPRISE
 }
 
