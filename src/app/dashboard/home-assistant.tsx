@@ -140,7 +140,7 @@ function usePrefersReducedMotion(): boolean {
  * Typewriter headline: types a phrase, holds, deletes, then moves to the next.
  * With reduced motion the phrase swaps whole on the same cadence instead.
  */
-function TypedHeadline({ phrases }: { phrases: string[] }) {
+function TypedHeadline({ phrases }: { readonly phrases: readonly string[] }) {
   const reduced = usePrefersReducedMotion()
   const [index, setIndex] = useState(0)
   const [length, setLength] = useState(0)
@@ -496,7 +496,7 @@ export function HomeAssistant() {
           </button>
         </div>
       )}
-      <div className="rounded-2xl border bg-white p-2 shadow-1 transition-shadow focus-within:ring-2 focus-within:ring-indigo-200">
+      <div className="rounded-3xl border bg-white p-3 shadow-1 transition-shadow focus-within:ring-2 focus-within:ring-indigo-200">
         <div className="flex items-end gap-2">
         <input
           ref={fileInputRef}
@@ -512,7 +512,7 @@ export function HomeAssistant() {
         <Button
           size="icon"
           variant="ghost"
-          className="h-9 w-9 shrink-0 rounded-full text-gray-500 hover:text-gray-800"
+          className="h-10 w-10 shrink-0 rounded-full text-gray-500 hover:text-gray-800"
           aria-label="Attach an assignment file"
           title="Attach an assignment file"
           disabled={uploading || sending}
@@ -527,16 +527,16 @@ export function HomeAssistant() {
           onChange={(event) => {
             setInput(event.target.value)
             event.target.style.height = 'auto'
-            event.target.style.height = `${Math.min(event.target.scrollHeight, 160)}px`
+            event.target.style.height = `${Math.min(event.target.scrollHeight, 192)}px`
           }}
           onKeyDown={onComposerKeyDown}
           placeholder={attachment ? 'What should be done with this assignment?' : 'Ask about your workspace, or describe an assignment…'}
           disabled={sending}
-          className="max-h-40 min-h-[2.25rem] flex-1 resize-none bg-transparent py-1.5 text-sm outline-none placeholder:text-gray-400"
+          className="max-h-48 min-h-[3rem] flex-1 resize-none bg-transparent px-1 py-2.5 text-base outline-none placeholder:text-gray-400"
         />
         <Button
           size="icon"
-          className="h-9 w-9 shrink-0 rounded-full"
+          className="h-10 w-10 shrink-0 rounded-full"
           aria-label="Send message"
           disabled={sending || uploading || !input.trim()}
           onClick={() => void send()}
@@ -546,16 +546,17 @@ export function HomeAssistant() {
         </div>
         {/* Role framing — the selected key travels with each send and reshapes
             the reply server-side. Clicking the active role clears it. */}
-        <div className="mt-2 border-t border-gray-100 px-1 pt-2">
+        <fieldset className="mt-2.5 border-t border-gray-100 px-1 pt-2.5">
+          <legend className="sr-only">Tailor output for</legend>
           <div className="flex items-center justify-between gap-3">
-            <span className="text-[10px] font-semibold uppercase tracking-[0.12em] text-gray-400">
+            <span className="text-[11px] font-semibold uppercase tracking-[0.12em] text-gray-400">
               Tailor output for
             </span>
-            <span className="truncate text-xs text-gray-400">
+            <span className="truncate text-sm text-gray-400">
               {OUTPUT_STYLES.find((style) => style.key === outputStyle)?.hint ?? 'General output'}
             </span>
           </div>
-          <div className="mt-1.5 grid grid-cols-4 gap-0.5 rounded-lg bg-gray-100 p-0.5" role="group" aria-label="Tailor output for">
+          <div className="mt-2 grid grid-cols-4 gap-0.5 rounded-xl bg-gray-100 p-1">
             {OUTPUT_STYLES.map((style) => (
               <button
                 key={style.key}
@@ -565,7 +566,7 @@ export function HomeAssistant() {
                 disabled={sending}
                 onClick={() => setOutputStyle((current) => (current === style.key ? null : style.key))}
                 className={cn(
-                  'rounded-md px-2 py-1 text-xs font-medium uppercase tracking-wide transition-colors',
+                  'rounded-lg px-2 py-1.5 text-[13px] font-medium uppercase tracking-wide transition-colors',
                   outputStyle === style.key
                     ? 'bg-white text-indigo-700 shadow-1'
                     : 'text-gray-500 hover:text-gray-800',
@@ -575,7 +576,7 @@ export function HomeAssistant() {
               </button>
             ))}
           </div>
-        </div>
+        </fieldset>
       </div>
     </div>
   )
