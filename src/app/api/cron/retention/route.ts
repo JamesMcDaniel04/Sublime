@@ -16,6 +16,7 @@ import { systemPrisma } from '@/lib/prisma'
 import { apiLogger } from '@/lib/logger'
 import { removeRetiredFromGraph } from '@/lib/rag/indexer'
 import { removeUserEventNodesFromGraph } from '@/lib/behavior/index-user-event'
+import { MAX_STALE_DAYS } from '@/lib/behavior/eligibility'
 
 export const runtime = 'nodejs'
 export const maxDuration = 300
@@ -115,8 +116,19 @@ export async function GET(request: Request) {
       })).count
     }
 
-    apiLogger.info('cron/retention complete', { days, executionsDeleted, transcriptsPruned, userEventsDeleted })
-    return Response.json({ success: true, days, executionsDeleted, transcriptsPruned, userEventsDeleted })
+    // Stale-pattern hygiene: the eligibility gate already rejects patterns not
+    // observed within MAX_STALE_DAYS; this sweep makes that decay durable for
+    // users who stopped triggering the daily inference (their rows would
+    // otherwise sit "open" forever). Expired ≠ dismissed — recurrence re-opens.
+    const staleCutoff = new Date(Date.now() - MAX_STALE_DAYS * 24 * 60 * 60 * 1000)
+    // systemPrisma: global retention sweep — prunes across all orgs by design (CRON_SECRET-gated).
+    const patternsExpired = (await systemPrisma.userPattern.updateMany({
+      where: { status: 'open', lastSeenAt: { lt: staleCutoff } },
+      data: { status: 'expired' },
+    })).count
+
+    apiLogger.info('cron/retention complete', { days, executionsDeleted, transcriptsPruned, userEventsDeleted, patternsExpired })
+    return Response.json({ success: true, days, executionsDeleted, transcriptsPruned, userEventsDeleted, patternsExpired })
   } catch (error) {
     apiLogger.error('cron/retention failed', { error: error instanceof Error ? error.message : String(error) })
     return Response.json({ success: false, error: 'Internal server error' }, { status: 500 })

@@ -7,6 +7,7 @@
  */
 import { systemPrisma } from '@/lib/prisma'
 import { apiLogger } from '@/lib/logger'
+import { captureError } from '@/lib/observability/sentry'
 import { embedTexts, embeddingsConfigured, cosineSimilarity } from '@/lib/rag/embeddings'
 import { MEMORY_SIMILARITY_THRESHOLD } from '@/lib/memory/agent-memory'
 import { mineUserPatternCandidates, mineIntentClusters, type PatternCandidate } from './mine-patterns'
@@ -78,6 +79,12 @@ export async function inferUserBehaviorPatterns(
     }
 
     let written = 0
+    // A recurring routine re-opens an EXPIRED row (it's a routine again) but
+    // never a DISMISSED one — dismissal is the user's decision, not decay.
+    await db.userPattern.updateMany({
+      where: { organizationId, userId, status: 'expired', slug: { in: candidates.map((c) => c.slug) } },
+      data: { status: 'open' },
+    })
     for (const candidate of candidates) {
       await db.userPattern.upsert({
         where: { userId_slug: { userId, slug: candidate.slug } },
@@ -106,6 +113,9 @@ export async function inferUserBehaviorPatterns(
     apiLogger.warn('behavior.inferUserBehaviorPatterns failed', {
       organizationId, userId, error: error instanceof Error ? error.message : String(error),
     })
+    // Background jobs must surface, not vanish: a broken inference loop means
+    // the platform silently stops learning.
+    captureError(error, { scope: 'behavior.infer', organizationId })
     return { skipped: 'error' }
   }
 }

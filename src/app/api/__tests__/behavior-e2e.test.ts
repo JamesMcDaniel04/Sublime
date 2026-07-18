@@ -76,6 +76,21 @@ if (TEST_DB) {
     assert.equal((event.context as any).name, 'QA Capture Agent')
   })
 
+  test('tenant-guard sweep: connector sync persists rows through the guarded client', async () => {
+    // Regression for the tenant-guard bug CLASS: syncAgentConnectors ran an
+    // unscoped AgentConnector.deleteMany, the guard rejected it, and the
+    // swallowed error meant typed connector rows silently never persisted on
+    // ANY agent save. This drives the real route and asserts the rows exist —
+    // the honest signal, immune to swallowed errors.
+    const res = await (await import('../agents/route')).POST(post('/api/agents', {
+      title: 'QA Connector Agent', instructions: 'use slack', integrations: ['slack'],
+    }))
+    assert.equal(res.status, 200)
+    const created = (await res.json()).agent
+    const connectors = await prisma.agentConnector.findMany({ where: { agentTaskId: created.id, organizationId } })
+    assert.equal(connectors.length, 1, 'typed connector rows must persist (guard rejection would leave zero)')
+  })
+
   test('capture: PUT /api/agents writes agent_edited', async () => {
     const res = await (await import('../agents/route')).PUT(put('/api/agents', { id: agentId, title: 'QA Capture Agent v2' }))
     assert.equal(res.status, 200)

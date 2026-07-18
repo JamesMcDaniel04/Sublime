@@ -9,6 +9,8 @@ import { z } from 'zod'
 import { prisma } from '@/lib/prisma'
 import { apiLogger } from '@/lib/logger'
 import { generateStructured, DEFAULT_SUMMARY_MODEL } from '@/lib/llm/model-runner'
+import { checkMonthlyTokenBudget, recordTokenUsage } from '@/lib/usage/budget'
+import { captureError } from '@/lib/observability/sentry'
 import { saveAgentMemory } from '@/lib/memory/agent-memory'
 import { notify } from '@/lib/notifications/service'
 import { buildCopilotGrounding } from '@/lib/flows/copilot-grounding'
@@ -88,15 +90,50 @@ export function parseUserSuggestions(raw: string, validSlugs: Set<string>): User
 
 const day = (date: Date) => date.toISOString().slice(0, 10)
 
-/** "why this exists" lines — dated, citing the specific events (spec §4). */
+/**
+ * "why this exists" lines (spec §4) — a SELF-CONTAINED human-readable snapshot.
+ * Deliberately no raw event ids: the ledger ages out at 180 days while this
+ * snapshot lives on the suggestion forever, so ids would rot into dangling
+ * references. Machine-verifiable evidence stays on the pattern rows (recomputed
+ * from live events every inference run) and in the graph's evidence edges.
+ */
 export function renderPatternEvidence(patterns: EligiblePattern[]): string[] {
   return patterns.map((pattern) =>
-    `${pattern.summary} — ${pattern.occurrenceCount} times between ${day(pattern.firstSeenAt)} and ${day(pattern.lastSeenAt)} (events: ${pattern.evidence.slice(0, 5).join(', ')})`,
+    `${pattern.summary} — observed ${pattern.occurrenceCount} times between ${day(pattern.firstSeenAt)} and ${day(pattern.lastSeenAt)}, most recently ${day(pattern.lastSeenAt)}`,
   )
 }
 
+/**
+ * What actually HAPPENED to a past suggestion — feedback richer than
+ * accepted/dismissed. An accepted draft flow that was never published within
+ * two weeks is a weak signal; one whose draft got deleted is a negative one.
+ * Pure so the labeling is testable.
+ */
+export type SuggestionFeedbackRow = {
+  title: string
+  status: string
+  kind: string
+  flowId: string | null
+  updatedAt: Date
+}
+
+const ADOPTION_WINDOW_MS = 14 * 24 * 60 * 60 * 1000
+
+export function suggestionOutcomeLabel(
+  row: SuggestionFeedbackRow,
+  flow: { status: string; publishedGraph: unknown } | null,
+  now: Date,
+): string {
+  if (row.status !== 'accepted') return row.status
+  if (row.kind !== 'new_flow' || !row.flowId) return 'accepted'
+  if (!flow) return 'accepted-then-deleted'
+  if (flow.status === 'ACTIVE' || flow.publishedGraph != null) return 'accepted-and-adopted'
+  if (now.getTime() - row.updatedAt.getTime() > ADOPTION_WINDOW_MS) return 'accepted-but-never-published'
+  return 'accepted'
+}
+
 export type UserSynthesisResult =
-  | { skipped: 'pending-suggestion' | 'no-eligible-patterns' | 'throttled' | 'no-suggestion' | 'generation-failed' | 'error' }
+  | { skipped: 'pending-suggestion' | 'no-eligible-patterns' | 'budget-exceeded' | 'throttled' | 'no-suggestion' | 'generation-failed' | 'error' }
   | { created: true; suggestionId: string; kind: 'new_flow' | 'enhancement' }
 
 export type UserSynthesisOverrides = {
@@ -122,6 +159,12 @@ export async function synthesizeUserSuggestions(
     const patterns = await listEligiblePatterns(organizationId, userId)
     if (patterns.length === 0) return { skipped: 'no-eligible-patterns' }
 
+    // Cost discipline (parity with the org-level pipeline): background
+    // intelligence must never push an org past its monthly token ceiling —
+    // an over-budget org simply skips synthesis until the month rolls over.
+    const budget = await checkMonthlyTokenBudget(organizationId, userId)
+    if (budget.over) return { skipped: 'budget-exceeded' }
+
     // Quietness guard 2: atomic weekly claim on users.metadata (mirrors
     // claimSynthesisSlotAtomic in suggest-workflows.ts; users.id is TEXT).
     const user = await prisma.user.findUnique({ where: { id: userId }, select: { metadata: true } })
@@ -139,19 +182,37 @@ export async function synthesizeUserSuggestions(
     if (affected === 0) return { skipped: 'throttled' }
 
     try {
-      const [flows, agents, feedback] = await Promise.all([
+      const [flows, agents, feedbackRows] = await Promise.all([
         loadExistingFlows(organizationId),
         loadExistingAgents(organizationId),
         prisma.userSuggestion.findMany({
           where: { organizationId, userId, status: { in: ['accepted', 'dismissed'] } },
-          orderBy: { updatedAt: 'desc' }, take: 20, select: { title: true, status: true },
+          orderBy: { updatedAt: 'desc' }, take: 20,
+          select: { title: true, status: true, kind: true, flowId: true, updatedAt: true },
         }),
       ])
+      // Outcome enrichment: check what became of accepted draft flows so the
+      // model learns from adoption, not just the accept click.
+      const acceptedFlowIds = feedbackRows
+        .filter((row) => row.status === 'accepted' && row.kind === 'new_flow' && row.flowId)
+        .map((row) => row.flowId as string)
+      const outcomeFlows = acceptedFlowIds.length
+        ? await prisma.flow.findMany({
+            where: { id: { in: acceptedFlowIds }, organizationId },
+            select: { id: true, status: true, publishedGraph: true },
+          })
+        : []
+      const flowById = new Map(outcomeFlows.map((flow) => [flow.id, flow]))
+      const feedback = feedbackRows.map((row) => ({
+        title: row.title,
+        outcome: suggestionOutcomeLabel(row, row.flowId ? flowById.get(row.flowId) ?? null : null, now),
+      }))
       const system = [
         'You are the personal automation-suggestion engine for ONE user of a workflow platform. You are given behavior patterns OBSERVED from their real usage (counts and dates are facts, computed — not guesses).',
         'Propose AT MOST ONE suggestion — the single highest-value one — or null if nothing is clearly worth their attention. Be conservative: a mediocre suggestion costs trust.',
         'kind "new_flow": a new automation replacing a repeated manual routine; include flowPrompt detailed enough for a flow-builder AI. kind "enhancement": a concrete improvement to one EXISTING flow/agent from the lists (exact targetId; never invent one).',
         'sourcePatternSlugs MUST cite the exact slugs of the observed patterns that justify the suggestion. Do not repeat previously dismissed ideas.',
+        'Feedback outcomes are what ACTUALLY happened: "accepted-and-adopted" is the strongest positive signal; "accepted-but-never-published" and "accepted-then-deleted" mean the idea sounded good but was not worth acting on — treat those nearly as negatively as dismissed.',
       ].join(' ')
       const userPrompt = [
         'Observed behavior patterns (slug | summary | count | first..last):',
@@ -163,12 +224,15 @@ export async function synthesizeUserSuggestions(
         'Existing agents:',
         agents.length ? agents.map((a) => `- id:${a.id} "${a.title}"`).join('\n') : '- None',
         '',
-        'Prior suggestion feedback:',
-        feedback.length ? feedback.map((f) => `- ${f.status}: ${f.title}`).join('\n') : '- None yet',
+        'Prior suggestion feedback (outcome: title):',
+        feedback.length ? feedback.map((f) => `- ${f.outcome}: ${f.title}`).join('\n') : '- None yet',
       ].join('\n')
 
       const model = process.env.AGENT_REFLECTION_MODEL?.trim() || DEFAULT_SUMMARY_MODEL
       const raw = await generate({ system, user: userPrompt, schema: USER_SUGGESTION_JSON_SCHEMA, schemaName: 'user_suggestion', maxTokens: 1500, model })
+      // Rough metering (~chars/4, same convention as the assistant): the
+      // structured runner returns no usage numbers.
+      void recordTokenUsage(organizationId, Math.ceil((system.length + userPrompt.length + raw.length) / 4)).catch(() => undefined)
       const candidate = parseUserSuggestions(raw, new Set(patterns.map((p) => p.slug)))
       if (!candidate) {
         await releaseClaim(userId, previous)
@@ -233,6 +297,7 @@ export async function synthesizeUserSuggestions(
     }
   } catch (error) {
     apiLogger.warn('synthesizeUserSuggestions failed', { organizationId, userId, error: error instanceof Error ? error.message : String(error) })
+    captureError(error, { scope: 'behavior.synthesis', organizationId })
     return { skipped: 'error' }
   }
 }

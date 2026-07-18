@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { isPatternEligible, MIN_OCCURRENCES, MIN_SPAN_DAYS, LEARNING_PERIOD_DAYS } from '@/lib/behavior/eligibility'
+import { isPatternEligible, MIN_OCCURRENCES, MIN_SPAN_DAYS, LEARNING_PERIOD_DAYS, MAX_STALE_DAYS } from '@/lib/behavior/eligibility'
 
 const day = 24 * 60 * 60 * 1000
 const now = new Date('2026-07-17T12:00:00Z')
@@ -41,4 +41,16 @@ test('dismissed patterns are never eligible', () => {
 test('boundaries are inclusive: exactly 3 occurrences over exactly 7 days, learning period exactly over', () => {
   const boundary = { occurrenceCount: 3, firstSeenAt: daysAgo(7), lastSeenAt: now, status: 'open' }
   assert.equal(isPatternEligible(boundary, daysAgo(7), now), true)
+})
+
+test('staleness: a routine not observed in MAX_STALE_DAYS is no longer a routine', () => {
+  assert.equal(MAX_STALE_DAYS, 30)
+  const stale = { occurrenceCount: 12, firstSeenAt: daysAgo(180), lastSeenAt: daysAgo(31), status: 'open' }
+  assert.equal(isPatternEligible(stale, learnedUser, now), false)
+  const fresh = { ...stale, lastSeenAt: daysAgo(29) }
+  assert.equal(isPatternEligible(fresh, learnedUser, now), true)
+})
+
+test('expired patterns are never eligible', () => {
+  assert.equal(isPatternEligible({ ...good, status: 'expired' }, learnedUser, now), false)
 })

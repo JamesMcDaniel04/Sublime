@@ -57,8 +57,12 @@ export async function syncAgentConnectors(
     const rows = keys.map((key) => ({ agentTaskId, organizationId, ...classifyConnector(key, idByName) }))
 
     // Atomic replace: the current selection is the whole truth for this agent.
+    // organizationId in the delete's where is REQUIRED: the tenant guard
+    // rejects unscoped writes on org-carrying models, and the swallowed
+    // rejection here meant connector rows silently never persisted (every
+    // agent fell back to the metadata path).
     await prisma.$transaction([
-      prisma.agentConnector.deleteMany({ where: { agentTaskId } }),
+      prisma.agentConnector.deleteMany({ where: { agentTaskId, organizationId } }),
       ...(rows.length ? [prisma.agentConnector.createMany({ data: rows })] : []),
     ])
   } catch (error) {

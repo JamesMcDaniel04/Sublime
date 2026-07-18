@@ -10,6 +10,9 @@ import { prisma } from '@/lib/prisma'
 export const MIN_OCCURRENCES = 3
 export const MIN_SPAN_DAYS = 7
 export const LEARNING_PERIOD_DAYS = 7
+/** A routine not observed in this long is no longer a routine — without this
+ *  bound, a pattern from months ago would ground suggestions forever. */
+export const MAX_STALE_DAYS = 30
 
 const DAY_MS = 24 * 60 * 60 * 1000
 
@@ -28,6 +31,7 @@ export function isPatternEligible(
   if (pattern.status !== 'open') return false
   if (pattern.occurrenceCount < MIN_OCCURRENCES) return false
   if (pattern.lastSeenAt.getTime() - pattern.firstSeenAt.getTime() < MIN_SPAN_DAYS * DAY_MS) return false
+  if (now.getTime() - pattern.lastSeenAt.getTime() > MAX_STALE_DAYS * DAY_MS) return false
   if (userFirstEventAt == null) return false
   if (now.getTime() - userFirstEventAt.getTime() < LEARNING_PERIOD_DAYS * DAY_MS) return false
   return true
