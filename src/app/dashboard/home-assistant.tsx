@@ -108,6 +108,105 @@ const PRESETS: Array<{ label: string; icon: typeof FileText; prompt: string; sen
   },
 ]
 
+// Hero headline CTAs — each one is a task the assistant can genuinely perform
+// (assignment conversion, run reporting, connection health, scheduling, runs).
+const HEADLINE_CTAS = [
+  'What should we take on?',
+  'Hand me an assignment — I’ll build the agent.',
+  'Ask what your agents did this week.',
+  'Check which connections need attention.',
+  'Schedule a daily briefing of your workspace.',
+  'Tell me to run an agent, and I will.',
+]
+
+const TYPE_MS = 34
+const DELETE_MS = 16
+// Type (~1.5s) + hold + delete (~0.7s) lands each phrase at ≈7.5s on screen.
+const HOLD_MS = 5300
+
+function usePrefersReducedMotion(): boolean {
+  const [reduced, setReduced] = useState(false)
+  useEffect(() => {
+    const query = window.matchMedia('(prefers-reduced-motion: reduce)')
+    setReduced(query.matches)
+    const onChange = (event: MediaQueryListEvent) => setReduced(event.matches)
+    query.addEventListener('change', onChange)
+    return () => query.removeEventListener('change', onChange)
+  }, [])
+  return reduced
+}
+
+/**
+ * Typewriter headline: types a phrase, holds, deletes, then moves to the next.
+ * With reduced motion the phrase swaps whole on the same cadence instead.
+ */
+function TypedHeadline({ phrases }: { phrases: string[] }) {
+  const reduced = usePrefersReducedMotion()
+  const [index, setIndex] = useState(0)
+  const [length, setLength] = useState(0)
+  const [phase, setPhase] = useState<'typing' | 'deleting'>('typing')
+  const phrase = phrases[index]
+
+  useEffect(() => {
+    if (reduced) {
+      const timer = setTimeout(() => setIndex((current) => (current + 1) % phrases.length), 7500)
+      return () => clearTimeout(timer)
+    }
+    let timer: ReturnType<typeof setTimeout>
+    if (phase === 'typing') {
+      timer =
+        length < phrase.length
+          ? setTimeout(() => setLength(length + 1), TYPE_MS)
+          : setTimeout(() => setPhase('deleting'), HOLD_MS)
+    } else if (length > 0) {
+      timer = setTimeout(() => setLength(length - 1), DELETE_MS)
+    } else {
+      timer = setTimeout(() => {
+        setIndex((index + 1) % phrases.length)
+        setPhase('typing')
+      }, 200)
+    }
+    return () => clearTimeout(timer)
+  }, [reduced, phase, length, index, phrase, phrases.length])
+
+  return (
+    <h1 className="min-h-16 text-center text-2xl font-semibold text-gray-900 sm:min-h-8">
+      {/* Screen readers get one stable sentence; the animation is decorative. */}
+      <span className="sr-only">
+        What should we take on? Ask about your agents, runs, and connections, or hand me an assignment.
+      </span>
+      <span aria-hidden="true">
+        {reduced ? phrase : phrase.slice(0, length)}
+        <span
+          className={cn(
+            'ml-1 inline-block h-[1.1em] w-[2px] translate-y-[0.18em] rounded-full bg-indigo-400',
+            !reduced && 'caret-blink',
+          )}
+        />
+      </span>
+    </h1>
+  )
+}
+
+/** Time-of-day salutation for the hero eyebrow. */
+function salutationForHour(hour: number): string {
+  if (hour < 5) return 'Working late'
+  if (hour < 12) return 'Good morning'
+  if (hour < 18) return 'Good afternoon'
+  return 'Good evening'
+}
+
+// Roles the reply can be framed for. Keys must match OUTPUT_STYLE_PROMPTS in
+// the chat route, where the actual tailoring happens.
+type OutputStyleKey = 'sales' | 'csm' | 'marketing' | 'it'
+
+const OUTPUT_STYLES: Array<{ key: OutputStyleKey; label: string; hint: string }> = [
+  { key: 'sales', label: 'Sales', hint: 'Deal impact and next actions' },
+  { key: 'csm', label: 'CSM', hint: 'Account health and follow-ups' },
+  { key: 'marketing', label: 'Marketing', hint: 'Campaign results and next content' },
+  { key: 'it', label: 'IT', hint: 'System status, errors, and fixes' },
+]
+
 export function HomeAssistant() {
   const { user } = useAuth()
   const router = useRouter()
@@ -123,6 +222,11 @@ export function HomeAssistant() {
   const [runningId, setRunningId] = useState<string | null>(null)
   const [suggestion, setSuggestion] = useState<UserSuggestion | null>(null)
   const [suggestionBusy, setSuggestionBusy] = useState(false)
+  const [outputStyle, setOutputStyle] = useState<OutputStyleKey | null>(null)
+  // Computed after mount so the server-rendered HTML never disagrees with the
+  // visitor's local clock.
+  const [salutation, setSalutation] = useState('Welcome back')
+  useEffect(() => setSalutation(salutationForHour(new Date().getHours())), [])
   const scrollRef = useRef<HTMLDivElement>(null)
   const historyRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -286,6 +390,7 @@ export function HomeAssistant() {
           message: content,
           ...(sessionId ? { sessionId } : {}),
           ...(sentAttachment ? { attachment: sentAttachment } : {}),
+          ...(outputStyle ? { outputStyle } : {}),
         }),
       })
       const data = await response.json().catch(() => ({}))
@@ -391,7 +496,8 @@ export function HomeAssistant() {
           </button>
         </div>
       )}
-      <div className="flex items-end gap-2 rounded-2xl border bg-white p-2 shadow-1 transition-shadow focus-within:ring-2 focus-within:ring-indigo-200">
+      <div className="rounded-2xl border bg-white p-2 shadow-1 transition-shadow focus-within:ring-2 focus-within:ring-indigo-200">
+        <div className="flex items-end gap-2">
         <input
           ref={fileInputRef}
           type="file"
@@ -437,6 +543,39 @@ export function HomeAssistant() {
         >
           {sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowUp className="h-4 w-4" />}
         </Button>
+        </div>
+        {/* Role framing — the selected key travels with each send and reshapes
+            the reply server-side. Clicking the active role clears it. */}
+        <div className="mt-2 border-t border-gray-100 px-1 pt-2">
+          <div className="flex items-center justify-between gap-3">
+            <span className="text-[10px] font-semibold uppercase tracking-[0.12em] text-gray-400">
+              Tailor output for
+            </span>
+            <span className="truncate text-xs text-gray-400">
+              {OUTPUT_STYLES.find((style) => style.key === outputStyle)?.hint ?? 'General output'}
+            </span>
+          </div>
+          <div className="mt-1.5 grid grid-cols-4 gap-0.5 rounded-lg bg-gray-100 p-0.5" role="group" aria-label="Tailor output for">
+            {OUTPUT_STYLES.map((style) => (
+              <button
+                key={style.key}
+                type="button"
+                aria-pressed={outputStyle === style.key}
+                title={style.hint}
+                disabled={sending}
+                onClick={() => setOutputStyle((current) => (current === style.key ? null : style.key))}
+                className={cn(
+                  'rounded-md px-2 py-1 text-xs font-medium uppercase tracking-wide transition-colors',
+                  outputStyle === style.key
+                    ? 'bg-white text-indigo-700 shadow-1'
+                    : 'text-gray-500 hover:text-gray-800',
+                )}
+              >
+                {style.label}
+              </button>
+            ))}
+          </div>
+        </div>
       </div>
     </div>
   )
@@ -506,9 +645,13 @@ export function HomeAssistant() {
         /* Hero: greeting + composer + presets, vertically centered. */
         <div className="flex min-h-0 flex-1 items-center justify-center p-4">
           <div className="w-full max-w-2xl">
-            <h1 className="text-center text-2xl font-semibold text-gray-900">
-              Hey {user?.firstName || 'there'} — what should we take on?
-            </h1>
+            <p className="eyebrow text-center">
+              <span className="text-indigo-400">{'///'}</span> {salutation}
+              {user?.firstName ? `, ${user.firstName}` : ''}
+            </p>
+            <div className="mt-2">
+              <TypedHeadline phrases={HEADLINE_CTAS} />
+            </div>
             <p className="mt-2 text-center text-sm text-gray-500">
               Ask about anything happening in your workspace, or hand me an assignment and I&apos;ll turn it into an
               agent.

@@ -40,6 +40,16 @@ const SYSTEM_PROMPT = [
   'Write concise markdown in sentence case. No emoji.',
 ].join('\n')
 
+// "Tailor output for" roles offered by the composer. Each adds one framing
+// instruction on top of SYSTEM_PROMPT; grounding rules are unchanged, so a
+// role never invents data — it reorders what leads and what the reply ends on.
+const OUTPUT_STYLE_PROMPTS = {
+  sales: 'Tailor the reply for a sales audience: lead with pipeline and deal impact, surface revenue-relevant signals from the context, and end with the concrete next actions a rep should take.',
+  csm: 'Tailor the reply for a customer success audience: lead with account health and renewal risk, flag anything that needs customer outreach, and end with follow-up actions.',
+  marketing: 'Tailor the reply for a marketing audience: lead with campaign and audience impact, surface content or messaging opportunities from the context, and end with next steps.',
+  it: 'Tailor the reply for an IT audience: lead with system status — integrations, auth, and failures — be precise about causes, and end with remediation steps.',
+} as const
+
 const RESPONSE_SCHEMA = {
   type: 'object',
   additionalProperties: false,
@@ -130,10 +140,11 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
   if (!process.env.ANTHROPIC_API_KEY && !qwenConfigured()) {
     throw new ApiError('No model provider is configured', 503, 'AI_UNAVAILABLE')
   }
-  const { message, sessionId: requestedSessionId, attachment } = z
+  const { message, sessionId: requestedSessionId, attachment, outputStyle } = z
     .object({
       message: z.string().min(1).max(4000),
       sessionId: z.string().optional(),
+      outputStyle: z.enum(['sales', 'csm', 'marketing', 'it']).optional(),
       attachment: z
         .object({
           filename: z.string().min(1).max(200),
@@ -188,7 +199,7 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
     const text = await generateStructured({
       schemaName: 'home_assistant_reply',
       schema: RESPONSE_SCHEMA as unknown as Record<string, unknown>,
-      system: SYSTEM_PROMPT,
+      system: outputStyle ? `${SYSTEM_PROMPT}\n${OUTPUT_STYLE_PROMPTS[outputStyle]}` : SYSTEM_PROMPT,
       user: JSON.stringify({
         context,
         ...(intelligence ? { intelligence } : {}),
