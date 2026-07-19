@@ -176,7 +176,7 @@ export default function FlowsPage() {
   return (
     <div className="mx-auto max-w-6xl space-y-6">
       <div className="flex items-start justify-between gap-4">
-        <PageHeader eyebrow="Pipelines" title="Flows" description="Wire your agents into deterministic multi-step pipelines." />
+        <PageHeader eyebrow="Pipelines" icon={Workflow} title="Flows" description="Wire your agents into deterministic multi-step pipelines." />
         <Button onClick={createFlow} loading={creating}>
           <Plus className="mr-1.5 h-4 w-4" /> New flow
         </Button>

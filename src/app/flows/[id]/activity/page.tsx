@@ -3,7 +3,7 @@
 import { Fragment, useEffect, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { ChevronRight, RefreshCw, ScrollText, Trash2 } from 'lucide-react'
+import { Activity, ChevronRight, RefreshCw, ScrollText, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -260,7 +260,7 @@ export default function FlowActivityPage() {
   return (
     <div className="mx-auto max-w-6xl space-y-6">
       <div className="flex items-start justify-between gap-4">
-        <PageHeader eyebrow={flowName || 'Flow'} title="Activity" description="Run history for this flow — filter, inspect steps, and watch live runs." />
+        <PageHeader eyebrow={flowName || 'Flow'} icon={Activity} title="Activity" description="Run history for this flow — filter, inspect steps, and watch live runs." />
         <div className="flex items-center gap-2">
           <Link href={`/flows/${id}`} className="text-sm font-medium text-primary hover:underline">
             Back to builder

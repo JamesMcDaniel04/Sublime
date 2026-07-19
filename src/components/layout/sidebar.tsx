@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import {
-  Brain,
+  Bot,
   Check,
   ChevronDown,
   ChevronRight,
@@ -80,7 +80,7 @@ export function notifyAgentsChanged() {
 // (/agents?view=templates), toggled at the top of that page.
 const navigation = [
   { name: 'Home', href: '/dashboard', icon: Sparkles },
-  { name: 'Agents', href: '/agents', icon: Brain },
+  { name: 'Agents', href: '/agents', icon: Bot },
   { name: 'Integrations', href: '/integrations', icon: Plug },
   { name: 'Flows', href: '/flows', icon: Workflow },
 ]

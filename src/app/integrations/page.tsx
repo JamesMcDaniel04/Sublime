@@ -49,6 +49,7 @@ export default function IntegrationsPage() {
       <div className="space-y-6">
         <PageHeader
           eyebrow="Connections"
+          icon={Cable}
           title="Integrations"
           description="Connect the tools your agents use, link your accounts, and manage MCP servers."
         />

@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
-import { Building2, CreditCard, Palette, ShieldCheck, UserRound, Users } from 'lucide-react'
+import { Building2, CreditCard, Palette, Settings2, ShieldCheck, UserRound, Users } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -277,7 +277,7 @@ export default function SettingsPage() {
     toast.success('Invitation revoked')
   }
 
-  return <div className="space-y-6"><PageHeader eyebrow="Account" title="Settings" description="Manage your profile, appearance, workspace, security, and billing." />
+  return <div className="space-y-6"><PageHeader eyebrow="Account" icon={Settings2} title="Settings" description="Manage your profile, appearance, workspace, security, and billing." />
     {loadError && <Card className="border-destructive/30"><CardContent className="flex flex-wrap items-center justify-between gap-3 p-4"><p className="text-sm text-destructive">{loadError}</p><Button variant="outline" onClick={() => void load()} loading={loadingSettings}>Try again</Button></CardContent></Card>}
     {loadingSettings && !profile ? (
       <div className="space-y-6" aria-busy="true" aria-label="Loading settings">
