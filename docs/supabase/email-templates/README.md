@@ -20,12 +20,17 @@ Supabase Dashboard → **Authentication → Emails** (templates tab). For each
 template, paste the corresponding file's full HTML into the *Message body*
 (source view) and set the subject:
 
-| Supabase template  | File                  | Suggested subject                  |
-| ------------------ | --------------------- | ---------------------------------- |
-| Confirm signup     | `confirm-signup.html` | Confirm your email — Sublime       |
-| Magic Link         | `magic-link.html`     | Your Sublime sign-in link          |
-| Reset Password     | `reset-password.html` | Reset your Sublime password        |
-| Invite user        | `invite.html`         | You've been invited to Sublime     |
+| Supabase template    | File                  | Suggested subject                |
+| -------------------- | --------------------- | -------------------------------- |
+| Confirm signup       | `confirm-signup.html` | Confirm your email — Sublime     |
+| Magic Link           | `magic-link.html`     | Your Sublime sign-in link        |
+| Reset Password       | `reset-password.html` | Reset your Sublime password      |
+| Change Email Address | `change-email.html`   | Confirm your new email — Sublime |
+| Invite user          | `invite.html`         | You've been invited to Sublime   |
+
+Note: with "Secure email change" enabled (Supabase's default), the change-email
+message goes to BOTH the old and new address and each must confirm before the
+change applies.
 
 Note on links: the confirm-signup template uses `{{ .RedirectTo }}` so a signup
 that started from a pricing card continues to checkout after confirming (the
@@ -43,7 +48,7 @@ Dashboard → **Authentication → URL Configuration**:
   - `https://trysublime.io/auth/callback`
   - `http://localhost:3000/auth/callback` (local dev)
 
-## 3. Send from hello@trysublime.io (custom SMTP)
+## 3. Send from `hello@trysublime.io` (custom SMTP)
 
 The built-in mailer always sends from `noreply@mail.app.supabase.io` and is
 rate-limited to a handful of emails per hour — production must use custom SMTP.

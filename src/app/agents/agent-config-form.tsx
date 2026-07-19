@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { Copy, Download, Loader2, Play, RotateCcw, ScrollText, Trash2, Webhook, X } from 'lucide-react'
+import { ChevronDown, Copy, Download, Loader2, Play, RotateCcw, ScrollText, Trash2, Webhook, X } from 'lucide-react'
 import { toast } from 'sonner'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -337,6 +337,17 @@ export function AgentConfigForm({
 }) {
   const router = useRouter()
   const [draft, setDraft] = useState<AgentDraft>(emptyDraft)
+  // "More settings" disclosure. null = untouched, so it auto-opens whenever an
+  // advanced option is already configured (an active schedule or output
+  // contract must never be hidden behind a collapsed section).
+  const [moreSettingsOpen, setMoreSettingsOpen] = useState<boolean | null>(null)
+  const advancedInUse =
+    draft.alwaysStrategize === true ||
+    (draft.maxTurns ?? 16) !== 16 ||
+    (draft.outputFields?.length ?? 0) > 0 ||
+    draft.allowSubagents === true ||
+    draft.schedule.isActive
+  const moreOpen = moreSettingsOpen ?? advancedInUse
   const [saving, setSaving] = useState(false)
   const [publishingTemplate, setPublishingTemplate] = useState(false)
   // Snapshot of the draft as last populated/saved, so Run can tell whether
@@ -973,6 +984,25 @@ export function AgentConfigForm({
           />
         </div>
       </div>
+
+      {/* ── More settings (advanced, collapsed by default) ──────────── */}
+      <button
+        type="button"
+        onClick={() => setMoreSettingsOpen(!moreOpen)}
+        aria-expanded={moreOpen}
+        className="flex w-full items-center justify-between rounded-lg border p-3 text-left transition-colors hover:bg-accent/50"
+      >
+        <div>
+          <span className="text-sm font-medium">More settings</span>
+          <p className="mt-0.5 text-xs text-muted-foreground">
+            Planning, turn limits, structured output, multi-agent, and scheduling.
+          </p>
+        </div>
+        <ChevronDown className={`h-4 w-4 shrink-0 text-muted-foreground transition-transform ${moreOpen ? 'rotate-180' : ''}`} />
+      </button>
+
+      {moreOpen && (
+        <>
       <div className="rounded-lg border p-3">
         <div className="flex items-center justify-between gap-3">
           <div>
