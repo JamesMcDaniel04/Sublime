@@ -485,7 +485,7 @@ export function Sidebar() {
                     <img src={org.logoUrl || DEFAULT_ORG_LOGO} alt="" className="h-5 w-5 rounded object-cover" />
                     <span className="flex-1 truncate text-left">{org.name}</span>
                     <span className="text-xs text-gray-400">{planLabel(org.plan)}</span>
-                    {org.id === activeOrg?.id && <Check className="h-4 w-4 text-indigo-600" />}
+                    {org.id === activeOrg?.id && <Check className="h-4 w-4 text-foreground" />}
                   </div>
                 ))}
                 {/* Logo management PATCHes /api/organizations, which is

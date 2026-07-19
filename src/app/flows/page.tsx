@@ -211,14 +211,14 @@ export default function FlowsPage() {
       </div>
 
       {!loading && suggestedFlows.length > 0 && (
-        <div className="space-y-3 rounded-xl border border-indigo-200/70 bg-indigo-50/50 p-4 dark:border-indigo-500/30 dark:bg-indigo-500/5">
+        <div className="space-y-3 rounded-xl border bg-muted/40 p-4">
           <div className="flex items-center gap-2">
-            <Sparkles className="h-4 w-4 text-indigo-600 dark:text-indigo-300" />
-            <p className="text-sm font-semibold text-indigo-900 dark:text-indigo-200">Your AI is ready — suggested for you</p>
+            <Sparkles className="h-4 w-4 text-foreground" />
+            <p className="text-sm font-semibold text-foreground">Your AI is ready — suggested for you</p>
           </div>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {suggestedFlows.map((flow) => (
-              <div key={flow.id} className="rounded-lg border border-indigo-200/70 bg-background p-3 dark:border-indigo-500/30">
+              <div key={flow.id} className="rounded-lg border bg-background p-3">
                 <p className="truncate text-sm font-semibold" title={flow.name}>{flow.name}</p>
                 <p className="mt-0.5 line-clamp-2 text-xs text-muted-foreground">{flow.description || 'A workflow draft based on how your team uses its connected tools.'}</p>
                 <div className="mt-2 flex items-center gap-2">
@@ -256,7 +256,7 @@ export default function FlowsPage() {
           </div>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {STARTER_TEMPLATES.map((template) => (
-              <div key={template.key} className="flex flex-col rounded-lg border bg-card p-3 transition-colors hover:border-indigo-300/70 dark:hover:border-indigo-500/40">
+              <div key={template.key} className="flex flex-col rounded-lg border bg-card p-3 transition-colors hover:border-foreground/30">
                 <p className="text-sm font-semibold">{template.name}</p>
                 <p className="mt-0.5 line-clamp-2 flex-1 text-xs text-muted-foreground">{template.description}</p>
                 <div className="mt-2.5 flex items-center justify-between gap-2">
@@ -310,8 +310,7 @@ export default function FlowsPage() {
           <div className="stagger-children grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3">
             {pageItems.map((flow) => (
               <Link key={flow.id} href={`/flows/${flow.id}`} className="block">
-                <Card className="group relative h-full overflow-hidden border-border/60 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg hover:ring-1 hover:ring-indigo-300/70 dark:hover:ring-indigo-500/40">
-                  <div className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-indigo-500 to-blue-400 opacity-80 transition-opacity group-hover:opacity-100" />
+                <Card className="group relative h-full overflow-hidden transition-colors duration-200 hover:border-foreground/30">
                   <CardHeader className="space-y-2.5 pt-5">
                     <div className="flex items-center justify-between">
                       <Badge variant="outline" className={cn('text-[11px] font-medium capitalize', STATUS_STYLE[flow.status] || STATUS_STYLE.draft)}>
@@ -350,7 +349,7 @@ export default function FlowsPage() {
                       </div>
                     </div>
                     <div className="flex items-start gap-2.5">
-                      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-indigo-100 text-indigo-600 transition-transform group-hover:scale-105 dark:bg-indigo-500/15 dark:text-indigo-300">
+                      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border bg-muted text-foreground">
                         <Workflow className="h-[18px] w-[18px]" />
                       </span>
                       <CardTitle className="min-w-0 text-base leading-snug">{flow.name}</CardTitle>

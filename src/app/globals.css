@@ -11,49 +11,52 @@
 /* shadcn-style tokens, mapped to the Sublime palette. Every UI primitive
    (button, card, badge, input, …) reads these, so the whole app inherits
    Horizon (primary) + Graphite (neutrals) from here. */
+/* Palette mirrors landing.css (.lovable-landing) so the marketing site, auth,
+   and signed-in product read as ONE design: grayscale surfaces, slate accent,
+   hairline borders. */
 :root {
-  --background: 120 17% 98%;          /* sublime-canvas #F8FAF8 */
-  --foreground: 185 79% 11%;          /* sublime-ink #062F33 */
+  --background: 0 0% 100%;
+  --foreground: 0 0% 9%;
   --card: 0 0% 100%;
-  --card-foreground: 185 79% 11%;
+  --card-foreground: 0 0% 9%;
   --popover: 0 0% 100%;
-  --popover-foreground: 185 79% 11%;
-  --primary: 185 79% 11%;            /* landing ink #062F33 */
+  --popover-foreground: 0 0% 9%;
+  --primary: 215 16% 47%;            /* slate accent (landing) */
   --primary-foreground: 0 0% 100%;
-  --secondary: 168 29% 93%;          /* landing mint #E9F3F1 */
-  --secondary-foreground: 185 79% 11%;
-  --muted: 120 9% 95%;
-  --muted-foreground: 185 15% 38%;
-  --accent: 21 100% 95%;             /* landing orange soft #FFF0E8 */
-  --accent-foreground: 185 79% 11%;
-  --destructive: 1 77% 55%;          /* red-500 #E53935 */
+  --secondary: 0 0% 96%;
+  --secondary-foreground: 0 0% 9%;
+  --muted: 0 0% 96%;
+  --muted-foreground: 0 0% 45%;
+  --accent: 0 0% 96%;
+  --accent-foreground: 0 0% 9%;
+  --destructive: 345 72% 51%;
   --destructive-foreground: 0 0% 100%;
-  --border: 165 20% 88%;             /* cool mint border */
-  --input: 165 20% 84%;
-  --ring: 16 100% 60%;               /* landing orange #FF6B35 */
-  --radius: 1rem;
+  --border: 0 0% 90%;
+  --input: 0 0% 90%;
+  --ring: 215 16% 47%;
+  --radius: 0.375rem;
 }
 
 .dark {
-  --background: 240 18% 11%;         /* graphite-900 */
-  --foreground: 225 17% 95%;
-  --card: 240 16% 13%;
-  --card-foreground: 225 17% 95%;
-  --popover: 240 16% 13%;
-  --popover-foreground: 225 17% 95%;
-  --primary: 197 41% 56%;            /* horizon-300/400 for contrast on dark */
-  --primary-foreground: 240 18% 11%;
-  --secondary: 240 12% 20%;
-  --secondary-foreground: 225 17% 95%;
-  --muted: 240 12% 20%;
-  --muted-foreground: 240 4% 64%;
-  --accent: 240 12% 20%;
-  --accent-foreground: 225 17% 95%;
-  --destructive: 1 77% 55%;
+  --background: 240 6% 6%;
+  --foreground: 0 0% 90%;
+  --card: 240 5% 9%;
+  --card-foreground: 0 0% 90%;
+  --popover: 240 5% 9%;
+  --popover-foreground: 0 0% 90%;
+  --primary: 215 14% 55%;
+  --primary-foreground: 0 0% 100%;
+  --secondary: 240 4% 14%;
+  --secondary-foreground: 0 0% 90%;
+  --muted: 240 4% 14%;
+  --muted-foreground: 0 0% 50%;
+  --accent: 240 4% 14%;
+  --accent-foreground: 0 0% 90%;
+  --destructive: 345 90% 60%;
   --destructive-foreground: 0 0% 100%;
-  --border: 240 10% 24%;
-  --input: 240 10% 24%;
-  --ring: 197 41% 56%;
+  --border: 240 4% 26%;
+  --input: 240 4% 26%;
+  --ring: 215 14% 55%;
 }
 
 * {
@@ -64,28 +67,27 @@
    --background/--card, which stay white) read as raised. */
 body {
   min-height: 100vh;
-  background: var(--sublime-canvas);
+  background: hsl(var(--background));
   color: hsl(var(--foreground));
   font-family: var(--font-display), "Arimo", system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
-/* Authenticated product canvas. The quiet mint/orange glow mirrors the
-   landing hero stage without competing with dense workflow content. */
+/* Authenticated product canvas — flat, like the landing. Surfaces separate by
+   hairline borders, not glows or elevation. */
 .sublime-app-shell {
-  background:
-    radial-gradient(circle at 18% -12%, rgba(200, 223, 219, 0.72), transparent 30rem),
-    radial-gradient(circle at 96% 5%, rgba(255, 107, 53, 0.08), transparent 24rem),
-    var(--sublime-canvas);
+  background: hsl(var(--background));
 }
 
 .sublime-app-main {
   background: transparent;
-  scrollbar-color: var(--sublime-mint-strong) transparent;
+  scrollbar-color: hsl(var(--border)) transparent;
 }
 
 ::selection {
-  background: rgba(255, 107, 53, 0.22);
-  color: var(--sublime-ink);
+  background: hsl(var(--primary) / 0.25);
+  color: hsl(var(--foreground));
 }
 
 /* Entrance stagger: put .stagger-children on a list/grid container and its
