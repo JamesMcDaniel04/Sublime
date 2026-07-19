@@ -1,6 +1,7 @@
 import type { User } from '@supabase/supabase-js'
 import { prisma, systemPrisma } from '@/lib/prisma'
 import { createClient } from '@/lib/supabase/server'
+import { newTrialEnd } from '@/lib/billing/trial'
 
 // An auth identity resolves to a user either directly (users.supabaseId, the
 // first identity) or via a linked user_identities row (any later sign-in
@@ -114,7 +115,7 @@ export async function provisionUser(user: User, existing?: NonNullable<DbUserRow
       const organization = invitation
         ? { id: invitation.organizationId }
         : await tx.organization.create({
-            data: { name: orgName, slug: `org-${user.id}` },
+            data: { name: orgName, slug: `org-${user.id}`, trialEndsAt: newTrialEnd() },
           })
       const role = invitation?.role ?? 'ADMIN'
 

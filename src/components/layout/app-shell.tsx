@@ -39,17 +39,19 @@ export function AppShell({ children }: { children: ReactNode }) {
   const flowSegments = pathname.startsWith('/flows/') ? pathname.slice('/flows/'.length).split('/').filter(Boolean) : []
   const fullscreen = FULLSCREEN_ROUTES.has(pathname) || flowSegments.length === 1
   return (
-    <div className="sublime-app-shell flex h-screen overflow-hidden">
-      <Sidebar />
-      <main id="main-content" className="sublime-app-main flex-1 overflow-y-auto">
-        {fullscreen ? (
-          <ErrorBoundary>{children}</ErrorBoundary>
-        ) : (
-          <div className="container mx-auto max-w-7xl animate-fade-in px-3 py-5 sm:px-8 sm:py-10">
+    <TrialGate>
+      <div className="sublime-app-shell flex h-screen overflow-hidden">
+        <Sidebar />
+        <main id="main-content" className="sublime-app-main flex-1 overflow-y-auto">
+          {fullscreen ? (
             <ErrorBoundary>{children}</ErrorBoundary>
-          </div>
-        )}
-      </main>
-    </div>
+          ) : (
+            <div className="container mx-auto max-w-7xl animate-fade-in px-3 py-5 sm:px-8 sm:py-10">
+              <ErrorBoundary>{children}</ErrorBoundary>
+            </div>
+          )}
+        </main>
+      </div>
+    </TrialGate>
   )
 }

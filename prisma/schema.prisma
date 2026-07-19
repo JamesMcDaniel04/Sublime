@@ -20,6 +20,9 @@ model Organization {
   // subscription id tracks the single active subscription for the org.
   stripeCustomerId     String? @unique
   stripeSubscriptionId String?
+  // Free-trial deadline: set to signup + 14 days at provisioning. Orgs on
+  // plan=TRIAL past this date are locked until they subscribe (card required).
+  trialEndsAt DateTime? @db.Timestamptz(6)
   // Freeform org-level settings grab-bag (e.g. `disableConnectionScans`).
   settings  Json     @default("{}")
   createdAt DateTime @default(now()) @db.Timestamptz(6)

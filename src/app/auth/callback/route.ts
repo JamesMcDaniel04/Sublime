@@ -3,7 +3,9 @@ import { createClient } from '@/lib/supabase/server'
 import { safeReturnToPath } from '@/lib/auth/redirect'
 import { ensureWorkspaceMembership } from '@/lib/supabase/auth-utils'
 
-const OTP_TYPES = new Set(['signup', 'invite', 'magiclink', 'recovery', 'email_change'])
+// 'email' is the type current Supabase templates emit for both signup
+// confirmation and magic-link logins; the rest are legacy per-flow types.
+const OTP_TYPES = new Set(['signup', 'invite', 'magiclink', 'recovery', 'email_change', 'email'])
 
 export async function GET(request: NextRequest) {
   const code = request.nextUrl.searchParams.get('code')
