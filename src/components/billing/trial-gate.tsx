@@ -1,20 +1,13 @@
 'use client'
 
 import { ReactNode, useEffect, useState } from 'react'
-import { CreditCard } from 'lucide-react'
-import { Button } from '@/components/ui/button'
+import { PricingGrid } from '@/components/billing/pricing-grid'
 
 type BillingStatus = {
   state: 'paid' | 'payment_required'
   plan: string
   hasSubscription: boolean
 }
-
-const PLAN_OPTIONS = [
-  { key: 'individual', label: 'Individual', price: '$29.99/mo' },
-  { key: 'team', label: 'Team', price: '$299/mo' },
-  { key: 'business', label: 'Business', price: '$1,999/mo' },
-]
 
 /**
  * Client half of billing enforcement (the server half is the 402 in
@@ -40,39 +33,24 @@ export function TrialGate({ children }: { children: ReactNode }) {
 
   if (status?.state === 'payment_required') {
     return (
-      <div className="flex h-full min-h-screen items-center justify-center bg-background p-6">
-        <div className="w-full max-w-lg rounded-lg border bg-card p-8 shadow-lg">
-          <div className="mb-6 flex h-11 w-11 items-center justify-center rounded-full bg-muted">
-            <CreditCard className="h-5 w-5 text-muted-foreground" />
-          </div>
-          <h1 className="text-xl font-semibold text-foreground">Choose a plan to start</h1>
-          <p className="mt-2 text-sm text-muted-foreground">
-            Sublime is paid from day one. Pick the plan that fits your workspace; your
-            subscription starts immediately and you can cancel anytime.
+      <main className="min-h-screen bg-background px-6 py-16 text-foreground">
+        <div className="mx-auto max-w-[1200px]">
+          <p className="mb-4 text-[13px] uppercase tracking-[0.15em] text-muted-foreground">Pricing</p>
+          <h1 className="max-w-[620px] text-[clamp(1.8rem,3vw,2.5rem)] font-[500] leading-[1.15] tracking-[-0.03em]">
+            Choose a plan to start.
+          </h1>
+          <p className="mt-4 max-w-[620px] text-[14px] leading-6 text-muted-foreground">
+            Sublime is paid from day one. Your subscription starts immediately, and you can cancel anytime.
           </p>
-          <div className="mt-6 space-y-2">
-            {PLAN_OPTIONS.map((plan) => (
-              <Button
-                key={plan.key}
-                className="w-full justify-between"
-                variant={plan.key === 'team' ? 'default' : 'outline'}
-                onClick={() => {
-                  window.location.href = `/api/stripe/checkout?plan=${plan.key}`
-                }}
-              >
-                <span>{plan.label}</span>
-                <span className="text-xs opacity-70">{plan.price}</span>
-              </Button>
-            ))}
-          </div>
-          <p className="mt-4 text-xs text-muted-foreground">
+          <div className="mt-12"><PricingGrid /></div>
+          <p className="mt-5 text-xs text-muted-foreground">
             Checkout is handled securely by Stripe. Have questions?{' '}
             <a href="mailto:hello@trysublime.io" className="underline hover:text-foreground">
               hello@trysublime.io
             </a>
           </p>
         </div>
-      </div>
+      </main>
     )
   }
 
