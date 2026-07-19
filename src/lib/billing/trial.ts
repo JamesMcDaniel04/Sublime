@@ -4,6 +4,7 @@ type BillingFields = {
   plan: Plan
   trialEndsAt: Date | null
   createdAt: Date
+  grandfatheredAt?: Date | null
 }
 
 export type BillingState =
@@ -16,6 +17,7 @@ export type BillingState =
  * checkout charges from day one and users may cancel at any time.
  */
 export function billingStateFor(org: BillingFields): BillingState {
+  if (org.grandfatheredAt) return { state: 'paid', plan: Plan.ENTERPRISE }
   if (org.plan !== Plan.TRIAL) return { state: 'paid', plan: org.plan }
   return { state: 'payment_required', plan: org.plan }
 }

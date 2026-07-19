@@ -20,7 +20,8 @@ export async function GET() {
 
   const organization = auth.dbUser.organization
   const billing = billingStateFor(organization)
-  const limits = limitsForOrg(organization.plan, organization.settings)
+  const entitlementPlan = organization.grandfatheredAt ? 'ENTERPRISE' : organization.plan
+  const limits = limitsForOrg(entitlementPlan, organization.settings)
   const [usage, budget, topupCredits] = await Promise.all([
     orgUsageSummary(organization.id),
     checkMonthlyTokenBudget(organization.id),
@@ -31,8 +32,9 @@ export async function GET() {
     success: true,
     state: billing.state,
     plan: billing.plan,
+    grandfathered: Boolean(organization.grandfatheredAt),
     hasSubscription: Boolean(organization.stripeSubscriptionId),
-    capabilities: capabilitiesForPlan(organization.plan),
+    capabilities: capabilitiesForPlan(entitlementPlan),
     limits: {
       label: limits.label,
       seats: formatLimit(limits.seats),

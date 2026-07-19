@@ -29,3 +29,14 @@ test('legacy trial dates never grant product access', () => {
   })
   assert.equal(billing.state, 'payment_required')
 })
+
+test('grandfathered test accounts remain paid and unrestricted without a subscription', () => {
+  const billing = billingStateFor({
+    plan: Plan.TRIAL,
+    trialEndsAt: null,
+    createdAt: new Date(),
+    grandfatheredAt: new Date(),
+  })
+  assert.equal(billing.state, 'paid')
+  assert.equal(billing.plan, Plan.ENTERPRISE)
+})

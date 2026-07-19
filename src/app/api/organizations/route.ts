@@ -3,7 +3,7 @@ import { prisma } from '@/lib/prisma'
 import { ApiError, withAuthenticatedApi } from '@/lib/server/api-handler'
 import { isValidScanExclusionEntry } from '@/lib/intelligence/scan-exclusions'
 
-const ORG_SELECT = { id: true, name: true, slug: true, plan: true, logoUrl: true, settings: true } as const
+const ORG_SELECT = { id: true, name: true, slug: true, plan: true, logoUrl: true, settings: true, grandfatheredAt: true } as const
 
 // Organizations the user belongs to. Membership is single-org today; the
 // shape is a list so the org switcher works unchanged when multi-org lands.

@@ -118,16 +118,23 @@ export async function GET(request: Request) {
       group.executionIds.push(e.id)
       graphGroups.set(e.organizationId, group)
     }
+    // Graph-first is a hard ordering, not a preference: if the graph cleanup
+    // fails, the Postgres rows MUST survive this sweep too (they retry
+    // tomorrow). Deleting anyway would orphan run: nodes whose ids are gone —
+    // the exact "deleted PII resurfacing in RAG context" incident class.
+    let executionsDeleted = 0
     try {
       await removeRetiredFromGraph(Array.from(graphGroups.values()))
+      // systemPrisma: global retention sweep — prunes across all orgs by design (CRON_SECRET-gated).
+      executionsDeleted = deletableExecutions.length
+        ? (await systemPrisma.agentExecution.deleteMany({ where: { id: { in: deletableExecutions.map((e) => e.id) } } })).count
+        : 0
     } catch (error) {
-      apiLogger.error('cron/retention: graph cleanup failed', { error: error instanceof Error ? error.message : String(error) })
+      apiLogger.error('cron/retention: graph cleanup failed; keeping executions until it succeeds', {
+        executions: deletableExecutions.length,
+        error: error instanceof Error ? error.message : String(error),
+      })
     }
-
-    // systemPrisma: global retention sweep — prunes across all orgs by design (CRON_SECRET-gated).
-    const executionsDeleted = deletableExecutions.length
-      ? (await systemPrisma.agentExecution.deleteMany({ where: { id: { in: deletableExecutions.map((e) => e.id) } } })).count
-      : 0
 
     // Transcripts are the fattest column (provider message JSON, growing per
     // turn — can reach MBs per run). They only matter for RESUMING a run, so
@@ -139,7 +146,10 @@ export async function GET(request: Request) {
     const staleTranscripts = await systemPrisma.agentExecution.findMany({
       where: {
         completedAt: { lt: transcriptCutoff },
-        status: { in: ['completed', 'failed'] },
+        // Every terminal status — 'cancelled' runs are finalized by the
+        // dispatch reaper and can never resume, so their transcripts are
+        // equally dead weight.
+        status: { in: ['completed', 'failed', 'cancelled'] },
         NOT: { transcript: { equals: Prisma.DbNull } },
       },
       select: { id: true },
@@ -169,10 +179,20 @@ export async function GET(request: Request) {
         group.eventIds.push(e.id)
         eventGroups.set(e.organizationId, group)
       }
-      await removeUserEventNodesFromGraph(Array.from(eventGroups.values()))
-      userEventsDeleted = (await systemPrisma.userEvent.deleteMany({
-        where: { id: { in: staleUserEvents.map((e) => e.id) } },
-      })).count
+      // Same graph-first ordering as executions — and isolated, so a graph
+      // outage here can't abort the rest of the sweep (re-embed, expiring
+      // knowledge) the way an uncaught throw did.
+      try {
+        await removeUserEventNodesFromGraph(Array.from(eventGroups.values()))
+        userEventsDeleted = (await systemPrisma.userEvent.deleteMany({
+          where: { id: { in: staleUserEvents.map((e) => e.id) } },
+        })).count
+      } catch (error) {
+        apiLogger.error('cron/retention: user-event graph cleanup failed; keeping events until it succeeds', {
+          events: staleUserEvents.length,
+          error: error instanceof Error ? error.message : String(error),
+        })
+      }
     }
 
     // Stale-pattern hygiene: the eligibility gate already rejects patterns not
@@ -192,6 +212,11 @@ export async function GET(request: Request) {
     // Bounded batch; a failure is retried tomorrow, never fails retention.
     const reEmbedded = await (await import('@/lib/rag/re-embed')).reEmbedMissingVectors()
 
+    // Encryption hygiene: converge legacy plaintext / b64-fallback chunk rows
+    // onto real AES-256-GCM so "encrypted knowledge" holds for pre-cutover
+    // data too. Bounded; self-skips when no ENCRYPTION_KEY is configured.
+    const encryptionBackfill = await (await import('@/lib/knowledge/encrypt-backfill')).encryptLegacyKnowledge()
+
     // Explicitly expiring knowledge is the only knowledge the general sweep
     // removes. Workspace-retained documents survive until a user deletes them
     // or the workspace cascade runs.
@@ -199,8 +224,8 @@ export async function GET(request: Request) {
       where: { retentionPolicy: 'expiring', expiresAt: { lt: new Date() } },
     })).count
 
-    apiLogger.info('cron/retention complete', { days, executionsDeleted, knowledgePromoted, transcriptsPruned, userEventsDeleted, patternsExpired, reEmbedded, expiredKnowledgeDeleted })
-    return Response.json({ success: true, days, executionsDeleted, knowledgePromoted, transcriptsPruned, userEventsDeleted, patternsExpired, reEmbedded, expiredKnowledgeDeleted })
+    apiLogger.info('cron/retention complete', { days, executionsDeleted, knowledgePromoted, transcriptsPruned, userEventsDeleted, patternsExpired, reEmbedded, encryptionBackfill, expiredKnowledgeDeleted })
+    return Response.json({ success: true, days, executionsDeleted, knowledgePromoted, transcriptsPruned, userEventsDeleted, patternsExpired, reEmbedded, encryptionBackfill, expiredKnowledgeDeleted })
   } catch (error) {
     apiLogger.error('cron/retention failed', { error: error instanceof Error ? error.message : String(error) })
     return Response.json({ success: false, error: 'Internal server error' }, { status: 500 })

@@ -32,6 +32,14 @@ function getDerivedKey(): Buffer | null {
   return crypto.createHash('sha256').update(raw).digest()
 }
 
+/**
+ * True when a real ENCRYPTION_KEY is configured (AES-256-GCM available).
+ * The non-production `b64:` fallback is NOT encryption and returns false.
+ */
+export function encryptionConfigured(): boolean {
+  return Boolean(process.env.ENCRYPTION_KEY)
+}
+
 // ── One-way token hashing (webhook trigger secrets) ────────────────────────
 
 /**

@@ -23,6 +23,9 @@ model Organization {
   // Legacy field retained for migration compatibility. Trial access was
   // removed; plan=TRIAL now means payment is required immediately.
   trialEndsAt DateTime? @db.Timestamptz(6)
+  // Existing test workspaces were permanently comped when paid activation
+  // launched. New workspaces leave this null and must subscribe.
+  grandfatheredAt DateTime? @db.Timestamptz(6)
   // Freeform org-level settings grab-bag (e.g. `disableConnectionScans`).
   settings  Json     @default("{}")
   createdAt DateTime @default(now()) @db.Timestamptz(6)

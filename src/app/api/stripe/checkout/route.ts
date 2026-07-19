@@ -42,9 +42,12 @@ async function startCheckout(plan: PaidPlanKey, origin: string) {
 
   const organization = await prisma.organization.findUnique({
     where: { id: auth.organizationId },
-    select: { id: true, name: true, stripeCustomerId: true },
+    select: { id: true, name: true, stripeCustomerId: true, grandfatheredAt: true },
   })
   if (!organization) return NextResponse.redirect(new URL('/dashboard', origin))
+  if (organization.grandfatheredAt) {
+    return NextResponse.redirect(new URL('/settings?tab=billing', origin))
+  }
 
   const stripe = getStripe()
 

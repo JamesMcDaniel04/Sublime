@@ -1,6 +1,9 @@
 import { prisma } from '@/lib/prisma'
+import { apiLogger } from '@/lib/logger'
 import { embedQuery, embeddingsConfigured, toSqlVector } from '@/lib/rag/embeddings'
 import { decryptKnowledgeContent } from './store'
+
+const KEYWORD_SCAN_CAP = 500
 
 export type KnowledgeHit = { content: string; filename: string; sourceType?: string; score: number }
 
@@ -78,12 +81,17 @@ export async function retrieveKnowledge(params: {
           LIMIT ${k}
         `
       })
-      return rows.map((row) => ({
-        content: decryptKnowledgeContent(row.contentEncrypted, row.content),
-        filename: row.filename,
-        sourceType: row.sourceType,
-        score: 1 - row.distance,
-      }))
+      // A row whose decryption fails AND has no legacy plaintext yields an
+      // empty body — drop it rather than feeding a blank "source" to the
+      // agent as if it were retrieved knowledge.
+      return rows
+        .map((row) => ({
+          content: decryptKnowledgeContent(row.contentEncrypted, row.content),
+          filename: row.filename,
+          sourceType: row.sourceType,
+          score: 1 - row.distance,
+        }))
+        .filter((hit) => hit.content.trim().length > 0)
     }
 
     // Keyword fallback: no embeddings configured (or the query embed call
@@ -102,8 +110,19 @@ export async function retrieveKnowledge(params: {
         },
       },
       select: { content: true, contentEncrypted: true, document: { select: { filename: true, sourceType: true } } },
-      take: 500,
+      // The scan is bounded, so make the bound deterministic and useful:
+      // newest documents first, instead of whatever page order Postgres picks.
+      orderBy: { document: { updatedAt: 'desc' } },
+      take: KEYWORD_SCAN_CAP,
     })
+    if (chunks.length === KEYWORD_SCAN_CAP) {
+      // Silent truncation reads as "searched everything" — surface it.
+      apiLogger.warn('retrieveKnowledge: keyword fallback hit scan cap; older knowledge not searched', {
+        organizationId: params.organizationId,
+        agentId: params.agentId,
+        cap: KEYWORD_SCAN_CAP,
+      })
+    }
     if (!chunks.length) return []
     const scored = chunks.map((chunk) => {
       const content = decryptKnowledgeContent(chunk.contentEncrypted, chunk.content)
@@ -115,8 +134,15 @@ export async function retrieveKnowledge(params: {
       }
     })
     scored.sort((a, b) => b.score - a.score)
-    return scored.filter((s) => s.score > 0).slice(0, k)
-  } catch {
+    return scored.filter((s) => s.score > 0 && s.content.trim().length > 0).slice(0, k)
+  } catch (error) {
+    // Best-effort contract: an agent run must not fail because retrieval did —
+    // but a silent [] here also silently degrades every run, so always log.
+    apiLogger.warn('retrieveKnowledge failed; continuing without knowledge', {
+      organizationId: params.organizationId,
+      agentId: params.agentId,
+      error: error instanceof Error ? error.message : String(error),
+    })
     return []
   }
 }

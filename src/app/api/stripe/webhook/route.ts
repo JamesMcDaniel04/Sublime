@@ -19,8 +19,8 @@ async function applySubscription(subscription: Stripe.Subscription) {
   const customerId = typeof subscription.customer === 'string' ? subscription.customer : subscription.customer.id
 
   const organization = organizationId
-    ? await prisma.organization.findUnique({ where: { id: organizationId }, select: { id: true } })
-    : await prisma.organization.findUnique({ where: { stripeCustomerId: customerId }, select: { id: true } })
+    ? await prisma.organization.findUnique({ where: { id: organizationId }, select: { id: true, grandfatheredAt: true } })
+    : await prisma.organization.findUnique({ where: { stripeCustomerId: customerId }, select: { id: true, grandfatheredAt: true } })
   if (!organization) return
 
   // A multi-item subscription carries the base plan on ONE of its items —
@@ -48,7 +48,9 @@ async function applySubscription(subscription: Stripe.Subscription) {
 
   await prisma.organization.update({
     where: { id: organization.id },
-    data: isActive && paidPlan
+    data: organization.grandfatheredAt
+      ? { plan: Plan.ENTERPRISE, stripeSubscriptionId: isActive ? subscription.id : null, stripeCustomerId: customerId }
+      : isActive && paidPlan
       ? { plan: paidPlan, stripeSubscriptionId: subscription.id, stripeCustomerId: customerId }
       : { plan: Plan.TRIAL, stripeSubscriptionId: null },
   })

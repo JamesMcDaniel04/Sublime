@@ -8,8 +8,8 @@ This is the implementation-level source of truth for the plan comparison. Market
 | --- | --- | --- |
 | Knowledge stored | Unlimited durable documents on paid plans, subject to abuse safeguards | `KnowledgeDocument` is the canonical encrypted store for uploads, agent outcomes, flow outcomes, connection profiles, and normalized activity. |
 | Connected tools | Unlimited on all paid plans | Billing integration limits are unlimited; Nango, MCP, and native connectors remain user-owned. |
-| Live knowledge sync | Included | Activity ingest and connection scans update retained knowledge idempotently by source ID. |
-| Retention | On by default | Useful run outcomes are promoted before operational history is pruned. Disconnect removes credentials and live access but preserves redacted learned context by default. |
+| Live knowledge sync | Included | Activity ingest and connection scans update retained knowledge idempotently by source ID. A daily cron sweep (`resyncStaleConnections`) re-scans connections whose captured profile is older than `CONNECTION_RESYNC_DAYS` (default 7), so non-webhook tools stay fresh too. |
+| Retention | On by default | Useful run outcomes are promoted before operational history is pruned. Disconnect removes credentials and live access but preserves redacted learned context by default — `retainKnowledgeOnDisconnect` is enforced in `purgeConnectionLearnings` (learned memories and graph insight are purged only when the org opts out). |
 | Export and deletion | Included | `/api/knowledge` lists or deletes visible knowledge; `?download=1` exports JSON to the authenticated user. Workspace deletion cascades all knowledge. |
 
 ## AI, usage, and teams
@@ -21,9 +21,11 @@ This is the implementation-level source of truth for the plan comparison. Market
 | Business | 20 | 200,000 | Every core area | Unlimited | Unlimited |
 | Enterprise | Custom | Custom | Every core area plus custom scopes | Unlimited | Unlimited |
 
-- Automated workflows and additional paid usage are supported by the flow runtime and Stripe billing foundation.
-- Skills have creator-only, workspace, and public sharing controls. Private visibility is the default; workspace/public sharing is included on Team and above.
-- Agent and flow history uses explicit ownership boundaries; audit events are append-only and admins can export CSV.
+- Automated workflows and additional paid usage are supported by the flow runtime and Stripe billing foundation. Additional usage is purchasable on any metered plan: `GET /api/stripe/topup` starts a one-time Stripe checkout (`STRIPE_PRICE_TOPUP`, `TOPUP_PACK_CREDITS` credits per pack, default 5,000) whose webhook writes an idempotent `CreditGrant` for the current month; the budget ceiling counts plan allowance + grants. `GET /api/usage` reports month-to-date usage against the combined allowance.
+- Enterprise "custom" quotas are per-org overrides under `organization.settings.customLimits` (seats, monthlyCredits, maxAgents, maxFlows, maxIntegrations, maxSpecialistAreas) — honored by all plan-limit gates and the token budget; set by internal tooling, deliberately not self-serve.
+- Skills have creator-only, workspace, and public sharing controls. Private visibility is the default; workspace/public sharing is included on Team and above (enforced server-side in the skills API and at run-time skill resolution).
+- Agent and flow history uses explicit ownership boundaries; audit events are append-only and admins can export CSV. The workspace activity-history feed (`GET /api/activity`, the normalized cross-tool event ledger) is available on Team plans and above.
+- Seat limits count active members plus pending invitations, on both the invite and member-reactivation paths.
 - Custom-engineered scopes are an Enterprise delivery service and require an agreed statement of work; code alone cannot promise delivery capacity.
 
 ## Security and privacy
@@ -44,3 +46,5 @@ This is the implementation-level source of truth for the plan comparison. Market
 ## Billing contract
 
 There is no free trial. A new workspace uses the legacy `TRIAL` enum only as an unpaid sentinel, receives a payment-required response for product APIs, and must complete Stripe checkout before access. Subscription billing starts immediately and can be canceled at any time through the Stripe billing portal; cancellation takes effect according to the current billing-period terms.
+
+Workspaces and users present when immediate billing launched are a grandfathered internal test cohort. The rollout migration marks those workspaces as permanently comped Enterprise accounts, removes custom caps, and promotes their existing users to `ADMIN`. Accounts created after that migration are not grandfathered.

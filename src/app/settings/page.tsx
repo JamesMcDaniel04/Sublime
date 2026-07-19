@@ -74,6 +74,7 @@ export default function SettingsPage() {
   const [loadingSettings, setLoadingSettings] = useState(true)
   const [loadError, setLoadError] = useState('')
   const [orgPlan, setOrgPlan] = useState('TRIAL')
+  const [grandfathered, setGrandfathered] = useState(false)
   // Deep-linkable tabs (e.g. /settings?tab=billing from the Stripe portal return URL).
   const [initialTab] = useState(() => {
     if (typeof window === 'undefined') return 'profile'
@@ -102,6 +103,7 @@ export default function SettingsPage() {
       setMembers(memberData.members); setInvitations(memberData.invitations || [])
       setOrgSettings((orgData.organizations?.[0]?.settings || {}) as OrgSettings)
       setOrgPlan(orgData.organizations?.[0]?.plan || 'TRIAL')
+      setGrandfathered(Boolean(orgData.organizations?.[0]?.grandfatheredAt))
       setOrgName(orgData.organizations?.[0]?.name || '')
       setSavedOrgName(orgData.organizations?.[0]?.name || '')
     } catch (cause) {
@@ -387,9 +389,11 @@ export default function SettingsPage() {
                 {({ TRIAL: 'Payment required', STARTER: 'Individual — $29.99/mo', PROFESSIONAL: 'Team — $299/mo', BUSINESS: 'Business — $1,999/mo', ENTERPRISE: 'Enterprise' } as Record<string, string>)[orgPlan] || orgPlan}
               </p>
             </div>
-            {orgPlan !== 'TRIAL' && <Button variant="outline" onClick={() => { window.location.href = '/api/stripe/portal' }}>Manage billing</Button>}
+            {orgPlan !== 'TRIAL' && !grandfathered && <Button variant="outline" onClick={() => { window.location.href = '/api/stripe/portal' }}>Manage billing</Button>}
           </div>
-          {orgPlan === 'TRIAL' ? (
+          {grandfathered ? (
+            <p className="text-sm text-muted-foreground">Grandfathered test account — Enterprise access is permanently included and no payment is required.</p>
+          ) : orgPlan === 'TRIAL' ? (
             <div className="space-y-2">
               <p className="text-sm text-muted-foreground">Pick a plan to start using the platform. Billing begins at checkout, you can cancel anytime, and payments are handled securely by Stripe.</p>
               <div className="flex flex-wrap gap-2">
