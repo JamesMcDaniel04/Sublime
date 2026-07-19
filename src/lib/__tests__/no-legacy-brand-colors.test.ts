@@ -17,6 +17,7 @@ const CLEAN_PATHS = [
   'src/app/sublime-design.css',
   'src/app/globals.css',
   'tailwind.config.js',
+  'src/components/layout',
 ]
 
 function filesUnder(path: string): string[] {

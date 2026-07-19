@@ -28,6 +28,7 @@ import { toast } from 'sonner'
 import { CommandPalette } from '@/components/search/command-palette'
 import { NotificationBell } from '@/components/notifications/notification-bell'
 import { Button } from '@/components/ui/button'
+import { ThemeToggle } from '@/components/ui/theme-toggle'
 import { useAuth } from '@/hooks/use-auth'
 import { normalizeShareValue } from '@/components/share-control'
 import { resizeImageToDataUrl } from '@/lib/client/resize-image'
@@ -368,9 +369,9 @@ export function Sidebar() {
       key={agent.id}
       draggable
       onDragStart={(event) => event.dataTransfer.setData('text/agent-id', agent.id)}
-      className="group flex cursor-grab items-center gap-2 rounded-lg px-2 py-1.5 text-[#C0D5D5] transition-colors duration-fast hover:bg-white/10 hover:text-white active:cursor-grabbing"
+      className="group flex cursor-grab items-center gap-2 rounded-lg px-2 py-1.5 text-muted-foreground transition-colors duration-fast hover:bg-muted hover:text-foreground active:cursor-grabbing"
     >
-      <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md bg-white/10 text-[11px] font-semibold uppercase leading-none text-[#FFD6C4]">
+      <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md bg-muted text-[11px] font-semibold uppercase leading-none text-muted-foreground">
         {agent.icon || agent.title.trim().charAt(0) || 'A'}
       </span>
       <button
@@ -381,10 +382,10 @@ export function Sidebar() {
         {agent.title}
       </button>
       <div className="hidden gap-0.5 group-hover:flex">
-        <Button size="icon" variant="ghost" className="h-6 w-6 text-white hover:bg-white/10 hover:text-white" disabled={runningId === agent.id} onClick={() => runAgent(agent)} aria-label="Run agent">
+        <Button size="icon" variant="ghost" className="h-6 w-6 text-foreground hover:bg-muted" disabled={runningId === agent.id} onClick={() => runAgent(agent)} aria-label="Run agent">
           {runningId === agent.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <Play className="h-3 w-3" />}
         </Button>
-        <Button size="icon" variant="ghost" className="h-6 w-6 text-[#FFB08D] hover:bg-white/10 hover:text-[#FFD6C4]" onClick={() => deleteAgent(agent)} aria-label="Delete agent">
+        <Button size="icon" variant="ghost" className="h-6 w-6 text-destructive/70 hover:bg-muted hover:text-destructive" onClick={() => deleteAgent(agent)} aria-label="Delete agent">
           <Trash2 className="h-3 w-3" />
         </Button>
       </div>
@@ -394,11 +395,11 @@ export function Sidebar() {
   return (
     <>
       {mobileOpen && (
-        <div className="fixed inset-0 z-40 bg-[#062F33]/60 backdrop-blur-sm lg:hidden" onClick={() => setMobileOpen(false)} />
+        <div className="fixed inset-0 z-40 bg-black/50 backdrop-blur-sm lg:hidden" onClick={() => setMobileOpen(false)} />
       )}
 
       <div className="fixed left-4 top-4 z-50 lg:hidden">
-        <Button variant="outline" size="icon" onClick={() => setMobileOpen(true)} className="border-[#062F33]/10 bg-white text-[#062F33] shadow-brand" aria-label="Open navigation">
+        <Button variant="outline" size="icon" onClick={() => setMobileOpen(true)} className="border-border bg-background text-foreground shadow-2" aria-label="Open navigation">
           <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
           </svg>
@@ -407,13 +408,13 @@ export function Sidebar() {
 
       <div
         className={cn(
-          'fixed inset-y-0 left-0 z-50 flex flex-col border-r border-white/10 bg-gradient-sublime text-white shadow-[12px_0_40px_rgba(6,47,51,0.08)] transition-[width,transform] duration-200 lg:relative lg:translate-x-0',
+          'fixed inset-y-0 left-0 z-50 flex flex-col border-r border-border bg-background text-foreground transition-[width,transform] duration-200 lg:relative lg:translate-x-0',
           rail ? 'w-16' : 'w-72',
           mobileOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0',
         )}
       >
         {/* Org switcher */}
-        <div className={cn('relative border-b border-white/10', rail ? 'p-2' : 'p-3')}>
+        <div className={cn('relative border-b border-border', rail ? 'p-2' : 'p-3')}>
           {rail ? (
             <div className="flex flex-col items-center gap-2">
               {/* The org dropdown can't fit in the rail — the logo expands instead. */}
@@ -421,13 +422,13 @@ export function Sidebar() {
                 onClick={toggleCollapsed}
                 aria-label="Expand sidebar"
                 title={`${activeOrg?.name || 'Workspace'} — expand sidebar`}
-                className="rounded-xl p-0.5 transition-colors duration-fast hover:bg-white/10"
+                className="rounded-xl p-0.5 transition-colors duration-fast hover:bg-muted"
               >
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img
                   src={activeOrg?.logoUrl || DEFAULT_ORG_LOGO}
                   alt=""
-                  className="h-8 w-8 rounded-lg bg-white object-cover p-0.5 shadow-2 ring-1 ring-white/20"
+                  className="h-8 w-8 rounded-lg bg-white object-cover p-0.5 shadow-2 ring-1 ring-border"
                 />
               </button>
               <Button
@@ -435,7 +436,7 @@ export function Sidebar() {
                 size="icon"
                 aria-label="Expand sidebar"
                 title="Expand sidebar (⌘B)"
-                className="h-8 w-8 text-[#B9D3D2] hover:bg-white/10 hover:text-white"
+                className="h-8 w-8 text-muted-foreground hover:bg-muted hover:text-foreground"
                 onClick={toggleCollapsed}
               >
                 <PanelLeft className="h-4 w-4" />
@@ -445,17 +446,17 @@ export function Sidebar() {
                 size="icon"
                 aria-label="Search"
                 title="Search (⌘K)"
-                className="h-8 w-8 text-[#B9D3D2] hover:bg-white/10 hover:text-white"
+                className="h-8 w-8 text-muted-foreground hover:bg-muted hover:text-foreground"
                 onClick={() => setPaletteOpen(true)}
               >
                 <Search className="h-4 w-4" />
               </Button>
-              <NotificationBell buttonClassName="border-white/15 bg-white/10 text-white hover:border-white/30 hover:bg-white/15 hover:text-white" />
+              <NotificationBell buttonClassName="border-border bg-muted text-foreground hover:bg-secondary" />
             </div>
           ) : (
             <>
           <button
-            className="flex w-full items-center gap-2 rounded-xl px-2 py-1.5 transition-colors duration-fast hover:bg-white/10"
+            className="flex w-full items-center gap-2 rounded-xl px-2 py-1.5 transition-colors duration-fast hover:bg-muted"
             onClick={() => setOrgMenuOpen((open) => !open)}
             aria-label={`Workspace: ${activeOrg?.name || 'Workspace'}`}
           >
@@ -463,15 +464,15 @@ export function Sidebar() {
             <img
               src={activeOrg?.logoUrl || DEFAULT_ORG_LOGO}
               alt=""
-              className="h-8 w-8 rounded-lg bg-white object-cover p-0.5 shadow-2 ring-1 ring-white/20"
+              className="h-8 w-8 rounded-lg bg-white object-cover p-0.5 shadow-2 ring-1 ring-border"
             />
             <span className="flex-1 truncate text-left text-sm font-semibold">{activeOrg?.name || 'Workspace'}</span>
-            <ChevronsUpDown className="h-4 w-4 text-[#9DC9C2]" />
+            <ChevronsUpDown className="h-4 w-4 text-muted-foreground" />
           </button>
           {orgMenuOpen && (
             <>
               <div className="fixed inset-0 z-10" onClick={() => setOrgMenuOpen(false)} />
-              <div className="absolute left-3 right-3 z-20 mt-1 origin-top animate-scale-in rounded-xl border bg-white p-1 text-[#062F33] shadow-popover">
+              <div className="absolute left-3 right-3 z-20 mt-1 origin-top animate-scale-in rounded-xl border bg-popover p-1 text-popover-foreground shadow-popover">
                 {/* Membership is single-workspace today, so workspace rows are
                     a plain listing — no click affordance that goes nowhere.
                     When multi-workspace membership lands, these become real
@@ -537,20 +538,20 @@ export function Sidebar() {
 
           <div className="mt-2 flex items-center gap-2">
             <button
-              className="flex flex-1 items-center gap-2 rounded-full border border-white/15 bg-white/10 px-3 py-1.5 text-sm text-[#B9D3D2] transition-colors duration-fast hover:border-white/30 hover:bg-white/15 hover:text-white"
+              className="flex flex-1 items-center gap-2 rounded-full border border-border bg-muted px-3 py-1.5 text-sm text-muted-foreground transition-colors duration-fast hover:bg-secondary hover:text-foreground"
               onClick={() => setPaletteOpen(true)}
             >
               <Search className="h-3.5 w-3.5" />
               <span className="flex-1 text-left">Search</span>
-              <kbd className="rounded border border-white/10 bg-white/10 px-1.5 py-0.5 text-[10px] text-[#9DC9C2]">⌘K</kbd>
+              <kbd className="rounded border border-border bg-background px-1.5 py-0.5 text-[10px] text-muted-foreground">⌘K</kbd>
             </button>
-            <NotificationBell buttonClassName="border-white/15 bg-white/10 text-white hover:border-white/30 hover:bg-white/15 hover:text-white" />
+            <NotificationBell buttonClassName="border-border bg-muted text-foreground hover:bg-secondary" />
             <Button
               variant="ghost"
               size="icon"
               aria-label="Collapse sidebar"
               title="Collapse sidebar (⌘B)"
-              className="hidden h-8 w-8 shrink-0 text-[#B9D3D2] hover:bg-white/10 hover:text-white lg:inline-flex"
+              className="hidden h-8 w-8 shrink-0 text-muted-foreground hover:bg-muted hover:text-foreground lg:inline-flex"
               onClick={toggleCollapsed}
             >
               <PanelLeftClose className="h-4 w-4" />
@@ -574,10 +575,10 @@ export function Sidebar() {
                   className={cn(
                     'flex items-center gap-2.5 rounded-lg text-sm font-medium transition-colors duration-fast',
                     rail ? 'justify-center p-2' : 'px-2 py-1.5',
-                    isActive ? 'bg-[#FFF0E8] text-[#062F33] shadow-2' : 'text-[#C0D5D5] hover:bg-white/10 hover:text-white',
+                    isActive ? 'bg-secondary text-foreground' : 'text-muted-foreground hover:bg-muted hover:text-foreground',
                   )}
                 >
-                  <item.icon className={cn('h-4 w-4 shrink-0', isActive ? 'text-[#E95725]' : 'text-[#7DACA8]')} />
+                  <item.icon className={cn('h-4 w-4 shrink-0', isActive ? 'text-foreground' : 'text-muted-foreground')} />
                   {!rail && item.name}
                 </Link>
               )
@@ -593,15 +594,15 @@ export function Sidebar() {
               drop anywhere in it shares the agent (inner folder rows are nested
               zones that stop propagation and take precedence). */}
           <div
-            className={cn('rounded-lg', dragOver === 'workspace' && 'bg-white/10')}
+            className={cn('rounded-lg', dragOver === 'workspace' && 'bg-muted')}
             {...dropProps('workspace', { folder: null, share: 'org' })}
           >
           <div className="flex items-center justify-between px-2 pb-1 pt-3">
-            <span className="font-mono text-[11px] font-bold uppercase tracking-wider text-[#7DACA8]">Workspace</span>
+            <span className="font-mono text-[11px] font-bold uppercase tracking-wider text-muted-foreground">Workspace</span>
             <Button
               size="icon"
               variant="ghost"
-              className="h-5 w-5 text-[#B9D3D2] hover:bg-white/10 hover:text-white"
+              className="h-5 w-5 text-muted-foreground hover:bg-muted hover:text-foreground"
               onClick={() => router.push('/agents?agent=new')}
               aria-label="New agent"
             >
@@ -613,7 +614,7 @@ export function Sidebar() {
               workspace folders, making a successful "move to private" look
               like nothing happened. */}
           {sections.workspace.length === 0 && (
-            <p className="px-2 py-1 text-xs text-[#7DACA8]">Drag agents here to share them with your workspace.</p>
+            <p className="px-2 py-1 text-xs text-muted-foreground">Drag agents here to share them with your workspace.</p>
           )}
           {sections.workspace.map(([folder, folderAgents]) => {
             const key = `ws:${folder}`
@@ -623,18 +624,18 @@ export function Sidebar() {
               <div key={key} className="mb-0.5">
                 <button
                   className={cn(
-                    'flex w-full items-center gap-1.5 rounded-lg px-2 py-1.5 text-sm font-medium text-[#C0D5D5] hover:bg-white/10 hover:text-white',
-                    dragOver === key && 'bg-white/10',
+                    'flex w-full items-center gap-1.5 rounded-lg px-2 py-1.5 text-sm font-medium text-muted-foreground hover:bg-muted hover:text-foreground',
+                    dragOver === key && 'bg-muted',
                   )}
                   onClick={() => setCollapsed((current) => ({ ...current, [key]: !current[key] }))}
                   {...dropProps(key, { folder: isGeneral ? null : folder, share: 'org' })}
                 >
                   {isCollapsed ? <ChevronRight className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
-                  <Folder className="h-3.5 w-3.5 text-[#7DACA8]" />
+                  <Folder className="h-3.5 w-3.5 text-muted-foreground" />
                   <span className="flex-1 truncate text-left">{folder}</span>
-                  <span className="text-xs text-[#7DACA8]">{folderAgents.length}</span>
+                  <span className="text-xs text-muted-foreground">{folderAgents.length}</span>
                 </button>
-                {!isCollapsed && <div className="ml-3 border-l border-white/10 pl-1">{folderAgents.map(renderAgent)}</div>}
+                {!isCollapsed && <div className="ml-3 border-l border-border pl-1">{folderAgents.map(renderAgent)}</div>}
               </div>
             )
           })}
@@ -643,16 +644,16 @@ export function Sidebar() {
           {/* Same section-wide drop zone: dropping anywhere in Private — the
               header, a folder, or the empty-state hint — makes the agent private. */}
           <div
-            className={cn('rounded-lg', dragOver === 'private' && 'bg-white/10')}
+            className={cn('rounded-lg', dragOver === 'private' && 'bg-muted')}
             {...dropProps('private', { folder: null, share: 'private' })}
           >
-          <div className="flex items-center gap-1.5 px-2 pb-1 pt-3 font-mono text-[11px] font-bold uppercase tracking-wider text-[#7DACA8]">
+          <div className="flex items-center gap-1.5 px-2 pb-1 pt-3 font-mono text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
             <Lock className="h-3 w-3" /> Private
           </div>
           {/* Indent private folders under the header so they read as INSIDE
               Private, not as more workspace folders. */}
           {sections.private.length > 0
-            ? <div className="ml-2 border-l border-white/10 pl-1">{sections.private.map(([folder, folderAgents]) => {
+            ? <div className="ml-2 border-l border-border pl-1">{sections.private.map(([folder, folderAgents]) => {
                 const key = `pv:${folder}`
                 const isCollapsed = collapsed[key]
                 const isGeneral = folder === 'General'
@@ -660,66 +661,69 @@ export function Sidebar() {
                   <div key={key} className="mb-0.5">
                     <button
                       className={cn(
-                        'flex w-full items-center gap-1.5 rounded-lg px-2 py-1.5 text-sm font-medium text-[#C0D5D5] hover:bg-white/10 hover:text-white',
-                        dragOver === key && 'bg-white/10',
+                        'flex w-full items-center gap-1.5 rounded-lg px-2 py-1.5 text-sm font-medium text-muted-foreground hover:bg-muted hover:text-foreground',
+                        dragOver === key && 'bg-muted',
                       )}
                       onClick={() => setCollapsed((current) => ({ ...current, [key]: !current[key] }))}
                       {...dropProps(key, { folder: isGeneral ? null : folder, share: 'private' })}
                     >
                       {isCollapsed ? <ChevronRight className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
-                      <Folder className="h-3.5 w-3.5 text-[#7DACA8]" />
+                      <Folder className="h-3.5 w-3.5 text-muted-foreground" />
                       <span className="flex-1 truncate text-left">{folder}</span>
-                      <span className="text-xs text-[#7DACA8]">{folderAgents.length}</span>
+                      <span className="text-xs text-muted-foreground">{folderAgents.length}</span>
                     </button>
-                    {!isCollapsed && <div className="ml-3 border-l border-white/10 pl-1">{folderAgents.map(renderAgent)}</div>}
+                    {!isCollapsed && <div className="ml-3 border-l border-border pl-1">{folderAgents.map(renderAgent)}</div>}
                   </div>
                 )
               })}</div>
-            : <p className="px-2 py-1 text-xs text-[#7DACA8]">Drag agents here to make them private.</p>}
+            : <p className="px-2 py-1 text-xs text-muted-foreground">Drag agents here to make them private.</p>}
           </div>
             </>
           )}
         </div>
 
         {/* Footer: usage + user */}
-        <div className={cn('border-t border-white/10', rail ? 'p-2' : 'p-3')}>
+        <div className={cn('border-t border-border', rail ? 'p-2' : 'p-3')}>
           {!rail && usage && (
             <div className="mb-2 px-1">
-              <div className="mb-1 flex justify-between text-xs text-[#9DC9C2]">
+              <div className="mb-1 flex justify-between text-xs text-muted-foreground">
                 <span>Usage this month</span>
                 <span>{usage.exempt ? 'Unlimited' : `${creditPct}% of credits`}</span>
               </div>
               {!usage.exempt && (
-                <div className="h-1.5 overflow-hidden rounded-full bg-white/10">
-                  <div className="h-full rounded-full bg-[#FF6B35] transition-[width] duration-slow ease-out-quart" style={{ width: `${creditPct}%` }} />
+                <div className="h-1.5 overflow-hidden rounded-full bg-muted">
+                  <div className="h-full rounded-full bg-foreground transition-[width] duration-slow ease-out-quart" style={{ width: `${creditPct}%` }} />
                 </div>
               )}
             </div>
           )}
           {/* The user row IS the Settings entry point (not a nav item). */}
+          <div className={cn('flex items-center gap-1', rail && 'flex-col')}>
           <Link
             href="/settings"
             aria-label="Open settings"
             title={rail ? 'Settings' : undefined}
             className={cn(
-              'flex items-center gap-2 rounded-xl px-1 py-1 transition-colors hover:bg-white/10',
+              'flex flex-1 items-center gap-2 rounded-xl px-1 py-1 transition-colors hover:bg-muted',
               rail && 'justify-center px-0',
-              pathname.startsWith('/settings') && 'bg-white/10',
+              pathname.startsWith('/settings') && 'bg-muted',
             )}
           >
-            <div className="flex h-8 w-8 items-center justify-center rounded-full bg-[#FFF0E8] text-xs font-semibold text-[#BE3F18]">
+            <div className="flex h-8 w-8 items-center justify-center rounded-full bg-muted text-xs font-semibold text-foreground">
               {(user?.firstName || 'U').charAt(0).toUpperCase()}
             </div>
             {!rail && (
               <div className="min-w-0 flex-1">
                 <div className="truncate text-sm font-medium">{user?.firstName || 'Account'}</div>
-                <div className="truncate text-xs text-[#7DACA8]">{user?.emailAddress}</div>
+                <div className="truncate text-xs text-muted-foreground">{user?.emailAddress}</div>
               </div>
             )}
             {!rail && activeOrg && (
-              <span className="rounded-full bg-white/10 px-2 py-0.5 text-xs text-[#B9D3D2]">{planLabel(activeOrg.plan)}</span>
+              <span className="rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">{planLabel(activeOrg.plan)}</span>
             )}
           </Link>
+          <ThemeToggle className="h-8 w-8 shrink-0 text-muted-foreground hover:text-foreground" />
+          </div>
         </div>
       </div>
 
