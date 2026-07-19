@@ -22,7 +22,7 @@ export type TokenTextEditorProps = {
 }
 
 const chipClass =
-  'inline-flex items-center rounded bg-indigo-50 px-1.5 py-0.5 text-xs font-medium text-indigo-700 border border-indigo-200 dark:border-indigo-500/30 dark:bg-indigo-500/10 dark:text-indigo-300'
+  'inline-flex items-center rounded bg-indigo-50 px-1.5 py-0.5 text-xs font-medium text-indigo-700 border border-indigo-200'
 
 const baseClass =
   'w-full rounded-lg border bg-background px-3 py-2 text-sm outline-none focus:border-indigo-400 focus:ring-1 focus:ring-indigo-300 ' +

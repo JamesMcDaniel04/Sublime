@@ -12,7 +12,7 @@ const ACCENTS = [
   { bar: 'from-emerald-500 to-teal-400', tile: 'bg-emerald-100 text-emerald-600 dark:bg-emerald-500/15 dark:text-emerald-300', badge: 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-300', ring: 'hover:ring-emerald-300/70 dark:hover:ring-emerald-500/40' },
   { bar: 'from-amber-500 to-orange-400', tile: 'bg-amber-100 text-amber-600 dark:bg-amber-500/15 dark:text-amber-300', badge: 'border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-300', ring: 'hover:ring-amber-300/70 dark:hover:ring-amber-500/40' },
   { bar: 'from-rose-500 to-pink-400', tile: 'bg-rose-100 text-rose-600 dark:bg-rose-500/15 dark:text-rose-300', badge: 'border-rose-200 bg-rose-50 text-rose-700 dark:border-rose-500/30 dark:bg-rose-500/10 dark:text-rose-300', ring: 'hover:ring-rose-300/70 dark:hover:ring-rose-500/40' },
-  { bar: 'from-indigo-500 to-blue-400', tile: 'bg-indigo-100 text-indigo-600 dark:bg-indigo-500/15 dark:text-indigo-300', badge: 'border-indigo-200 bg-indigo-50 text-indigo-700 dark:border-indigo-500/30 dark:bg-indigo-500/10 dark:text-indigo-300', ring: 'hover:ring-indigo-300/70 dark:hover:ring-indigo-500/40' },
+  { bar: 'from-indigo-500 to-blue-400', tile: 'bg-indigo-100 text-indigo-600', badge: 'border-indigo-200 bg-indigo-50 text-indigo-700', ring: 'hover:ring-indigo-300/70' },
 ] as const
 
 function hashIndex(seed: string, mod: number): number {

@@ -189,7 +189,7 @@ export function CopilotPanel({
             </div>
           ) : (
             <div key={index} className="flex items-start gap-2">
-              <span className="mt-1 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-indigo-50 dark:bg-indigo-950/40">
+              <span className="mt-1 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-indigo-50">
                 <Sparkles className="h-3.5 w-3.5 text-indigo-500" />
               </span>
               <div className="min-w-0 max-w-[85%] space-y-1.5">
@@ -226,7 +226,7 @@ export function CopilotPanel({
         )}
         {loading && (
           <div className="flex items-center gap-2">
-            <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-indigo-50 dark:bg-indigo-950/40">
+            <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-indigo-50">
               <Sparkles className="h-3.5 w-3.5 animate-pulse text-indigo-500" />
             </span>
             <p className="text-xs text-muted-foreground">Thinking…</p>

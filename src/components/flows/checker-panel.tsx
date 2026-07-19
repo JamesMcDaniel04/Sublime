@@ -89,7 +89,7 @@ export function CheckerPanel({
                     </ol>
                   )}
                   {runtimeFailure.nodeId && (
-                    <button type="button" onClick={() => onJump(runtimeFailure.nodeId!)} className="mt-2 text-xs font-semibold text-indigo-700 hover:underline dark:text-indigo-300">
+                    <button type="button" onClick={() => onJump(runtimeFailure.nodeId!)} className="mt-2 text-xs font-semibold text-indigo-700 hover:underline">
                       Open failing step
                     </button>
                   )}
