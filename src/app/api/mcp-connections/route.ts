@@ -12,6 +12,7 @@ import { assertPublicUrl, SsrfError } from '@/lib/net/ssrf'
 import { cacheDelete } from '@/lib/cache'
 import { scanConnection, purgeConnectionLearnings } from '@/lib/intelligence/connection-scan'
 import { recordUserEvent } from '@/lib/behavior/record-event'
+import { assertIntegrationCapacity } from '@/lib/billing/enforce'
 
 // Mirror of execute-agent's toolDiscoveryCacheKey (org-scoped) — kept in sync
 // deliberately; busting it makes a connection edit take effect before the TTL.
@@ -106,6 +107,7 @@ export const GET = withAuthenticatedApi(async (_request, auth) => {
 
 export const POST = withAuthenticatedApi(async (request, auth) => {
   const data = mcpConnectionSchema.parse(await request.json())
+  await assertIntegrationCapacity(auth.organizationId)
   await requirePublicUrl(data.serverUrl, 'serverUrl')
   await requirePublicUrl(data.tokenUrl, 'tokenUrl')
 

@@ -2,6 +2,7 @@ import { z } from 'zod'
 import { getNangoClient, NANGO_ORG_TAG } from '@/lib/nango/client'
 import { nangoApiError } from '@/lib/nango/errors'
 import { withAuthenticatedApi } from '@/lib/server/api-handler'
+import { assertIntegrationCapacity } from '@/lib/billing/enforce'
 
 export const runtime = 'nodejs'
 
@@ -12,6 +13,7 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
   const { integrationId } = z
     .object({ integrationId: z.string().min(1).optional() })
     .parse(await request.json().catch(() => ({})))
+  await assertIntegrationCapacity(auth.organizationId)
 
   try {
     const { data } = await getNangoClient().createConnectSession({

@@ -1,5 +1,7 @@
+import { Plan } from '@prisma/client'
 import { prisma } from '@/lib/prisma'
 import { cacheGetNumber, cacheIncrBy } from '@/lib/cache'
+import { monthlyTokenAllowance } from '@/lib/billing/limits'
 
 // Live month-to-date token counter, keyed per org + UTC month. Incremented per
 // turn as tokens are spent, so concurrent runs/workers see each other's spend
@@ -36,11 +38,14 @@ export function monthlyTokenLimit(): number {
 }
 
 /**
- * Month-to-date token budget for an organization. Enforced at the start of every
- * agent run so a runaway agent (or an expired trial) can't burn unbounded spend.
+ * Month-to-date token budget for an organization, derived from the org's PLAN
+ * (see @/lib/billing/limits: Individual/Trial 10k credits, Team 50k, Business
+ * 250k; 1 credit = 1,000 tokens; Enterprise unlimited). Enforced at the start
+ * of every LLM entry point (agent runs, chats, copilot, drafts) so a runaway
+ * agent — or a free rider — can't burn unbounded spend.
  *
- * The ceiling is configured with AGENT_MONTHLY_TOKEN_LIMIT. Unset/0 means
- * unlimited — enforcement is opt-in.
+ * AGENT_MONTHLY_TOKEN_LIMIT remains an optional GLOBAL backstop: when set, the
+ * effective ceiling is the lower of it and the plan allowance.
  */
 export async function checkMonthlyTokenBudget(
   organizationId: string,
@@ -52,8 +57,14 @@ export async function checkMonthlyTokenBudget(
     if (isUsageExemptEmail(user?.email)) return { over: false, used: 0, limit: 0 }
   }
 
-  const limit = monthlyTokenLimit()
-  if (limit <= 0) return { over: false, used: 0, limit: 0 }
+  const organization = await prisma.organization.findUnique({
+    where: { id: organizationId },
+    select: { plan: true },
+  })
+  const planAllowance = monthlyTokenAllowance(organization?.plan ?? Plan.TRIAL)
+  const envLimit = monthlyTokenLimit()
+  const limit = Math.min(planAllowance, envLimit > 0 ? envLimit : Number.POSITIVE_INFINITY)
+  if (!Number.isFinite(limit) || limit <= 0) return { over: false, used: 0, limit: 0 }
 
   const since = new Date()
   since.setUTCDate(1)

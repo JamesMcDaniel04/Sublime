@@ -8,6 +8,7 @@ import { serializeFlow } from '@/lib/flows/serialize'
 import { hasSaveConflict } from '@/lib/flows/save-conflict'
 import { FLOW_TRIGGER_TYPES, normalizeFlowTrigger, preserveWebhookSecretHash, triggerFromGraph } from '@/lib/flows/trigger'
 import { countActiveConnections, meetsSuggestionGate } from '@/lib/intelligence/suggest-workflows'
+import { assertFlowCapacity } from '@/lib/billing/enforce'
 
 // Strip undefined + narrow to plain JSON so Prisma's InputJsonValue accepts the
 // zod-inferred shapes (passthrough trigger / discriminated-union graph).
@@ -70,6 +71,7 @@ export const GET = withAuthenticatedApi(async (_request, auth) => {
 
 export const POST = withAuthenticatedApi(async (request, auth) => {
   const data = flowSchema.parse(await request.json())
+  await assertFlowCapacity(auth.organizationId)
   const graph = data.graph ?? emptyGraph()
   const trigger = data.trigger ? normalizeFlowTrigger(data.trigger) : triggerFromGraph(graph)
   const flow = await prisma.flow.create({

@@ -393,6 +393,7 @@ export default function SettingsPage() {
           ) : (
             <p className="text-sm text-muted-foreground">Upgrades, downgrades, payment methods, and cancellation are all handled in the Stripe billing portal via “Manage billing”.</p>
           )}
+          <PlanUsageCard />
         </CardContent></Card>
       </TabsContent>
     </Tabs>
@@ -407,6 +408,54 @@ type Capability = { key: string; label: string; configured: boolean; detail: str
  * silently degrade when unconfigured (semantic search, push, graph memory),
  * and this card is where that state stops being invisible.
  */
+type BillingLimits = { label: string; seats: string; monthlyCredits: string; maxAgents: string; maxFlows: string; maxIntegrations: string }
+type BillingUsage = { agents: number; flows: number; integrations: number; members: number; creditsUsed: number }
+
+/**
+ * What the current plan includes vs. what the workspace is using — the numbers
+ * behind the create-time PLAN_LIMIT errors, so hitting a cap is never a
+ * surprise. Reads /api/billing/status (ungated: works even mid-lockout).
+ */
+function PlanUsageCard() {
+  const [limits, setLimits] = useState<BillingLimits | null>(null)
+  const [usage, setUsage] = useState<BillingUsage | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    fetch('/api/billing/status', { cache: 'no-store' })
+      .then((response) => (response.ok ? response.json() : null))
+      .then((data) => {
+        if (cancelled || !data?.success) return
+        if (data.limits) setLimits(data.limits)
+        if (data.usage) setUsage(data.usage)
+      })
+      .catch(() => {})
+    return () => { cancelled = true }
+  }, [])
+
+  if (!limits || !usage) return null
+  const rows = [
+    { label: 'Credits this month', used: usage.creditsUsed.toLocaleString(), cap: limits.monthlyCredits === 'Unlimited' ? 'Unlimited' : Number(limits.monthlyCredits).toLocaleString() },
+    { label: 'Agents', used: String(usage.agents), cap: limits.maxAgents },
+    { label: 'Flows', used: String(usage.flows), cap: limits.maxFlows },
+    { label: 'Integrations', used: String(usage.integrations), cap: limits.maxIntegrations },
+    { label: 'Seats', used: String(usage.members), cap: limits.seats },
+  ]
+  return (
+    <div className="rounded-md border p-3">
+      <p className="text-sm font-medium">Usage &amp; limits — {limits.label} plan</p>
+      <div className="mt-2 space-y-1.5">
+        {rows.map((row) => (
+          <div key={row.label} className="flex items-center justify-between text-xs">
+            <span className="text-muted-foreground">{row.label}</span>
+            <span className="font-medium">{row.used} <span className="text-muted-foreground">/ {row.cap}</span></span>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 function PlatformServicesCard() {
   const [capabilities, setCapabilities] = useState<Capability[] | null>(null)
   const [error, setError] = useState('')

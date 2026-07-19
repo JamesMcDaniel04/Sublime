@@ -8,6 +8,7 @@ import { readAgentMetadata } from '@/lib/agents/metadata'
 import { serializeAgent } from '@/lib/agents/serialize'
 import { indexAgent, removeAgentFromGraph } from '@/lib/rag/indexer'
 import { syncAgentConnectors } from '@/lib/connectors/agent-connectors'
+import { assertAgentCapacity } from '@/lib/billing/enforce'
 
 /** Best-effort graph-RAG indexing of an agent node (gated on embeddings). */
 /**
@@ -104,6 +105,7 @@ export const GET = withAuthenticatedApi(async (_request, auth) => {
 
 export const POST = withAuthenticatedApi(async (request, auth) => {
   const data = agentSchema.parse(await request.json())
+  await assertAgentCapacity(auth.organizationId)
   const agent = await prisma.agentTask.create({
     data: {
       agentType: 'CUSTOM',

@@ -1,6 +1,9 @@
 import { NextResponse } from 'next/server'
 import { requireAuth } from '@/lib/supabase/auth-utils'
 import { billingStateFor } from '@/lib/billing/trial'
+import { limitsForPlan, tokensToCredits, formatLimit } from '@/lib/billing/limits'
+import { orgUsageSummary } from '@/lib/billing/enforce'
+import { checkMonthlyTokenBudget } from '@/lib/usage/budget'
 
 export const dynamic = 'force-dynamic'
 
@@ -15,6 +18,11 @@ export async function GET() {
 
   const organization = auth.dbUser.organization
   const billing = billingStateFor(organization)
+  const limits = limitsForPlan(organization.plan)
+  const [usage, budget] = await Promise.all([
+    orgUsageSummary(organization.id),
+    checkMonthlyTokenBudget(organization.id),
+  ])
 
   return NextResponse.json({
     success: true,
@@ -23,5 +31,17 @@ export async function GET() {
     trialEndsAt: 'trialEndsAt' in billing ? billing.trialEndsAt.toISOString() : null,
     daysLeft: billing.state === 'trialing' ? billing.daysLeft : 0,
     hasSubscription: Boolean(organization.stripeSubscriptionId),
+    limits: {
+      label: limits.label,
+      seats: formatLimit(limits.seats),
+      monthlyCredits: formatLimit(limits.monthlyCredits),
+      maxAgents: formatLimit(limits.maxAgents),
+      maxFlows: formatLimit(limits.maxFlows),
+      maxIntegrations: formatLimit(limits.maxIntegrations),
+    },
+    usage: {
+      ...usage,
+      creditsUsed: tokensToCredits(budget.used),
+    },
   })
 }

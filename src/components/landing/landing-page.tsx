@@ -655,7 +655,13 @@ export function LandingPage({ fontClassName = '' }: { fontClassName?: string }) 
                   price: '$29.99',
                   cadence: '/ month',
                   desc: 'For solo builders getting real work out of AI.',
-                  features: ['Full agent & flow builder', 'Core integrations', 'Evidence-backed run logs'],
+                  features: [
+                    '10,000 credits / month',
+                    '5 agents · 5 flows',
+                    '5 connected integrations',
+                    'Full agent & flow builder',
+                    'Evidence-backed run logs',
+                  ],
                   href: '/api/stripe/checkout?plan=individual',
                   cta: 'Start with Individual',
                   featured: false,
@@ -665,7 +671,13 @@ export function LandingPage({ fontClassName = '' }: { fontClassName?: string }) 
                   price: '$299',
                   cadence: '/ month',
                   desc: 'For teams running shared agents and workflows.',
-                  features: ['Everything in Individual', 'Shared workspaces & collaboration', 'Expanded integration catalog'],
+                  features: [
+                    '5 seats included',
+                    '50,000 credits / month',
+                    '25 agents · 25 flows',
+                    'Unlimited integrations',
+                    'Shared workspaces & collaboration',
+                  ],
                   href: '/api/stripe/checkout?plan=team',
                   cta: 'Start with Team',
                   featured: true,
@@ -675,7 +687,13 @@ export function LandingPage({ fontClassName = '' }: { fontClassName?: string }) 
                   price: '$2,999',
                   cadence: '/ month',
                   desc: 'For companies scaling AI across departments.',
-                  features: ['Everything in Team', 'Advanced controls & higher limits', 'Priority support'],
+                  features: [
+                    '25 seats included',
+                    '250,000 credits / month',
+                    'Unlimited agents & flows',
+                    'Unlimited integrations',
+                    '24/7 customer support',
+                  ],
                   href: '/api/stripe/checkout?plan=business',
                   cta: 'Start with Business',
                   featured: false,
@@ -685,7 +703,12 @@ export function LandingPage({ fontClassName = '' }: { fontClassName?: string }) 
                   price: 'Custom',
                   cadence: '',
                   desc: 'For organizations with bespoke security and scale needs.',
-                  features: ['Everything in Business', 'Custom integrations & SLAs', 'Dedicated onboarding'],
+                  features: [
+                    'Custom seats & credits',
+                    'Unlimited agents, flows & integrations',
+                    'Custom integrations & SLAs',
+                    'Dedicated onboarding',
+                  ],
                   href: '/contact?reason=enterprise',
                   cta: 'Contact sales',
                   featured: false,
@@ -732,7 +755,9 @@ export function LandingPage({ fontClassName = '' }: { fontClassName?: string }) 
             </div>
           </div>
           <p className="mt-4 text-[12px] text-muted-foreground">
-            All paid plans start through secure Stripe checkout. Cancel anytime from your billing settings.
+            Every plan starts with a 14-day free trial — cancel before it ends and you won&apos;t be
+            charged. 1 credit = 1,000 AI tokens; credits are shared across your workspace. Checkout
+            and invoicing are handled securely by Stripe.
           </p>
         </div>
       </section>

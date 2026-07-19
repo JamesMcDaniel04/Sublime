@@ -3,6 +3,7 @@ import { prisma } from '@/lib/prisma'
 import { ApiError, withAuthenticatedApi } from '@/lib/server/api-handler'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { recordAudit } from '@/lib/audit'
+import { assertSeatCapacity } from '@/lib/billing/enforce'
 
 const inviteSchema = z.object({ email: z.string().email(), role: z.enum(['ADMIN', 'USER']).default('USER') })
 
@@ -18,6 +19,7 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
   if (auth.dbUser.role !== 'ADMIN') throw new ApiError('Admin access required', 403, 'FORBIDDEN')
   const input = inviteSchema.parse(await request.json()); const email = input.email.trim().toLowerCase()
   if (await prisma.user.findFirst({ where: { organizationId: auth.organizationId, email } })) throw new ApiError('That person is already a member', 409, 'ALREADY_MEMBER')
+  await assertSeatCapacity(auth.organizationId)
   const invitation = await prisma.organizationInvitation.create({ data: { organizationId: auth.organizationId, email, role: input.role, invitedById: auth.dbUser.id, expiresAt: new Date(Date.now() + 7 * 86_400_000) } })
   const redirectTo = `${process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, '') || request.nextUrl.origin}/auth/callback`
   const { error } = await createAdminClient().auth.admin.inviteUserByEmail(email, { redirectTo })
