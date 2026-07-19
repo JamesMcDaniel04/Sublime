@@ -90,13 +90,13 @@ function runStatusIcon(status: string) {
     case 'pending':
       return <CircleDashed className="h-4 w-4 shrink-0 animate-spin text-blue-600" aria-label="Running" />
     case 'cancelling':
-      return <CircleDashed className="h-4 w-4 shrink-0 animate-spin text-gray-400" aria-label="Cancelling" />
+      return <CircleDashed className="h-4 w-4 shrink-0 animate-spin text-muted-foreground" aria-label="Cancelling" />
     case 'waiting_for_input':
       return <HelpCircle className="h-4 w-4 shrink-0 text-amber-500" aria-label="Needs input" />
     case 'cancelled':
-      return <XCircle className="h-4 w-4 shrink-0 text-gray-400" aria-label="Cancelled" />
+      return <XCircle className="h-4 w-4 shrink-0 text-muted-foreground" aria-label="Cancelled" />
     default:
-      return <AlertCircle className="h-4 w-4 shrink-0 text-gray-400" aria-label={status} />
+      return <AlertCircle className="h-4 w-4 shrink-0 text-muted-foreground" aria-label={status} />
   }
 }
 
@@ -207,13 +207,13 @@ function ToolCallCard({ step }: { step: RunStep }) {
             return provider ? (
               <IntegrationLogo slug={provider.slug} name={provider.name} className="h-4 w-4 shrink-0 rounded-sm" />
             ) : (
-              <Wrench className={cn('h-3.5 w-3.5 shrink-0', running ? 'text-blue-500' : 'text-gray-400')} />
+              <Wrench className={cn('h-3.5 w-3.5 shrink-0', running ? 'text-blue-500' : 'text-muted-foreground')} />
             )
           })()}
           <span className="truncate font-mono text-xs">{step.node}</span>
         </span>
         <span className="flex shrink-0 items-center gap-2">
-          {duration && <span className="text-xs text-gray-500">{duration}</span>}
+          {duration && <span className="text-xs text-muted-foreground">{duration}</span>}
           {running ? (
             <span className="flex items-center gap-1.5 text-xs font-medium text-blue-600">
               <Loader2 className="h-3.5 w-3.5 animate-spin" /> Calling…
@@ -225,7 +225,7 @@ function ToolCallCard({ step }: { step: RunStep }) {
           ) : (
             <Badge variant="outline">{step.status}</Badge>
           )}
-          {hasDetail && <ChevronDown className={cn('h-3.5 w-3.5 shrink-0 text-gray-400 transition-transform duration-200', open && 'rotate-180')} />}
+          {hasDetail && <ChevronDown className={cn('h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform duration-200', open && 'rotate-180')} />}
         </span>
       </button>
       {open && hasDetail && (
@@ -252,10 +252,10 @@ function ToolCallCard({ step }: { step: RunStep }) {
 function ThinkingCard({ text }: { text: string }) {
   return (
     <div className="rounded-lg border border-dashed bg-white/60 px-3 py-2">
-      <p className="mono-label mb-1 flex items-center gap-1.5 text-gray-400">
+      <p className="mono-label mb-1 flex items-center gap-1.5 text-muted-foreground">
         <Sparkles className="h-3 w-3" /> Thinking
       </p>
-      <div className="text-sm text-gray-600"><Markdown>{text}</Markdown></div>
+      <div className="text-sm text-muted-foreground"><Markdown>{text}</Markdown></div>
     </div>
   )
 }
@@ -304,18 +304,18 @@ function ContextCard({ summary, hits, related }: { summary: string; hits: Contex
       >
         <Network className="h-3 w-3 shrink-0 text-horizon-600" />
         <span className="mono-label text-horizon-700">Correlated context</span>
-        {total > 0 && <ChevronDown className={`h-3.5 w-3.5 text-gray-400 transition-transform ${open ? 'rotate-180' : ''}`} />}
+        {total > 0 && <ChevronDown className={`h-3.5 w-3.5 text-muted-foreground transition-transform ${open ? 'rotate-180' : ''}`} />}
       </button>
-      <p className="mt-1 text-sm text-gray-600">{summary}</p>
+      <p className="mt-1 text-sm text-muted-foreground">{summary}</p>
       {open && total > 0 && (
         <ul className="mt-2 space-y-1 border-t pt-2">
           {[...hits, ...related].map((fact, i) => (
-            <li key={i} className="flex items-start gap-1.5 whitespace-pre-wrap text-xs text-gray-600">
+            <li key={i} className="flex items-start gap-1.5 whitespace-pre-wrap text-xs text-muted-foreground">
               {SALES_AI_FACT_TYPES.has((fact.type || '').toLowerCase()) && (
                 <IntegrationLogo slug="sublime" name="Sublime" className="mt-0.5 h-3.5 w-3.5 shrink-0" />
               )}
               <span>
-                <span className="mono-label mr-1.5 text-gray-400">{fact.type}</span>
+                <span className="mono-label mr-1.5 text-muted-foreground">{fact.type}</span>
                 {humanizeFact(fact.text)}
               </span>
             </li>
@@ -331,10 +331,10 @@ function ContextCard({ summary, hits, related }: { summary: string; hits: Contex
 function PlanCard({ text }: { text: string }) {
   return (
     <div className="rounded-lg border border-dashed bg-white/60 px-3 py-2">
-      <p className="mono-label mb-1 flex items-center gap-1.5 text-gray-400">
+      <p className="mono-label mb-1 flex items-center gap-1.5 text-muted-foreground">
         <ListOrdered className="h-3 w-3" /> Plan
       </p>
-      <p className="whitespace-pre-wrap text-sm text-gray-600">{text}</p>
+      <p className="whitespace-pre-wrap text-sm text-muted-foreground">{text}</p>
     </div>
   )
 }
@@ -347,7 +347,7 @@ function MemoryCard({ summary }: { summary: string }) {
       <p className="mono-label mb-1 flex items-center gap-1.5 text-horizon-700">
         <Brain className="h-3 w-3" /> Memory
       </p>
-      <p className="text-sm text-gray-600">{summary}</p>
+      <p className="text-sm text-muted-foreground">{summary}</p>
     </div>
   )
 }
@@ -357,11 +357,11 @@ function MemoryCard({ summary }: { summary: string }) {
 function AutoAnswerCard({ question, answer }: { question: string; answer: string }) {
   return (
     <div className="rounded-lg border border-dashed bg-white/60 px-3 py-2">
-      <p className="mono-label mb-1 flex items-center gap-1.5 text-gray-400">
+      <p className="mono-label mb-1 flex items-center gap-1.5 text-muted-foreground">
         <MessageSquareQuote className="h-3 w-3" /> Answered from memory
       </p>
-      <p className="text-sm text-gray-500">{question}</p>
-      <p className="text-sm font-semibold text-gray-800">{answer}</p>
+      <p className="text-sm text-muted-foreground">{question}</p>
+      <p className="text-sm font-semibold text-foreground">{answer}</p>
     </div>
   )
 }
@@ -420,8 +420,8 @@ function SuggestionsCard({
         {visible.map((suggestion) => (
           <li key={suggestion.memoryId} className="flex items-start justify-between gap-2">
             <div className="min-w-0">
-              <p className="text-sm font-medium text-gray-800">{suggestion.title}</p>
-              <p className="text-xs text-gray-500">{suggestion.rationale}</p>
+              <p className="text-sm font-medium text-foreground">{suggestion.title}</p>
+              <p className="text-xs text-muted-foreground">{suggestion.rationale}</p>
               {suggestion.actionType === 'connect' && (
                 <Link href="/integrations?tab=mcp" className="mt-1 inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline">
                   <LinkIcon className="h-3 w-3" /> Open connections
@@ -432,7 +432,7 @@ function SuggestionsCard({
               type="button"
               aria-label="Dismiss suggestion"
               onClick={() => dismiss(suggestion.memoryId)}
-              className="shrink-0 rounded p-1 text-gray-400 transition-colors duration-150 hover:bg-amber-100 hover:text-gray-600"
+              className="shrink-0 rounded p-1 text-muted-foreground transition-colors duration-150 hover:bg-amber-100 hover:text-foreground"
             >
               <X className="h-3.5 w-3.5" />
             </button>
@@ -581,11 +581,11 @@ function RunRow({
           expanded && 'bg-gray-50',
         )}
       >
-        <ChevronDown className={cn('h-4 w-4 shrink-0 text-gray-400 transition-transform duration-200', expanded && 'rotate-180')} />
+        <ChevronDown className={cn('h-4 w-4 shrink-0 text-muted-foreground transition-transform duration-200', expanded && 'rotate-180')} />
         {runStatusIcon(status)}
         <div className="min-w-0">
           <div className="truncate text-sm font-medium">{activity.metadata?.title || activity.agentType}</div>
-          <div className="line-clamp-1 text-xs text-gray-500">
+          <div className="line-clamp-1 text-xs text-muted-foreground">
             {(() => {
               const summary =
                 activity.metadata?.pendingQuestion?.question || activity.metadata?.headline || activity.error || resultText(activity)
@@ -597,7 +597,7 @@ function RunRow({
             })()}
           </div>
         </div>
-        <time className="shrink-0 font-mono text-xs tabular-nums text-gray-400">{new Date(activity.startedAt).toLocaleString()}</time>
+        <time className="shrink-0 font-mono text-xs tabular-nums text-muted-foreground">{new Date(activity.startedAt).toLocaleString()}</time>
         <span className="flex shrink-0 items-center gap-1" onClick={(event) => event.stopPropagation()}>
           {isCancellable && (
             <button
@@ -605,7 +605,7 @@ function RunRow({
               title="Cancel this run"
               disabled={actionBusy}
               onClick={cancelRun}
-              className="shrink-0 rounded p-1 text-gray-400 transition-colors duration-150 hover:bg-red-100 hover:text-red-600 disabled:cursor-not-allowed disabled:opacity-50"
+              className="shrink-0 rounded p-1 text-muted-foreground transition-colors duration-150 hover:bg-red-100 hover:text-red-600 disabled:cursor-not-allowed disabled:opacity-50"
             >
               <XCircle className="h-4 w-4" />
             </button>
@@ -616,7 +616,7 @@ function RunRow({
               title="Delete this run"
               disabled={actionBusy}
               onClick={deleteRun}
-              className="shrink-0 rounded p-1 text-gray-400 transition-colors duration-150 hover:bg-red-100 hover:text-red-600 disabled:cursor-not-allowed disabled:opacity-50"
+              className="shrink-0 rounded p-1 text-muted-foreground transition-colors duration-150 hover:bg-red-100 hover:text-red-600 disabled:cursor-not-allowed disabled:opacity-50"
             >
               <Trash2 className="h-3.5 w-3.5" />
             </button>
@@ -659,7 +659,7 @@ function RunRow({
           <div>
             <h4 className="eyebrow mb-2 flex items-center gap-2">
               <Wrench className="h-4 w-4" /> Process
-              {timeline.length ? <span className="text-gray-400">· {timeline.length}</span> : null}
+              {timeline.length ? <span className="text-muted-foreground">· {timeline.length}</span> : null}
             </h4>
             <div className="space-y-2">
               {timeline.map((item) => (
@@ -682,8 +682,8 @@ function RunRow({
                   <Loader2 className="h-3.5 w-3.5 animate-spin" /> Agent is working…
                 </p>
               )}
-              {!details && <p className="text-sm text-gray-500"><Loader2 className="inline h-3.5 w-3.5 animate-spin" /> Loading run detail…</p>}
-              {details && !timeline.length && !isActive && <p className="text-sm text-gray-500">No steps recorded for this run.</p>}
+              {!details && <p className="text-sm text-muted-foreground"><Loader2 className="inline h-3.5 w-3.5 animate-spin" /> Loading run detail…</p>}
+              {details && !timeline.length && !isActive && <p className="text-sm text-muted-foreground">No steps recorded for this run.</p>}
             </div>
           </div>
 
@@ -780,11 +780,11 @@ export function AgentActivityPane({
             <div className="flex items-center gap-2 border-b bg-gray-50 px-4 py-2 text-sm font-medium">
               {groupStatus === 'completed' ? <CheckCircle2 className="h-4 w-4 text-green-600" /> :
                 groupStatus === 'running' ? <CircleDashed className="h-4 w-4 animate-spin text-blue-600" /> :
-                groupStatus === 'cancelling' ? <CircleDashed className="h-4 w-4 animate-spin text-gray-400" /> :
+                groupStatus === 'cancelling' ? <CircleDashed className="h-4 w-4 animate-spin text-muted-foreground" /> :
                 groupStatus === 'waiting_for_input' ? <HelpCircle className="h-4 w-4 text-amber-500" /> :
-                groupStatus === 'cancelled' ? <XCircle className="h-4 w-4 text-gray-400" /> :
+                groupStatus === 'cancelled' ? <XCircle className="h-4 w-4 text-muted-foreground" /> :
                 <AlertCircle className="h-4 w-4 text-red-600" />}
-              {groupLabels[groupStatus]} <span className="font-mono text-xs tabular-nums text-gray-400">{items.length}</span>
+              {groupLabels[groupStatus]} <span className="font-mono text-xs tabular-nums text-muted-foreground">{items.length}</span>
             </div>
             {items.map((activity) => (
               <RunRow

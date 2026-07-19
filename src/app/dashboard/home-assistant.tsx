@@ -170,7 +170,7 @@ function TypedHeadline({ phrases }: { readonly phrases: readonly string[] }) {
   }, [reduced, phase, length, index, phrase, phrases.length])
 
   return (
-    <h1 className="min-h-16 text-center text-2xl font-semibold text-gray-900 sm:min-h-8">
+    <h1 className="min-h-16 text-center text-2xl font-semibold text-foreground sm:min-h-8">
       {/* Screen readers get one stable sentence; the animation is decorative. */}
       <span className="sr-only">
         What should we take on? Ask about your agents, runs, and connections, or hand me an assignment.
@@ -472,12 +472,12 @@ export function HomeAssistant() {
       {suggestion && (
         <div className="mb-3 rounded-2xl border border-indigo-100 bg-indigo-50/60 p-3 text-sm shadow-1">
           <p className="text-xs font-medium uppercase tracking-wide text-indigo-500">Noticed a routine</p>
-          <p className="mt-1 font-medium text-gray-900">{suggestion.title}</p>
-          <p className="mt-0.5 text-gray-600">{suggestion.description}</p>
+          <p className="mt-1 font-medium text-foreground">{suggestion.title}</p>
+          <p className="mt-0.5 text-muted-foreground">{suggestion.description}</p>
           {suggestion.evidence.length > 0 && (
             <details className="mt-2">
               <summary className="cursor-pointer text-xs text-indigo-600 hover:text-indigo-800">Why this exists</summary>
-              <ul className="mt-1 list-disc space-y-0.5 pl-4 text-xs text-gray-500">
+              <ul className="mt-1 list-disc space-y-0.5 pl-4 text-xs text-muted-foreground">
                 {suggestion.evidence.map((line) => (
                   <li key={line}>{line}</li>
                 ))}
@@ -495,21 +495,21 @@ export function HomeAssistant() {
         </div>
       )}
       {attachment && (
-        <div className="mb-2 inline-flex items-center gap-2 rounded-full border bg-white px-3 py-1.5 text-sm text-gray-700 shadow-1">
+        <div className="mb-2 inline-flex items-center gap-2 rounded-full border bg-card px-3 py-1.5 text-sm text-muted-foreground shadow-1">
           <FileText className="h-3.5 w-3.5 text-indigo-500" />
           <span className="max-w-[16rem] truncate">{attachment.filename}</span>
           {attachment.truncated && <span className="text-xs text-amber-600">(trimmed)</span>}
           <button
             type="button"
             aria-label="Remove attachment"
-            className="rounded-full p-0.5 text-gray-400 transition-colors hover:text-gray-700"
+            className="rounded-full p-0.5 text-muted-foreground transition-colors hover:text-foreground"
             onClick={() => setAttachment(null)}
           >
             <X className="h-3.5 w-3.5" />
           </button>
         </div>
       )}
-      <div className="rounded-3xl border bg-white p-3 shadow-1 transition-shadow focus-within:ring-2 focus-within:ring-indigo-200">
+      <div className="rounded-3xl border bg-card p-3 shadow-1 transition-shadow focus-within:ring-2 focus-within:ring-indigo-200">
         <div className="flex items-end gap-2">
         <input
           ref={fileInputRef}
@@ -525,7 +525,7 @@ export function HomeAssistant() {
         <Button
           size="icon"
           variant="ghost"
-          className="h-10 w-10 shrink-0 rounded-full text-gray-500 hover:text-gray-800"
+          className="h-10 w-10 shrink-0 rounded-full text-muted-foreground hover:text-foreground"
           aria-label="Attach an assignment file"
           title="Attach an assignment file"
           disabled={uploading || sending}
@@ -545,7 +545,7 @@ export function HomeAssistant() {
           onKeyDown={onComposerKeyDown}
           placeholder={attachment ? 'What should be done with this assignment?' : 'Ask about your workspace, or describe an assignment…'}
           disabled={sending}
-          className="max-h-48 min-h-[3rem] flex-1 resize-none bg-transparent px-1 py-2.5 text-base outline-none placeholder:text-gray-400"
+          className="max-h-48 min-h-[3rem] flex-1 resize-none bg-transparent px-1 py-2.5 text-base outline-none placeholder:text-muted-foreground"
         />
         <Button
           size="icon"
@@ -559,17 +559,17 @@ export function HomeAssistant() {
         </div>
         {/* Role framing — the selected key travels with each send and reshapes
             the reply server-side. Clicking the active role clears it. */}
-        <fieldset className="mt-2.5 border-t border-gray-100 px-1 pt-2.5">
+        <fieldset className="mt-2.5 border-t border-border px-1 pt-2.5">
           <legend className="sr-only">Tailor output for</legend>
           <div className="flex items-center justify-between gap-3">
-            <span className="text-[11px] font-semibold uppercase tracking-[0.12em] text-gray-400">
+            <span className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
               Tailor output for
             </span>
-            <span className="truncate text-sm text-gray-400">
+            <span className="truncate text-sm text-muted-foreground">
               {OUTPUT_STYLES.find((style) => style.key === outputStyle)?.hint ?? 'General output'}
             </span>
           </div>
-          <div className="mt-2 grid grid-cols-4 gap-0.5 rounded-xl bg-gray-100 p-1">
+          <div className="mt-2 grid grid-cols-4 gap-0.5 rounded-xl bg-muted p-1">
             {OUTPUT_STYLES.map((style) => (
               <button
                 key={style.key}
@@ -581,8 +581,8 @@ export function HomeAssistant() {
                 className={cn(
                   'rounded-lg px-2 py-1.5 text-[13px] font-medium uppercase tracking-wide transition-colors',
                   outputStyle === style.key
-                    ? 'bg-white text-indigo-700 shadow-1'
-                    : 'text-gray-500 hover:text-gray-800',
+                    ? 'bg-background text-indigo-700 shadow-1'
+                    : 'text-muted-foreground hover:text-foreground',
                 )}
               >
                 {style.label}
@@ -595,9 +595,9 @@ export function HomeAssistant() {
   )
 
   return (
-    <div className="flex h-screen min-h-0 flex-col bg-slate-50">
+    <div className="flex h-screen min-h-0 flex-col bg-background">
       {/* Header: new chat + history, mirroring the per-agent panel. */}
-      <div className="flex shrink-0 items-center justify-between border-b bg-white px-4 py-3">
+      <div className="flex shrink-0 items-center justify-between border-b bg-card px-4 py-3">
         <div>
           <p className="eyebrow">Home</p>
         </div>
@@ -625,10 +625,10 @@ export function HomeAssistant() {
               <Clock className="h-4 w-4" />
             </Button>
             {historyOpen && (
-              <div className="absolute right-0 top-full z-50 mt-1 w-72 overflow-hidden rounded-md border bg-white shadow-popover">
-                <p className="px-3 pb-1 pt-2 text-xs font-medium text-gray-500">Chat history</p>
+              <div className="absolute right-0 top-full z-50 mt-1 w-72 overflow-hidden rounded-md border bg-card shadow-popover">
+                <p className="px-3 pb-1 pt-2 text-xs font-medium text-muted-foreground">Chat history</p>
                 {sessions.length === 0 ? (
-                  <p className="px-3 pb-3 pt-1 text-sm text-gray-500">No past chats yet.</p>
+                  <p className="px-3 pb-3 pt-1 text-sm text-muted-foreground">No past chats yet.</p>
                 ) : (
                   <ul className="max-h-72 overflow-y-auto pb-1">
                     {sessions.map((session) => (
@@ -637,13 +637,13 @@ export function HomeAssistant() {
                           type="button"
                           onClick={() => void selectSession(session.id)}
                           className={cn(
-                            'flex w-full items-center gap-2 px-3 py-2 text-left text-sm transition-colors hover:bg-gray-50',
+                            'flex w-full items-center gap-2 px-3 py-2 text-left text-sm transition-colors hover:bg-muted',
                             session.id === sessionId && 'bg-indigo-50',
                           )}
                         >
-                          <MessageSquare className="h-3.5 w-3.5 shrink-0 text-gray-400" />
+                          <MessageSquare className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
                           <span className="min-w-0 flex-1 truncate">{session.title}</span>
-                          <span className="shrink-0 text-xs text-gray-400">{relativeTime(session.updatedAt)}</span>
+                          <span className="shrink-0 text-xs text-muted-foreground">{relativeTime(session.updatedAt)}</span>
                         </button>
                       </li>
                     ))}
@@ -674,7 +674,7 @@ export function HomeAssistant() {
                   type="button"
                   disabled={sending || uploading}
                   onClick={() => applyPreset(preset)}
-                  className="flex items-center gap-1.5 rounded-full border bg-white px-3 py-1.5 text-sm text-gray-600 shadow-1 transition-colors hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-700"
+                  className="flex items-center gap-1.5 rounded-full border bg-card px-3 py-1.5 text-sm text-muted-foreground shadow-1 transition-colors hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-700"
                 >
                   <preset.icon className="h-3.5 w-3.5" />
                   {preset.label}
@@ -689,7 +689,7 @@ export function HomeAssistant() {
           <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto">
             <div className="mx-auto max-w-3xl space-y-3 p-4">
               {loadingSession && (
-                <div className="flex items-center justify-center p-6 text-gray-500">
+                <div className="flex items-center justify-center p-6 text-muted-foreground">
                   <Loader2 className="h-5 w-5 animate-spin" />
                 </div>
               )}
@@ -698,13 +698,13 @@ export function HomeAssistant() {
                   key={message.id}
                   className={cn(
                     'rounded-xl p-3 text-sm',
-                    message.role === 'user' ? 'ml-12 bg-indigo-50' : 'mr-12 border bg-white',
+                    message.role === 'user' ? 'ml-12 bg-indigo-50' : 'mr-12 border bg-card',
                   )}
                 >
                   {message.role === 'user' ? (
                     <>
                       {message.attachment && (
-                        <span className="mb-1.5 inline-flex items-center gap-1.5 rounded-full border border-indigo-200 bg-white px-2 py-0.5 text-xs text-indigo-700">
+                        <span className="mb-1.5 inline-flex items-center gap-1.5 rounded-full border border-indigo-200 bg-card px-2 py-0.5 text-xs text-indigo-700">
                           <FileText className="h-3 w-3" /> {message.attachment.filename}
                         </span>
                       )}
@@ -714,15 +714,15 @@ export function HomeAssistant() {
                     <>
                       <Markdown>{message.content}</Markdown>
                       {message.createdAgent && (
-                        <div className="mt-3 rounded-lg border bg-gray-50 p-3">
+                        <div className="mt-3 rounded-lg border bg-muted p-3">
                           <div className="flex items-center gap-2">
-                            <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-white text-lg shadow-1">
+                            <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-card text-lg shadow-1">
                               {message.createdAgent.icon}
                             </span>
                             <div className="min-w-0 flex-1">
                               <p className="truncate text-sm font-semibold">{message.createdAgent.title}</p>
                               {message.createdAgent.description && (
-                                <p className="truncate text-xs text-gray-500">{message.createdAgent.description}</p>
+                                <p className="truncate text-xs text-muted-foreground">{message.createdAgent.description}</p>
                               )}
                             </div>
                           </div>
@@ -768,14 +768,14 @@ export function HomeAssistant() {
                 </div>
               ))}
               {sending && (
-                <div className="mr-12 flex items-center gap-2 rounded-xl border bg-white p-3 text-sm text-gray-500">
+                <div className="mr-12 flex items-center gap-2 rounded-xl border bg-card p-3 text-sm text-muted-foreground">
                   <Loader2 className="h-4 w-4 animate-spin" /> Thinking…
                 </div>
               )}
             </div>
           </div>
           {/* Composer pinned to the bottom */}
-          <div className="shrink-0 border-t bg-slate-50 p-4">
+          <div className="shrink-0 border-t bg-background p-4">
             <div className="mx-auto max-w-3xl">{composer}</div>
           </div>
         </>

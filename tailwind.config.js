@@ -36,9 +36,26 @@ module.exports = {
         zinc: graphite,
         neutral: graphite,
         blue: horizon,
-        // Existing product accent utilities render neutral near-black.
+        // Existing product accent utilities render neutral and THEME-AWARE:
+        // the legacy `indigo-*` accent scale now resolves to semantic tokens,
+        // so soft fills/borders/text flip correctly in dark mode without
+        // touching the ~40 files that use them. Shades chosen by role:
+        // 50–100 soft fill, 200–300 hairline, 400–500 secondary text,
+        // 600–900 emphasis (near-black in light, near-white in dark).
         // Horizon remains available by its explicit name for informational UI.
-        indigo: graphite,
+        indigo: {
+          50: 'hsl(var(--muted) / <alpha-value>)',
+          100: 'hsl(var(--muted) / <alpha-value>)',
+          200: 'hsl(var(--border) / <alpha-value>)',
+          300: 'hsl(var(--border) / <alpha-value>)',
+          400: 'hsl(var(--muted-foreground) / <alpha-value>)',
+          500: 'hsl(var(--muted-foreground) / <alpha-value>)',
+          600: 'hsl(var(--foreground) / <alpha-value>)',
+          700: 'hsl(var(--foreground) / <alpha-value>)',
+          800: 'hsl(var(--foreground) / <alpha-value>)',
+          900: 'hsl(var(--foreground) / <alpha-value>)',
+          950: 'hsl(var(--foreground) / <alpha-value>)',
+        },
         sky: horizon,
         // shadcn token aliases
         border: 'hsl(var(--border))',

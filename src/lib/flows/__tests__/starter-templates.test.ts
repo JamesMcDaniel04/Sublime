@@ -65,3 +65,12 @@ test('inline agent steps declare outputFields when structured', () => {
     }
   }
 })
+
+test('every starter has a detailed output and paste-ready Copilot brief', () => {
+  for (const template of STARTER_TEMPLATES) {
+    assert.ok(template.category.trim().length > 0, `${template.key}: category is required`)
+    assert.match(template.exampleOutput, /<\w+/, `${template.key}: example output should be HTML`)
+    assert.ok(template.copilotInstructions.length >= 250, `${template.key}: Copilot brief is too thin`)
+    assert.match(template.copilotInstructions, /Build a .*flow/i, `${template.key}: brief should explicitly ask Copilot to build a flow`)
+  }
+})

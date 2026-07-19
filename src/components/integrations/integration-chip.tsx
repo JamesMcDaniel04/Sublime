@@ -22,6 +22,7 @@ export function integrationSlug(name: string): string | null {
   if (n.includes('jira')) return 'jira'
   if (n.includes('linear')) return 'linear'
   if (n.includes('github')) return 'github'
+  if (n.includes('perplexity')) return 'perplexity'
   if (n.includes('asana')) return 'asana'
   if (n.includes('zendesk')) return 'zendesk'
   if (n.includes('airtable')) return 'airtable'

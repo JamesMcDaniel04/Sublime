@@ -23,6 +23,7 @@ import { cn } from '@/lib/utils'
 import { PRODUCT_DEPARTMENTS, type Department } from '@/lib/templates/departments'
 import { connectedSlugSet, missingIntegrations, sortByReadiness } from '@/lib/templates/relevance'
 import { getCachedJson, invalidateCachedJson } from '@/lib/client/use-cached-json'
+import { TemplateCatalogueCard } from '@/components/templates/template-catalogue-card'
 
 /** Cards per page on the Templates and Skills grids. */
 const PAGE_SIZE = 9
@@ -392,62 +393,19 @@ export function TemplatesExplorer() {
   // department label and a readiness pill. Per product rule, a template is
   // NEVER hidden for missing integrations — it still renders with a Connect CTA.
   const renderCatalogueCard = (t: TemplateItem) => {
-    const accent = accentFor(t.category)
-    const Icon = categoryIcon(t.category)
     const missing = missingIntegrations(t.requiredIntegrations ?? [], connected)
     const department = t.departments?.[0]
     return (
-      <Link key={t.id} href={`/templates/${t.id}`} className="block">
-        <Card className={cn(
-          'group relative h-full overflow-hidden border-border/60 transition-all duration-200',
-          'hover:-translate-y-0.5 hover:shadow-lg hover:ring-1',
-          accent.ring,
-        )}>
-          <div className={cn('absolute inset-x-0 top-0 h-1 bg-gradient-to-r opacity-80 transition-opacity group-hover:opacity-100', accent.bar)} />
-          <CardHeader className="space-y-2.5 pt-5">
-            <div className="flex flex-wrap items-center gap-1.5">
-              <Badge variant="outline" className={cn('text-[11px] font-medium', accent.badge)}>
-                {department ? deptLabel(department) : t.category}
-              </Badge>
-            </div>
-            <div className="flex items-start gap-2.5">
-              <span className={cn('flex h-9 w-9 shrink-0 items-center justify-center rounded-lg transition-transform group-hover:scale-105', accent.tile)}>
-                <Icon className="h-[18px] w-[18px]" />
-              </span>
-              <CardTitle className="min-w-0 text-base leading-snug">{t.name}</CardTitle>
-            </div>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <p className="text-sm text-muted-foreground line-clamp-3">{t.description}</p>
-            {t.requiredIntegrations && t.requiredIntegrations.length > 0 && (
-              <div className="space-y-1.5">
-                <p className="text-xs font-medium text-muted-foreground">Requires</p>
-                <div className="flex flex-wrap gap-1.5">
-                  {t.requiredIntegrations.map((i) => {
-                    const isMissing = missing.includes(i)
-                    return (
-                      <span key={i} className={cn(isMissing && 'opacity-100 saturate-150')}>
-                        <IntegrationChip name={i} />
-                      </span>
-                    )
-                  })}
-                </div>
-              </div>
-            )}
-            {/* Navigates to the detail page (same destination as the card link),
-                where the user chooses to connect the template to an agent or a
-                flow — nothing is provisioned from the card itself. */}
-            <Button
-              size="sm"
-              variant={missing.length > 0 ? 'outline' : 'default'}
-              className="w-full"
-              onClick={(e) => { e.preventDefault(); e.stopPropagation(); router.push(`/templates/${t.id}`) }}
-            >
-              Use template
-            </Button>
-          </CardContent>
-        </Card>
-      </Link>
+      <TemplateCatalogueCard
+        key={t.id}
+        href={`/templates/${t.id}`}
+        name={t.name}
+        description={t.description}
+        category={department ? deptLabel(department) : t.category}
+        integrations={t.requiredIntegrations ?? []}
+        kind={t.kind ?? 'agent'}
+        missingIntegrations={missing}
+      />
     )
   }
 
