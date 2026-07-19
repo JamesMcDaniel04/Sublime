@@ -3,6 +3,7 @@ import { z } from 'zod'
 import { apiLogger } from '@/lib/logger'
 import { getAuthWithUser } from '@/lib/supabase/auth-utils'
 import { capabilitiesForPlan } from '@/lib/billing/capabilities'
+import { entitlementPlanFor } from '@/lib/billing/entitlements'
 
 export const dynamic = 'force-dynamic'
 
@@ -52,7 +53,8 @@ export async function POST(request: NextRequest) {
 
   const from = process.env.EMAIL_FROM || 'Sublime <onboarding@resend.dev>'
   const authenticated = await getAuthWithUser().catch(() => null)
-  const plan = authenticated?.dbUser?.organization?.plan
+  const organization = authenticated?.dbUser?.organization
+  const plan = organization ? entitlementPlanFor(organization) : null
   const support = plan ? capabilitiesForPlan(plan).support : 'resources'
   const text = [
     `Reason: ${REASON_LABELS[reason]}`,

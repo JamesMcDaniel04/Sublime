@@ -2,8 +2,17 @@ import { z } from 'zod'
 import { prisma } from '@/lib/prisma'
 import { ApiError, withAuthenticatedApi } from '@/lib/server/api-handler'
 import { isValidScanExclusionEntry } from '@/lib/intelligence/scan-exclusions'
+import { entitlementPlanFor, isGrandfatheredOrganization } from '@/lib/billing/entitlements'
 
-const ORG_SELECT = { id: true, name: true, slug: true, plan: true, logoUrl: true, settings: true, grandfatheredAt: true } as const
+const ORG_SELECT = { id: true, name: true, slug: true, plan: true, logoUrl: true, settings: true, createdAt: true, grandfatheredAt: true } as const
+
+function serializeOrganization<T extends { plan: import('@prisma/client').Plan; createdAt: Date; grandfatheredAt?: Date | null }>(organization: T) {
+  return {
+    ...organization,
+    plan: entitlementPlanFor(organization),
+    grandfatheredAt: organization.grandfatheredAt ?? (isGrandfatheredOrganization(organization) ? organization.createdAt : null),
+  }
+}
 
 // Organizations the user belongs to. Membership is single-org today; the
 // shape is a list so the org switcher works unchanged when multi-org lands.
@@ -15,7 +24,7 @@ export const GET = withAuthenticatedApi(async (_request, auth) => {
   return {
     success: true,
     activeOrganizationId: auth.organizationId,
-    organizations: organization ? [organization] : [],
+    organizations: organization ? [serializeOrganization(organization)] : [],
   }
 })
 
@@ -60,13 +69,13 @@ export const PATCH = withAuthenticatedApi(async (request, auth) => {
   if (settings) {
     const existing = await prisma.organization.findUnique({
       where: { id: auth.organizationId },
-      select: { settings: true, plan: true },
+      select: { settings: true, plan: true, createdAt: true, grandfatheredAt: true },
     })
     const existingSettings =
       existing?.settings && typeof existing.settings === 'object' && !Array.isArray(existing.settings)
         ? (existing.settings as Record<string, unknown>)
         : {}
-    if (settings.zeroDataRetention === true && existing?.plan !== 'ENTERPRISE') {
+    if (settings.zeroDataRetention === true && entitlementPlanFor(existing) !== 'ENTERPRISE') {
       throw new ApiError('Zero-data retention is available on Enterprise plans.', 403, 'PLAN_LIMIT')
     }
     mergedSettings = { ...existingSettings, ...settings }
@@ -81,7 +90,7 @@ export const PATCH = withAuthenticatedApi(async (request, auth) => {
     },
     select: ORG_SELECT,
   })
-  return { success: true, organization }
+  return { success: true, organization: serializeOrganization(organization) }
 })
 
 // Delete the whole workspace: external resources (Nango connections, graph

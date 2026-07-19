@@ -3,6 +3,7 @@ import { ApiError } from '@/lib/server/api-handler'
 import { formatLimit, limitsForOrg, type PlanLimits } from './limits'
 import { readAgentMetadata } from '@/lib/agents/metadata'
 import { departmentsForTools } from '@/lib/templates/departments'
+import { entitlementPlanFor } from './entitlements'
 
 /**
  * Plan-limit gates for resource creation. Each assert throws ApiError 403
@@ -15,9 +16,9 @@ import { departmentsForTools } from '@/lib/templates/departments'
 async function orgLimits(organizationId: string): Promise<PlanLimits> {
   const organization = await prisma.organization.findUnique({
     where: { id: organizationId },
-    select: { plan: true, settings: true },
+    select: { plan: true, settings: true, createdAt: true, grandfatheredAt: true },
   })
-  return limitsForOrg(organization?.plan ?? 'TRIAL', organization?.settings)
+  return limitsForOrg(entitlementPlanFor(organization), organization?.settings)
 }
 
 function overLimitError(what: string, cap: number, planLabel: string): ApiError {

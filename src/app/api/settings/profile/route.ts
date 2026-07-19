@@ -33,7 +33,7 @@ export const PATCH = withAuthenticatedApi(async (request, auth) => {
     select: { name: true, email: true, imageUrl: true, role: true },
   })
   void recordAudit({ organizationId: auth.organizationId, actorUserId: auth.dbUser.id, action: 'user.profile.updated', resourceType: 'user', resourceId: auth.dbUser.id })
-  return { success: true, profile: user }
+  return { success: true, profile: { ...user, role: auth.dbUser.role } }
 })
 
 export const DELETE = withAuthenticatedApi(async (request, auth) => {

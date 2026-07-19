@@ -2,6 +2,7 @@ import { z } from 'zod'
 import { prisma } from '@/lib/prisma'
 import { ApiError, withAuthenticatedApi } from '@/lib/server/api-handler'
 import { capabilitiesForPlan } from '@/lib/billing/capabilities'
+import { entitlementPlanFor } from '@/lib/billing/entitlements'
 
 export const dynamic = 'force-dynamic'
 
@@ -15,7 +16,7 @@ const querySchema = z.object({
 // (Slack/Salesforce/GitHub/... via webhooks and backfills), newest first.
 // Team plans and above.
 export const GET = withAuthenticatedApi(async (request, auth) => {
-  const capabilities = capabilitiesForPlan(auth.dbUser.organization?.plan ?? 'TRIAL')
+  const capabilities = capabilitiesForPlan(entitlementPlanFor(auth.dbUser.organization))
   if (!capabilities.activityHistory) {
     throw new ApiError('Activity history is available on Team plans and above.', 403, 'PLAN_LIMIT')
   }

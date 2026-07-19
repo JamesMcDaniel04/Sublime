@@ -3,6 +3,7 @@ import { prisma, systemPrisma } from '@/lib/prisma'
 import { ApiError, withAuthenticatedApi } from '@/lib/server/api-handler'
 import { listSkills } from '@/lib/skills/compose'
 import { capabilitiesForPlan } from '@/lib/billing/capabilities'
+import { entitlementPlanFor } from '@/lib/billing/entitlements'
 
 const skillSchema = z.object({
   name: z.string().min(1).max(80),
@@ -75,7 +76,7 @@ export const GET = withAuthenticatedApi(async (_request, auth) => {
 // POST — workspace-only by default; public publishing is always explicit.
 export const POST = withAuthenticatedApi(async (request, auth) => {
   const data = skillSchema.parse(await request.json())
-  const planCapabilities = capabilitiesForPlan(auth.dbUser.organization?.plan ?? 'TRIAL')
+  const planCapabilities = capabilitiesForPlan(entitlementPlanFor(auth.dbUser.organization))
   const visibility = data.visibility ?? 'private'
   if (planCapabilities.skillSharing === 'private' && visibility !== 'private') {
     throw new ApiError('Workspace and public skill sharing are available on Team plans and above.', 403, 'PLAN_LIMIT')
@@ -95,7 +96,7 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
 // PUT — edit your own community skill.
 export const PUT = withAuthenticatedApi(async (request, auth) => {
   const body = z.object({ id: z.string().min(1) }).merge(skillSchema.partial()).parse(await request.json())
-  if (body.visibility && capabilitiesForPlan(auth.dbUser.organization?.plan ?? 'TRIAL').skillSharing === 'private' && body.visibility !== 'private') {
+  if (body.visibility && capabilitiesForPlan(entitlementPlanFor(auth.dbUser.organization)).skillSharing === 'private' && body.visibility !== 'private') {
     throw new ApiError('Workspace and public skill sharing are available on Team plans and above.', 403, 'PLAN_LIMIT')
   }
   const ownerScope = auth.dbUser.role === 'ADMIN' ? {} : { userId: auth.dbUser.id }

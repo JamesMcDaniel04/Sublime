@@ -4,6 +4,7 @@ import { prisma } from '@/lib/prisma'
 import { getStripe, appOrigin } from '@/lib/stripe'
 import { isPaidPlanKey, priceIdFor, type PaidPlanKey } from '@/lib/stripe/plans'
 import { apiLogger } from '@/lib/logger'
+import { isGrandfatheredOrganization } from '@/lib/billing/entitlements'
 
 export const dynamic = 'force-dynamic'
 
@@ -42,10 +43,10 @@ async function startCheckout(plan: PaidPlanKey, origin: string) {
 
   const organization = await prisma.organization.findUnique({
     where: { id: auth.organizationId },
-    select: { id: true, name: true, stripeCustomerId: true, grandfatheredAt: true },
+    select: { id: true, name: true, stripeCustomerId: true, plan: true, createdAt: true, grandfatheredAt: true },
   })
   if (!organization) return NextResponse.redirect(new URL('/dashboard', origin))
-  if (organization.grandfatheredAt) {
+  if (isGrandfatheredOrganization(organization)) {
     return NextResponse.redirect(new URL('/settings?tab=billing', origin))
   }
 

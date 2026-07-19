@@ -1,8 +1,8 @@
-import { Plan } from '@prisma/client'
 import { prisma } from '@/lib/prisma'
 import { cacheGetNumber, cacheIncrBy } from '@/lib/cache'
 import { limitsForOrg, TOKENS_PER_CREDIT } from '@/lib/billing/limits'
 import { topupTokensForMonth } from '@/lib/billing/topups'
+import { entitlementPlanFor, isGrandfatheredOrganization } from '@/lib/billing/entitlements'
 
 // Live month-to-date token counter, keyed per org + UTC month. Incremented per
 // turn as tokens are spent, so concurrent runs/workers see each other's spend
@@ -64,9 +64,10 @@ export async function checkMonthlyTokenBudget(
 
   const organization = await prisma.organization.findUnique({
     where: { id: organizationId },
-    select: { plan: true, settings: true },
+    select: { plan: true, settings: true, createdAt: true, grandfatheredAt: true },
   })
-  const limits = limitsForOrg(organization?.plan ?? Plan.TRIAL, organization?.settings)
+  if (isGrandfatheredOrganization(organization)) return { over: false, used: 0, limit: 0 }
+  const limits = limitsForOrg(entitlementPlanFor(organization), organization?.settings)
   let planAllowance = Number.isFinite(limits.monthlyCredits)
     ? limits.monthlyCredits * TOKENS_PER_CREDIT
     : Number.POSITIVE_INFINITY

@@ -7,6 +7,7 @@ import { planForPriceId } from '@/lib/stripe/plans'
 import { grantTopupCredits } from '@/lib/billing/topups'
 import { apiLogger } from '@/lib/logger'
 import { captureError } from '@/lib/observability/sentry'
+import { isGrandfatheredOrganization } from '@/lib/billing/entitlements'
 
 export const dynamic = 'force-dynamic'
 
@@ -19,8 +20,8 @@ async function applySubscription(subscription: Stripe.Subscription) {
   const customerId = typeof subscription.customer === 'string' ? subscription.customer : subscription.customer.id
 
   const organization = organizationId
-    ? await prisma.organization.findUnique({ where: { id: organizationId }, select: { id: true, grandfatheredAt: true } })
-    : await prisma.organization.findUnique({ where: { stripeCustomerId: customerId }, select: { id: true, grandfatheredAt: true } })
+    ? await prisma.organization.findUnique({ where: { id: organizationId }, select: { id: true, plan: true, createdAt: true, grandfatheredAt: true } })
+    : await prisma.organization.findUnique({ where: { stripeCustomerId: customerId }, select: { id: true, plan: true, createdAt: true, grandfatheredAt: true } })
   if (!organization) return
 
   // A multi-item subscription carries the base plan on ONE of its items —
@@ -48,7 +49,7 @@ async function applySubscription(subscription: Stripe.Subscription) {
 
   await prisma.organization.update({
     where: { id: organization.id },
-    data: organization.grandfatheredAt
+    data: isGrandfatheredOrganization(organization)
       ? { plan: Plan.ENTERPRISE, stripeSubscriptionId: isActive ? subscription.id : null, stripeCustomerId: customerId }
       : isActive && paidPlan
       ? { plan: paidPlan, stripeSubscriptionId: subscription.id, stripeCustomerId: customerId }

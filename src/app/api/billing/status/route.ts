@@ -6,6 +6,7 @@ import { orgUsageSummary } from '@/lib/billing/enforce'
 import { checkMonthlyTokenBudget } from '@/lib/usage/budget'
 import { topupCreditsForMonth } from '@/lib/billing/topups'
 import { capabilitiesForPlan } from '@/lib/billing/capabilities'
+import { entitlementPlanFor, isGrandfatheredOrganization } from '@/lib/billing/entitlements'
 
 export const dynamic = 'force-dynamic'
 
@@ -20,7 +21,7 @@ export async function GET() {
 
   const organization = auth.dbUser.organization
   const billing = billingStateFor(organization)
-  const entitlementPlan = organization.grandfatheredAt ? 'ENTERPRISE' : organization.plan
+  const entitlementPlan = entitlementPlanFor(organization)
   const limits = limitsForOrg(entitlementPlan, organization.settings)
   const [usage, budget, topupCredits] = await Promise.all([
     orgUsageSummary(organization.id),
@@ -32,7 +33,7 @@ export async function GET() {
     success: true,
     state: billing.state,
     plan: billing.plan,
-    grandfathered: Boolean(organization.grandfatheredAt),
+    grandfathered: isGrandfatheredOrganization(organization),
     hasSubscription: Boolean(organization.stripeSubscriptionId),
     capabilities: capabilitiesForPlan(entitlementPlan),
     limits: {

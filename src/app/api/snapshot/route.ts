@@ -3,6 +3,7 @@ import { withAuthenticatedApi } from '@/lib/server/api-handler'
 import { agentReadScope, executionVisibilityScope } from '@/lib/server/visibility'
 import { serializeAgent } from '@/lib/agents/serialize'
 import { isUsageExemptEmail } from '@/lib/usage/budget'
+import { entitlementPlanFor, isGrandfatheredOrganization } from '@/lib/billing/entitlements'
 
 export const runtime = 'nodejs'
 
@@ -55,7 +56,7 @@ export const GET = withAuthenticatedApi(async (_request, auth) => {
     }),
     prisma.organization.findUnique({
       where: { id: auth.organizationId },
-      select: { id: true, name: true, slug: true, plan: true, logoUrl: true },
+      select: { id: true, name: true, slug: true, plan: true, logoUrl: true, createdAt: true, grandfatheredAt: true },
     }),
     prisma.notification.findMany({ where: notificationScope, orderBy: { createdAt: 'desc' }, take: 30 }),
     prisma.notification.count({ where: { ...notificationScope, readAt: null } }),
@@ -73,10 +74,10 @@ export const GET = withAuthenticatedApi(async (_request, auth) => {
       inputTokens: usageAggregate._sum.inputTokens || 0,
       outputTokens: usageAggregate._sum.outputTokens || 0,
       // Exempt admins have no ceiling — the sidebar shows "Unlimited".
-      exempt: isUsageExemptEmail(auth.dbUser.email),
+      exempt: isUsageExemptEmail(auth.dbUser.email) || isGrandfatheredOrganization(organization),
     },
     activeOrganizationId: auth.organizationId,
-    organizations: organization ? [organization] : [],
+    organizations: organization ? [{ ...organization, plan: entitlementPlanFor(organization) }] : [],
     notifications,
     unread,
   }

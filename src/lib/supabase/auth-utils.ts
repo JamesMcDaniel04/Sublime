@@ -1,6 +1,7 @@
 import type { User } from '@supabase/supabase-js'
 import { prisma, systemPrisma } from '@/lib/prisma'
 import { createClient } from '@/lib/supabase/server'
+import { isLegacyPlatformUser } from '@/lib/billing/entitlements'
 
 // An auth identity resolves to a user either directly (users.supabaseId, the
 // first identity) or via a linked user_identities row (any later sign-in
@@ -202,7 +203,14 @@ export async function getAuthWithUser() {
     user = data.user
   }
 
-  const dbUser = await ensureWorkspaceMembership(user)
+  const resolvedDbUser = await ensureWorkspaceMembership(user)
+  // Every account that existed before paid-from-day-one is an unrestricted
+  // internal/test account. Normalize its role at the auth boundary so every
+  // admin-only surface (settings, integrations, flows, members) agrees even
+  // when a deployment missed the one-time role backfill.
+  const dbUser = resolvedDbUser && isLegacyPlatformUser(resolvedDbUser)
+    ? { ...resolvedDbUser, role: 'ADMIN' as const }
+    : resolvedDbUser
 
   return {
     user,

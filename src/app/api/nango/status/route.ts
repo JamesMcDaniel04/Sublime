@@ -7,6 +7,7 @@ import { withAuthenticatedApi } from '@/lib/server/api-handler'
 import { scanConnection, shouldScanNangoConnection, purgeConnectionLearnings } from '@/lib/intelligence/connection-scan'
 import { capabilityForProviderConfigKey, capabilitiesToPurgeOnDisconnect, type DeliveryCapability } from '@/lib/nango/delivery'
 import { fromNangoProviderKey } from '@/lib/connectors/registry'
+import { apiLogger } from '@/lib/logger'
 
 export const runtime = 'nodejs'
 
@@ -16,6 +17,33 @@ type ConnectionStatus = {
   provider: string
   error?: string
   lastSync?: string
+}
+
+async function mirroredConnectionStatus(organizationId: string): Promise<Record<string, ConnectionStatus>> {
+  const rows = await prisma.nangoConnection.findMany({
+    where: { organizationId },
+    select: {
+      connectionId: true,
+      providerConfigKey: true,
+      provider: true,
+      status: true,
+      lastError: true,
+      updatedAt: true,
+    },
+  })
+  const connections: Record<string, ConnectionStatus> = {}
+  for (const row of rows) {
+    const existing = connections[row.providerConfigKey]
+    const connected = row.status === 'connected'
+    connections[row.providerConfigKey] = {
+      connected: existing ? existing.connected || connected : connected,
+      connectionIds: [...(existing?.connectionIds ?? []), row.connectionId],
+      provider: row.provider || row.providerConfigKey,
+      error: existing?.error ?? row.lastError ?? undefined,
+      lastSync: row.updatedAt.toISOString(),
+    }
+  }
+  return connections
 }
 
 // Lists the organization's Nango connections (live from Nango) and mirrors
@@ -28,7 +56,17 @@ export const GET = withAuthenticatedApi(async (_request, auth) => {
       tags: { [NANGO_ORG_TAG]: auth.organizationId },
     })
   } catch (error) {
-    throw nangoApiError(error)
+    const normalized = nangoApiError(error)
+    apiLogger.warn('nango status unavailable; serving the existing connection mirror', {
+      organizationId: auth.organizationId,
+      error: normalized.message,
+    })
+    return {
+      success: true,
+      connections: await mirroredConnectionStatus(auth.organizationId),
+      stale: true,
+      warning: 'Live connection status is temporarily unavailable. Showing the last known status.',
+    }
   }
 
   const connections: Record<string, ConnectionStatus> = {}

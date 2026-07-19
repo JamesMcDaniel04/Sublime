@@ -4,15 +4,23 @@ import { ApiError, withAuthenticatedApi } from '@/lib/server/api-handler'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { recordAudit } from '@/lib/audit'
 import { assertSeatCapacity } from '@/lib/billing/enforce'
+import { isLegacyPlatformUser } from '@/lib/billing/entitlements'
 
 const inviteSchema = z.object({ email: z.string().email(), role: z.enum(['ADMIN', 'USER']).default('USER') })
 
 export const GET = withAuthenticatedApi(async (_request, auth) => {
   const [members, invitations] = await Promise.all([
-    prisma.user.findMany({ where: { organizationId: auth.organizationId }, select: { id: true, email: true, name: true, role: true, isActive: true, lastSeenAt: true }, orderBy: { createdAt: 'asc' } }),
+    prisma.user.findMany({ where: { organizationId: auth.organizationId }, select: { id: true, email: true, name: true, role: true, isActive: true, lastSeenAt: true, createdAt: true }, orderBy: { createdAt: 'asc' } }),
     prisma.organizationInvitation.findMany({ where: { organizationId: auth.organizationId, acceptedAt: null, revokedAt: null, expiresAt: { gt: new Date() } }, orderBy: { createdAt: 'desc' } }),
   ])
-  return { success: true, members, invitations }
+  return {
+    success: true,
+    members: members.map((member) => ({
+      ...member,
+      role: isLegacyPlatformUser(member) ? 'ADMIN' as const : member.role,
+    })),
+    invitations,
+  }
 })
 
 export const POST = withAuthenticatedApi(async (request, auth) => {
