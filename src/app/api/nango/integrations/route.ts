@@ -1,5 +1,6 @@
-import { getNangoClient } from '@/lib/nango/client'
+import { getNangoClient, nangoConfigured } from '@/lib/nango/client'
 import { nangoApiError } from '@/lib/nango/errors'
+import { googleOAuthConfigured } from '@/lib/google/oauth'
 import { withAuthenticatedApi } from '@/lib/server/api-handler'
 import { cacheGet, cacheSet } from '@/lib/cache'
 import { capabilityForProviderConfigKey, type DeliveryCapability } from '@/lib/nango/delivery'
@@ -15,6 +16,8 @@ type IntegrationChip = {
    *  powers the per-connection "Learning" toggle on the client (only
    *  connections the scan plane can actually sample have one). */
   capability?: DeliveryCapability
+  /** True when connecting goes through our native Google OAuth flow. */
+  native?: boolean
 }
 
 // The enabled integrations are a property of the Nango ENVIRONMENT (one per
@@ -23,11 +26,33 @@ type IntegrationChip = {
 const CACHE_KEY = 'nango:integrations'
 const CACHE_TTL_MS = 10 * 60 * 1000
 
+/** Gmail connects natively (Google blocks Nango's flow). When configured, the
+ *  native tile REPLACES any Nango Gmail tile so there is exactly one. */
+function withNativeGoogle(integrations: IntegrationChip[]): IntegrationChip[] {
+  if (!googleOAuthConfigured()) return integrations
+  const withoutNangoGmail = integrations.filter(
+    (integration) => capabilityForProviderConfigKey(integration.id) !== 'gmail',
+  )
+  return [
+    {
+      id: 'google-mail',
+      provider: 'google-mail',
+      name: 'Gmail',
+      capability: 'gmail' as DeliveryCapability,
+      native: true,
+    },
+    ...withoutNangoGmail,
+  ]
+}
+
 // Lists the integrations enabled on the Nango environment. These are the
 // apps a user can connect from the integrations page.
 export const GET = withAuthenticatedApi(async () => {
+  // Native-only deployments (no Nango key) still offer Gmail.
+  if (!nangoConfigured()) return { success: true, integrations: withNativeGoogle([]) }
+
   const hit = await cacheGet<IntegrationChip[]>(CACHE_KEY)
-  if (hit) return { success: true, integrations: hit }
+  if (hit) return { success: true, integrations: withNativeGoogle(hit) }
 
   let configs
   try {
@@ -45,5 +70,5 @@ export const GET = withAuthenticatedApi(async () => {
   }))
 
   if (integrations.length) await cacheSet(CACHE_KEY, integrations, CACHE_TTL_MS)
-  return { success: true, integrations }
+  return { success: true, integrations: withNativeGoogle(integrations) }
 })

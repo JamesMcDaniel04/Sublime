@@ -21,6 +21,8 @@ import { prisma } from '@/lib/prisma'
 import { apiLogger } from '@/lib/logger'
 import { cacheGet, cacheSet } from '@/lib/cache'
 import { DELIVERY_TOOLS, nangoConfigured, resolveDeliveryConnection, type DeliveryCapability } from '@/lib/nango/delivery'
+import { googleOAuthConfigured } from '@/lib/google/oauth'
+import { isGoogleNativeProvider, proxyForConnection } from '@/lib/google/proxy'
 import { listActionTools, runNangoAction } from '@/lib/nango/actions'
 import { McpClient, mcpConfigFromConnection } from '@/lib/mcp/mcp-client'
 import { ensureFreshConnectionToken, persistRefreshedAuthcodeTokens } from '@/lib/mcp/connection-token'
@@ -300,7 +302,7 @@ export async function loadNangoPlaneGroups(
   ownerUserId?: string | null,
   options: { providers?: string[] } = {},
 ): Promise<ToolPlaneGroup[]> {
-  if (!nangoConfigured()) return []
+  if (!nangoConfigured() && !googleOAuthConfigured()) return []
   const groups: ToolPlaneGroup[] = []
   const capabilities = [...new Set(DELIVERY_TOOLS.map((spec) => spec.capability))]
   for (const capability of capabilities) {
@@ -311,7 +313,11 @@ export async function loadNangoPlaneGroups(
       const connection = await resolveDeliveryConnection(organizationId, capability, ownerUserId)
       if (!connection) continue
 
-      const actionTools = await listActionTools(connection.providerConfigKey, capability)
+      // Deployed actions are a Nango-environment feature; native Google
+      // connections always use the static specs (executed via googleProxy).
+      const actionTools = isGoogleNativeProvider(connection.provider) || !nangoConfigured()
+        ? []
+        : await listActionTools(connection.providerConfigKey, capability)
       const specs = DELIVERY_TOOLS.filter((spec) => spec.capability === capability)
 
       let client: McpToolClient
@@ -336,7 +342,7 @@ export async function loadNangoPlaneGroups(
           executeTool: (_serverUrl, toolName, args) => {
             const spec = specByName.get(toolName)
             if (!spec) throw new Error(`Unknown ${connector.label} tool: ${toolName}`)
-            return spec.run(connection, args)
+            return spec.run(connection, args, proxyForConnection(connection))
           },
         }
         tools = specs.map((spec) => ({ name: spec.name, description: spec.description, inputSchema: spec.inputSchema }))
@@ -534,8 +540,9 @@ export async function resolveFlowToolExecutor(params: {
     }
   }
 
-  // nango — outbound delivery as the acting user (write plane).
-  if (!nangoConfigured()) throw new Error('Delivery integrations are not configured for this workspace.')
+  // nango — outbound delivery as the acting user (write plane). Native Google
+  // connections ride the same plane, so gate on either transport.
+  if (!nangoConfigured() && !googleOAuthConfigured()) throw new Error('Delivery integrations are not configured for this workspace.')
   const spec = DELIVERY_TOOLS.find((tool) => tool.capability === (ref as DeliveryCapability))
   if (!spec) throw new Error(`Unknown delivery capability "${ref}" — pick another in the step config.`)
   const connection = await resolveDeliveryConnection(organizationId, spec.capability, userId)
@@ -545,7 +552,7 @@ export async function resolveFlowToolExecutor(params: {
     isWrite: true,
     execute: (name, args) => {
       if (name !== spec.name) throw new Error(`Tool "${name}" is not available on this connection.`)
-      return spec.run(connection, args)
+      return spec.run(connection, args, proxyForConnection(connection))
     },
   }
 }

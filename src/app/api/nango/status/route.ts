@@ -1,7 +1,8 @@
 import type { Prisma } from '@prisma/client'
 import { after } from 'next/server'
 import { prisma } from '@/lib/prisma'
-import { getNangoClient, NANGO_ORG_TAG } from '@/lib/nango/client'
+import { getNangoClient, nangoConfigured, NANGO_ORG_TAG } from '@/lib/nango/client'
+import { googleOAuthConfigured } from '@/lib/google/oauth'
 import { nangoApiError } from '@/lib/nango/errors'
 import { withAuthenticatedApi } from '@/lib/server/api-handler'
 import { scanConnection, shouldScanNangoConnection, purgeConnectionLearnings } from '@/lib/intelligence/connection-scan'
@@ -17,7 +18,12 @@ type ConnectionStatus = {
   provider: string
   error?: string
   lastSync?: string
+  /** True when the entry is a native Google OAuth connection (not Nango). */
+  native?: boolean
 }
+
+/** Marker written by src/lib/google/store.ts on mirror rows. */
+const GOOGLE_NATIVE_PROVIDER = 'google-native'
 
 async function mirroredConnectionStatus(organizationId: string, userId: string): Promise<Record<string, ConnectionStatus>> {
   const rows = await prisma.nangoConnection.findMany({
@@ -41,6 +47,7 @@ async function mirroredConnectionStatus(organizationId: string, userId: string):
       provider: row.provider || row.providerConfigKey,
       error: existing?.error ?? row.lastError ?? undefined,
       lastSync: row.updatedAt.toISOString(),
+      native: (existing?.native ?? false) || row.provider === GOOGLE_NATIVE_PROVIDER,
     }
   }
   return connections
@@ -50,6 +57,16 @@ async function mirroredConnectionStatus(organizationId: string, userId: string):
 // them into the per-org nango_connections table. Nango owns the credentials;
 // we only persist connection ids and health.
 export const GET = withAuthenticatedApi(async (_request, auth) => {
+  // Without Nango there is nothing to reconcile against the cloud — the
+  // mirror (which includes native Google rows) IS the status.
+  if (!nangoConfigured()) {
+    return {
+      success: true,
+      connections: await mirroredConnectionStatus(auth.organizationId, auth.dbUser.id),
+      nativeGoogle: googleOAuthConfigured(),
+    }
+  }
+
   const previousByConnectionId = new Map(
     (
       await prisma.nangoConnection.findMany({
@@ -73,6 +90,7 @@ export const GET = withAuthenticatedApi(async (_request, auth) => {
     return {
       success: true,
       connections: await mirroredConnectionStatus(auth.organizationId, auth.dbUser.id),
+      nativeGoogle: googleOAuthConfigured(),
       stale: true,
       warning: 'Live connection status is temporarily unavailable. Showing the last known status.',
     }
@@ -159,8 +177,11 @@ export const GET = withAuthenticatedApi(async (_request, auth) => {
   // directly in the Nango dashboard, expired, etc.) must still purge its
   // scan-derived learnings. Capture the about-to-be-dropped rows'
   // capabilities BEFORE the sweep removes them.
+  // Native Google rows never appear in Nango's listing — the sweep must not
+  // treat them as vanished (their lifecycle is the /api/google/oauth routes).
+  const notNative = { OR: [{ provider: null }, { provider: { not: GOOGLE_NATIVE_PROVIDER } }] }
   const stale = await prisma.nangoConnection.findMany({
-    where: { organizationId: auth.organizationId, userId: auth.dbUser.id, connectionId: { notIn: seen } },
+    where: { organizationId: auth.organizationId, userId: auth.dbUser.id, connectionId: { notIn: seen }, ...notNative },
     select: { providerConfigKey: true },
   })
   const staleCapabilities = [
@@ -169,7 +190,7 @@ export const GET = withAuthenticatedApi(async (_request, auth) => {
 
   // Drop mirror rows for connections that no longer exist in Nango.
   await prisma.nangoConnection.deleteMany({
-    where: { organizationId: auth.organizationId, userId: auth.dbUser.id, connectionId: { notIn: seen } },
+    where: { organizationId: auth.organizationId, userId: auth.dbUser.id, connectionId: { notIn: seen }, ...notNative },
   })
 
   const organizationId = auth.organizationId
@@ -214,5 +235,22 @@ export const GET = withAuthenticatedApi(async (_request, auth) => {
     ).catch(() => undefined),
   )
 
-  return { success: true, connections }
+  // Merge native Google connections (mirror-only; invisible to Nango's API).
+  const nativeRows = await prisma.nangoConnection.findMany({
+    where: { organizationId: auth.organizationId, userId: auth.dbUser.id, provider: GOOGLE_NATIVE_PROVIDER },
+  })
+  for (const row of nativeRows) {
+    const existing = connections[row.providerConfigKey]
+    const connected = row.status === 'connected'
+    connections[row.providerConfigKey] = {
+      connected: existing ? existing.connected || connected : connected,
+      connectionIds: [...(existing?.connectionIds ?? []), row.connectionId],
+      provider: row.provider ?? row.providerConfigKey,
+      error: existing?.error ?? row.lastError ?? undefined,
+      lastSync: row.updatedAt.toISOString(),
+      native: true,
+    }
+  }
+
+  return { success: true, connections, nativeGoogle: googleOAuthConfigured() }
 })
