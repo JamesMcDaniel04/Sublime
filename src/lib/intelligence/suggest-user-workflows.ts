@@ -17,6 +17,7 @@ import { buildCopilotGrounding } from '@/lib/flows/copilot-grounding'
 import { generateFlowGraph } from '@/lib/flows/copilot-generate'
 import { listEligiblePatterns, type EligiblePattern } from '@/lib/behavior/eligibility'
 import { loadCapabilityCatalog } from '@/lib/behavior/infer-user-patterns'
+import { suggestionOutcomeLabel } from '@/lib/behavior/outcome-weights'
 import { loadExistingFlows, loadExistingAgents } from './suggest-workflows'
 
 export const USER_SYNTHESIS_COOLDOWN_DAYS = 7
@@ -152,34 +153,10 @@ export function renderPatternEvidence(patterns: EligiblePattern[]): string[] {
   )
 }
 
-/**
- * What actually HAPPENED to a past suggestion — feedback richer than
- * accepted/dismissed. An accepted draft flow that was never published within
- * two weeks is a weak signal; one whose draft got deleted is a negative one.
- * Pure so the labeling is testable.
- */
-export type SuggestionFeedbackRow = {
-  title: string
-  status: string
-  kind: string
-  flowId: string | null
-  updatedAt: Date
-}
-
-const ADOPTION_WINDOW_MS = 14 * 24 * 60 * 60 * 1000
-
-export function suggestionOutcomeLabel(
-  row: SuggestionFeedbackRow,
-  flow: { status: string; publishedGraph: unknown } | null,
-  now: Date,
-): string {
-  if (row.status !== 'accepted') return row.status
-  if (row.kind !== 'new_flow' || !row.flowId) return 'accepted'
-  if (!flow) return 'accepted-then-deleted'
-  if (flow.status === 'ACTIVE' || flow.publishedGraph != null) return 'accepted-and-adopted'
-  if (now.getTime() - row.updatedAt.getTime() > ADOPTION_WINDOW_MS) return 'accepted-but-never-published'
-  return 'accepted'
-}
+// Outcome labeling moved to behavior (phase 4) so the eligibility gate can
+// consume it without an intelligence → behavior → intelligence cycle;
+// re-exported here for existing callers and tests.
+export { suggestionOutcomeLabel, ADOPTION_WINDOW_MS, type SuggestionFeedbackRow } from '@/lib/behavior/outcome-weights'
 
 export type UserSynthesisResult =
   | { skipped: 'pending-suggestion' | 'no-eligible-patterns' | 'budget-exceeded' | 'throttled' | 'no-suggestion' | 'generation-failed' | 'error' }

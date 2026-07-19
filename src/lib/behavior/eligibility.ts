@@ -6,6 +6,7 @@
  * the platform non-prescriptive by construction: no evidence, no suggestion.
  */
 import { prisma } from '@/lib/prisma'
+import { loadOutcomeKindWeights, KIND_SUPPRESS_WEIGHT } from './outcome-weights'
 
 export const MIN_OCCURRENCES = 3
 export const MIN_SPAN_DAYS = 7
@@ -79,8 +80,15 @@ export async function listEligiblePatterns(
         select: { occurredAt: true },
       }),
     ])
+    // Outcome learning (phase 4): a kind whose suggestions this user keeps
+    // rejecting is suppressed until the history decays; kinds that led to
+    // adopted automations rank first. The loader never throws — a failure
+    // degrades to unweighted gating, never an empty list.
+    const weights = await loadOutcomeKindWeights(organizationId, userId, db)
     return patterns
       .filter((p) => isPatternEligible(p, firstEvent?.occurredAt ?? null))
+      .filter((p) => (weights.get(p.kind) ?? 0) > KIND_SUPPRESS_WEIGHT)
+      .sort((a, b) => (weights.get(b.kind) ?? 0) - (weights.get(a.kind) ?? 0) || b.occurrenceCount - a.occurrenceCount)
       .map((p) => ({
         slug: p.slug, kind: p.kind, summary: p.summary,
         occurrenceCount: p.occurrenceCount, firstSeenAt: p.firstSeenAt, lastSeenAt: p.lastSeenAt,

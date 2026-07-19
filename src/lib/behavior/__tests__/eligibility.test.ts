@@ -83,3 +83,50 @@ test('archetype_gap: gates like a gap — staleness and learning period only', (
   assert.equal(isPatternEligible({ ...arch, lastSeenAt: daysAgo(31) }, learnedUser, now), false)
   assert.equal(isPatternEligible(arch, daysAgo(3), now), false)
 })
+
+test('outcome weights at the gate: rejected kinds suppressed, adopted kinds ranked first', async () => {
+  const { listEligiblePatterns } = await import('@/lib/behavior/eligibility')
+  const pattern = (slug: string, kind: string, occurrenceCount: number) => ({
+    slug, kind, summary: `s:${slug}`, occurrenceCount,
+    firstSeenAt: daysAgo(20), lastSeenAt: daysAgo(1), status: 'open', evidence: ['e1'],
+  })
+  const db = {
+    userPattern: {
+      findMany: async () => [
+        pattern('seq:a>>b', 'sequence', 4),
+        pattern('toolcorr:x+y', 'tool_correlation', 99),
+        pattern('gap:dormant:z', 'capability_gap', 1),
+      ],
+    },
+    userEvent: { findFirst: async () => ({ occurredAt: daysAgo(30) }) },
+    userSuggestion: {
+      findMany: async () => [
+        // tool_correlation rejected twice → weight -2 → suppressed
+        { title: 't1', status: 'dismissed', kind: 'new_flow', flowId: null, updatedAt: daysAgo(5), sourcePatternSlugs: ['toolcorr:x+y'] },
+        { title: 't2', status: 'dismissed', kind: 'new_flow', flowId: null, updatedAt: daysAgo(10), sourcePatternSlugs: ['toolcorr:x+q'] },
+        // sequence adopted → weight +2 → ranked above the gap despite ties
+        { title: 't3', status: 'accepted', kind: 'new_flow', flowId: 'f-1', updatedAt: daysAgo(20), sourcePatternSlugs: ['seq:a>>b'] },
+      ],
+    },
+    flow: { findMany: async () => [{ id: 'f-1', status: 'ACTIVE', publishedGraph: null }] },
+  }
+  const result = await listEligiblePatterns('org-1', 'u-1', db as never)
+  assert.deepEqual(result.map((p) => p.kind), ['sequence', 'capability_gap'])
+})
+
+test('outcome-weights load failure degrades to unweighted gating, not an empty list', async () => {
+  const { listEligiblePatterns } = await import('@/lib/behavior/eligibility')
+  const db = {
+    userPattern: {
+      findMany: async () => [{
+        slug: 'seq:a>>b', kind: 'sequence', summary: 's', occurrenceCount: 4,
+        firstSeenAt: daysAgo(20), lastSeenAt: daysAgo(1), status: 'open', evidence: [],
+      }],
+    },
+    userEvent: { findFirst: async () => ({ occurredAt: daysAgo(30) }) },
+    userSuggestion: { findMany: async () => { throw new Error('db down') } },
+    flow: { findMany: async () => [] },
+  }
+  const result = await listEligiblePatterns('org-1', 'u-1', db as never)
+  assert.equal(result.length, 1)
+})
