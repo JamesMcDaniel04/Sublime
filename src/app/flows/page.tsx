@@ -16,6 +16,7 @@ import { Pagination, paginate } from '@/components/ui/pagination'
 import { Skeleton } from '@/components/ui/skeleton'
 import { cn } from '@/lib/utils'
 import { getCachedJson, invalidateCachedJson } from '@/lib/client/use-cached-json'
+import { STARTER_TEMPLATES, type StarterTemplate } from '@/lib/flows/starter-templates'
 
 /** Cards per page on the Flows grid. */
 const PAGE_SIZE = 9
@@ -55,6 +56,7 @@ export default function FlowsPage() {
   const [dismissingId, setDismissingId] = useState<string | null>(null)
   const [duplicatingId, setDuplicatingId] = useState<string | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<FlowItem | null>(null)
+  const [usingTemplate, setUsingTemplate] = useState<string | null>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -117,6 +119,34 @@ export default function FlowsPage() {
       toast.error('Could not create the flow.')
     } finally {
       setCreating(false)
+    }
+  }
+
+  /** Instantiate a starter template as the user's own draft flow and open it. */
+  const createFromTemplate = async (template: StarterTemplate) => {
+    setUsingTemplate(template.key)
+    try {
+      const response = await fetch('/api/flows', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: template.name,
+          description: template.description,
+          trigger: template.trigger,
+          graph: template.graph,
+        }),
+      })
+      const data = await response.json().catch(() => ({}))
+      if (response.ok && data.flow) {
+        invalidateCachedJson('/api/flows')
+        router.push(`/flows/${data.flow.id}`)
+      } else {
+        toast.error(data.error || 'Could not create the flow from this template.')
+      }
+    } catch {
+      toast.error('Could not create the flow from this template.')
+    } finally {
+      setUsingTemplate(null)
     }
   }
 
@@ -213,6 +243,44 @@ export default function FlowsPage() {
       {!loading && readiness && !readiness.ready && (
         <div className="rounded-xl border border-dashed bg-muted/30 p-4 text-sm text-muted-foreground">
           Connect {readiness.connectionsNeeded} more tool{readiness.connectionsNeeded === 1 ? '' : 's'} and Sublime starts building for you.
+        </div>
+      )}
+
+      {!loading && !loadError && (
+        <div className="space-y-3">
+          <div>
+            <p className="text-sm font-semibold">Start from a template</p>
+            <p className="text-xs text-muted-foreground">
+              Ready-to-run flows — pick one, connect the tools it lists, and run it as-is.
+            </p>
+          </div>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {STARTER_TEMPLATES.map((template) => (
+              <div key={template.key} className="flex flex-col rounded-lg border bg-card p-3 transition-colors hover:border-indigo-300/70 dark:hover:border-indigo-500/40">
+                <p className="text-sm font-semibold">{template.name}</p>
+                <p className="mt-0.5 line-clamp-2 flex-1 text-xs text-muted-foreground">{template.description}</p>
+                <div className="mt-2.5 flex items-center justify-between gap-2">
+                  <div className="flex min-w-0 flex-wrap gap-1">
+                    {template.requires.map((integration) => (
+                      <Badge key={integration} variant="outline" className="text-[10px] font-medium text-muted-foreground">
+                        {integration}
+                      </Badge>
+                    ))}
+                  </div>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="shrink-0"
+                    loading={usingTemplate === template.key}
+                    disabled={usingTemplate !== null}
+                    onClick={() => createFromTemplate(template)}
+                  >
+                    Use template
+                  </Button>
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
       )}
 

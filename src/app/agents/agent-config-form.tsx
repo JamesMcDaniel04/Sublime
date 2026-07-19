@@ -341,13 +341,6 @@ export function AgentConfigForm({
   // advanced option is already configured (an active schedule or output
   // contract must never be hidden behind a collapsed section).
   const [moreSettingsOpen, setMoreSettingsOpen] = useState<boolean | null>(null)
-  const advancedInUse =
-    draft.alwaysStrategize === true ||
-    (draft.maxTurns ?? 16) !== 16 ||
-    (draft.outputFields?.length ?? 0) > 0 ||
-    draft.allowSubagents === true ||
-    draft.schedule.isActive
-  const moreOpen = moreSettingsOpen ?? advancedInUse
   const [saving, setSaving] = useState(false)
   const [publishingTemplate, setPublishingTemplate] = useState(false)
   // Snapshot of the draft as last populated/saved, so Run can tell whether
@@ -362,6 +355,16 @@ export function AgentConfigForm({
   const [memoriesError, setMemoriesError] = useState('')
   const [webhook, setWebhook] = useState<AgentWebhook | null>(null)
   const [webhookBusy, setWebhookBusy] = useState(false)
+  // Auto-open "More settings" when any advanced option is configured — an
+  // active schedule, output contract, or webhook must never be hidden.
+  const advancedInUse =
+    draft.alwaysStrategize === true ||
+    (draft.maxTurns ?? 16) !== 16 ||
+    (draft.outputFields?.length ?? 0) > 0 ||
+    draft.allowSubagents === true ||
+    draft.schedule.isActive ||
+    webhook != null
+  const moreOpen = moreSettingsOpen ?? advancedInUse
   const [dismissingSuggestionId, setDismissingSuggestionId] = useState<string | null>(null)
   // Other agents in the workspace, offered as run_agent targets.
   const [orgAgents, setOrgAgents] = useState<{ id: string; title: string }[]>([])
@@ -995,7 +998,7 @@ export function AgentConfigForm({
         <div>
           <span className="text-sm font-medium">More settings</span>
           <p className="mt-0.5 text-xs text-muted-foreground">
-            Planning, turn limits, structured output, multi-agent, and scheduling.
+            Planning, turn limits, structured output, multi-agent, scheduling, and webhooks.
           </p>
         </div>
         <ChevronDown className={`h-4 w-4 shrink-0 text-muted-foreground transition-transform ${moreOpen ? 'rotate-180' : ''}`} />
@@ -1292,6 +1295,8 @@ export function AgentConfigForm({
             </div>
           )}
         </div>
+      )}
+        </>
       )}
 
       {/* ── Compact Skills display ───────────────────────────────────── */}
