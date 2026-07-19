@@ -292,12 +292,10 @@ export default function PrivacyPage() {
               us at{' '}
               <a href="mailto:hello@trysublime.io" className="underline hover:text-foreground">
                 hello@trysublime.io
-              </a>
-              . You can also reach us through our{' '}
+              </a>. You can also reach us through our{' '}
               <Link href="/contact" className="underline hover:text-foreground">
                 contact page
-              </Link>
-              .
+              </Link>.
             </p>
           </section>
         </div>

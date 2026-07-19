@@ -25,7 +25,19 @@ import { defaultStepLabel, stepLabelsOf } from '@/lib/flows/token-text'
 import { missingRequiredInputFields } from '@/lib/flows/input-validation'
 import { storedRunInput, prefillTextFromRunInput } from '@/lib/flows/reuse-input'
 import { FlowCanvas, type FlowInsertSeed } from '@/components/flows/flow-canvas'
-import { DagCanvas } from '@/components/flows/dag-canvas'
+import dynamic from 'next/dynamic'
+
+// The canvas pulls in @xyflow/react + dagre (~200 kB) — by far the heaviest
+// dependency of this route. Loading it lazily lets the builder shell (header,
+// checker, settings panel) paint immediately while the canvas hydrates.
+const DagCanvas = dynamic(() => import('@/components/flows/dag-canvas').then((m) => m.DagCanvas), {
+  ssr: false,
+  loading: () => (
+    <div className="flex min-w-0 flex-1 items-center justify-center bg-white">
+      <div className="h-6 w-6 animate-spin rounded-full border-2 border-slate-300 border-t-slate-600" />
+    </div>
+  ),
+})
 import { ShareControl } from '@/components/share-control'
 import { cn } from '@/lib/utils'
 import { startCanvasPan } from '@/components/flows/canvas-pan'

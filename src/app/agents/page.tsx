@@ -5,7 +5,20 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import { toast } from 'sonner'
 import { AlertCircle, Copy, FileText, List, Loader2, MoreHorizontal, Play, Plus, Settings2, Sparkles, Trash2, X } from 'lucide-react'
 import { AgentActivityPane, resultText, type RunMutation } from './agent-activity-pane'
-import { AgentConfigForm, type AgentDraft } from './agent-config-form'
+import dynamic from 'next/dynamic'
+import type { AgentDraft } from './agent-config-form'
+
+// The 1,400-line config form (skills, connectors, schedule, memories) only
+// renders once someone opens agent setup — keep it out of the list page's
+// initial bundle so /agents paints fast.
+const AgentConfigForm = dynamic(() => import('./agent-config-form').then((m) => m.AgentConfigForm), {
+  ssr: false,
+  loading: () => (
+    <div className="flex items-center justify-center py-16">
+      <div className="h-6 w-6 animate-spin rounded-full border-2 border-slate-300 border-t-slate-600" />
+    </div>
+  ),
+})
 import { AssistantPanel } from './assistant-panel'
 import { TemplatesExplorer } from '@/components/templates/templates-explorer'
 import { Button } from '@/components/ui/button'
