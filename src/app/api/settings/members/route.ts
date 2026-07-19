@@ -34,6 +34,9 @@ export const PATCH = withAuthenticatedApi(async (request, auth) => {
   if (input.userId === auth.dbUser.id && (input.role === 'USER' || input.isActive === false)) throw new ApiError('You cannot remove your own administrator access', 409, 'SELF_ADMIN_CHANGE')
   const member = await prisma.user.findFirst({ where: { id: input.userId, organizationId: auth.organizationId } })
   if (!member) throw new ApiError('Member not found', 404, 'NOT_FOUND')
+  // Reactivation consumes a seat exactly like a new invite — without this
+  // check, deactivate/reactivate cycles walk past the plan's seat cap.
+  if (input.isActive === true && !member.isActive) await assertSeatCapacity(auth.organizationId)
   await prisma.user.update({ where: { id: member.id, organizationId: auth.organizationId }, data: { ...(input.role && { role: input.role }), ...(input.isActive !== undefined && { isActive: input.isActive }) } })
   // Drop the per-instance auth cache immediately — without this, a demoted or
   // deactivated member keeps their OLD role/active flag on warm instances for

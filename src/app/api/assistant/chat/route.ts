@@ -158,7 +158,7 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
   const limited = await rateLimit(`assistant-chat:${auth.dbUser.id}`, { limit: 30, windowMs: 60_000 })
   if (!limited.ok) throw new ApiError('Rate limit exceeded', 429, 'RATE_LIMITED')
   const budget = await checkMonthlyTokenBudget(auth.organizationId)
-  if (budget.over) throw new ApiError('Monthly token budget reached for this workspace.', 429, 'BUDGET_EXCEEDED')
+  if (budget.over) throw new ApiError('Monthly token budget reached for this workspace. Buy additional credits in Settings → Billing or upgrade your plan.', 429, 'BUDGET_EXCEEDED')
 
   let session = requestedSessionId
     ? await prisma.assistantChatSession.findFirst({

@@ -10,7 +10,8 @@ export type PlanCapabilities = {
   additionalUsageAvailable: true
   specialistAreas: 'one' | 'every' | 'custom'
   skillSharing: 'private' | 'controlled'
-  activityHistory: true
+  /** Workspace activity-history feed — Team plans and above. */
+  activityHistory: boolean
   zeroDataRetention: boolean
   support: SupportTier
 }
@@ -40,7 +41,7 @@ export function capabilitiesForPlan(plan: Plan): PlanCapabilities {
     additionalUsageAvailable: true,
     specialistAreas: team ? 'every' : 'one',
     skillSharing: team ? 'controlled' : 'private',
-    activityHistory: true,
+    activityHistory: team,
     zeroDataRetention: false,
     support: team ? 'priority' : 'resources',
   }

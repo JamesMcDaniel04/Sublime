@@ -585,7 +585,7 @@ export async function runAgentExecution(
     const budget = await checkMonthlyTokenBudget(organizationId, userId)
     if (budget.over) {
       throw new Error(
-        `Monthly token budget reached for this workspace (${budget.used.toLocaleString()}/${budget.limit.toLocaleString()} tokens). Raise AGENT_MONTHLY_TOKEN_LIMIT or wait for the next cycle.`,
+        `Monthly token budget reached for this workspace (${budget.used.toLocaleString()}/${budget.limit.toLocaleString()} tokens). Buy additional credits in Settings → Billing, upgrade the plan, or wait for the next cycle.`,
       )
     }
 

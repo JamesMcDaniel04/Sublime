@@ -409,6 +409,17 @@ export async function GET(request: Request) {
       }
     }
 
+    // Live knowledge sync, periodic leg: once a day (first 15-min tick after
+    // 05:00 UTC), re-scan connections whose captured usage profile is stale so
+    // knowledge tracks how connected tools are actually used — not just their
+    // state at connect time. Fire-and-forget: bounded inside, never extends
+    // or fails the tick.
+    if (now.getUTCHours() === 5 && now.getUTCMinutes() < 15) {
+      void import('@/lib/intelligence/connection-resync')
+        .then(({ resyncStaleConnections }) => resyncStaleConnections())
+        .catch(() => undefined)
+    }
+
     // Revisit orgs that observed activity in the last day. Inference is
     // best-effort background work and must not extend or fail the cron tick.
     const dayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000)

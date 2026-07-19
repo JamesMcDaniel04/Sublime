@@ -418,7 +418,7 @@ type Capability = { key: string; label: string; configured: boolean; detail: str
  * and this card is where that state stops being invisible.
  */
 type BillingLimits = { label: string; seats: string; monthlyCredits: string; maxAgents: string; maxFlows: string; maxIntegrations: string; maxSpecialistAreas: string }
-type BillingUsage = { agents: number; flows: number; integrations: number; members: number; creditsUsed: number }
+type BillingUsage = { agents: number; flows: number; integrations: number; members: number; creditsUsed: number; topupCredits?: number }
 
 type KnowledgeSettings = {
   captureEnabled: boolean
@@ -553,8 +553,12 @@ function PlanUsageCard() {
   }, [])
 
   if (!limits || !usage) return null
+  const topup = usage.topupCredits ?? 0
+  const creditCap = limits.monthlyCredits === 'Unlimited'
+    ? 'Unlimited'
+    : (Number(limits.monthlyCredits) + topup).toLocaleString() + (topup > 0 ? ` (incl. ${topup.toLocaleString()} extra)` : '')
   const rows = [
-    { label: 'Credits this month', used: usage.creditsUsed.toLocaleString(), cap: limits.monthlyCredits === 'Unlimited' ? 'Unlimited' : Number(limits.monthlyCredits).toLocaleString() },
+    { label: 'Credits this month', used: usage.creditsUsed.toLocaleString(), cap: creditCap },
     { label: 'Agents', used: String(usage.agents), cap: limits.maxAgents },
     { label: 'Flows', used: String(usage.flows), cap: limits.maxFlows },
     { label: 'Integrations', used: String(usage.integrations), cap: limits.maxIntegrations },
@@ -572,8 +576,11 @@ function PlanUsageCard() {
           </div>
         ))}
       </div>
-      <div className="mt-3 border-t pt-3">
-        <Button variant="outline" size="sm" asChild><a href="/contact?reason=billing">Request additional usage</a></Button>
+      <div className="mt-3 flex flex-wrap items-center gap-2 border-t pt-3">
+        {limits.monthlyCredits !== 'Unlimited' && (
+          <Button variant="outline" size="sm" asChild><a href="/api/stripe/topup">Buy additional credits</a></Button>
+        )}
+        <Button variant="ghost" size="sm" asChild><a href="/contact?reason=billing">Talk to us about custom usage</a></Button>
       </div>
     </div>
   )

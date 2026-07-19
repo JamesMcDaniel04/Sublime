@@ -72,6 +72,7 @@ if (TEST_DB) {
     { name: 'GET /api/skills', run: async () => (await import('../skills/route')).GET(req('/api/skills')) },
     { name: 'GET /api/workflows/executions', run: async () => (await import('../workflows/executions/route')).GET(req('/api/workflows/executions')) },
     { name: 'GET /api/usage', run: async () => (await import('../usage/route')).GET(req('/api/usage')) },
+    { name: 'GET /api/knowledge', run: async () => (await import('../knowledge/route')).GET(req('/api/knowledge')) },
     // Dynamic [id] routes — real seeded ids.
     { name: 'GET /api/agents/[id]/knowledge', run: async () => (await import('../agents/[id]/knowledge/route')).GET(req(`/api/agents/${agentId}/knowledge`)) },
     { name: 'GET /api/agents/[id]/memories', run: async () => (await import('../agents/[id]/memories/route')).GET(req(`/api/agents/${agentId}/memories`)) },
@@ -95,6 +96,7 @@ if (TEST_DB) {
     { name: 'GET /api/flows/[id]/jam', run: async () => (await import('../flows/[id]/jam/route')).GET(req('/api/flows/no-such-id/jam')) },
     { name: 'GET /api/skills/[id]', run: async () => (await import('../skills/[id]/route')).GET(req('/api/skills/no-such-id')) },
     // Plain authenticated GETs with no seeding requirements.
+    { name: 'GET /api/activity', run: async () => (await import('../activity/route')).GET(req('/api/activity')) },
     { name: 'GET /api/activity/backfill', run: async () => (await import('../activity/backfill/route')).GET(req('/api/activity/backfill')) },
     { name: 'GET /api/intelligence/user-suggestions', run: async () => (await import('../intelligence/user-suggestions/route')).GET(req('/api/intelligence/user-suggestions')) },
     { name: 'GET /api/rtc/ice', run: async () => (await import('../rtc/ice/route')).GET(req('/api/rtc/ice')) },

@@ -45,6 +45,7 @@ export async function GET() {
     usage: {
       ...usage,
       creditsUsed: tokensToCredits(budget.used),
+      topupCredits,
     },
   })
 }

@@ -63,11 +63,12 @@ if (TEST_DB) {
       assert.equal(rows.length, result.chunkCount)
       for (const row of rows) assert.equal(row.has_vec, true, `chunk ordinal ${row.ordinal} missing embeddingVec`)
 
-      // Legacy Json embedding column still written too (deploy-window symmetry).
+      // Legacy Json embedding column is no longer written (retrieval reads
+      // only embeddingVec; the column is slated to drop — see ARCHITECTURE.md).
       const legacy: Array<{ has_json: boolean }> = await prisma.$queryRaw`
         SELECT "embedding" IS NOT NULL AS has_json FROM "knowledge_chunks" WHERE "documentId" = ${docId}
       `
-      for (const row of legacy) assert.equal(row.has_json, true)
+      for (const row of legacy) assert.equal(row.has_json, false)
     } finally {
       global.fetch = origFetch
       delete process.env.VOYAGE_API_KEY
