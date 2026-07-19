@@ -3,6 +3,7 @@
 import { Toaster } from 'sonner'
 import { MotionConfig } from 'motion/react'
 import { ThemeProvider } from 'next-themes'
+import { TooltipProvider } from '@/components/ui/tooltip'
 import { SupabaseProvider } from './supabase-provider'
 
 export function ClientProviders({ children }: { children: React.ReactNode }) {
@@ -15,6 +16,7 @@ export function ClientProviders({ children }: { children: React.ReactNode }) {
         storageKey="sublime-theme"
         disableTransitionOnChange
       >
+      <TooltipProvider delayDuration={300}>
       <SupabaseProvider>
         {children}
         <Toaster
@@ -31,6 +33,7 @@ export function ClientProviders({ children }: { children: React.ReactNode }) {
           }}
         />
       </SupabaseProvider>
+      </TooltipProvider>
       </ThemeProvider>
     </MotionConfig>
   )

@@ -39,6 +39,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { useAuth } from '@/hooks/use-auth'
 import { normalizeShareValue } from '@/components/share-control'
 import { resizeImageToDataUrl } from '@/lib/client/resize-image'
@@ -87,6 +88,20 @@ const navigation = [
 function planLabel(plan: string) {
   const lower = plan.toLowerCase()
   return lower.charAt(0).toUpperCase() + lower.slice(1)
+}
+
+/** Hover hint for icon-only controls (the collapsed rail). Shortcut renders
+ *  inside the tooltip instead of a `title=` suffix. */
+function RailTooltip({ label, shortcut, children }: Readonly<{ label: string; shortcut?: string; children: React.ReactNode }>) {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>{children}</TooltipTrigger>
+      <TooltipContent side="right" className="flex items-center gap-2">
+        {label}
+        {shortcut && <kbd className="rounded border border-background/30 px-1 font-mono text-[10px]">{shortcut}</kbd>}
+      </TooltipContent>
+    </Tooltip>
+  )
 }
 
 export function Sidebar() {
@@ -427,39 +442,42 @@ export function Sidebar() {
           {rail ? (
             <div className="flex flex-col items-center gap-2">
               {/* The org dropdown can't fit in the rail — the logo expands instead. */}
-              <button
-                onClick={toggleCollapsed}
-                aria-label="Expand sidebar"
-                title={`${activeOrg?.name || 'Workspace'} — expand sidebar`}
-                className="rounded-xl p-0.5 transition-colors duration-fast hover:bg-muted"
-              >
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
-                  src={activeOrg?.logoUrl || DEFAULT_ORG_LOGO}
-                  alt=""
-                  className="h-8 w-8 rounded-lg bg-white object-cover p-0.5 shadow-2 ring-1 ring-border"
-                />
-              </button>
-              <Button
-                variant="ghost"
-                size="icon"
-                aria-label="Expand sidebar"
-                title="Expand sidebar (⌘B)"
-                className="h-8 w-8 text-muted-foreground hover:bg-muted hover:text-foreground"
-                onClick={toggleCollapsed}
-              >
-                <PanelLeft className="h-4 w-4" />
-              </Button>
-              <Button
-                variant="ghost"
-                size="icon"
-                aria-label="Search"
-                title="Search (⌘K)"
-                className="h-8 w-8 text-muted-foreground hover:bg-muted hover:text-foreground"
-                onClick={() => setPaletteOpen(true)}
-              >
-                <Search className="h-4 w-4" />
-              </Button>
+              <RailTooltip label={activeOrg?.name || 'Workspace'}>
+                <button
+                  onClick={toggleCollapsed}
+                  aria-label="Expand sidebar"
+                  className="rounded-xl p-0.5 transition-colors duration-fast hover:bg-muted"
+                >
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={activeOrg?.logoUrl || DEFAULT_ORG_LOGO}
+                    alt=""
+                    className="h-8 w-8 rounded-lg bg-white object-cover p-0.5 shadow-2 ring-1 ring-border"
+                  />
+                </button>
+              </RailTooltip>
+              <RailTooltip label="Expand sidebar" shortcut="⌘B">
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  aria-label="Expand sidebar"
+                  className="h-8 w-8 text-muted-foreground hover:bg-muted hover:text-foreground"
+                  onClick={toggleCollapsed}
+                >
+                  <PanelLeft className="h-4 w-4" />
+                </Button>
+              </RailTooltip>
+              <RailTooltip label="Search" shortcut="⌘K">
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  aria-label="Search"
+                  className="h-8 w-8 text-muted-foreground hover:bg-muted hover:text-foreground"
+                  onClick={() => setPaletteOpen(true)}
+                >
+                  <Search className="h-4 w-4" />
+                </Button>
+              </RailTooltip>
               <NotificationBell buttonClassName="border-border bg-muted text-foreground hover:bg-secondary" />
             </div>
           ) : (
@@ -552,16 +570,17 @@ export function Sidebar() {
               <kbd className="rounded border border-border bg-background px-1.5 py-0.5 text-[10px] text-muted-foreground">⌘K</kbd>
             </button>
             <NotificationBell buttonClassName="border-border bg-muted text-foreground hover:bg-secondary" />
-            <Button
-              variant="ghost"
-              size="icon"
-              aria-label="Collapse sidebar"
-              title="Collapse sidebar (⌘B)"
-              className="hidden h-8 w-8 shrink-0 text-muted-foreground hover:bg-muted hover:text-foreground lg:inline-flex"
-              onClick={toggleCollapsed}
-            >
-              <PanelLeftClose className="h-4 w-4" />
-            </Button>
+            <RailTooltip label="Collapse sidebar" shortcut="⌘B">
+              <Button
+                variant="ghost"
+                size="icon"
+                aria-label="Collapse sidebar"
+                className="hidden h-8 w-8 shrink-0 text-muted-foreground hover:bg-muted hover:text-foreground lg:inline-flex"
+                onClick={toggleCollapsed}
+              >
+                <PanelLeftClose className="h-4 w-4" />
+              </Button>
+            </RailTooltip>
           </div>
             </>
           )}
@@ -572,12 +591,11 @@ export function Sidebar() {
           <nav className="mb-2 space-y-0.5">
             {navigation.map((item) => {
               const isActive = pathname === item.href || (item.href !== '/dashboard' && pathname.startsWith(item.href))
-              return (
+              const link = (
                 <Link
                   key={item.name}
                   href={item.href}
                   aria-label={item.name}
-                  title={rail ? item.name : undefined}
                   className={cn(
                     'flex items-center gap-2.5 rounded-lg text-sm font-medium transition-colors duration-fast',
                     rail ? 'justify-center p-2' : 'px-2 py-1.5',
@@ -588,6 +606,7 @@ export function Sidebar() {
                   {!rail && item.name}
                 </Link>
               )
+              return rail ? <RailTooltip key={item.name} label={item.name}>{link}</RailTooltip> : link
             })}
           </nav>
 
@@ -707,10 +726,11 @@ export function Sidebar() {
             </div>
           )}
           {/* The user row IS the Settings entry point (not a nav item). */}
+          {(() => {
+          const settingsLink = (
           <Link
             href="/settings"
             aria-label="Open settings"
-            title={rail ? 'Settings' : undefined}
             className={cn(
               'group flex min-w-0 items-center gap-2.5 rounded-xl p-2 transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
               rail && 'justify-center p-1',
@@ -731,6 +751,9 @@ export function Sidebar() {
             )}
             {!rail && <Settings className="h-4 w-4 shrink-0 text-muted-foreground transition-transform group-hover:rotate-12 group-hover:text-foreground" aria-hidden="true" />}
           </Link>
+          )
+          return rail ? <RailTooltip label="Settings">{settingsLink}</RailTooltip> : settingsLink
+          })()}
         </div>
       </div>
 
