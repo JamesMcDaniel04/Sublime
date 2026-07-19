@@ -132,6 +132,15 @@ export async function computeShapesForOrg(
 }
 
 /**
+ * The dispatch cron ticks every 15 minutes, so exactly one tick lands in the
+ * [04:00, 04:15) UTC window. Pure so the time gate is testable — the route
+ * contains no window arithmetic of its own.
+ */
+export function shouldRunArchetypeSweep(now: Date): boolean {
+  return now.getUTCHours() === 4 && now.getUTCMinutes() < 15
+}
+
+/**
  * The daily sweep: recompute every org's shapes, aggregate with the k-anon
  * floor, upsert qualifying rows, and delete rows that no longer qualify.
  * Never throws — a failed sweep is logged and retried next day.

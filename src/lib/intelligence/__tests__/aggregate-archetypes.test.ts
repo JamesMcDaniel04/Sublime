@@ -65,3 +65,12 @@ test('aggregateShapes: an org contributes each shape to orgCount at most once', 
   assert.equal(rows[0].orgCount, MIN_ARCHETYPE_ORGS)
   assert.equal(rows[0].flowCount, MIN_ARCHETYPE_ORGS + 1)
 })
+
+test('shouldRunArchetypeSweep: exactly the [04:00, 04:15) UTC window', async () => {
+  const { shouldRunArchetypeSweep } = await import('@/lib/intelligence/aggregate-archetypes')
+  assert.equal(shouldRunArchetypeSweep(new Date('2026-07-18T03:59:59Z')), false)
+  assert.equal(shouldRunArchetypeSweep(new Date('2026-07-18T04:00:00Z')), true)
+  assert.equal(shouldRunArchetypeSweep(new Date('2026-07-18T04:14:59Z')), true)
+  assert.equal(shouldRunArchetypeSweep(new Date('2026-07-18T04:15:00Z')), false)
+  assert.equal(shouldRunArchetypeSweep(new Date('2026-07-18T16:05:00Z')), false)
+})
