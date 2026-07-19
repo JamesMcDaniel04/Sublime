@@ -1,0 +1,83 @@
+import { NextRequest, NextResponse } from 'next/server'
+import { z } from 'zod'
+import { apiLogger } from '@/lib/logger'
+
+export const dynamic = 'force-dynamic'
+
+const CONTACT_INBOX = 'hello@trysublime.io'
+const RESEND_API_URL = 'https://api.resend.com/emails'
+
+const contactSchema = z.object({
+  name: z.string().trim().min(1).max(200),
+  email: z.string().trim().email().max(320),
+  company: z.string().trim().max(200).optional().default(''),
+  reason: z.enum(['enterprise', 'support', 'billing', 'privacy', 'feedback', 'other']),
+  message: z.string().trim().min(1).max(5000),
+  // Honeypot: real users never fill this hidden field. Bots that do get a
+  // success response and no email — no signal that they were caught.
+  website: z.string().max(0).optional().default(''),
+})
+
+const REASON_LABELS: Record<z.infer<typeof contactSchema>['reason'], string> = {
+  enterprise: 'Sales & enterprise',
+  support: 'Support',
+  billing: 'Billing',
+  privacy: 'Privacy & security',
+  feedback: 'Feedback',
+  other: 'Other',
+}
+
+// Public on purpose: the marketing /contact page serves signed-out visitors.
+// Not wrapped in withAuthenticatedApi (no session required, and expired-trial
+// users must still be able to reach sales).
+export async function POST(request: NextRequest) {
+  const parsed = contactSchema.safeParse(await request.json().catch(() => null))
+  if (!parsed.success) {
+    return NextResponse.json({ success: false, error: 'Please fill in your name, a valid email, and a message.' }, { status: 400 })
+  }
+  const { name, email, company, reason, message, website } = parsed.data
+
+  if (website) return NextResponse.json({ success: true })
+
+  const apiKey = process.env.RESEND_API_KEY
+  if (!apiKey) {
+    apiLogger.error('contact form: RESEND_API_KEY is not configured — submission not deliverable')
+    return NextResponse.json(
+      { success: false, error: `Sending is temporarily unavailable — please email us directly at ${CONTACT_INBOX}.` },
+      { status: 503 },
+    )
+  }
+
+  const from = process.env.EMAIL_FROM || 'Sublime <onboarding@resend.dev>'
+  const text = [
+    `Reason: ${REASON_LABELS[reason]}`,
+    `Name: ${name}`,
+    `Email: ${email}`,
+    company ? `Company: ${company}` : null,
+    '',
+    message,
+  ].filter((line) => line !== null).join('\n')
+
+  const response = await fetch(RESEND_API_URL, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      from,
+      to: [CONTACT_INBOX],
+      reply_to: email,
+      subject: `[Contact] ${REASON_LABELS[reason]} — ${name}`,
+      text,
+    }),
+  })
+
+  if (!response.ok) {
+    const detail = await response.text().catch(() => '')
+    apiLogger.error('contact form: Resend send failed', { status: response.status, detail: detail.slice(0, 500) })
+    return NextResponse.json(
+      { success: false, error: `We could not send your message — please email us directly at ${CONTACT_INBOX}.` },
+      { status: 502 },
+    )
+  }
+
+  return NextResponse.json({ success: true })
+}

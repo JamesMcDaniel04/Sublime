@@ -102,6 +102,22 @@ export default function SettingsPage() {
   }
   useEffect(() => { void load() }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Stripe routes bounce back here with ?billing_error= when checkout or the
+  // portal can't start (misconfiguration or Stripe outage) — surface it
+  // instead of leaving a silently dead button.
+  useEffect(() => {
+    const billingError = new URLSearchParams(window.location.search).get('billing_error')
+    if (!billingError) return
+    toast.error(
+      billingError === 'portal'
+        ? 'We could not open the billing portal. Please try again or contact hello@trysublime.io.'
+        : 'We could not start checkout. Please try again or contact hello@trysublime.io.',
+    )
+    const url = new URL(window.location.href)
+    url.searchParams.delete('billing_error')
+    window.history.replaceState(null, '', url.toString())
+  }, [])
+
   async function saveOrgName(event: React.FormEvent) {
     event.preventDefault()
     const name = orgName.trim()
@@ -371,7 +387,7 @@ export default function SettingsPage() {
                 <Button onClick={() => { window.location.href = '/api/stripe/checkout?plan=individual' }}>Individual — $29.99/mo</Button>
                 <Button onClick={() => { window.location.href = '/api/stripe/checkout?plan=team' }}>Team — $299/mo</Button>
                 <Button onClick={() => { window.location.href = '/api/stripe/checkout?plan=business' }}>Business — $2,999/mo</Button>
-                <Button variant="outline" onClick={() => { window.location.href = 'mailto:sales@trysublime.io?subject=Sublime%20Enterprise' }}>Enterprise — contact sales</Button>
+                <Button variant="outline" onClick={() => { window.location.href = '/contact?reason=enterprise' }}>Enterprise — contact sales</Button>
               </div>
             </div>
           ) : (

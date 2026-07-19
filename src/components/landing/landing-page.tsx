@@ -686,7 +686,7 @@ export function LandingPage({ fontClassName = '' }: { fontClassName?: string }) 
                   cadence: '',
                   desc: 'For organizations with bespoke security and scale needs.',
                   features: ['Everything in Business', 'Custom integrations & SLAs', 'Dedicated onboarding'],
-                  href: 'mailto:sales@trysublime.io?subject=Sublime%20Enterprise',
+                  href: '/contact?reason=enterprise',
                   cta: 'Contact sales',
                   featured: false,
                 },

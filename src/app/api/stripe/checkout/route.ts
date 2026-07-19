@@ -2,8 +2,9 @@ import { NextRequest, NextResponse } from 'next/server'
 import { requireAuth } from '@/lib/supabase/auth-utils'
 import { prisma } from '@/lib/prisma'
 import { getStripe, appOrigin } from '@/lib/stripe'
-import { isPaidPlanKey, priceIdFor } from '@/lib/stripe/plans'
+import { isPaidPlanKey, priceIdFor, type PaidPlanKey } from '@/lib/stripe/plans'
 import { billingStateFor } from '@/lib/billing/trial'
+import { apiLogger } from '@/lib/logger'
 
 export const dynamic = 'force-dynamic'
 
@@ -17,6 +18,22 @@ export async function GET(request: NextRequest) {
   if (!isPaidPlanKey(plan)) {
     return NextResponse.redirect(new URL('/#pricing', origin))
   }
+
+  try {
+    return await startCheckout(plan, origin)
+  } catch (error) {
+    // A missing STRIPE_SECRET_KEY / price id (or a Stripe API failure) used to
+    // surface as a bare 500 — a dead button. Land the user back on the billing
+    // tab with a visible error instead.
+    apiLogger.error('stripe checkout failed', {
+      plan,
+      error: error instanceof Error ? error.message : String(error),
+    })
+    return NextResponse.redirect(new URL('/settings?tab=billing&billing_error=checkout', origin))
+  }
+}
+
+async function startCheckout(plan: PaidPlanKey, origin: string) {
 
   const auth = await requireAuth()
   if (!auth?.dbUser || !auth.organizationId) {
