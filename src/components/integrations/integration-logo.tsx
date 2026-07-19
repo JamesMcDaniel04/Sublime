@@ -69,7 +69,7 @@ export function normalizeIconSlug(key: string): string {
 // integrations catalogue). Keyed by NORMALIZED slug (separators stripped) so
 // "google_drive", "google-drive" and "googledrive" all resolve to one asset.
 const LOCAL_LOGOS: Record<string, string> = {
-  slack: '/logos/slack.png',
+  slack: '/logos/slack.svg',
   granola: '/logos/granola.jpg',
   figma: '/logos/figma.svg',
   // Salesforce was removed from the Simple Icons CDN (trademark), so bundle it.

@@ -24,7 +24,7 @@ const flowsShot = '/landing/sublime-flows.png'
 // (brand takedowns) — bundled or dropped rather than 404ing in the marquee.
 const INTEGRATION_LOGOS = [
   { name: 'Salesforce', src: '/logos/salesforce.svg' },
-  { name: 'Slack', src: '/logos/slack.png' },
+  { name: 'Slack', src: '/logos/slack.svg' },
   { name: 'Google Drive', src: 'https://cdn.simpleicons.org/googledrive' },
   { name: 'Google Sheets', src: 'https://cdn.simpleicons.org/googlesheets' },
   { name: 'Google Docs', src: 'https://cdn.simpleicons.org/googledocs' },
@@ -360,19 +360,27 @@ export function LandingPage({ fontClassName = '' }: { fontClassName?: string }) 
       {/* Full-width divider */}
       <div className="relative z-10 w-full border-t border-border" />
 
-      {/* Integrations marquee — logos as ambient background */}
-      <section className="relative z-10 min-h-[520px] py-32 overflow-hidden bg-[hsl(160_35%_8%)] text-white flex items-center">
+      {/* Integrations marquee — ambient background on desktop; on mobile the
+          logos come OUT from behind the glass card into crisp foreground rows
+          (behind a backdrop-blur they smear into unreadable blobs). */}
+      <section className="relative z-10 md:min-h-[520px] py-20 md:py-32 overflow-hidden bg-[hsl(160_35%_8%)] text-white flex items-center">
         <style>{`
           @keyframes marquee-l { from { transform: translateX(0); } to { transform: translateX(-50%); } }
           @keyframes marquee-r { from { transform: translateX(-50%); } to { transform: translateX(0); } }
           .marquee-track { display: flex; width: max-content; gap: 3.5rem; align-items: center; }
           .marquee-l { animation: marquee-l 180s linear infinite; }
           .marquee-r { animation: marquee-r 180s linear infinite; }
+          .marquee-chip-track { display: flex; width: max-content; gap: 0.75rem; align-items: center; }
+          .marquee-chip-l { animation: marquee-l 55s linear infinite; }
+          .marquee-chip-r { animation: marquee-r 70s linear infinite; }
+          @media (prefers-reduced-motion: reduce) {
+            .marquee-l, .marquee-r, .marquee-chip-l, .marquee-chip-r { animation: none; }
+          }
         `}</style>
 
-        {/* Background logo rows */}
+        {/* Background logo rows (desktop only) */}
         <div
-          className="absolute inset-0 flex flex-col justify-center gap-16 opacity-[0.55]"
+          className="absolute inset-0 hidden md:flex flex-col justify-center gap-16 opacity-[0.55]"
           style={{
             maskImage: 'linear-gradient(to right, transparent, black 10%, black 90%, transparent)',
             WebkitMaskImage: 'linear-gradient(to right, transparent, black 10%, black 90%, transparent)',
@@ -400,18 +408,48 @@ export function LandingPage({ fontClassName = '' }: { fontClassName?: string }) 
           ))}
         </div>
 
-        {/* Foreground copy card */}
-        <div className="relative mx-auto max-w-[560px] px-6 text-center">
-          <div className="inline-block rounded-2xl border border-white/10 bg-[hsl(160_35%_8%)]/85 backdrop-blur-md px-10 py-10 shadow-2xl">
-            <p className="text-[13px] uppercase tracking-[0.15em] text-white/50 mb-4">
-              Connections
-            </p>
-            <h2 className="text-[clamp(1.8rem,3vw,2.5rem)] font-[500] tracking-[-0.03em] leading-[1.15]">
-              All your tools in <span className="text-primary">one place.</span>
-            </h2>
-            <p className="mt-4 text-[15px] text-white/60">
-              One connected knowledge layer across the systems your team already trusts.
-            </p>
+        <div className="relative mx-auto w-full max-w-[560px] md:px-6 text-center">
+          {/* Copy card — glass treatment only matters on desktop where logos pass behind it */}
+          <div className="px-6 md:px-0">
+            <div className="inline-block rounded-2xl md:border md:border-white/10 md:bg-[hsl(160_35%_8%)]/85 md:backdrop-blur-md px-2 py-2 md:px-10 md:py-10 md:shadow-2xl">
+              <p className="text-[13px] uppercase tracking-[0.15em] text-white/50 mb-4">
+                Connections
+              </p>
+              <h2 className="text-[clamp(1.8rem,3vw,2.5rem)] font-[500] tracking-[-0.03em] leading-[1.15]">
+                All your tools in <span className="text-primary">one place.</span>
+              </h2>
+              <p className="mt-4 text-[15px] text-white/60">
+                One connected knowledge layer across the systems your team already trusts.
+              </p>
+            </div>
+          </div>
+
+          {/* Mobile logo rows — full opacity, white chips so every brand mark
+              (including near-black ones) stays legible on the dark green */}
+          <div
+            className="mt-10 space-y-3 md:hidden"
+            style={{
+              maskImage: 'linear-gradient(to right, transparent, black 8%, black 92%, transparent)',
+              WebkitMaskImage: 'linear-gradient(to right, transparent, black 8%, black 92%, transparent)',
+            }}
+          >
+            {[
+              { rowClass: 'marquee-chip-l', slice: INTEGRATION_LOGOS },
+              { rowClass: 'marquee-chip-r', slice: [...INTEGRATION_LOGOS].reverse() },
+            ].map((row, ri) => (
+              <div key={ri} className="overflow-hidden">
+                <div className={`marquee-chip-track ${row.rowClass}`}>
+                  {[...row.slice, ...row.slice].map((logo, i) => (
+                    <span
+                      key={`m-${ri}-${i}`}
+                      className="flex h-14 w-14 shrink-0 items-center justify-center rounded-xl bg-white/95 p-2.5 shadow-[0_4px_16px_rgba(0,0,0,0.35)]"
+                    >
+                      <img src={logo.src} alt={logo.name} title={logo.name} loading="lazy" className="h-full w-full object-contain" />
+                    </span>
+                  ))}
+                </div>
+              </div>
+            ))}
           </div>
         </div>
       </section>
@@ -528,23 +566,35 @@ export function LandingPage({ fontClassName = '' }: { fontClassName?: string }) 
             ]}
           />
 
-          {/* Mobile stack */}
-          <div className="md:hidden mt-14 space-y-6">
-            {[
-              { src: agentsShot, alt: 'Sublime agents workspace', label: 'Agents' },
-              { src: flowsShot, alt: 'Sublime flow canvas', label: 'Flows' },
-              { src: integrationsShot, alt: 'Sublime integrations catalog', label: 'Integrations' },
-            ].map((shot) => (
-              <div key={shot.label} className="rounded-xl border border-border bg-card overflow-hidden shadow-lg">
-                <div className="flex items-center gap-1.5 px-3 h-7 border-b border-border bg-muted/40">
-                  <div className="h-2.5 w-2.5 rounded-full bg-destructive/60" />
-                  <div className="h-2.5 w-2.5 rounded-full bg-warning/60" />
-                  <div className="h-2.5 w-2.5 rounded-full bg-success/60" />
-                  <span className="ml-3 text-[10px] uppercase tracking-[0.12em] text-muted-foreground">{shot.label}</span>
+          {/* Mobile: swipeable snap carousel. Near-full-width cards (the next
+              one peeks in as the swipe affordance), the desktop active-state
+              glow, and a zoomed 4:3 crop so the product UI is actually
+              readable at phone size instead of a shrunken desktop screenshot. */}
+          <div className="md:hidden mt-12 -mx-6">
+            <div className="flex snap-x snap-mandatory gap-4 overflow-x-auto px-6 pb-4 [-webkit-overflow-scrolling:touch] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+              {[
+                { src: agentsShot, alt: 'Sublime agents workspace', label: 'Agents' },
+                { src: flowsShot, alt: 'Sublime flow canvas', label: 'Flows' },
+                { src: integrationsShot, alt: 'Sublime integrations catalog', label: 'Integrations' },
+              ].map((shot) => (
+                <div
+                  key={shot.label}
+                  className="w-[85%] shrink-0 snap-center overflow-hidden rounded-xl border border-border bg-card"
+                  style={{ boxShadow: '0 40px 80px -24px rgba(0,0,0,0.6), 0 0 0 1px hsl(var(--primary) / 0.4)' }}
+                >
+                  <div className="flex h-8 items-center gap-1.5 border-b border-border bg-muted/40 px-3">
+                    <div className="h-2.5 w-2.5 rounded-full bg-destructive/60" />
+                    <div className="h-2.5 w-2.5 rounded-full bg-warning/60" />
+                    <div className="h-2.5 w-2.5 rounded-full bg-success/60" />
+                    <span className="ml-3 text-[11px] font-medium uppercase tracking-[0.12em] text-foreground/70">{shot.label}</span>
+                  </div>
+                  <img src={shot.src} alt={shot.alt} className="block aspect-[4/3] w-full object-cover object-center" loading="lazy" />
                 </div>
-                <img src={shot.src} alt={shot.alt} className="w-full h-auto block" loading="lazy" />
-              </div>
-            ))}
+              ))}
+            </div>
+            <p className="mt-1 text-center text-[11px] uppercase tracking-[0.15em] text-muted-foreground">
+              Swipe to explore
+            </p>
           </div>
         </div>
       </section>
