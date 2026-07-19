@@ -20,7 +20,7 @@ const principles = [
   },
   {
     title: 'Your data stays yours',
-    desc: 'Connections are explicitly authorized, scoped, and revocable — and we never train models on your data.',
+    desc: 'Connections are explicitly authorized, scoped, and revocable, and we never train models on your data.',
   },
   {
     title: 'Useful on day one',
@@ -39,8 +39,8 @@ export default function AboutPage() {
             AI that knows your business.
           </h1>
           <p className="mt-6 max-w-[560px] text-base leading-relaxed text-muted-foreground">
-            Sublime is an AI-agent workspace. You connect the tools your team already uses — code,
-            chat, docs, and project management — and Sublime reconstructs how work actually gets
+            Sublime is an AI-agent workspace. You connect the tools your team already uses: code,
+            chat, docs, and project management. Sublime reconstructs how work actually gets
             done. From there it powers agents and workflows that deliver useful, evidence-backed
             outcomes from day one.
           </p>
@@ -61,7 +61,7 @@ export default function AboutPage() {
               discussions, your processes.
             </p>
             <p className="text-[15px] leading-[1.7] text-muted-foreground">
-              We believe the missing ingredient isn&apos;t a bigger model — it&apos;s context.
+              We believe the missing ingredient isn&apos;t a bigger model. It&apos;s context.
               Sublime exists to close that gap: to make AI that plugs into real work, shows its
               evidence, and earns trust run by run.
             </p>

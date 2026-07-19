@@ -482,7 +482,7 @@ export function LandingPage({ fontClassName = '' }: { fontClassName?: string }) 
                 },
                 {
                   title: 'Read every run',
-                  desc: 'Every run shows its evidence, tool calls, decisions, errors, and finished artifact — so teams can trust the work and improve it.',
+                  desc: 'Every run shows its evidence, tool calls, decisions, errors, and finished artifact, so teams can trust the work and improve it.',
                   graphic: 'chart',
                 },
               ].map((feature, i) => (
@@ -554,7 +554,7 @@ export function LandingPage({ fontClassName = '' }: { fontClassName?: string }) 
               Not another chatbot.<br />A system that <span className="italic">does the work.</span>
             </h2>
             <p className="mt-5 text-[15px] text-muted-foreground max-w-[480px] mx-auto">
-              Build agents, connect your stack, and orchestrate flows — every run shows its evidence and finished artifact.
+              Build agents, connect your stack, and orchestrate flows. Every run shows its evidence and finished artifact.
             </p>
           </div>
 
@@ -621,7 +621,7 @@ export function LandingPage({ fontClassName = '' }: { fontClassName?: string }) 
         <div className="mx-auto max-w-[1200px] relative">
           <div className="border border-border bg-background p-10 max-w-[720px] mx-auto">
             <blockquote className="text-[20px] font-[400] leading-[1.5] tracking-[-0.01em] text-foreground/85">
-              &ldquo;Sublime plugged into our stack in an afternoon and shipped a weekly pipeline digest that actually surfaces at-risk deals. It&rsquo;s not another chatbot — it does the work.&rdquo;
+              &ldquo;Sublime plugged into our stack in an afternoon and shipped a weekly pipeline digest that actually surfaces at-risk deals. It&rsquo;s not another chatbot. It does the work.&rdquo;
             </blockquote>
             <div className="mt-6 flex items-center gap-3">
               <img src={testimonialAvatar} alt="Jamie Kim" className="h-8 w-8 rounded-full object-cover" />
@@ -755,7 +755,7 @@ export function LandingPage({ fontClassName = '' }: { fontClassName?: string }) 
             </div>
           </div>
           <p className="mt-4 text-[12px] text-muted-foreground">
-            Every plan starts with a 14-day free trial — cancel before it ends and you won&apos;t be
+            Every plan starts with a 14-day free trial. Cancel before it ends and you won&apos;t be
             charged. 1 credit = 1,000 AI tokens; credits are shared across your workspace. Checkout
             and invoicing are handled securely by Stripe.
           </p>

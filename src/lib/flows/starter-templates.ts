@@ -151,7 +151,7 @@ export const STARTER_TEMPLATES: StarterTemplate[] = [
   {
     key: 'bug-report-github',
     name: 'Bug report to GitHub issue',
-    description: 'Paste a raw bug report and get a well-structured GitHub issue — clear title, repro steps, and expected behavior.',
+    description: 'Paste a raw bug report and get a well-structured GitHub issue with a clear title, repro steps, and expected behavior.',
     requires: ['GitHub'],
     trigger: { type: 'manual' },
     graph: {
@@ -176,7 +176,7 @@ export const STARTER_TEMPLATES: StarterTemplate[] = [
             label: 'Draft the issue',
             agentId: '',
             prompt:
-              'Turn this bug report into a well-formed GitHub issue. Title: imperative, specific, under 70 characters. Body: markdown with sections for Summary, Steps to reproduce (numbered, inferred where reasonable), Expected behavior, and Actual behavior. Do not invent details you cannot infer — mark unknowns as "Needs info".',
+              'Turn this bug report into a well-formed GitHub issue. Title: imperative, specific, under 70 characters. Body: markdown with sections for Summary, Steps to reproduce (numbered, inferred where reasonable), Expected behavior, and Actual behavior. Do not invent details you cannot infer; mark unknowns as "Needs info".',
             input: 'Bug report: {{input.report}}',
             includeUpstream: false,
             responseFormat: 'structured',
@@ -262,7 +262,7 @@ export const STARTER_TEMPLATES: StarterTemplate[] = [
   {
     key: 'call-notes-salesforce',
     name: 'Call notes to Salesforce',
-    description: 'Paste raw call notes and log a tidy activity in Salesforce — subject and summary written for you.',
+    description: 'Paste raw call notes and log a tidy activity in Salesforce. The subject and summary are written for you.',
     requires: ['Salesforce'],
     trigger: { type: 'manual' },
     graph: {
@@ -358,7 +358,7 @@ export const STARTER_TEMPLATES: StarterTemplate[] = [
         {
           id: 'ok',
           type: 'stop',
-          data: { label: 'All good', reason: 'Site is healthy — no alert needed.' },
+          data: { label: 'All good', reason: 'Site is healthy, no alert needed.' },
         },
         {
           id: 'alert',
@@ -367,7 +367,7 @@ export const STARTER_TEMPLATES: StarterTemplate[] = [
             label: 'Alert Slack',
             connectionId: 'nango:slack',
             toolName: 'slack_post_message',
-            args: '{"channel":"{{input.channel}}","text":":warning: {{input.url}} returned HTTP {{step.check.output.status}} — someone should take a look."}',
+            args: '{"channel":"{{input.channel}}","text":":warning: {{input.url}} returned HTTP {{step.check.output.status}}. Someone should take a look."}',
           },
         },
       ],

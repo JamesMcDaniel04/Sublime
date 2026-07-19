@@ -51,11 +51,11 @@ export function ContactForm() {
         setStatus('sent')
       } else {
         setStatus('idle')
-        setError(data.error || 'We could not send your message — please email us at hello@trysublime.io.')
+        setError(data.error || 'We could not send your message. Please email us at hello@trysublime.io.')
       }
     } catch {
       setStatus('idle')
-      setError('We could not send your message — please email us at hello@trysublime.io.')
+      setError('We could not send your message. Please email us at hello@trysublime.io.')
     }
   }
 
@@ -64,7 +64,7 @@ export function ContactForm() {
       <div className="border border-border bg-card p-8">
         <p className="text-[12px] uppercase tracking-[0.15em] text-muted-foreground">Message sent</p>
         <h2 className="mt-3 text-[20px] font-[500] tracking-[-0.02em] text-foreground">
-          Thanks — we&apos;ll be in touch.
+          Thanks, we&apos;ll be in touch.
         </h2>
         <p className="mt-3 text-[14px] leading-[1.7] text-muted-foreground">
           Your message is on its way to the team. We usually reply within one business day.

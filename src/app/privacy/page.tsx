@@ -49,7 +49,7 @@ const sections: { id: string; title: string; body: React.ReactNode }[] = [
         </Body>
         <SubHeading>Connected tool data</SubHeading>
         <Body>
-          Sublime works by connecting to the tools your team already uses — for example GitHub,
+          Sublime works by connecting to the tools your team already uses, for example GitHub,
           Slack, Google Workspace, CRMs, and project management platforms. Each connection is
           established only after you explicitly authorize it through the provider&apos;s OAuth
           flow, and the access token is scoped to the permissions that provider grants. We access
@@ -61,7 +61,7 @@ const sections: { id: string; title: string; body: React.ReactNode }[] = [
         <SubHeading>Agent and workflow data</SubHeading>
         <Body>
           When you create and run agents or workflows, we store their configuration, inputs,
-          outputs, and run logs. Run logs exist so you can inspect what an agent did and why — they
+          outputs, and run logs. Run logs exist so you can inspect what an agent did and why. They
           are part of the product, and are retained under the same rules as the rest of your
           workspace data.
         </Body>
@@ -114,7 +114,7 @@ const sections: { id: string; title: string; body: React.ReactNode }[] = [
       <>
         <Body>
           Sublime uses third-party AI model providers (such as Anthropic) to power agents,
-          workflows, and insights. Content — including relevant connected-tool data — is sent to
+          workflows, and insights. Content, including relevant connected-tool data, is sent to
           these providers only as needed to fulfill the work you ask Sublime to do, over encrypted
           connections.
         </Body>
@@ -134,7 +134,7 @@ const sections: { id: string; title: string; body: React.ReactNode }[] = [
     title: 'Cookies and similar technologies',
     body: (
       <Body>
-        We use cookies and similar technologies that are necessary to operate the Service —
+        We use cookies and similar technologies that are necessary to operate the Service,
         primarily to keep you signed in (session cookies) and to remember preferences such as your
         theme. We do not use third-party advertising cookies and we do not show ads. Because these
         cookies are strictly necessary, the Service will not function properly if you block them.
@@ -153,7 +153,7 @@ const sections: { id: string; title: string; body: React.ReactNode }[] = [
         <ul className="mt-4 space-y-2.5">
           <Bullet>
             <strong className="text-foreground/90 font-medium">Service providers (subprocessors).</strong>{' '}
-            Vendors that help us operate the Service — cloud hosting and databases, authentication,
+            Vendors that help us operate the Service: cloud hosting and databases, authentication,
             payment processing (Stripe), integration/OAuth infrastructure, AI model providers, and
             error monitoring. Each is bound by contract to use your data only to provide services
             to us.
@@ -191,7 +191,7 @@ const sections: { id: string; title: string; body: React.ReactNode }[] = [
         <ul className="mt-4 space-y-2.5">
           <Bullet>Encryption in transit (TLS) and at rest</Bullet>
           <Bullet>
-            Scoped, revocable OAuth access to connected tools — we never ask for your passwords to
+            Scoped, revocable OAuth access to connected tools. We never ask for your passwords to
             those tools
           </Bullet>
           <Bullet>Access controls and least-privilege practices limiting who and what can read your data</Bullet>
@@ -261,7 +261,7 @@ const sections: { id: string; title: string; body: React.ReactNode }[] = [
         </ul>
         <div className="mt-4">
           <Body>
-            You can exercise many of these directly in the product — updating your profile,
+            You can exercise many of these directly in the product: updating your profile,
             disconnecting tools, or deleting your account from settings. For anything else, email
             us at hello@trysublime.io and we will respond within the timeframe required by
             applicable law. If you are in the EEA or UK, you also have the right to lodge a

@@ -50,7 +50,7 @@ export function TrialGate({ children }: { children: ReactNode }) {
           <h1 className="text-xl font-semibold text-foreground">Your free trial has ended</h1>
           <p className="mt-2 text-sm text-muted-foreground">
             Your 14-day trial is over. Pick a plan to keep using your agents, flows, and
-            connections — everything is saved exactly where you left it.
+            connections. Everything is saved exactly where you left it.
           </p>
           <div className="mt-6 space-y-2">
             {PLAN_OPTIONS.map((plan) => (
@@ -83,7 +83,7 @@ export function TrialGate({ children }: { children: ReactNode }) {
       {status?.state === 'trialing' && !status.hasSubscription && (
         <div className="flex items-center justify-center gap-3 border-b bg-muted/60 px-4 py-1.5 text-xs text-muted-foreground">
           <span>
-            Free trial — {status.daysLeft} {status.daysLeft === 1 ? 'day' : 'days'} left
+            Free trial: {status.daysLeft} {status.daysLeft === 1 ? 'day' : 'days'} left
           </span>
           <a href="/settings?tab=billing" className="font-medium text-foreground underline underline-offset-2 hover:opacity-80">
             Add billing
