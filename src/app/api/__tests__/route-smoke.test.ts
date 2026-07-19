@@ -118,6 +118,7 @@ if (TEST_DB) {
     { route: 'nango/integrations', reason: 'needs NANGO_SECRET_KEY — throws 503 before any network call' },
     { route: 'nango/status', reason: 'needs NANGO_SECRET_KEY — throws 503 before any network call' },
     { route: 'granola/notes/[id]', reason: 'needs a Granola key — throws 503 before any network call' },
+    { route: 'google/oauth/start', reason: '302 to Google consent — covered in google-oauth-routes.test.ts' },
   ]
 
   // Completeness self-check: enumerate every route.ts whose GET is wrapped in

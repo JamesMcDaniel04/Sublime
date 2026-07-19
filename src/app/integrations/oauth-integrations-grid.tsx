@@ -26,6 +26,8 @@ type Integration = {
    *  absent means the scan plane never samples it, so there's nothing to
    *  toggle learning for. */
   capability?: string
+  /** True when connecting goes through our native Google OAuth flow. */
+  native?: boolean
 }
 
 type Connection = {
@@ -34,6 +36,8 @@ type Connection = {
   provider: string
   error?: string
   lastSync?: string
+  /** Native Google OAuth connection — disconnects via /api/google/oauth. */
+  native?: boolean
 }
 
 const INTEGRATIONS_PAGE_SIZE = 9
@@ -107,6 +111,13 @@ export function OAuthIntegrationsGrid() {
   const { pageItems, pageCount, page: currentPage } = paginate(visibleIntegrations, page, INTEGRATIONS_PAGE_SIZE)
 
   const connect = async (integration: Integration) => {
+    // Native Google OAuth: full-page redirect to our own consent flow —
+    // Google blocks Nango's, and a popup would lose the session on return.
+    if (integration.native) {
+      setBusy(integration.id)
+      window.location.href = `/api/google/oauth/start?service=${encodeURIComponent(integration.id)}`
+      return
+    }
     setBusy(integration.id)
     try {
       const nango = new Nango()
@@ -151,6 +162,19 @@ export function OAuthIntegrationsGrid() {
     if (!window.confirm(`Disconnect ${integration.name}?`)) return
     setBusy(integration.id)
     try {
+      const entry = connections[integration.id]
+      if (entry?.native && entry.connectionIds.length) {
+        // Native Google connections disconnect one record at a time.
+        for (const connectionId of entry.connectionIds) {
+          const response = await fetch(`/api/google/oauth/connections/${encodeURIComponent(connectionId)}`, { method: 'DELETE' })
+          if (!response.ok) {
+            const data = await response.json().catch(() => ({}))
+            throw new Error(data.error || 'Unable to disconnect account')
+          }
+        }
+        await refreshStatus()
+        return
+      }
       const response = await fetch(`/api/nango/connections/${encodeURIComponent(integration.id)}`, { method: 'DELETE' })
       const data = await response.json()
       if (!response.ok) throw new Error(data.error || 'Unable to disconnect account')

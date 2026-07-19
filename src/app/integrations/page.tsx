@@ -1,7 +1,8 @@
 'use client'
 
-import { Suspense } from 'react'
+import { Suspense, useEffect } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
+import { toast } from 'sonner'
 import { Cable, Server } from 'lucide-react'
 import { McpServersPanel } from '@/components/connections/mcp-servers-panel'
 import { PageHeader } from '@/components/ui/page-header'
@@ -14,6 +15,17 @@ function IntegrationsTabs() {
   const searchParams = useSearchParams()
   const tabParam = searchParams.get('tab')
   const activeTab = tabParam === 'mcp' ? 'mcp' : 'accounts'
+
+  // The native Google OAuth callback lands back here with a result param —
+  // surface it once, then strip it from the URL.
+  const connectedParam = searchParams.get('connected')
+  const errorParam = searchParams.get('error')
+  useEffect(() => {
+    if (!connectedParam && !errorParam) return
+    if (connectedParam) toast.success(`${connectedParam === 'gmail' ? 'Gmail' : connectedParam} connected`)
+    if (errorParam) toast.error(`Connection failed: ${errorParam.replaceAll('_', ' ')}`)
+    router.replace('/integrations', { scroll: false })
+  }, [connectedParam, errorParam, router])
 
   const handleTabChange = (value: string) => {
     router.replace(value === 'accounts' ? '/integrations' : `/integrations?tab=${value}`, { scroll: false })
