@@ -63,9 +63,9 @@ const STEP_TEXT: Record<string, string> = {
   failed: 'text-red-600',
   waiting: 'text-blue-600',
   running: 'text-amber-600',
-  skipped: 'text-gray-400',
-  queued: 'text-gray-400',
-  resumed: 'text-gray-400',
+  skipped: 'text-muted-foreground',
+  queued: 'text-muted-foreground',
+  resumed: 'text-muted-foreground',
 }
 
 /** Node label for a run step: the agent's own label, else the step type,

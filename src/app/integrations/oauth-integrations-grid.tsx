@@ -207,7 +207,7 @@ export function OAuthIntegrationsGrid() {
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-3">
-                <p className="line-clamp-2 min-h-10 text-sm text-gray-500">
+                <p className="line-clamp-2 min-h-10 text-sm text-muted-foreground">
                   Connect your {integration.name} account so agents can act on your behalf.
                 </p>
                 {connection?.error && <p className="text-sm text-red-600">{connection.error}</p>}

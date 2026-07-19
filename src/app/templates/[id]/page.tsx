@@ -238,7 +238,7 @@ export default function TemplateDetails() {
             <div className="flex animate-fade-in-up flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
               <div>
                 <h1 className="text-2xl font-bold">{template.name}</h1>
-                <p className="mt-2 max-w-3xl text-gray-600">{template.description}</p>
+                <p className="mt-2 max-w-3xl text-muted-foreground">{template.description}</p>
               </div>
               <div className="flex w-full shrink-0 flex-col gap-2 sm:w-auto sm:flex-row">
                 <Button variant="outline" onClick={() => connect('agent')} loading={deploying === 'agent'} disabled={Boolean(deploying)}>
@@ -272,7 +272,7 @@ export default function TemplateDetails() {
             <div className="grid gap-5 rounded-xl border bg-card p-5 shadow-1 md:grid-cols-3">
               <div>
                 <p className="eyebrow mb-2">Automation</p>
-                <div className="flex items-start gap-2 text-sm text-gray-700">
+                <div className="flex items-start gap-2 text-sm text-muted-foreground">
                   <CalendarClock className="mt-0.5 h-4 w-4 shrink-0 text-indigo-600" />
                   <span>{scheduleLabel(template)}</span>
                 </div>
@@ -312,7 +312,7 @@ export default function TemplateDetails() {
 
               <div>
                 <p className="eyebrow mb-2">Departments</p>
-                <p className="text-sm capitalize text-gray-600">{template.departments?.join(', ') || 'Cross-functional'}</p>
+                <p className="text-sm capitalize text-muted-foreground">{template.departments?.join(', ') || 'Cross-functional'}</p>
               </div>
             </div>
           </>

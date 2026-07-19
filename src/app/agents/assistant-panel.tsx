@@ -103,7 +103,7 @@ function ProposalCard({
   if (!proposal) return null
   const rows = proposalRows(proposal)
   return (
-    <div className="mt-2 rounded-lg border bg-white p-3">
+    <div className="mt-2 rounded-lg border bg-card p-3">
       <div className="mb-2 flex items-center justify-between gap-2">
         <p className="eyebrow">Proposed changes</p>
         {message.appliedAt && (
@@ -112,13 +112,13 @@ function ProposalCard({
           </Badge>
         )}
       </div>
-      <p className="text-sm text-gray-700">{proposal.summary}</p>
+      <p className="text-sm text-muted-foreground">{proposal.summary}</p>
       {rows.length > 0 && (
         <dl className="mt-2 space-y-2 border-t pt-2">
           {rows.map((row) => (
             <div key={row.label}>
               <dt className="mono-label">{row.label}</dt>
-              <dd className="mt-0.5 max-h-36 overflow-y-auto whitespace-pre-wrap text-sm text-gray-700">{row.value}</dd>
+              <dd className="mt-0.5 max-h-36 overflow-y-auto whitespace-pre-wrap text-sm text-muted-foreground">{row.value}</dd>
             </div>
           ))}
         </dl>
@@ -362,7 +362,7 @@ export function AssistantPanel({
                   <div className="absolute right-0 top-full z-50 mt-1 w-64 overflow-hidden rounded-md border border-border bg-popover shadow-md">
                     <p className="px-3 pb-1 pt-2 text-xs font-medium text-muted-foreground">Chat history</p>
                     {sessions.length === 0 ? (
-                      <p className="px-3 pb-3 pt-1 text-sm text-gray-500">No past chats yet.</p>
+                      <p className="px-3 pb-3 pt-1 text-sm text-muted-foreground">No past chats yet.</p>
                     ) : (
                       <ul className="max-h-72 overflow-y-auto pb-1">
                         {sessions.map((session) => (
@@ -375,9 +375,9 @@ export function AssistantPanel({
                                 session.id === sessionId && 'bg-accent/60',
                               )}
                             >
-                              <MessageSquare className="h-3.5 w-3.5 shrink-0 text-gray-400" />
+                              <MessageSquare className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
                               <span className="min-w-0 flex-1 truncate">{session.title}</span>
-                              <span className="shrink-0 text-xs text-gray-400">{relativeTime(session.updatedAt)}</span>
+                              <span className="shrink-0 text-xs text-muted-foreground">{relativeTime(session.updatedAt)}</span>
                             </button>
                           </li>
                         ))}
@@ -389,7 +389,7 @@ export function AssistantPanel({
             </div>
           )}
         </div>
-        <p className="mt-1 text-xs text-gray-500">
+        <p className="mt-1 text-xs text-muted-foreground">
           {agent
             ? 'Ask about run output, debug errors, or change configuration in plain language.'
             : 'Pick an agent to ask about its runs, debug errors, or change its configuration.'}
@@ -400,22 +400,22 @@ export function AssistantPanel({
         {!agent && (
           <div className="flex flex-1 items-center justify-center p-4">
             <div className="max-w-sm text-center">
-              <MessageSquare className="mx-auto h-6 w-6 text-gray-300" />
-              <p className="mt-2 text-sm text-gray-500">
+              <MessageSquare className="mx-auto h-6 w-6 text-muted-foreground" />
+              <p className="mt-2 text-sm text-muted-foreground">
                 This is where you talk to your agents — ask what a run did, walk through an error, or describe a change. Select an agent to begin.
               </p>
             </div>
           </div>
         )}
         {agent && loading && (
-          <div className="flex flex-1 items-center justify-center p-6 text-gray-500"><Loader2 className="h-5 w-5 animate-spin" /></div>
+          <div className="flex flex-1 items-center justify-center p-6 text-muted-foreground"><Loader2 className="h-5 w-5 animate-spin" /></div>
         )}
         {/* Empty chat (no output, no messages): center the starters vertically. */}
         {agent && !loading && !runOutput && messages.length === 0 && (
           <div className="flex flex-1 items-center justify-center p-4">
             <div className="w-full max-w-sm text-center">
-              <MessageSquare className="mx-auto h-6 w-6 text-gray-300" />
-              <p className="mt-2 text-sm text-gray-500">
+              <MessageSquare className="mx-auto h-6 w-6 text-muted-foreground" />
+              <p className="mt-2 text-sm text-muted-foreground">
                 Sublime grounds answers in this agent&apos;s configuration and recent runs.
               </p>
               <div className="mt-4 space-y-2">
@@ -425,7 +425,7 @@ export function AssistantPanel({
                     type="button"
                     disabled={sending}
                     onClick={() => send(suggestion)}
-                    className="w-full rounded-lg border bg-white px-3 py-2 text-left text-sm text-gray-700 transition-colors duration-150 hover:border-indigo-200 hover:bg-indigo-50"
+                    className="w-full rounded-lg border bg-card px-3 py-2 text-left text-sm text-muted-foreground transition-colors duration-150 hover:border-indigo-200 hover:bg-indigo-50"
                   >
                     {suggestion}
                   </button>
@@ -438,10 +438,10 @@ export function AssistantPanel({
         {agent && !loading && (runOutput || messages.length > 0 || sending) && (
           <div className="space-y-3 p-4">
             {runOutput && (
-              <div className={cn('rounded-lg border p-3', runOutput.status === 'failed' ? 'border-red-200 bg-red-50' : 'bg-white')}>
+              <div className={cn('rounded-lg border p-3', runOutput.status === 'failed' ? 'border-red-200 bg-red-50' : 'bg-card')}>
                 <div className="mb-2 flex items-center justify-between gap-2">
                   <p className="eyebrow">{runOutput.status === 'failed' ? 'Run error' : 'Output'} · {runOutput.title}</p>
-                  <span className="shrink-0 text-xs text-gray-400">{new Date(runOutput.at).toLocaleString()}</span>
+                  <span className="shrink-0 text-xs text-muted-foreground">{new Date(runOutput.at).toLocaleString()}</span>
                 </div>
                 <div className={cn('text-sm', runOutput.status === 'failed' && 'whitespace-pre-wrap text-red-700')}>
                   {runOutput.status === 'failed'
@@ -457,7 +457,7 @@ export function AssistantPanel({
                 key={message.id}
                 className={cn(
                   'rounded-lg p-3 text-sm transition-colors duration-150',
-                  message.role === 'user' ? 'ml-8 bg-indigo-50' : 'mr-8 border bg-gray-50',
+                  message.role === 'user' ? 'ml-8 bg-indigo-50' : 'mr-8 border bg-muted',
                 )}
               >
                 {message.role === 'user'
@@ -475,7 +475,7 @@ export function AssistantPanel({
               </div>
             ))}
             {sending && (
-              <div className="mr-8 flex items-center gap-2 rounded-lg border bg-gray-50 p-3 text-sm text-gray-500">
+              <div className="mr-8 flex items-center gap-2 rounded-lg border bg-muted p-3 text-sm text-muted-foreground">
                 <Loader2 className="h-4 w-4 animate-spin" /> Thinking…
               </div>
             )}

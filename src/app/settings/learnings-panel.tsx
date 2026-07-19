@@ -80,7 +80,7 @@ export function LearningsPanel() {
           <div className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-800">
             <p className="font-medium">Learnings could not be loaded</p>
             <p className="mt-1">{loadError}</p>
-            <Button type="button" variant="outline" size="sm" className="mt-3 bg-white" onClick={() => void load()}>Try again</Button>
+            <Button type="button" variant="outline" size="sm" className="mt-3 bg-background" onClick={() => void load()}>Try again</Button>
           </div>
         )}
         {learnings !== null && !loadError && learnings.length === 0 && (

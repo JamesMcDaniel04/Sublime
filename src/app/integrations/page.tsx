@@ -25,7 +25,7 @@ function IntegrationsTabs() {
         <TabsTrigger value="mcp"><Server className="mr-2 h-4 w-4" />MCP Servers</TabsTrigger>
       </TabsList>
       <TabsContent value="accounts" className="mt-6 space-y-6">
-        <Suspense fallback={<p className="text-sm text-gray-500">Loading integrations...</p>}>
+        <Suspense fallback={<p className="text-sm text-muted-foreground">Loading integrations...</p>}>
           <OAuthIntegrationsGrid />
         </Suspense>
       </TabsContent>

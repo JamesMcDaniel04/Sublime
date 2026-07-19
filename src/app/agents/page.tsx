@@ -15,7 +15,7 @@ const AgentConfigForm = dynamic(() => import('./agent-config-form').then((m) => 
   ssr: false,
   loading: () => (
     <div className="flex items-center justify-center py-16">
-      <div className="h-6 w-6 animate-spin rounded-full border-2 border-slate-300 border-t-slate-600" />
+      <div className="h-6 w-6 animate-spin rounded-full border-2 border-border border-t-foreground" />
     </div>
   ),
 })
@@ -536,15 +536,15 @@ function AgentHQ() {
     <div className="flex flex-col lg:h-screen lg:overflow-hidden">
       {/* Agents ↔ Templates segmented toggle — the template library lives
           inside HQ now instead of its own sidebar destination. */}
-      <div className="flex shrink-0 justify-center border-b bg-slate-50 px-4 py-3">
-        <div className="flex items-center rounded-full bg-white p-1 shadow-md ring-1 ring-slate-900/5">
+      <div className="flex shrink-0 justify-center border-b bg-muted px-4 py-3">
+        <div className="flex items-center rounded-full bg-card p-1 shadow-md ring-1 ring-border">
           <button
             type="button"
             aria-pressed={view === 'agents'}
             onClick={() => setView('agents')}
             className={cn(
               'rounded-full px-5 py-1.5 text-sm font-semibold transition-colors duration-150',
-              view === 'agents' ? 'bg-[#24426B] text-white shadow-sm' : 'text-slate-500 hover:text-slate-800',
+              view === 'agents' ? 'bg-primary text-primary-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground',
             )}
           >
             Agents
@@ -555,7 +555,7 @@ function AgentHQ() {
             onClick={() => setView('templates')}
             className={cn(
               'flex items-center gap-2 rounded-full px-5 py-1.5 text-sm font-semibold transition-colors duration-150',
-              view === 'templates' ? 'bg-[#24426B] text-white shadow-sm' : 'text-slate-500 hover:text-slate-800',
+              view === 'templates' ? 'bg-primary text-primary-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground',
             )}
           >
             Templates
@@ -563,7 +563,7 @@ function AgentHQ() {
               <span
                 className={cn(
                   'rounded-full px-1.5 py-0.5 text-xs font-medium leading-none',
-                  view === 'templates' ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-500',
+                  view === 'templates' ? 'bg-primary-foreground/20 text-primary-foreground' : 'bg-muted text-muted-foreground',
                 )}
               >
                 {templatesCount}
@@ -587,8 +587,8 @@ function AgentHQ() {
         style={{ gridTemplateColumns: `minmax(420px,1fr) ${assistantWidth}px` }}
       >
         {/* ── Left pane: activity for the selected agent, or the setup flow ── */}
-        <section className="min-w-0 border-b bg-white lg:min-h-0 lg:overflow-y-auto lg:border-b-0 lg:border-r">
-          <div className="sticky top-0 z-10 border-b bg-white p-4">
+        <section className="min-w-0 border-b bg-background lg:min-h-0 lg:overflow-y-auto lg:border-b-0 lg:border-r">
+          <div className="sticky top-0 z-10 border-b bg-background p-4">
             <div className="flex items-center justify-between gap-2">
               <div className="min-w-0 flex-1">
                 {agents.length > 0 ? (
@@ -605,7 +605,7 @@ function AgentHQ() {
                 ) : (
                   <h1 className="text-xl font-semibold">{loading ? 'Loading…' : 'Create your first agent'}</h1>
                 )}
-                <p className="mt-1 truncate text-sm text-gray-500" aria-live="polite">
+                <p className="mt-1 truncate text-sm text-muted-foreground" aria-live="polite">
                   Hey, {user?.firstName || 'there'}. {greeting}
                 </p>
               </div>
@@ -706,10 +706,10 @@ function AgentHQ() {
               {!editingAgent && (
                 <div>
                   {/* Den-style: describe an agent in plain language and build it. */}
-                  <div className="flex items-center gap-2 rounded-xl border bg-gray-50 px-3 py-2 transition-shadow duration-150 focus-within:ring-2 focus-within:ring-indigo-200">
+                  <div className="flex items-center gap-2 rounded-xl border bg-muted px-3 py-2 transition-shadow duration-150 focus-within:ring-2 focus-within:ring-indigo-200">
                     <Sparkles className="h-4 w-4 shrink-0 text-indigo-500" />
                     <input
-                      className="flex-1 bg-transparent text-sm outline-none placeholder:text-gray-400"
+                      className="flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
                       placeholder={"Describe an agent to build — e.g. “Every Monday, summarize last week’s GitHub activity and post it to Slack”"}
                       value={describe}
                       disabled={building}
@@ -722,7 +722,7 @@ function AgentHQ() {
                       disabled={granolaFetchingList || building}
                       onClick={openGranolaPicker}
                       title="Import from Granola"
-                      className="shrink-0 gap-1.5 text-xs text-gray-500 hover:text-gray-700"
+                      className="shrink-0 gap-1.5 text-xs text-muted-foreground hover:text-foreground"
                     >
                       {granolaFetchingList ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <FileText className="h-3.5 w-3.5" />}
                       Import
@@ -733,11 +733,11 @@ function AgentHQ() {
                   </div>
                   {/* Granola meeting picker */}
                   {granolaPickerOpen && (
-                    <div className="relative mt-1 max-h-64 origin-top animate-scale-in overflow-y-auto rounded-xl border bg-white shadow-popover">
-                      <div className="sticky top-0 flex items-center justify-between border-b bg-white px-3 py-2">
-                        <span className="text-xs font-medium text-gray-600">Select a meeting to import</span>
+                    <div className="relative mt-1 max-h-64 origin-top animate-scale-in overflow-y-auto rounded-xl border bg-card shadow-popover">
+                      <div className="sticky top-0 flex items-center justify-between border-b bg-card px-3 py-2">
+                        <span className="text-xs font-medium text-muted-foreground">Select a meeting to import</span>
                         <button
-                          className="rounded p-0.5 text-gray-400 transition-colors duration-150 hover:text-gray-700"
+                          className="rounded p-0.5 text-muted-foreground transition-colors duration-150 hover:text-foreground"
                           onClick={() => setGranolaPickerOpen(false)}
                           aria-label="Close picker"
                         >
@@ -745,21 +745,21 @@ function AgentHQ() {
                         </button>
                       </div>
                       {granolaFetchingNote && (
-                        <div className="flex items-center justify-center p-6 text-sm text-gray-500">
+                        <div className="flex items-center justify-center p-6 text-sm text-muted-foreground">
                           <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Loading meeting…
                         </div>
                       )}
                       {!granolaFetchingNote && granolaNotes.length === 0 && (
-                        <p className="p-4 text-sm text-gray-500">No recent meetings found in Granola.</p>
+                        <p className="p-4 text-sm text-muted-foreground">No recent meetings found in Granola.</p>
                       )}
                       {!granolaFetchingNote && granolaNotes.map((note) => (
                         <button
                           key={note.id}
-                          className="flex w-full flex-col gap-0.5 border-b px-3 py-2.5 text-left transition-colors duration-150 last:border-b-0 hover:bg-gray-50"
+                          className="flex w-full flex-col gap-0.5 border-b px-3 py-2.5 text-left transition-colors duration-150 last:border-b-0 hover:bg-muted"
                           onClick={() => importGranolaNote(note)}
                         >
                           <span className="truncate text-sm font-medium">{note.title}</span>
-                          <span className="truncate text-xs text-gray-400">
+                          <span className="truncate text-xs text-muted-foreground">
                             {note.owner?.name || note.owner?.email || ''}
                             {note.owner && note.created_at ? ' · ' : ''}
                             {note.created_at ? new Date(note.created_at).toLocaleDateString() : ''}
@@ -777,7 +777,7 @@ function AgentHQ() {
                 </p>
               )}
 
-              <div className="animate-fade-in-up rounded-lg border bg-white p-4 shadow-1">
+              <div className="animate-fade-in-up rounded-lg border bg-card p-4 shadow-1">
                 <p className="eyebrow mb-3">{editingAgent ? 'Agent setup' : 'Set up manually'}</p>
                 <AgentConfigForm
                   key={editingAgent?.id || NEW_AGENT}
@@ -813,7 +813,7 @@ function AgentHQ() {
         </section>
 
         {/* ── Right pane: persistent assistant chat for the selected agent ── */}
-        <section className="relative flex h-[70vh] min-w-0 flex-col bg-white lg:h-auto lg:min-h-0">
+        <section className="relative flex h-[70vh] min-w-0 flex-col bg-background lg:h-auto lg:min-h-0">
           <div
             role="separator"
             aria-orientation="vertical"

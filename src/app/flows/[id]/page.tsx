@@ -31,7 +31,7 @@ import dynamic from 'next/dynamic'
 const DagCanvas = dynamic(() => import('@/components/flows/dag-canvas').then((m) => m.DagCanvas), {
   ssr: false,
   loading: () => (
-    <div className="flex min-w-0 flex-1 items-center justify-center bg-white">
+    <div className="flex min-w-0 flex-1 items-center justify-center bg-background">
       <div className="h-6 w-6 animate-spin rounded-full border-2 border-slate-300 border-t-slate-600" />
     </div>
   ),
@@ -1506,7 +1506,7 @@ function FlowBuilder() {
             agent); both views share insert menus, jam cursors, and container
             editing. A non-linear graph LOCKS to the canvas — the stack's
             single-chain walk would silently hide fan-out/fan-in wires. */}
-        <div className="flex items-center rounded-lg border border-slate-200 p-0.5">
+        <div className="flex items-center rounded-lg border border-border p-0.5">
           {(['stack', 'dag'] as const).map((mode) => (
             <button
               key={mode}
@@ -1515,8 +1515,8 @@ function FlowBuilder() {
               onClick={() => setCanvasMode(mode)}
               className={cn(
                 'rounded-md px-2.5 py-1 text-xs font-semibold transition-colors',
-                canvasMode === mode ? 'bg-slate-900 text-white' : 'text-slate-500 hover:text-slate-900',
-                mode === 'stack' && !stackOk && 'cursor-not-allowed opacity-40 hover:text-slate-500',
+                canvasMode === mode ? 'bg-foreground text-background' : 'text-muted-foreground hover:text-foreground',
+                mode === 'stack' && !stackOk && 'cursor-not-allowed opacity-40 hover:text-muted-foreground',
               )}
               title={
                 mode === 'dag' ? 'Free-form canvas — wire multiple steps into one'
@@ -1630,7 +1630,7 @@ function FlowBuilder() {
           // Cursor capture happens inside DagCanvas (it needs React Flow's
           // screenToFlowPosition); peers' cursors render there too, in flow
           // space via ViewportPortal.
-          <div className="min-w-0 flex-1 bg-white">
+          <div className="min-w-0 flex-1 bg-background">
             <DagCanvas
               onCursorMove={(cursor) => jamCursorUpdateRef.current(cursor)}
               commentPins={dagCommentPins}
@@ -1694,7 +1694,7 @@ function FlowBuilder() {
         ) : (
         <div
           ref={canvasScrollRef}
-          className={cn('min-w-0 flex-1 overflow-y-auto bg-white p-8', placingPin ? 'cursor-crosshair' : 'cursor-grab')}
+          className={cn('min-w-0 flex-1 overflow-y-auto bg-background p-8', placingPin ? 'cursor-crosshair' : 'cursor-grab')}
           onClick={(event) => {
             // A completed drag-to-scroll must not read as a background click.
             if (suppressCanvasClickRef.current) {

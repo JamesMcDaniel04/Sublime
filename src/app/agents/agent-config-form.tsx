@@ -1120,8 +1120,8 @@ export function AgentConfigForm({
           }
           return (
             <div className="mt-3 border-t pt-3">
-              <p className="mb-2 text-xs font-medium text-gray-600">Which agents can it run?</p>
-              <label className="flex cursor-pointer items-center gap-2 rounded-md px-1 py-1 text-sm hover:bg-gray-50">
+              <p className="mb-2 text-xs font-medium text-muted-foreground">Which agents can it run?</p>
+              <label className="flex cursor-pointer items-center gap-2 rounded-md px-1 py-1 text-sm hover:bg-muted">
                 <input
                   type="checkbox"
                   className="h-3.5 w-3.5 accent-indigo-600"
@@ -1129,12 +1129,12 @@ export function AgentConfigForm({
                   onChange={() => setDraft({ ...draft, subagentIds: [] })}
                 />
                 <span className="font-medium">All agents</span>
-                <span className="text-xs text-gray-400">({candidates.length} available)</span>
+                <span className="text-xs text-muted-foreground">({candidates.length} available)</span>
               </label>
               {candidates.length > 0 && (
                 <div className="mt-1 max-h-40 space-y-0.5 overflow-y-auto rounded-md border p-1">
                   {candidates.map((agent) => (
-                    <label key={agent.id} className="flex cursor-pointer items-center gap-2 rounded px-1.5 py-1 text-sm hover:bg-gray-50">
+                    <label key={agent.id} className="flex cursor-pointer items-center gap-2 rounded px-1.5 py-1 text-sm hover:bg-muted">
                       <input
                         type="checkbox"
                         className="h-3.5 w-3.5 accent-indigo-600"
@@ -1146,7 +1146,7 @@ export function AgentConfigForm({
                   ))}
                 </div>
               )}
-              {candidates.length === 0 && <p className="px-1 text-xs text-gray-400">No other agents yet — create more to delegate to them.</p>}
+              {candidates.length === 0 && <p className="px-1 text-xs text-muted-foreground">No other agents yet — create more to delegate to them.</p>}
             </div>
           )
         })()}
@@ -1339,7 +1339,7 @@ export function AgentConfigForm({
         <div>
           <p className="eyebrow mb-2">Recent runs</p>
           {runsLoading ? (
-            <p className="text-sm text-gray-500"><Loader2 className="inline h-3.5 w-3.5 animate-spin" /> Loading…</p>
+            <p className="text-sm text-muted-foreground"><Loader2 className="inline h-3.5 w-3.5 animate-spin" /> Loading…</p>
           ) : (
             <ul className="divide-y rounded-lg border">
               {runs.map((run) => (
@@ -1347,10 +1347,10 @@ export function AgentConfigForm({
                   <button
                     type="button"
                     onClick={() => openRun(run.id)}
-                    className="flex w-full items-center justify-between gap-3 px-3 py-2 text-left text-sm transition-colors duration-150 hover:bg-gray-50"
+                    className="flex w-full items-center justify-between gap-3 px-3 py-2 text-left text-sm transition-colors duration-150 hover:bg-muted"
                   >
-                    <span className="truncate text-gray-700">{run.metadata?.headline || run.error || run.status}</span>
-                    <span className="shrink-0 text-xs text-gray-500">{new Date(run.startedAt).toLocaleString()}</span>
+                    <span className="truncate text-muted-foreground">{run.metadata?.headline || run.error || run.status}</span>
+                    <span className="shrink-0 text-xs text-muted-foreground">{new Date(run.startedAt).toLocaleString()}</span>
                   </button>
                 </li>
               ))}
@@ -1385,11 +1385,11 @@ export function AgentConfigForm({
             )}
           </div>
           {memoriesLoading ? (
-            <p className="text-sm text-gray-500"><Loader2 className="inline h-3.5 w-3.5 animate-spin" /> Loading…</p>
+            <p className="text-sm text-muted-foreground"><Loader2 className="inline h-3.5 w-3.5 animate-spin" /> Loading…</p>
           ) : memoriesError ? (
             <p className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">{memoriesError}</p>
           ) : memories.length === 0 ? (
-            <p className="rounded-lg border border-dashed p-3 text-sm text-gray-500">
+            <p className="rounded-lg border border-dashed p-3 text-sm text-muted-foreground">
               Nothing learned yet — memories appear after runs complete.
             </p>
           ) : (
@@ -1403,18 +1403,18 @@ export function AgentConfigForm({
                       <Badge variant={MEMORY_KIND_VARIANT[memory.kind] ?? 'secondary'}>
                         {MEMORY_KIND_LABEL[memory.kind] ?? memory.kind}
                       </Badge>
-                      <span className="truncate font-semibold text-gray-700" title={memory.title}>{memory.title}</span>
+                      <span className="truncate font-semibold text-muted-foreground" title={memory.title}>{memory.title}</span>
                     </div>
-                    {memory.question && <p className="italic text-gray-500">{memory.question}</p>}
-                    <p className="line-clamp-2 text-gray-500">{memory.content}</p>
+                    {memory.question && <p className="italic text-muted-foreground">{memory.question}</p>}
+                    <p className="line-clamp-2 text-muted-foreground">{memory.content}</p>
                     {memory.lastUsedAt && (
-                      <p className="mt-0.5 text-xs text-gray-400">Last used {new Date(memory.lastUsedAt).toLocaleDateString()}</p>
+                      <p className="mt-0.5 text-xs text-muted-foreground">Last used {new Date(memory.lastUsedAt).toLocaleDateString()}</p>
                     )}
                   </div>
                   <button
                     type="button"
                     onClick={() => deleteMemory(memory.id)}
-                    className="shrink-0 text-gray-400 opacity-0 transition-opacity hover:text-red-600 group-hover:opacity-100"
+                    className="shrink-0 text-muted-foreground opacity-0 transition-opacity hover:text-red-600 group-hover:opacity-100"
                     aria-label={`Remove memory ${memory.title}`}
                   >
                     <Trash2 className="h-4 w-4" />

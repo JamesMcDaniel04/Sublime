@@ -105,32 +105,32 @@ export function KnowledgePanel({ agentId }: { agentId: string }) {
           onChange={(e) => upload(e.target.files)}
         />
       </div>
-      <p className="mb-2 text-xs text-gray-500">
+      <p className="mb-2 text-xs text-muted-foreground">
         Files the agent can draw on at run time. PDF, DOCX, text, Markdown, CSV, JSON, HTML, and source files are supported.
       </p>
       {loading ? (
-        <p className="text-sm text-gray-500">
+        <p className="text-sm text-muted-foreground">
           <Loader2 className="inline h-3.5 w-3.5 animate-spin" /> Loading…
         </p>
       ) : loadError ? (
         <p className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">{loadError} <button className="font-medium underline" onClick={() => setLoadAttempt((value) => value + 1)}>Try again</button></p>
       ) : docs.length === 0 ? (
-        <p className="rounded-lg border border-dashed p-3 text-sm text-gray-500">No files yet — upload documents to give this agent reference knowledge.</p>
+        <p className="rounded-lg border border-dashed p-3 text-sm text-muted-foreground">No files yet — upload documents to give this agent reference knowledge.</p>
       ) : (
         <ul className="divide-y rounded-lg border">
           {docs.map((doc) => (
             <li key={doc.id} className="group flex items-center gap-3 px-3 py-2 text-sm">
-              <FileText className="h-4 w-4 shrink-0 text-gray-400" />
-              <span className="min-w-0 flex-1 truncate text-gray-700" title={doc.filename}>
+              <FileText className="h-4 w-4 shrink-0 text-muted-foreground" />
+              <span className="min-w-0 flex-1 truncate text-muted-foreground" title={doc.filename}>
                 {doc.filename}
               </span>
-              <span className="shrink-0 text-xs text-gray-400">
+              <span className="shrink-0 text-xs text-muted-foreground">
                 {formatSize(doc.sizeBytes)} · {doc.chunkCount} passages
               </span>
               <button
                 type="button"
                 onClick={() => remove(doc)}
-                className="shrink-0 text-gray-400 opacity-0 transition-opacity hover:text-red-600 group-hover:opacity-100"
+                className="shrink-0 text-muted-foreground opacity-0 transition-opacity hover:text-red-600 group-hover:opacity-100"
                 aria-label={`Remove ${doc.filename}`}
               >
                 <Trash2 className="h-4 w-4" />

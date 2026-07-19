@@ -13,6 +13,24 @@ const graphite = {
 // utilities now resolve to graphite (see colors below) so former accent
 // elements render near-black, like the landing CTA.
 
+// Theme-aware neutral scale: resolves to the shadcn semantic tokens so
+// `slate-*`/`gray-*` utilities follow the light/dark theme instead of
+// rendering static hexes. Shades chosen by role: 50–100 soft fill,
+// 200–300 hairline, 400–600 secondary text, 700–950 emphasis.
+const themedNeutral = {
+  50: 'hsl(var(--muted) / <alpha-value>)',
+  100: 'hsl(var(--muted) / <alpha-value>)',
+  200: 'hsl(var(--border) / <alpha-value>)',
+  300: 'hsl(var(--border) / <alpha-value>)',
+  400: 'hsl(var(--muted-foreground) / <alpha-value>)',
+  500: 'hsl(var(--muted-foreground) / <alpha-value>)',
+  600: 'hsl(var(--muted-foreground) / <alpha-value>)',
+  700: 'hsl(var(--foreground) / <alpha-value>)',
+  800: 'hsl(var(--foreground) / <alpha-value>)',
+  900: 'hsl(var(--foreground) / <alpha-value>)',
+  950: 'hsl(var(--foreground) / <alpha-value>)',
+}
+
 module.exports = {
   darkMode: 'class',
   content: [
@@ -27,14 +45,16 @@ module.exports = {
         horizon,
         graphite,
         ember: graphite,
-        // Bring existing utility classes onto brand with zero per-file churn:
-        // Graphite *is* the brand's neutral ("replaces gray"); Horizon is the
-        // single accent ("color reserved for signal"). Semantic red/green/amber
-        // keep Tailwind's defaults so signal colors stay distinct.
-        gray: graphite,
-        slate: graphite,
-        zinc: graphite,
-        neutral: graphite,
+        // Bring existing utility classes onto theme tokens with zero per-file
+        // churn. Neutral utilities (`slate-500`, `gray-200`, …) resolve to the
+        // semantic tokens, so they flip correctly in dark mode: light-end
+        // shades read as surfaces, mid shades as secondary text, dark-end
+        // shades as emphasis. Semantic red/green/amber keep Tailwind's
+        // defaults so signal colors stay distinct.
+        gray: themedNeutral,
+        slate: themedNeutral,
+        zinc: themedNeutral,
+        neutral: themedNeutral,
         blue: horizon,
         // Existing product accent utilities render neutral and THEME-AWARE:
         // the legacy `indigo-*` accent scale now resolves to semantic tokens,

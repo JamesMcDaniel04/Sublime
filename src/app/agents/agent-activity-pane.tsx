@@ -193,13 +193,13 @@ function ToolCallCard({ step }: { step: RunStep }) {
   const output = asJson(step.error ?? step.output)
   const hasDetail = Boolean(input || output)
   return (
-    <div className={cn('rounded-lg border bg-white text-sm', running && 'border-blue-200')}>
+    <div className={cn('rounded-lg border bg-card text-sm', running && 'border-blue-200')}>
       <button
         type="button"
         aria-expanded={open}
         disabled={!hasDetail}
         onClick={() => setOpen((v) => !v)}
-        className="flex w-full items-center justify-between gap-3 px-3 py-2 text-left transition-colors duration-150 hover:bg-gray-50 disabled:cursor-default disabled:hover:bg-transparent"
+        className="flex w-full items-center justify-between gap-3 px-3 py-2 text-left transition-colors duration-150 hover:bg-muted disabled:cursor-default disabled:hover:bg-transparent"
       >
         <span className="flex min-w-0 items-center gap-2">
           {(() => {
@@ -233,13 +233,13 @@ function ToolCallCard({ step }: { step: RunStep }) {
           {input && (
             <div>
               <p className="mono-label mb-1">Input</p>
-              <pre className="overflow-x-auto rounded bg-gray-50 p-2 text-xs">{input}</pre>
+              <pre className="overflow-x-auto rounded bg-muted p-2 text-xs">{input}</pre>
             </div>
           )}
           {output && (
             <div>
               <p className="mono-label mb-1">{failed ? 'Error' : 'Output'}</p>
-              <pre className={cn('overflow-x-auto rounded p-2 text-xs', failed ? 'bg-red-50 text-red-700' : 'bg-gray-50')}>{output}</pre>
+              <pre className={cn('overflow-x-auto rounded p-2 text-xs', failed ? 'bg-red-50 text-red-700' : 'bg-muted')}>{output}</pre>
             </div>
           )}
         </div>
@@ -251,7 +251,7 @@ function ToolCallCard({ step }: { step: RunStep }) {
 // The agent's narration for one turn, shown as a reasoning step in the timeline.
 function ThinkingCard({ text }: { text: string }) {
   return (
-    <div className="rounded-lg border border-dashed bg-white/60 px-3 py-2">
+    <div className="rounded-lg border border-dashed bg-card/60 px-3 py-2">
       <p className="mono-label mb-1 flex items-center gap-1.5 text-muted-foreground">
         <Sparkles className="h-3 w-3" /> Thinking
       </p>
@@ -330,7 +330,7 @@ function ContextCard({ summary, hits, related }: { summary: string; hits: Contex
 // "here's what I'm going to do" before the tool calls that carry it out.
 function PlanCard({ text }: { text: string }) {
   return (
-    <div className="rounded-lg border border-dashed bg-white/60 px-3 py-2">
+    <div className="rounded-lg border border-dashed bg-card/60 px-3 py-2">
       <p className="mono-label mb-1 flex items-center gap-1.5 text-muted-foreground">
         <ListOrdered className="h-3 w-3" /> Plan
       </p>
@@ -356,7 +356,7 @@ function MemoryCard({ summary }: { summary: string }) {
 // from a remembered prior answer — surfaced so the automation stays visible.
 function AutoAnswerCard({ question, answer }: { question: string; answer: string }) {
   return (
-    <div className="rounded-lg border border-dashed bg-white/60 px-3 py-2">
+    <div className="rounded-lg border border-dashed bg-card/60 px-3 py-2">
       <p className="mono-label mb-1 flex items-center gap-1.5 text-muted-foreground">
         <MessageSquareQuote className="h-3 w-3" /> Answered from memory
       </p>
@@ -577,8 +577,8 @@ function RunRow({
           }
         }}
         className={cn(
-          'grid w-full cursor-pointer grid-cols-[auto_auto_1fr_auto_auto] items-center gap-3 px-4 py-3 text-left transition-colors duration-150 hover:bg-gray-50',
-          expanded && 'bg-gray-50',
+          'grid w-full cursor-pointer grid-cols-[auto_auto_1fr_auto_auto] items-center gap-3 px-4 py-3 text-left transition-colors duration-150 hover:bg-muted',
+          expanded && 'bg-muted',
         )}
       >
         <ChevronDown className={cn('h-4 w-4 shrink-0 text-muted-foreground transition-transform duration-200', expanded && 'rotate-180')} />
@@ -625,7 +625,7 @@ function RunRow({
       </div>
 
       {expanded && (
-        <div className="space-y-4 border-t bg-gray-50/60 px-4 py-4">
+        <div className="space-y-4 border-t bg-muted/60 px-4 py-4">
           {activity.error && (
             <pre className="whitespace-pre-wrap rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">{activity.error}</pre>
           )}
@@ -777,7 +777,7 @@ export function AgentActivityPane({
         if (!items.length) return null
         return (
           <div key={groupStatus}>
-            <div className="flex items-center gap-2 border-b bg-gray-50 px-4 py-2 text-sm font-medium">
+            <div className="flex items-center gap-2 border-b bg-muted px-4 py-2 text-sm font-medium">
               {groupStatus === 'completed' ? <CheckCircle2 className="h-4 w-4 text-green-600" /> :
                 groupStatus === 'running' ? <CircleDashed className="h-4 w-4 animate-spin text-blue-600" /> :
                 groupStatus === 'cancelling' ? <CircleDashed className="h-4 w-4 animate-spin text-muted-foreground" /> :
