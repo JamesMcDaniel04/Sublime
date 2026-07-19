@@ -92,7 +92,7 @@ export async function deleteGoogleConnection(input: { organizationId: string; id
     prisma.nangoConnection.deleteMany({
       where: { organizationId: input.organizationId, connectionId: record.id, provider: GOOGLE_NATIVE_PROVIDER },
     }),
-    prisma.googleOAuthConnection.delete({ where: { id: record.id } }),
+    prisma.googleOAuthConnection.deleteMany({ where: { id: record.id, organizationId: input.organizationId } }),
   ])
   let refreshToken: string | null = null
   try {
