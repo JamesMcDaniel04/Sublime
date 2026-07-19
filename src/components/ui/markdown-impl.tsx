@@ -72,7 +72,7 @@ export function Markdown({ children, className }: { children: string; className?
           strong: (props) => <strong className="font-semibold" {...props} />,
           ul: (props) => <ul className="list-disc space-y-1.5 pl-5 marker:text-muted-foreground [&_ul]:mt-1.5 [&_ol]:mt-1.5" {...props} />,
           ol: (props) => <ol className="list-decimal space-y-1.5 pl-5 marker:text-muted-foreground [&_ul]:mt-1.5 [&_ol]:mt-1.5" {...props} />,
-          li: (props) => <li className="pl-0.5 [&>input]:mr-1.5 [&>input]:h-3.5 [&>input]:w-3.5 [&>input]:translate-y-0.5 [&>input]:accent-indigo-600" {...props} />,
+          li: (props) => <li className="pl-0.5 [&>input]:mr-1.5 [&>input]:h-3.5 [&>input]:w-3.5 [&>input]:translate-y-0.5 [&>input]:accent-foreground" {...props} />,
           a: (props) => (
             <a className="font-medium text-primary underline decoration-primary/40 underline-offset-2 hover:decoration-primary" target="_blank" rel="noreferrer" {...props} />
           ),
@@ -86,7 +86,7 @@ export function Markdown({ children, className }: { children: string; className?
           thead: (props) => <thead className="bg-muted/70" {...props} />,
           th: (props) => <th className="border-b border-border px-3 py-2 text-left font-semibold" {...props} />,
           td: (props) => <td className="border-b border-border/50 px-3 py-2 align-top [tr:last-child_&]:border-b-0" {...props} />,
-          blockquote: (props) => <blockquote className="border-l-2 border-indigo-300 pl-3 text-muted-foreground dark:border-indigo-500/50" {...props} />,
+          blockquote: (props) => <blockquote className="border-l-2 border-border pl-3 text-muted-foreground" {...props} />,
           hr: (props) => <hr className="my-4 border-border" {...props} />,
           // eslint-disable-next-line @next/next/no-img-element, jsx-a11y/alt-text
           img: (props) => <img className="max-w-full rounded-lg border border-border" {...props} />,

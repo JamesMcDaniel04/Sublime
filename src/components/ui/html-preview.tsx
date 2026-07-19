@@ -131,7 +131,7 @@ export function HtmlPreview({ html, className }: { html: string; className?: str
     <div className={cn('min-h-[120px] w-full', fullscreen && 'fixed inset-0 z-[100] overflow-auto bg-background p-4', className)}>
       <div className="mb-1.5 flex items-center justify-between gap-2">
         <span className="flex items-center gap-1.5">
-          <span className="mono-label text-gray-400">Rendered output</span>
+          <span className="mono-label text-muted-foreground">Rendered output</span>
           {!showRaw && (
             <span className="flex items-center rounded border bg-background p-0.5">
               {viewportButton('desktop', 'Desktop', Monitor)}

@@ -18,6 +18,7 @@ const CLEAN_PATHS = [
   'src/app/globals.css',
   'tailwind.config.js',
   'src/components/layout',
+  'src/components/ui',
 ]
 
 function filesUnder(path: string): string[] {

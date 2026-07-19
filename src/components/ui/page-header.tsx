@@ -16,8 +16,8 @@ function PageHeader({ eyebrow, title, description, actions, className, ...props 
       {...props}
     >
       <div className="space-y-1.5">
-        {eyebrow && <p className="eyebrow flex items-center gap-2 text-[#18485C] before:h-px before:w-5 before:bg-[#FF6B35]">{eyebrow}</p>}
-        <h1 className="text-3xl font-semibold leading-tight tracking-[-0.025em] text-[#062F33]">{title}</h1>
+        {eyebrow && <p className="eyebrow flex items-center gap-2 text-muted-foreground before:h-px before:w-5 before:bg-foreground">{eyebrow}</p>}
+        <h1 className="text-3xl font-semibold leading-tight tracking-[-0.025em] text-foreground">{title}</h1>
         {description && <p className="max-w-2xl text-sm leading-6 text-muted-foreground">{description}</p>}
       </div>
       {actions && <div className="flex items-center gap-2">{actions}</div>}

@@ -9,7 +9,7 @@ const cardVariants = cva("rounded-2xl border border-border/80 bg-card text-card-
       flat: "",
       raised: "shadow-2",
       interactive:
-        "shadow-2 transition-all duration-base ease-out-quart hover:-translate-y-0.5 hover:border-indigo-200 hover:shadow-brand focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
+        "shadow-2 transition-all duration-base ease-out-quart hover:-translate-y-0.5 hover:border-foreground/20 hover:shadow-brand focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
     },
   },
   defaultVariants: { variant: "raised" },
