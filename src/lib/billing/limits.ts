@@ -26,7 +26,7 @@ export type PlanLimits = {
 
 const INDIVIDUAL_LIMITS: PlanLimits = {
   label: 'Individual',
-  seats: 5,
+  seats: 1,
   monthlyCredits: 10_000,
   maxAgents: 5,
   maxFlows: 5,

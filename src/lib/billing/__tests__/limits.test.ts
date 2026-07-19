@@ -22,7 +22,7 @@ test('unpaid workspaces expose Individual-shaped limits for plan previews', () =
   assert.equal(trial.maxIntegrations, UNLIMITED)
   assert.equal(trial.maxSpecialistAreas, 1)
   assert.equal(trial.monthlyCredits, 10_000)
-  assert.equal(trial.seats, 5)
+  assert.equal(trial.seats, 1)
 })
 
 test('team plan: 10 seats, 50k credits, every core area, unlimited integrations', () => {

@@ -1,19 +1,20 @@
 import { ArrowRight } from 'lucide-react'
+import { BILLING_PLAN_CATALOG } from '@/lib/billing/catalog'
 
 export const PRICING_TIERS = [
   {
     name: 'Individual',
-    price: '$29.99',
+    price: BILLING_PLAN_CATALOG.individual.price,
     cadence: '/ month',
     desc: 'For solo builders getting real work out of AI.',
-    features: ['5 seats included', '10,000 credits / month', '5 agents · 5 flows', '1 core specialist area', 'Unlimited knowledge & connections'],
+    features: ['1 seat included', '10,000 credits / month', '5 agents · 5 flows', '1 core specialist area', 'Unlimited knowledge & connections'],
     href: '/api/stripe/checkout?plan=individual',
     cta: 'Start with Individual',
     featured: false,
   },
   {
     name: 'Team',
-    price: '$299',
+    price: BILLING_PLAN_CATALOG.team.price,
     cadence: '/ month',
     desc: 'For teams running shared agents and workflows.',
     features: ['10 seats included', '50,000 credits / month', '25 agents · 25 flows', 'Every core specialist area', 'Knowledge sync, sharing & history'],
@@ -23,7 +24,7 @@ export const PRICING_TIERS = [
   },
   {
     name: 'Business',
-    price: '$2,999',
+    price: BILLING_PLAN_CATALOG.business.price,
     cadence: '/ month',
     desc: 'For companies scaling AI across departments.',
     features: ['20 seats included', '200,000 credits / month', 'Unlimited agents & flows', 'Unlimited knowledge & connections', 'Priority support & security scopes'],

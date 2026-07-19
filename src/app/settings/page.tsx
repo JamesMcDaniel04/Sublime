@@ -12,6 +12,7 @@ import { Switch } from '@/components/ui/switch'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { toast } from 'sonner'
 import { resizeImageToDataUrl } from '@/lib/client/resize-image'
+import { BILLING_PLAN_CATALOG } from '@/lib/billing/catalog'
 import { LearningsPanel } from './learnings-panel'
 
 type Profile = { name: string; email: string; imageUrl: string | null; role: string }
@@ -386,7 +387,13 @@ export default function SettingsPage() {
             <div>
               <p className="text-sm font-medium">Current plan</p>
               <p className="text-xs text-muted-foreground">
-                {({ TRIAL: 'Payment required', STARTER: 'Individual — $29.99/mo', PROFESSIONAL: 'Team — $299/mo', BUSINESS: 'Business — $1,999/mo', ENTERPRISE: 'Enterprise' } as Record<string, string>)[orgPlan] || orgPlan}
+                {({
+                  TRIAL: 'Payment required',
+                  STARTER: `Individual — ${BILLING_PLAN_CATALOG.individual.priceWithCadence}`,
+                  PROFESSIONAL: `Team — ${BILLING_PLAN_CATALOG.team.priceWithCadence}`,
+                  BUSINESS: `Business — ${BILLING_PLAN_CATALOG.business.priceWithCadence}`,
+                  ENTERPRISE: 'Enterprise',
+                } as Record<string, string>)[orgPlan] || orgPlan}
               </p>
             </div>
             {orgPlan !== 'TRIAL' && !grandfathered && <Button variant="outline" onClick={() => { window.location.href = '/api/stripe/portal' }}>Manage billing</Button>}
@@ -397,9 +404,9 @@ export default function SettingsPage() {
             <div className="space-y-2">
               <p className="text-sm text-muted-foreground">Pick a plan to start using the platform. Billing begins at checkout, you can cancel anytime, and payments are handled securely by Stripe.</p>
               <div className="flex flex-wrap gap-2">
-                <Button onClick={() => { window.location.href = '/api/stripe/checkout?plan=individual' }}>Individual — $29.99/mo</Button>
-                <Button onClick={() => { window.location.href = '/api/stripe/checkout?plan=team' }}>Team — $299/mo</Button>
-                <Button onClick={() => { window.location.href = '/api/stripe/checkout?plan=business' }}>Business — $1,999/mo</Button>
+                <Button onClick={() => { window.location.href = '/api/stripe/checkout?plan=individual' }}>Individual — {BILLING_PLAN_CATALOG.individual.priceWithCadence}</Button>
+                <Button onClick={() => { window.location.href = '/api/stripe/checkout?plan=team' }}>Team — {BILLING_PLAN_CATALOG.team.priceWithCadence}</Button>
+                <Button onClick={() => { window.location.href = '/api/stripe/checkout?plan=business' }}>Business — {BILLING_PLAN_CATALOG.business.priceWithCadence}</Button>
                 <Button variant="outline" onClick={() => { window.location.href = '/contact?reason=enterprise' }}>Enterprise — contact sales</Button>
               </div>
             </div>
