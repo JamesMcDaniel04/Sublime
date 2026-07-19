@@ -5,11 +5,6 @@ import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { createClient } from '@/lib/supabase/client'
 
-function appOrigin(): string {
-  const configured = process.env.NEXT_PUBLIC_APP_URL?.trim().replace(/\/$/, '')
-  return configured || window.location.origin
-}
-
 /** "Continue with Google" via Supabase OAuth. The provider must be enabled in
  * the Supabase dashboard. `returnTo` survives the OAuth round-trip through the
  * /auth/callback `next` param (sanitized server-side by safeReturnToPath). */
@@ -18,7 +13,14 @@ export function GoogleSignInButton({ returnTo = '/dashboard' }: { returnTo?: str
 
   const handleClick = async () => {
     setLoading(true)
-    const callback = `${appOrigin()}/auth/callback?next=${encodeURIComponent(returnTo)}`
+    // The callback MUST return to the exact origin the user is on: the PKCE
+    // code-verifier cookie is host-scoped, so an env-configured origin (apex
+    // vs www, stale domain, preview URL) would strand the verifier on this
+    // host while the code lands on another — every exchange would then fail
+    // with "invalid or expired". window.location.origin is correct by
+    // construction; the only dashboard requirement is that each app origin's
+    // /auth/callback is in Supabase's redirect allow-list.
+    const callback = `${window.location.origin}/auth/callback?next=${encodeURIComponent(returnTo)}`
     const { error } = await createClient().auth.signInWithOAuth({
       provider: 'google',
       options: { redirectTo: callback },

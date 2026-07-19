@@ -1,51 +1,51 @@
 'use client'
 
 import Link from 'next/link'
-import { AlertTriangle } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { AuthShell } from '@/components/auth/auth-shell'
 
 export default function AuthCodeErrorPage() {
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50 py-12 px-4 sm:px-6 lg:px-8">
-      <Card className="max-w-md w-full">
-        <CardHeader className="text-center">
-          <div className="mx-auto flex items-center justify-center h-12 w-12 rounded-full bg-red-100 mb-4">
-            <AlertTriangle className="h-6 w-6 text-red-600" />
-          </div>
-          <CardTitle className="text-2xl font-bold text-gray-900">
-            We couldn&apos;t sign you in
-          </CardTitle>
-          <CardDescription className="text-gray-600">
-            This sign-in link is invalid or has expired.
-          </CardDescription>
-        </CardHeader>
+    <AuthShell
+      eyebrow="Sign-in problem"
+      title="We couldn't sign you in"
+      subtitle="That sign-in didn't complete. It usually takes one more click to fix."
+    >
+      <div className="space-y-4">
+        <ul className="space-y-2.5 text-[13px] leading-[1.6] text-muted-foreground">
+          <li className="flex items-start gap-2.5">
+            <span className="mt-[8px] h-1 w-1 shrink-0 rounded-full bg-primary" />
+            <span>
+              <strong className="font-medium text-foreground">Signed in with Google?</strong> Just
+              try again — it works right away. This can happen when the round-trip started on a
+              different address of the site.
+            </span>
+          </li>
+          <li className="flex items-start gap-2.5">
+            <span className="mt-[8px] h-1 w-1 shrink-0 rounded-full bg-primary" />
+            <span>
+              <strong className="font-medium text-foreground">Clicked an email link?</strong> Those
+              work once and expire after a short while — head back and request a fresh one.
+            </span>
+          </li>
+        </ul>
 
-        <CardContent className="space-y-4">
-          <p className="text-sm text-gray-700">
-            Sign-in links can only be used once and expire after a short while.
-            Head back to the sign-in page to request a fresh one.
-          </p>
+        <div className="space-y-2.5 pt-1">
+          <Button asChild className="w-full bg-foreground text-background hover:bg-foreground/90">
+            <Link href="/auth/login">Back to sign in</Link>
+          </Button>
+          <Button variant="outline" asChild className="w-full">
+            <Link href="/">Go home</Link>
+          </Button>
+        </div>
 
-          <div className="space-y-3">
-            <Button asChild className="w-full">
-              <Link href="/auth/login">
-                Back to sign in
-              </Link>
-            </Button>
-
-            <Button variant="outline" asChild className="w-full">
-              <Link href="/">
-                Go home
-              </Link>
-            </Button>
-          </div>
-
-          <div className="text-xs text-gray-500 text-center">
-            <p>If this keeps happening, please contact support.</p>
-          </div>
-        </CardContent>
-      </Card>
-    </div>
+        <p className="border-t border-border pt-4 text-center text-[12px] text-muted-foreground">
+          Still stuck? Email{' '}
+          <a href="mailto:hello@trysublime.io" className="text-foreground underline underline-offset-4 decoration-foreground/30 hover:decoration-foreground">
+            hello@trysublime.io
+          </a>
+        </p>
+      </div>
+    </AuthShell>
   )
 }
