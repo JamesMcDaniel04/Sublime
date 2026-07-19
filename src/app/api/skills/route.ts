@@ -2,6 +2,7 @@ import { z } from 'zod'
 import { prisma, systemPrisma } from '@/lib/prisma'
 import { ApiError, withAuthenticatedApi } from '@/lib/server/api-handler'
 import { listSkills } from '@/lib/skills/compose'
+import { capabilitiesForPlan } from '@/lib/billing/capabilities'
 
 const skillSchema = z.object({
   name: z.string().min(1).max(80),
@@ -10,7 +11,7 @@ const skillSchema = z.object({
   instructions: z.string().min(1).max(20000),
   tags: z.array(z.string().max(30)).max(10).default([]),
   integrations: z.array(z.string().max(60)).max(10).default([]),
-  visibility: z.enum(['private', 'organization', 'public']).default('organization'),
+  visibility: z.enum(['private', 'organization', 'public']).optional(),
 })
 
 function serializeShared(
@@ -74,9 +75,15 @@ export const GET = withAuthenticatedApi(async (_request, auth) => {
 // POST — workspace-only by default; public publishing is always explicit.
 export const POST = withAuthenticatedApi(async (request, auth) => {
   const data = skillSchema.parse(await request.json())
+  const planCapabilities = capabilitiesForPlan(auth.dbUser.organization?.plan ?? 'TRIAL')
+  const visibility = data.visibility ?? 'private'
+  if (planCapabilities.skillSharing === 'private' && visibility !== 'private') {
+    throw new ApiError('Workspace and public skill sharing are available on Team plans and above.', 403, 'PLAN_LIMIT')
+  }
   const skill = await prisma.sharedSkill.create({
     data: {
       ...data,
+      visibility,
       authorName: auth.dbUser.name || auth.dbUser.email || '',
       organizationId: auth.organizationId,
       userId: auth.dbUser.id,
@@ -88,6 +95,9 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
 // PUT — edit your own community skill.
 export const PUT = withAuthenticatedApi(async (request, auth) => {
   const body = z.object({ id: z.string().min(1) }).merge(skillSchema.partial()).parse(await request.json())
+  if (body.visibility && capabilitiesForPlan(auth.dbUser.organization?.plan ?? 'TRIAL').skillSharing === 'private' && body.visibility !== 'private') {
+    throw new ApiError('Workspace and public skill sharing are available on Team plans and above.', 403, 'PLAN_LIMIT')
+  }
   const ownerScope = auth.dbUser.role === 'ADMIN' ? {} : { userId: auth.dbUser.id }
   const existing = await prisma.sharedSkill.findFirst({
     where: { id: body.id, organizationId: auth.organizationId, isActive: true, ...ownerScope },

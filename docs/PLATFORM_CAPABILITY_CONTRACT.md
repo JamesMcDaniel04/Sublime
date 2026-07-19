@@ -22,7 +22,7 @@ This is the implementation-level source of truth for the plan comparison. Market
 | Enterprise | Custom | Custom | Every core area plus custom scopes | Unlimited | Unlimited |
 
 - Automated workflows and additional paid usage are supported by the flow runtime and Stripe billing foundation.
-- Skills have creator-only, workspace, and public sharing controls. Workspace visibility is the default.
+- Skills have creator-only, workspace, and public sharing controls. Private visibility is the default; workspace/public sharing is included on Team and above.
 - Agent and flow history uses explicit ownership boundaries; audit events are append-only and admins can export CSV.
 - Custom-engineered scopes are an Enterprise delivery service and require an agreed statement of work; code alone cannot promise delivery capacity.
 

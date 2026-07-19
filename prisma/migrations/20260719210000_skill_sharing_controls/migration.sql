@@ -1,7 +1,7 @@
 -- Existing community skills were intentionally public. Preserve that behavior
 -- while making new skills workspace-only by default.
 ALTER TABLE "shared_skills"
-  ADD COLUMN "visibility" TEXT NOT NULL DEFAULT 'organization';
+  ADD COLUMN "visibility" TEXT NOT NULL DEFAULT 'private';
 
 UPDATE "shared_skills" SET "visibility" = 'public';
 

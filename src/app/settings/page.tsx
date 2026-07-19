@@ -572,6 +572,9 @@ function PlanUsageCard() {
           </div>
         ))}
       </div>
+      <div className="mt-3 border-t pt-3">
+        <Button variant="outline" size="sm" asChild><a href="/contact?reason=billing">Request additional usage</a></Button>
+      </div>
     </div>
   )
 }

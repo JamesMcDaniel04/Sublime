@@ -90,7 +90,7 @@ const emptyAsset = (kind: 'template' | 'skill'): AssetDraft => ({
   kind, name: '', category: kind === 'template' ? 'Custom' : 'Community',
   description: '', instructions: '', tags: '', integrations: '', exampleOutput: '',
   templateKind: 'agent', requiredIntegrations: '', recommendedIntegrations: '', scheduleCron: '',
-  skillVisibility: 'organization',
+  skillVisibility: 'private',
 })
 
 const csv = (value: string) => value.split(',').map((s) => s.trim()).filter(Boolean)
