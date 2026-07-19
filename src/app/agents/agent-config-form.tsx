@@ -411,6 +411,23 @@ export function AgentConfigForm({
   // suggestion-kind memories on this agent — dismiss keeps the row (status:
   // 'dismissed') rather than deleting it, so the dedupe embedding stops the
   // same idea from being re-suggested later.
+  // One-click apply: fold the suggestion into the agent's instructions (the
+  // user reviews it in the editor before saving) and mark it accepted.
+  const applySuggestion = (suggestion: { id: string; title: string; content: string }) => {
+    if (!editingAgent?.id) return
+    setDraft((prev) => ({
+      ...prev,
+      instructions: `${prev.instructions.trim()}\n\n${suggestion.content}`.trim(),
+    }))
+    setMemories((prev) => prev.map((m) => (m.id === suggestion.id ? { ...m, status: 'accepted' } : m)))
+    toast.success('Added to instructions — review and save.')
+    void fetch(`/api/agents/${editingAgent.id}/memories`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: suggestion.id, status: 'accepted' }),
+    }).catch(() => undefined)
+  }
+
   const dismissSuggestion = async (id: string) => {
     if (!editingAgent?.id) return
     setDismissingSuggestionId(id)
@@ -1314,6 +1331,8 @@ export function AgentConfigForm({
               .filter((m) => m.kind === 'suggestion' && m.status === 'open')
               .map((m) => ({ id: m.id, title: m.title, content: m.content }))}
             onDismiss={dismissSuggestion}
+            onApply={applySuggestion}
+            applyLabel="Add to instructions"
             dismissingId={dismissingSuggestionId}
           />
           <div className="mb-2 flex items-center justify-between">

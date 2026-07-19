@@ -667,6 +667,29 @@ function FlowBuilder() {
     }
   }, [id])
 
+  // One-click apply: hand the suggestion to the copilot (the same path checker
+  // remediations use) and mark it accepted so the feedback loop learns.
+  const applyImprovementSuggestion = (suggestion: { id: string; title: string; content: string }) => {
+    if (viewingVersion) {
+      toast.error('Close the version view before applying a suggestion.')
+      return
+    }
+    setCopilotRequest({
+      id: `improve-${suggestion.id}-${Date.now()}`,
+      content: `Apply this suggested improvement to the flow: ${suggestion.title}. ${suggestion.content}`,
+      applyOps: true,
+    })
+    setShowCopilot(true)
+    setShowRuns(false)
+    setShowChecker(false)
+    setImprovementSuggestions((prev) => prev.filter((s) => s.id !== suggestion.id))
+    void fetch(`/api/flows/${id}/suggestions`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: suggestion.id, status: 'accepted' }),
+    }).catch(() => undefined)
+  }
+
   const dismissImprovementSuggestion = async (suggestionId: string) => {
     setDismissingSuggestionId(suggestionId)
     const previous = improvementSuggestions
@@ -1699,6 +1722,8 @@ function FlowBuilder() {
           <SuggestedImprovementBanner
             suggestions={improvementSuggestions}
             onDismiss={dismissImprovementSuggestion}
+            onApply={applyImprovementSuggestion}
+            applyLabel="Apply with copilot"
             dismissingId={dismissingSuggestionId}
           />
         </div>

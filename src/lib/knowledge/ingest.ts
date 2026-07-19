@@ -65,13 +65,14 @@ export async function ingestKnowledgeFile(params: {
         agentId: params.agentId,
         ordinal: i,
         content,
-        embedding: embeddings ? embeddings[i] : undefined,
+        // Legacy Json `embedding` deliberately NOT written: knowledge
+        // retrieval reads only the pgvector column below (keyword fallback is
+        // text-based), so the Json copy was pure row bloat. The column itself
+        // is dropped in a future migration once old deploys are gone.
       })),
     })
 
-    // Write the pgvector column too (deploy-window symmetry with the legacy
-    // Json `embedding` above — the follow-up migration drops the Json column
-    // once reads no longer need it). createMany doesn't return generated ids,
+    // Write the pgvector column. createMany doesn't return generated ids,
     // so re-fetch ordered by ordinal to line them back up with `embeddings`.
     if (embeddings) {
       const created = await prisma.knowledgeChunk.findMany({
