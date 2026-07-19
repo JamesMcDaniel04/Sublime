@@ -65,7 +65,7 @@ export function TestInputPanel({
   }
 
   return (
-    <div className="border-b border-border bg-white px-4 py-3 shadow-sm">
+    <div className="border-b border-border bg-card px-4 py-3 shadow-sm">
       <div className="mb-3 flex flex-wrap items-start justify-between gap-2">
         <div>
           <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Test input</p>

@@ -27,9 +27,9 @@ export class CanvasErrorBoundary extends Component<
   render() {
     if (!this.state.error) return this.props.children
     return (
-      <div className="flex h-full min-h-[24rem] flex-1 flex-col items-center justify-center gap-3 bg-slate-50 p-8 text-center">
-        <p className="text-sm font-semibold text-slate-900">The canvas hit a rendering error.</p>
-        <p className="max-w-md text-sm text-slate-600">
+      <div className="flex h-full min-h-[24rem] flex-1 flex-col items-center justify-center gap-3 bg-muted p-8 text-center">
+        <p className="text-sm font-semibold text-foreground">The canvas hit a rendering error.</p>
+        <p className="max-w-md text-sm text-muted-foreground">
           Your flow is safe — every change is saved on the server. Reload to pick up the latest shared version.
         </p>
         <Button onClick={() => window.location.reload()}>

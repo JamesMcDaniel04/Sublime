@@ -72,7 +72,7 @@ function JamAvatar({
   return (
     <span
       className={cn(
-        'relative flex shrink-0 items-center justify-center rounded-full border-2 border-white font-bold text-white shadow-sm transition-shadow',
+        'relative flex shrink-0 items-center justify-center rounded-full border-2 border-background font-bold text-white shadow-sm transition-shadow',
         size === 'md' ? 'h-7 w-7 text-[11px]' : 'h-6 w-6 text-[10px]',
         speaking && 'ring-2 ring-emerald-400',
         className,
@@ -81,7 +81,7 @@ function JamAvatar({
     >
       {name.trim().charAt(0).toUpperCase() || '?'}
       {muted && (
-        <span className="absolute -bottom-0.5 -right-0.5 flex h-3 w-3 items-center justify-center rounded-full bg-slate-700 text-white">
+        <span className="absolute -bottom-0.5 -right-0.5 flex h-3 w-3 items-center justify-center rounded-full bg-foreground text-background">
           <MicOff className="h-2 w-2" />
         </span>
       )}
@@ -147,14 +147,14 @@ function HuddleControl({ peers, huddle }: { peers: JamPeer[]; huddle: JamHuddleC
               <ChevronDown className="h-3 w-3" />
             </button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-64 rounded-xl border-slate-200 bg-white p-1 shadow-xl">
+          <DropdownMenuContent align="end" className="w-64 rounded-xl border-border bg-card p-1 shadow-xl">
             {huddle.mics.map((mic) => (
               <button
                 key={mic.deviceId}
                 type="button"
                 onClick={() => void huddle.setMic(mic.deviceId)}
                 className={cn(
-                  'flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-xs hover:bg-slate-50',
+                  'flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-xs hover:bg-muted',
                   mic.deviceId === huddle.activeMicId && 'font-semibold text-emerald-700',
                 )}
               >
@@ -196,14 +196,14 @@ function ReactionPicker({ onReact, onSpotlight }: { onReact: (emoji: string) => 
           <SmilePlus className="h-4 w-4" />
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-max rounded-xl border-slate-200 bg-white p-1.5 shadow-xl">
+      <DropdownMenuContent align="end" className="w-max rounded-xl border-border bg-card p-1.5 shadow-xl">
         <div className="flex gap-0.5">
           {JAM_REACTION_EMOJI.map((emoji) => (
             <button
               key={emoji}
               type="button"
               aria-label={`React ${emoji}`}
-              className="flex h-8 w-8 items-center justify-center rounded-lg text-lg transition-transform hover:scale-125 hover:bg-slate-50"
+              className="flex h-8 w-8 items-center justify-center rounded-lg text-lg transition-transform hover:scale-125 hover:bg-muted"
               onClick={() => { onReact(emoji); setOpen(false) }}
             >
               {emoji}
@@ -213,7 +213,7 @@ function ReactionPicker({ onReact, onSpotlight }: { onReact: (emoji: string) => 
         {onSpotlight && (
           <button
             type="button"
-            className="mt-1 flex w-full items-center gap-1.5 rounded-lg px-2 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50 hover:text-indigo-700"
+            className="mt-1 flex w-full items-center gap-1.5 rounded-lg px-2 py-1.5 text-xs font-medium text-muted-foreground hover:bg-muted hover:text-indigo-700"
             onClick={() => { onSpotlight(); setOpen(false) }}
           >
             <Megaphone className="h-3.5 w-3.5" /> Spotlight me — ask everyone to follow
@@ -329,7 +329,7 @@ export function JamButton({
             </button>
           ))}
           {peers.length > 4 && (
-            <span className="flex h-7 w-7 items-center justify-center rounded-full border-2 border-white bg-slate-400 text-[11px] font-bold text-white shadow-sm">
+            <span className="flex h-7 w-7 items-center justify-center rounded-full border-2 border-background bg-muted-foreground text-[11px] font-bold text-background shadow-sm">
               +{peers.length - 4}
             </span>
           )}
@@ -338,7 +338,7 @@ export function JamButton({
       {followedPeer && (
         <button
           type="button"
-          className="rounded-full bg-indigo-600 px-2 py-0.5 text-[10px] font-semibold text-white shadow hover:bg-indigo-700"
+          className="rounded-full bg-foreground px-2 py-0.5 text-[10px] font-semibold text-background shadow hover:bg-foreground/85"
           onClick={() => onToggleFollow?.(followedPeer.clientId)}
         >
           Following {followedPeer.name} — stop
@@ -366,34 +366,34 @@ export function JamButton({
             <UserPlus className="h-4 w-4" /> Jam
           </Button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" className="w-80 rounded-xl border-slate-200 bg-white p-3 shadow-xl">
-            <p className="text-sm font-semibold text-slate-900">Start a Flow Jam</p>
-            <p className="mt-0.5 text-xs text-slate-500">
+        <DropdownMenuContent align="end" className="w-80 rounded-xl border-border bg-card p-3 shadow-xl">
+            <p className="text-sm font-semibold text-foreground">Start a Flow Jam</p>
+            <p className="mt-0.5 text-xs text-muted-foreground">
               Invited teammates get a live prompt that drops them straight into this flow.
             </p>
-            <p className="mt-2 flex items-center gap-1.5 text-xs text-slate-600">
+            <p className="mt-2 flex items-center gap-1.5 text-xs text-muted-foreground">
               <span className={cn('h-2 w-2 rounded-full', connectionTone(connectionState))} />
               {CONNECTION_LABEL[connectionState]}
-              {peers.length > 0 && <span className="text-slate-400">· {peers.length} here now</span>}
+              {peers.length > 0 && <span className="text-muted-foreground">· {peers.length} here now</span>}
             </p>
             {connectionDetail && connectionState !== 'connected' && (
-              <p className="mt-1 text-[11px] leading-snug text-slate-500">{connectionDetail}</p>
+              <p className="mt-1 text-[11px] leading-snug text-muted-foreground">{connectionDetail}</p>
             )}
             {!canManage && (
-              <p className="mt-2 rounded-lg bg-slate-50 px-2 py-1.5 text-xs text-slate-500">
+              <p className="mt-2 rounded-lg bg-muted px-2 py-1.5 text-xs text-muted-foreground">
                 Only the flow owner can invite teammates or change jam access. You&apos;re in the jam just by having this flow open.
               </p>
             )}
             {canManage && (
             <div className="mt-2 max-h-56 space-y-0.5 overflow-y-auto">
-              {loading && <Loader2 className="mx-auto my-3 h-4 w-4 animate-spin text-slate-400" />}
+              {loading && <Loader2 className="mx-auto my-3 h-4 w-4 animate-spin text-muted-foreground" />}
               {!loading && members.length === 0 && (
-                <p className="py-3 text-center text-xs text-slate-500">No other members yet — invite teammates from Settings.</p>
+                <p className="py-3 text-center text-xs text-muted-foreground">No other members yet — invite teammates from Settings.</p>
               )}
               {members.map((member) => {
                 const here = peers.some((peer) => peer.userId === member.id)
                 return (
-                  <label key={member.id} className="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-sm hover:bg-slate-50">
+                  <label key={member.id} className="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-sm hover:bg-muted">
                     <input
                       type="checkbox"
                       className="accent-indigo-600"
@@ -410,7 +410,7 @@ export function JamButton({
                     <JamAvatar userId={member.id} name={member.name} size="sm" />
                     <span className="min-w-0 flex-1 truncate">
                       {member.name}
-                      {member.email && <span className="block truncate text-[11px] text-slate-400">{member.email}</span>}
+                      {member.email && <span className="block truncate text-[11px] text-muted-foreground">{member.email}</span>}
                     </span>
                     {here && (
                       <span className="rounded-full bg-emerald-50 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700">

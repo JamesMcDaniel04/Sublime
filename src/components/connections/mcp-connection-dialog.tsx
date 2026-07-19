@@ -309,7 +309,7 @@ export function McpConnectionDialog({
 
           {/* Conditional: API key fields */}
           {draft.authType === 'api_key' && (
-            <div className="space-y-3 rounded-lg border bg-gray-50 p-3">
+            <div className="space-y-3 rounded-lg border bg-muted p-3">
               <div>
                 <Label>API key</Label>
                 <Input
@@ -342,7 +342,7 @@ export function McpConnectionDialog({
 
           {/* Conditional: OAuth 2.0 fields */}
           {draft.authType === 'oauth2' && (
-            <div className="space-y-3 rounded-lg border bg-gray-50 p-3">
+            <div className="space-y-3 rounded-lg border bg-muted p-3">
               {/* Primary path: user-consent / Okta SSO via authorization-code flow */}
               <Button
                 type="button"
@@ -358,7 +358,7 @@ export function McpConnectionDialog({
               </p>
 
               {/* Advanced: pre-issued client credentials for servers that support it */}
-              <details className="rounded-md border bg-white p-2">
+              <details className="rounded-md border bg-card p-2">
                 <summary className="cursor-pointer text-sm font-medium">
                   Advanced: client credentials
                 </summary>

@@ -99,20 +99,20 @@ function AddNestedStepMenu({ onPick }: Readonly<{ onPick: (type: EditableType) =
       <button
         type="button"
         onClick={() => setOpen((value) => !value)}
-        className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-dashed border-slate-300 px-3 py-2 text-sm font-medium text-slate-600 hover:border-blue-400 hover:text-blue-700"
+        className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-dashed border-border px-3 py-2 text-sm font-medium text-muted-foreground hover:border-blue-400 hover:text-blue-700"
       >
         <Plus className="h-4 w-4" /> Add a step
       </button>
       {open && (
         <>
           <button type="button" aria-label="Close" className="fixed inset-0 z-10 cursor-default" onClick={() => setOpen(false)} />
-          <div className="absolute left-0 right-0 top-full z-20 mt-1 max-h-72 overflow-auto rounded-lg border border-slate-200 bg-white p-1 shadow-lg">
+          <div className="absolute left-0 right-0 top-full z-20 mt-1 max-h-72 overflow-auto rounded-lg border border-border bg-card p-1 shadow-lg">
             {NODE_TYPES.map((type) => (
               <button
                 key={type.value}
                 type="button"
                 onClick={() => { setOpen(false); onPick(type.value) }}
-                className="flex w-full items-center rounded-md px-2 py-1.5 text-left text-xs hover:bg-slate-100"
+                className="flex w-full items-center rounded-md px-2 py-1.5 text-left text-xs hover:bg-muted"
               >
                 {type.label}
               </button>
@@ -151,7 +151,7 @@ const STATUS_DOT: Partial<Record<StepStatus, string>> = {
   succeeded: 'bg-emerald-500',
   failed: 'bg-red-500',
   waiting: 'bg-amber-500',
-  skipped: 'bg-slate-300',
+  skipped: 'bg-muted-foreground/40',
 }
 
 /**
@@ -166,14 +166,14 @@ function StepWidget({ data }: Readonly<NodeProps>) {
   return (
     <div className="group relative" style={{ width: WIDGET_WIDTH }}>
       {step.node.type !== 'trigger' && (
-        <Handle type="target" position={Position.Left} className="!h-3 !w-3 !border-2 !border-white !bg-slate-400 hover:!bg-blue-500" />
+        <Handle type="target" position={Position.Left} className="!h-3 !w-3 !border-2 !border-background !bg-muted-foreground hover:!bg-blue-500" />
       )}
       <button
         type="button"
         onClick={() => step.onOpen(step.node.id)}
         className={cn(
-          'flex w-full items-center gap-2.5 rounded-xl border bg-white p-2.5 text-left shadow-sm transition-all hover:shadow-md',
-          step.selected ? 'border-blue-500 ring-2 ring-blue-200' : 'border-slate-200 hover:border-blue-300',
+          'flex w-full items-center gap-2.5 rounded-xl border bg-card p-2.5 text-left shadow-sm transition-all hover:shadow-md',
+          step.selected ? 'border-blue-500 ring-2 ring-blue-200' : 'border-border hover:border-blue-300',
           step.highlighted && 'ring-2 ring-amber-300',
         )}
         // A peer on this step outlines it in THEIR cursor color — selection
@@ -188,14 +188,14 @@ function StepWidget({ data }: Readonly<NodeProps>) {
           <Icon className="h-4.5 w-4.5" />
         </span>
         <span className="min-w-0 flex-1">
-          <span className="block truncate text-sm font-semibold text-slate-950">{step.title}</span>
-          <span className="block truncate text-[11px] text-slate-500">
+          <span className="block truncate text-sm font-semibold text-foreground">{step.title}</span>
+          <span className="block truncate text-[11px] text-muted-foreground">
             {NODE_TYPE_LABEL[step.node.type] ?? step.node.type}
             {step.childCount > 0 && ` · ${step.childCount} inside`}
           </span>
         </span>
         {errors > 0 && <AlertCircle className="h-4 w-4 shrink-0 text-red-500" aria-label={`${errors} errors`} />}
-        {step.status && <span className={cn('h-2 w-2 shrink-0 rounded-full', STATUS_DOT[step.status] ?? 'bg-slate-300')} />}
+        {step.status && <span className={cn('h-2 w-2 shrink-0 rounded-full', STATUS_DOT[step.status] ?? 'bg-muted-foreground/40')} />}
       </button>
       {/* Who else is on this step right now (Flow Jam), in their cursor color. */}
       {step.jamEditors.length > 0 && (
@@ -212,7 +212,7 @@ function StepWidget({ data }: Readonly<NodeProps>) {
           ))}
         </div>
       )}
-      <Handle type="source" position={Position.Right} className="!h-3 !w-3 !border-2 !border-white !bg-slate-400 hover:!bg-blue-500" />
+      <Handle type="source" position={Position.Right} className="!h-3 !w-3 !border-2 !border-background !bg-muted-foreground hover:!bg-blue-500" />
       {/* Quick-add: the n8n end-of-node "+" — appends a step already wired from
           here. Always visible on a leaf (the natural "what's next?" spot);
           hover-revealed once the node has children, so fanned graphs stay calm. */}
@@ -224,7 +224,7 @@ function StepWidget({ data }: Readonly<NodeProps>) {
           )}
           style={{ left: WIDGET_WIDTH + 6 }}
         >
-          <span className="h-px w-4 bg-slate-300" aria-hidden="true" />
+          <span className="h-px w-4 bg-border" aria-hidden="true" />
           <button
             type="button"
             aria-label="Add a connected step"
@@ -233,7 +233,7 @@ function StepWidget({ data }: Readonly<NodeProps>) {
               event.stopPropagation()
               step.onQuickAdd?.(step.node.id)
             }}
-            className="nodrag nopan flex h-6 w-6 items-center justify-center rounded-full border border-slate-300 bg-white text-slate-500 shadow-sm hover:border-blue-400 hover:text-blue-600"
+            className="nodrag nopan flex h-6 w-6 items-center justify-center rounded-full border border-border bg-card text-muted-foreground shadow-sm hover:border-blue-400 hover:text-blue-600"
           >
             <Plus className="h-3.5 w-3.5" />
           </button>
@@ -320,7 +320,7 @@ function JamDagCursors({ peers }: Readonly<{ peers: JamPeer[] }>) {
               title={`${peer.name} is here — off screen`}
             >
               <span
-                className="flex h-6 w-6 items-center justify-center rounded-full border-2 border-white text-[10px] font-bold text-white shadow"
+                className="flex h-6 w-6 items-center justify-center rounded-full border-2 border-background text-[10px] font-bold text-white shadow"
                 style={{ backgroundColor: jamCursorColor(peer.userId) }}
               >
                 {peer.name.charAt(0).toUpperCase()}
@@ -363,14 +363,14 @@ function AddStepPanel({
       <button
         type="button"
         onClick={() => setOpen((value) => !value)}
-        className="flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 shadow-sm hover:border-blue-400 hover:text-blue-700"
+        className="flex items-center gap-1.5 rounded-lg border border-border bg-card px-3 py-2 text-sm font-semibold text-muted-foreground shadow-sm hover:border-blue-400 hover:text-blue-700"
       >
         <Plus className="h-4 w-4" /> Add step
       </button>
       {open && (
         <>
           <button type="button" aria-label="Close" className="fixed inset-0 z-30 cursor-default" onClick={() => setOpen(false)} />
-          <div className="absolute z-40 mt-2 max-h-[72vh] w-[34rem] max-w-[90vw] overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-[0_20px_60px_rgba(15,23,42,0.18)]">
+          <div className="absolute z-40 mt-2 max-h-[72vh] w-[34rem] max-w-[90vw] overflow-hidden rounded-2xl border border-border bg-card shadow-[0_20px_60px_rgba(15,23,42,0.18)]">
             <FlowPicker
               mode="action"
               agents={agents}
@@ -430,10 +430,10 @@ function NodeConfigPanel({
     .filter((child): child is FlowNode => Boolean(child))
 
   return (
-    <aside className="flex h-full w-[28rem] max-w-[92vw] shrink-0 flex-col border-l border-slate-200 bg-slate-50">
-      <div className="flex items-center justify-between border-b border-slate-200 bg-white px-4 py-3">
-        <p className="truncate text-sm font-semibold text-slate-950">{title}</p>
-        <button type="button" onClick={onClose} aria-label="Close settings" className="rounded-md p-1 text-slate-500 hover:bg-slate-100 hover:text-slate-900">
+    <aside className="flex h-full w-[28rem] max-w-[92vw] shrink-0 flex-col border-l border-border bg-muted">
+      <div className="flex items-center justify-between border-b border-border bg-card px-4 py-3">
+        <p className="truncate text-sm font-semibold text-foreground">{title}</p>
+        <button type="button" onClick={onClose} aria-label="Close settings" className="rounded-md p-1 text-muted-foreground hover:bg-muted hover:text-foreground">
           <X className="h-4 w-4" />
         </button>
       </div>
@@ -450,8 +450,8 @@ function NodeConfigPanel({
           onAddStep={!readOnly && node.type === 'errorShield' && onAddContainerStep ? (type, branchIndex) => onAddContainerStep(node.id, type, branchIndex) : undefined}
         />
         {isContainerNode(node) && (
-          <div className="space-y-2 rounded-2xl border border-dashed border-slate-300 bg-white/70 p-3">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Steps inside</p>
+          <div className="space-y-2 rounded-2xl border border-dashed border-border bg-card/70 p-3">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Steps inside</p>
             {children.map((child) => {
               const { list, branchIndex } = siblingsOf(node, child.id)
               return (
@@ -735,7 +735,7 @@ export function DagCanvas({
   return (
     <div className="flex h-full w-full">
       <div
-        className={cn('min-w-0 flex-1', placingPin && '[&_.react-flow__pane]:!cursor-crosshair')}
+        className={cn('min-w-0 flex-1 bg-background', placingPin && '[&_.react-flow__pane]:!cursor-crosshair')}
         onPointerMove={(event) => {
           const instance = rfInstance.current
           if (!instance || !onCursorMove) return
@@ -783,7 +783,7 @@ export function DagCanvas({
           {!readOnly && <AddStepPanel agents={agents} toolCatalog={toolCatalog} onAddNode={onAddNode} />}
           <Background gap={28} size={1} color="rgba(15, 23, 42, 0.22)" />
           <Controls showInteractive={false} />
-          <MiniMap pannable zoomable className="!bg-white" />
+          <MiniMap pannable zoomable className="!bg-card" />
           <JamDagCursors peers={jamPeers ?? []} />
           <JamDagCommentPins pins={commentPins ?? []} onPinClick={onPinClick} />
         </ReactFlow>
@@ -795,21 +795,21 @@ export function DagCanvas({
           <>
             <button type="button" aria-label="Close" className="fixed inset-0 z-30 cursor-default" onClick={() => setQuickAdd(null)} />
             {quickAdd.options ? (
-              <div className="fixed left-1/2 top-24 z-40 w-64 -translate-x-1/2 rounded-2xl border border-slate-200 bg-white p-3 shadow-[0_20px_60px_rgba(15,23,42,0.18)]">
-                <p className="mb-2 text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Connect from which output?</p>
+              <div className="fixed left-1/2 top-24 z-40 w-64 -translate-x-1/2 rounded-2xl border border-border bg-card p-3 shadow-[0_20px_60px_rgba(15,23,42,0.18)]">
+                <p className="mb-2 text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">Connect from which output?</p>
                 {quickAdd.options.map((option) => (
                   <button
                     key={option.value}
                     type="button"
                     onClick={() => setQuickAdd({ sourceId: quickAdd.sourceId, position: quickAdd.position, branch: option.value })}
-                    className="flex w-full items-center rounded-lg px-2 py-1.5 text-left text-sm text-slate-700 hover:bg-slate-100"
+                    className="flex w-full items-center rounded-lg px-2 py-1.5 text-left text-sm text-muted-foreground hover:bg-muted"
                   >
                     {option.label}
                   </button>
                 ))}
               </div>
             ) : (
-              <div className="fixed left-1/2 top-24 z-40 max-h-[72vh] w-[34rem] max-w-[90vw] -translate-x-1/2 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-[0_20px_60px_rgba(15,23,42,0.18)]">
+              <div className="fixed left-1/2 top-24 z-40 max-h-[72vh] w-[34rem] max-w-[90vw] -translate-x-1/2 overflow-hidden rounded-2xl border border-border bg-card shadow-[0_20px_60px_rgba(15,23,42,0.18)]">
                 <FlowPicker
                   mode="action"
                   agents={agents}

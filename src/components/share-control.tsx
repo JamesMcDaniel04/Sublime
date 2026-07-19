@@ -76,7 +76,7 @@ export function ShareControl({
       {open && (
         <>
           <button type="button" aria-label="Close" className="fixed inset-0 z-30 cursor-default" onClick={() => setOpen(false)} />
-          <div className="absolute right-0 z-40 mt-1 w-72 overflow-hidden rounded-xl border border-slate-200 bg-white p-1 shadow-[0_20px_60px_rgba(15,23,42,0.18)]">
+          <div className="absolute right-0 z-40 mt-1 w-72 overflow-hidden rounded-xl border border-slate-200 bg-card p-1 shadow-[0_20px_60px_rgba(15,23,42,0.18)]">
             {OPTIONS.map((option) => (
               <button
                 key={option.value}

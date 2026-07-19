@@ -98,7 +98,7 @@ export function CommentPinMarker({ pin, onClick }: Readonly<{ pin: CommentPinDat
         event.stopPropagation()
         onClick?.()
       }}
-      className="pointer-events-auto flex h-7 w-7 items-center justify-center rounded-full rounded-bl-none border-2 border-white text-[11px] font-bold text-white shadow-md transition-transform hover:scale-110"
+      className="pointer-events-auto flex h-7 w-7 items-center justify-center rounded-full rounded-bl-none border-2 border-background text-[11px] font-bold text-white shadow-md transition-transform hover:scale-110"
       style={{ backgroundColor: pin.color }}
     >
       {pin.count > 1 ? pin.count : pin.initial}
@@ -350,10 +350,10 @@ export function CommentsPanel({
       <CommentAvatar userId={comment.author.id} name={comment.author.name} />
       <div className="min-w-0 flex-1">
         <p className="text-xs">
-          <span className="font-semibold text-slate-800">{comment.author.name}</span>{' '}
-          <span className="text-slate-400">{timeAgo(comment.createdAt)}</span>
+          <span className="font-semibold text-foreground">{comment.author.name}</span>{' '}
+          <span className="text-muted-foreground">{timeAgo(comment.createdAt)}</span>
         </p>
-        <p className="whitespace-pre-wrap break-words text-sm text-slate-700">
+        <p className="whitespace-pre-wrap break-words text-sm text-foreground/90">
           {splitMentionSegments(comment.body, members).map((segment, index) =>
             segment.mention ? (
               <span key={`${comment.id}-${index}`} className="rounded bg-indigo-50 px-0.5 font-medium text-indigo-700">{segment.text}</span>
@@ -370,7 +370,7 @@ export function CommentsPanel({
           title="Delete"
           disabled={busy}
           onClick={() => void remove(comment.id)}
-          className="hidden h-6 w-6 shrink-0 items-center justify-center rounded text-slate-300 hover:bg-slate-100 hover:text-rose-500 group-hover/comment:flex"
+          className="hidden h-6 w-6 shrink-0 items-center justify-center rounded text-muted-foreground/60 hover:bg-muted hover:text-rose-500 group-hover/comment:flex"
         >
           <Trash2 className="h-3.5 w-3.5" />
         </button>
@@ -390,7 +390,7 @@ export function CommentsPanel({
         }}
         className={cn(
           'space-y-2 rounded-lg border p-2.5',
-          resolved ? 'border-slate-100 bg-slate-50/60 opacity-75' : 'border-slate-200 bg-white',
+          resolved ? 'border-border/60 bg-muted/60 opacity-75' : 'border-border bg-card',
           focusThreadId === root.id && 'ring-2 ring-indigo-300',
         )}
       >
@@ -425,15 +425,15 @@ export function CommentsPanel({
                   if (event.key === 'Escape') setReplyingTo(null)
                 }}
                 placeholder="Reply…"
-                className="h-7 min-w-0 flex-1 rounded-md border border-slate-200 px-2 text-xs outline-none focus:border-indigo-300"
+                className="h-7 min-w-0 flex-1 rounded-md border border-border bg-background px-2 text-xs outline-none focus:border-indigo-300"
               />
-              <button type="button" aria-label="Send reply" disabled={busy || !replyDraft.trim()} onClick={() => void reply(root.id)} className="flex h-7 w-7 items-center justify-center rounded-md bg-indigo-600 text-white disabled:opacity-40">
+              <button type="button" aria-label="Send reply" disabled={busy || !replyDraft.trim()} onClick={() => void reply(root.id)} className="flex h-7 w-7 items-center justify-center rounded-md bg-foreground text-background disabled:opacity-40">
                 <Send className="h-3.5 w-3.5" />
               </button>
             </>
           ) : (
             <>
-              <button type="button" onClick={() => { setReplyingTo(root.id); setReplyDraft('') }} className="flex items-center gap-1 text-[11px] font-medium text-slate-500 hover:text-indigo-600">
+              <button type="button" onClick={() => { setReplyingTo(root.id); setReplyDraft('') }} className="flex items-center gap-1 text-[11px] font-medium text-muted-foreground hover:text-indigo-600">
                 <CornerDownRight className="h-3 w-3" /> Reply
               </button>
               {(root.mine || canModerate) && (
@@ -441,7 +441,7 @@ export function CommentsPanel({
                   type="button"
                   disabled={busy}
                   onClick={() => void setResolved(root.id, !resolved)}
-                  className={cn('ml-auto flex items-center gap-1 text-[11px] font-medium', resolved ? 'text-slate-500 hover:text-indigo-600' : 'text-emerald-600 hover:text-emerald-700')}
+                  className={cn('ml-auto flex items-center gap-1 text-[11px] font-medium', resolved ? 'text-muted-foreground hover:text-indigo-600' : 'text-emerald-600 hover:text-emerald-700')}
                 >
                   {resolved ? <><RotateCcw className="h-3 w-3" /> Reopen</> : <><Check className="h-3 w-3" /> Resolve</>}
                 </button>
@@ -459,9 +459,9 @@ export function CommentsPanel({
 
   if (!open) return null
   return (
-    <div className="fixed bottom-4 right-4 top-20 z-40 flex w-80 flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xl">
+    <div className="fixed bottom-4 right-4 top-20 z-40 flex w-80 flex-col overflow-hidden rounded-xl border border-border bg-card shadow-xl">
       <div className="flex items-center justify-between border-b px-3 py-2">
-        <p className="flex items-center gap-1.5 text-sm font-semibold text-slate-900">
+        <p className="flex items-center gap-1.5 text-sm font-semibold text-foreground">
           <MessageSquareText className="h-4 w-4 text-indigo-600" /> Comments
         </p>
         <div className="flex items-center gap-1">
@@ -473,13 +473,13 @@ export function CommentsPanel({
               onClick={onTogglePinPlacement}
               className={cn(
                 'flex items-center gap-1 rounded-md px-1.5 py-1 text-[11px] font-medium transition-colors',
-                placingPin ? 'bg-amber-100 text-amber-800' : 'text-slate-500 hover:bg-slate-100 hover:text-slate-700',
+                placingPin ? 'bg-amber-100 text-amber-800' : 'text-muted-foreground hover:bg-muted hover:text-foreground',
               )}
             >
               <Pin className="h-3.5 w-3.5" /> {placingPin ? 'Click the canvas…' : 'Pin'}
             </button>
           )}
-          <button type="button" aria-label="Close comments" onClick={onClose} className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700">
+          <button type="button" aria-label="Close comments" onClick={onClose} className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground">
             <X className="h-4 w-4" />
           </button>
         </div>
@@ -490,20 +490,20 @@ export function CommentsPanel({
           <p className="mb-1.5 flex items-center gap-1.5 text-[11px] text-amber-700">
             <Pin className="h-3 w-3 shrink-0" />
             New canvas pin — your comment attaches to the clicked spot.
-            <button type="button" className="ml-auto font-medium text-slate-400 hover:text-slate-600" onClick={onCancelPendingPin}>
+            <button type="button" className="ml-auto font-medium text-muted-foreground hover:text-foreground" onClick={onCancelPendingPin}>
               Cancel
             </button>
           </p>
         )}
         {!pendingPin && selectedNodeId && (
-          <label className="mb-1.5 flex cursor-pointer items-center gap-1.5 text-[11px] text-slate-600">
+          <label className="mb-1.5 flex cursor-pointer items-center gap-1.5 text-[11px] text-muted-foreground">
             <input type="checkbox" className="accent-indigo-600" checked={anchorToSelection} onChange={(event) => setAnchorToSelection(event.target.checked)} />
             Attach to <span className="max-w-[150px] truncate font-medium text-indigo-700">{nodeLabels[selectedNodeId] || 'selected step'}</span>
           </label>
         )}
         <div className="relative">
           {mentionMatches.length > 0 && (
-            <div className="absolute inset-x-0 top-full z-10 mt-1 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-lg">
+            <div className="absolute inset-x-0 top-full z-10 mt-1 overflow-hidden rounded-lg border border-border bg-card shadow-lg">
               {mentionMatches.map((member) => (
                 <button
                   key={member.id}
@@ -511,7 +511,7 @@ export function CommentsPanel({
                   // Keep the textarea focused so picking doesn't blur mid-insert.
                   onMouseDown={(event) => event.preventDefault()}
                   onClick={() => applyMention(member)}
-                  className="flex w-full items-center gap-2 px-2 py-1.5 text-left text-sm hover:bg-slate-50"
+                  className="flex w-full items-center gap-2 px-2 py-1.5 text-left text-sm hover:bg-muted"
                 >
                   <CommentAvatar userId={member.id} name={member.name} />
                   <span className="truncate">{member.name}</span>
@@ -550,7 +550,7 @@ export function CommentsPanel({
               onBlur={() => setMentionQuery(null)}
               rows={2}
               placeholder={composerPlaceholder}
-              className="min-h-[3rem] flex-1 resize-none rounded-md border border-slate-200 p-2 text-sm outline-none focus:border-indigo-300"
+              className="min-h-[3rem] flex-1 resize-none rounded-md border border-border bg-background p-2 text-sm outline-none focus:border-indigo-300"
             />
             <Button size="icon" aria-label="Post comment" disabled={busy || !draft.trim()} onClick={() => void create()}>
               <Send className="h-4 w-4" />
@@ -560,14 +560,14 @@ export function CommentsPanel({
       </div>
 
       <div className="flex-1 space-y-2 overflow-y-auto p-3">
-        {loading && <Loader2 className="mx-auto my-6 h-4 w-4 animate-spin text-slate-400" />}
+        {loading && <Loader2 className="mx-auto my-6 h-4 w-4 animate-spin text-muted-foreground" />}
         {!loading && roots.length === 0 && (
-          <p className="py-8 text-center text-xs text-slate-400">No comments yet — start the discussion.</p>
+          <p className="py-8 text-center text-xs text-muted-foreground">No comments yet — start the discussion.</p>
         )}
         {openThreads.map(renderThread)}
         {resolvedThreads.length > 0 && (
           <>
-            <p className="pt-2 text-[11px] font-semibold uppercase tracking-wide text-slate-400">Resolved</p>
+            <p className="pt-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Resolved</p>
             {resolvedThreads.map(renderThread)}
           </>
         )}
@@ -602,7 +602,7 @@ export function JamReactionsOverlay({ reactions }: { reactions: FloatingReaction
             style={{ left: `${((reaction.key % 7) - 3) * 26}px`, animation: 'jam-reaction-rise 1.8s ease-out forwards' }}
           >
             <span className="text-3xl drop-shadow">{reaction.emoji}</span>
-            <span className="mt-0.5 whitespace-nowrap rounded-full bg-white/90 px-1.5 text-[10px] font-semibold text-slate-600 shadow-sm">
+            <span className="mt-0.5 whitespace-nowrap rounded-full bg-background/90 px-1.5 text-[10px] font-semibold text-muted-foreground shadow-sm">
               {reaction.name}
             </span>
           </div>

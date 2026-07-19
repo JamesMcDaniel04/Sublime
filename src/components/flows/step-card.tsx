@@ -167,7 +167,7 @@ const NODE_ICON: Record<FlowNode['type'], typeof Bot> = {
 
 const NODE_TONE: Record<FlowNode['type'], string> = {
   trigger: 'bg-blue-600 text-white',
-  agent: 'bg-slate-900 text-white',
+  agent: 'bg-foreground text-background',
   http: 'bg-emerald-600 text-white',
   respondWebhook: 'bg-emerald-700 text-white',
   wait: 'bg-sky-600 text-white',
@@ -185,20 +185,20 @@ const NODE_TONE: Record<FlowNode['type'], string> = {
   humanReview: 'bg-blue-600 text-white',
   input: 'bg-teal-600 text-white',
   output: 'bg-rose-500 text-white',
-  subflow: 'bg-indigo-600 text-white',
+  subflow: 'bg-foreground text-background',
   router: 'bg-fuchsia-500 text-white',
   errorShield: 'bg-rose-600 text-white',
 }
 
 const STATUS_DOT: Record<StepStatus, string> = {
-  queued: 'bg-gray-300',
+  queued: 'bg-muted-foreground/40',
   running: 'bg-amber-400 animate-pulse',
   succeeded: 'bg-emerald-500',
   failed: 'bg-red-500',
   waiting: 'bg-blue-500 animate-pulse',
-  skipped: 'bg-gray-300',
+  skipped: 'bg-muted-foreground/40',
   stopped: 'bg-slate-500',
-  resumed: 'bg-gray-300',
+  resumed: 'bg-muted-foreground/40',
 }
 
 const INPUT_TYPES: {
@@ -211,22 +211,22 @@ const INPUT_TYPES: {
   tone: string
 }[] = [
   { id: 'text', label: 'Text', description: 'Please enter your input', name: 'text', fieldType: 'string', icon: Type, tone: 'bg-purple-500 text-white' },
-  { id: 'yesno', label: 'Yes / No', description: 'Choose yes or no.', name: 'yesNo', fieldType: 'boolean', icon: ToggleLeft, tone: 'bg-indigo-500 text-white' },
-  { id: 'file', label: 'File', description: 'Upload or provide file data.', name: 'file', fieldType: 'object', icon: FileText, tone: 'bg-slate-700 text-white' },
+  { id: 'yesno', label: 'Yes / No', description: 'Choose yes or no.', name: 'yesNo', fieldType: 'boolean', icon: ToggleLeft, tone: 'bg-foreground text-background' },
+  { id: 'file', label: 'File', description: 'Upload or provide file data.', name: 'file', fieldType: 'object', icon: FileText, tone: 'bg-foreground text-background' },
   { id: 'email', label: 'Email', description: 'Enter an email address.', name: 'email', fieldType: 'string', icon: Mail, tone: 'bg-green-600 text-white' },
   { id: 'number', label: 'Number', description: 'Enter a number.', name: 'number', fieldType: 'number', icon: Hash, tone: 'bg-orange-500 text-white' },
   { id: 'date', label: 'Date', description: 'Enter a date.', name: 'date', fieldType: 'string', icon: CalendarDays, tone: 'bg-rose-500 text-white' },
 ]
 
 const controlClass =
-  'h-10 rounded-md border border-slate-300 bg-white px-3 text-sm text-slate-950 outline-none transition-colors placeholder:text-slate-400 hover:border-slate-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-100'
+  'h-10 rounded-md border border-border bg-background px-3 text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground hover:border-muted-foreground/50 focus:border-blue-500 focus:ring-2 focus:ring-blue-100'
 // TokenTextEditor overrides that restyle the drawer-flavored defaults to match
 // the card's denser slate inputs. No border color here — `invalid` red borders
 // (appended after this string) must win in tailwind-merge order.
 const tokenControlBase =
-  'min-h-10 rounded-md bg-white px-3 py-2 text-sm text-slate-950 transition-colors empty:before:text-slate-400 hover:border-slate-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-100'
-const tokenControlClass = `${tokenControlBase} border-slate-300`
-const labelClass = 'text-[11px] font-semibold uppercase tracking-wide text-slate-500'
+  'min-h-10 rounded-md bg-background px-3 py-2 text-sm text-foreground transition-colors empty:before:text-muted-foreground hover:border-muted-foreground/50 focus:border-blue-500 focus:ring-2 focus:ring-blue-100'
+const tokenControlClass = `${tokenControlBase} border-border`
+const labelClass = 'text-[11px] font-semibold uppercase tracking-wide text-muted-foreground'
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === 'object' && !Array.isArray(value))
@@ -319,7 +319,7 @@ function collapsedAffordance(node: FlowNode): React.ReactNode | null {
   if ((trigger.type ?? 'manual') !== 'manual') return null
   const count = triggerInputFieldsFromTrigger(trigger).length
   return (
-    <span className="pointer-events-none flex items-center gap-3 py-2 text-base font-semibold text-slate-700">
+    <span className="pointer-events-none flex items-center gap-3 py-2 text-base font-semibold text-muted-foreground">
       <Plus className="h-5 w-5" />
       {count > 0 ? `${count} input${count === 1 ? '' : 's'} — add another` : 'Add an input'}
     </span>
@@ -575,8 +575,8 @@ export function StepCard({
       }}
       onKeyDown={onRootKeyDown}
       className={cn(
-        'w-full rounded-[18px] border bg-white text-left shadow-[0_2px_10px_rgba(15,23,42,0.08)] outline-none transition-all duration-fast',
-        'hover:border-slate-300 hover:shadow-[0_8px_24px_rgba(15,23,42,0.12)] focus-visible:ring-2 focus-visible:ring-blue-200',
+        'w-full rounded-[18px] border bg-card text-left shadow-[0_2px_10px_rgba(15,23,42,0.08)] outline-none transition-all duration-fast',
+        'hover:border-border hover:shadow-[0_8px_24px_rgba(15,23,42,0.12)] focus-visible:ring-2 focus-visible:ring-blue-200',
         selected
           ? 'border-blue-500 ring-2 ring-blue-100'
           : highlighted
@@ -585,7 +585,7 @@ export function StepCard({
               ? 'border-red-400 ring-2 ring-red-100'
               : issues?.warnings
                 ? 'border-amber-300'
-                : 'border-slate-200',
+                : 'border-border',
       )}
     >
       <div className="flex items-center gap-5 px-5 py-5">
@@ -608,7 +608,7 @@ export function StepCard({
         </span>
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
-            {typeof index === 'number' && <span className="text-xs font-semibold text-slate-400">{index}</span>}
+            {typeof index === 'number' && <span className="text-xs font-semibold text-muted-foreground">{index}</span>}
             {renaming ? (
               <span className="flex items-center gap-1.5" onClick={stopEvent}>
                 <input
@@ -623,24 +623,24 @@ export function StepCard({
                     unblockActive()
                     setRenaming(false)
                   }}
-                  className="h-9 min-w-0 flex-1 rounded-md border border-blue-400 bg-white px-2 text-lg font-semibold text-slate-950 outline-none ring-2 ring-blue-100"
+                  className="h-9 min-w-0 flex-1 rounded-md border border-blue-400 bg-background px-2 text-lg font-semibold text-foreground outline-none ring-2 ring-blue-100"
                   placeholder={displayTitle}
                   aria-label="Step name"
                 />
                 <button
                   type="button"
                   onClick={() => setRenaming(false)}
-                  className="flex h-9 w-9 items-center justify-center rounded-md text-slate-500 hover:bg-slate-100"
+                  className="flex h-9 w-9 items-center justify-center rounded-md text-muted-foreground hover:bg-muted"
                   aria-label="Done renaming"
                 >
                   <Check className="h-4 w-4" />
                 </button>
               </span>
             ) : (
-              <h3 className="truncate text-lg font-semibold text-slate-950">{displayTitle}</h3>
+              <h3 className="truncate text-lg font-semibold text-foreground">{displayTitle}</h3>
             )}
           </div>
-          {displaySubtitle && <p className="mt-0.5 truncate text-sm text-slate-500">{displaySubtitle}</p>}
+          {displaySubtitle && <p className="mt-0.5 truncate text-sm text-muted-foreground">{displaySubtitle}</p>}
         </div>
         {issues && (issues.errors > 0 || issues.warnings > 0) && (
           <button
@@ -670,7 +670,7 @@ export function StepCard({
         )}
         {jamEditors && jamEditors.length > 0 && (
           <span
-            className="flex shrink-0 items-center gap-1 rounded-full border bg-white px-2 py-0.5 text-[11px] font-semibold"
+            className="flex shrink-0 items-center gap-1 rounded-full border bg-card px-2 py-0.5 text-[11px] font-semibold"
             // The peer's stable cursor color, so "who is here" matches their
             // cursor and canvas outline everywhere.
             style={{ borderColor: jamCursorColor(jamEditors[0].userId), color: jamCursorColor(jamEditors[0].userId) }}
@@ -681,7 +681,7 @@ export function StepCard({
           </span>
         )}
         {status && (
-          <span className="flex shrink-0 items-center gap-1.5 rounded-full border border-slate-200 px-2.5 py-1 text-xs font-semibold text-slate-700">
+          <span className="flex shrink-0 items-center gap-1.5 rounded-full border border-border px-2.5 py-1 text-xs font-semibold text-muted-foreground">
             <span className={cn('h-2 w-2 rounded-full', STATUS_DOT[status])} />
             {status === 'running' ? <TypewriterStatus seed={node.id.length ? node.id.charCodeAt(node.id.length - 1) : 0} /> : status}
           </span>
@@ -692,7 +692,7 @@ export function StepCard({
             event.stopPropagation()
             onClick?.()
           }}
-          className="hidden h-9 w-9 shrink-0 items-center justify-center rounded-md text-slate-500 hover:bg-slate-100 hover:text-slate-900 sm:flex"
+          className="hidden h-9 w-9 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground sm:flex"
           aria-label="Open step settings"
           title="Open step settings"
         >
@@ -703,7 +703,7 @@ export function StepCard({
             <button
               type="button"
               onClick={(event) => event.stopPropagation()}
-              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md text-slate-500 hover:bg-slate-100 hover:text-slate-900"
+              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
               aria-label="Step options"
               title="Step options"
             >
@@ -715,14 +715,14 @@ export function StepCard({
               <>
                 <DropdownMenuItem onSelect={onDelete} className="text-red-600 focus:text-red-700">
                   <Trash2 className="h-4 w-4" /> Delete
-                  <span className="ml-auto pl-4 text-xs text-slate-400">Del</span>
+                  <span className="ml-auto pl-4 text-xs text-muted-foreground">Del</span>
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
               </>
             )}
             <DropdownMenuItem onSelect={copyNodeJson}>
               <ClipboardCopy className="h-4 w-4" /> {isTrigger ? 'Copy trigger JSON' : 'Copy step JSON'}
-              <span className="ml-auto pl-4 text-xs text-slate-400">⌘C</span>
+              <span className="ml-auto pl-4 text-xs text-muted-foreground">⌘C</span>
             </DropdownMenuItem>
             {!isTrigger && (
               <DropdownMenuItem onSelect={() => setRenaming(true)}>
@@ -754,7 +754,7 @@ export function StepCard({
             transition={{ duration: 0.18, ease: 'easeOut' }}
             className="overflow-hidden"
           >
-            <div onClick={stopEvent} onFocus={stopEvent} className="border-t border-slate-200 px-5 py-4">
+            <div onClick={stopEvent} onFocus={stopEvent} className="border-t border-border px-5 py-4">
               {renderNodeBody({ node, flowId, agents, toolCatalog, update, onRefreshAgents, tokenWiring, showErrors, variableNames, dataFields, onAddStep })}
               {node.type !== 'trigger' && (
                 <StepSettingsFooter node={node} update={update} onChangeType={onChangeType} tokenWiring={tokenWiring} />
@@ -763,19 +763,19 @@ export function StepCard({
           </motion.div>
         ) : (
           collapsedAffordance(node) && (
-            <div className="border-t border-slate-200 px-5 py-1.5">{collapsedAffordance(node)}</div>
+            <div className="border-t border-border px-5 py-1.5">{collapsedAffordance(node)}</div>
           )
         )}
       </AnimatePresence>
       {codeOpen && (
-        <div onClick={stopEvent} className="border-t border-slate-200 px-5 py-4">
+        <div onClick={stopEvent} className="border-t border-border px-5 py-4">
           <div className="mb-2 flex items-center justify-between">
-            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Code view</p>
+            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Code view</p>
             <div className="flex items-center gap-3">
               <button type="button" onClick={copyNodeJson} className="text-xs font-semibold text-blue-700 hover:text-blue-900">
                 Copy
               </button>
-              <button type="button" onClick={() => setCodeOpen(false)} className="text-xs font-semibold text-slate-500 hover:text-slate-900">
+              <button type="button" onClick={() => setCodeOpen(false)} className="text-xs font-semibold text-muted-foreground hover:text-foreground">
                 Close
               </button>
             </div>
@@ -788,7 +788,7 @@ export function StepCard({
           <div
             ref={tokenPopoverRef}
             style={{ position: 'fixed', top: tokenPopover.top, left: tokenPopover.left, width: tokenPopover.width, zIndex: 60 }}
-            className="max-h-72 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-[0_16px_48px_rgba(15,23,42,0.18)]"
+            className="max-h-72 overflow-hidden rounded-xl border border-border bg-card shadow-[0_16px_48px_rgba(15,23,42,0.18)]"
             onMouseDown={(event) => event.stopPropagation()}
           >
             <DataTree fields={dataFields} onInsert={insertToken} title="Insert data" emptyMessage="No earlier step data is available yet." />
@@ -800,19 +800,19 @@ export function StepCard({
           <div
             ref={issuesPopoverRef}
             style={{ position: 'fixed', top: issuesPopover.top, left: issuesPopover.left, zIndex: 60 }}
-            className="w-max max-w-xs rounded-xl border border-slate-200 bg-white p-3 shadow-[0_16px_48px_rgba(15,23,42,0.18)]"
+            className="w-max max-w-xs rounded-xl border border-border bg-card p-3 shadow-[0_16px_48px_rgba(15,23,42,0.18)]"
             onMouseDown={(event) => event.stopPropagation()}
             onClick={(event) => event.stopPropagation()}
           >
             <ul className="space-y-2">
               {issueItems.map((item, itemIndex) => (
-                <li key={itemIndex} className="flex items-start gap-2 text-sm text-slate-700">
+                <li key={itemIndex} className="flex items-start gap-2 text-sm text-muted-foreground">
                   <span className={cn('mt-1.5 h-2 w-2 shrink-0 rounded-full', item.level === 'error' ? 'bg-red-500' : 'bg-amber-500')} />
                   <span className="min-w-0">{humanize(item.message)}</span>
                 </li>
               ))}
             </ul>
-            <div className="mt-3 border-t border-slate-200 pt-2">
+            <div className="mt-3 border-t border-border pt-2">
               <button
                 type="button"
                 onClick={() => {
@@ -840,14 +840,14 @@ function AddNestedStepMenu({ label, onPick }: { label: string; onPick: (type: Ed
       <button
         type="button"
         onClick={() => setOpen((value) => !value)}
-        className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-dashed border-slate-300 px-3 py-2 text-sm font-medium text-slate-600 hover:border-blue-400 hover:text-blue-700"
+        className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-dashed border-border px-3 py-2 text-sm font-medium text-muted-foreground hover:border-blue-400 hover:text-blue-700"
       >
         <Plus className="h-4 w-4" /> {label}
       </button>
       {open && (
         <>
           <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
-          <div className="absolute left-0 right-0 top-full z-20 mt-1 rounded-lg border border-slate-200 bg-white p-1 shadow-lg">
+          <div className="absolute left-0 right-0 top-full z-20 mt-1 rounded-lg border border-border bg-card p-1 shadow-lg">
             {NODE_TYPES.map((type) => (
               <button
                 key={type.value}
@@ -856,7 +856,7 @@ function AddNestedStepMenu({ label, onPick }: { label: string; onPick: (type: Ed
                   setOpen(false)
                   onPick(type.value)
                 }}
-                className="flex w-full items-center rounded-md px-2 py-1.5 text-left text-xs hover:bg-slate-100"
+                className="flex w-full items-center rounded-md px-2 py-1.5 text-left text-xs hover:bg-muted"
               >
                 {type.label}
               </button>
@@ -882,7 +882,7 @@ function StepSettingsFooter({
 }) {
   const { blockActive, unblockActive } = tokenWiring
   return (
-    <div className="mt-4 grid gap-3 border-t border-slate-100 pt-3 sm:grid-cols-2">
+    <div className="mt-4 grid gap-3 border-t border-border/60 pt-3 sm:grid-cols-2">
       {onChangeType && (
         <div className="grid gap-1.5">
           <label className={labelClass}>Step type</label>
@@ -961,7 +961,7 @@ function renderNodeBody({
     case 'parallel':
       return (
         <div className="space-y-3">
-          <p className="text-sm text-slate-600">Runs {node.data.branches.length || 0} branches side by side.</p>
+          <p className="text-sm text-muted-foreground">Runs {node.data.branches.length || 0} branches side by side.</p>
           <div className="grid gap-1.5">
             <label className={labelClass}>Join strategy</label>
             <select
@@ -993,9 +993,9 @@ function renderNodeBody({
     case 'errorShield':
       return <ErrorShieldBody node={node} onAddStep={onAddStep} />
     case 'input':
-      return <p className="text-sm text-slate-600">Define the typed values callers may pass to this workflow.</p>
+      return <p className="text-sm text-muted-foreground">Define the typed values callers may pass to this workflow.</p>
     case 'output':
-      return <p className="text-sm text-slate-600">Define the values this workflow returns to callers.</p>
+      return <p className="text-sm text-muted-foreground">Define the values this workflow returns to callers.</p>
     case 'subflow':
       return <SubflowBody node={node} update={update} />
   }
@@ -1165,15 +1165,15 @@ function TriggerBody({
   const copyBlock = (label: string, value: string, valueClass?: string, pre?: boolean) => (
     <div>
       <div className="mb-1 flex items-center justify-between gap-2">
-        <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">{label}</p>
+        <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">{label}</p>
         <button type="button" className="flex items-center gap-1 text-[11px] font-medium text-blue-700 hover:text-blue-900" onClick={() => copyText(value, label)}>
           <Copy className="h-3 w-3" /> Copy
         </button>
       </div>
       {pre ? (
-        <pre className={cn('max-h-36 overflow-auto rounded bg-white px-2 py-1.5 text-[11px]', valueClass)}>{value}</pre>
+        <pre className={cn('max-h-36 overflow-auto rounded bg-background px-2 py-1.5 text-[11px]', valueClass)}>{value}</pre>
       ) : (
-        <p className={cn('break-all rounded bg-white px-2 py-1.5 font-mono text-[11px]', valueClass)}>{value}</p>
+        <p className={cn('break-all rounded bg-background px-2 py-1.5 font-mono text-[11px]', valueClass)}>{value}</p>
       )}
     </div>
   )
@@ -1243,10 +1243,10 @@ function TriggerBody({
               onChange={(event) => setTrigger({ ...trigger, input: event.target.value || undefined })}
             />
           </div>
-          <p className="text-xs text-slate-500">
+          <p className="text-xs text-muted-foreground">
             {schedule.type === 'cron' ? `Next run: per cron "${schedule.cron ?? ''}"` : `Next run: ${nextRunLabel}`}
           </p>
-          <p className="text-xs text-slate-500">Scheduled runs execute the <strong>published</strong> version — publish the flow to arm the schedule.</p>
+          <p className="text-xs text-muted-foreground">Scheduled runs execute the <strong>published</strong> version — publish the flow to arm the schedule.</p>
         </div>
       )}
 
@@ -1267,7 +1267,7 @@ function TriggerBody({
               ))}
             </datalist>
           </div>
-          <p className="text-xs text-slate-500">
+          <p className="text-xs text-muted-foreground">
             Fires when this signal is emitted anywhere in your workspace. The signal payload arrives as the Run input. Runs the published version.
           </p>
         </div>
@@ -1277,7 +1277,7 @@ function TriggerBody({
         <label className={labelClass}>Sources (optional)<input className={controlClass} value={(trigger.sources ?? []).join(', ')} onChange={(event) => setTrigger({ ...trigger, sources: event.target.value.split(',').map((value) => value.trim()).filter(Boolean) })} placeholder="slack, github" /></label>
         <label className={labelClass}>Actions (optional)<input className={controlClass} value={(trigger.actions ?? []).join(', ')} onChange={(event) => setTrigger({ ...trigger, actions: event.target.value.split(',').map((value) => value.trim()).filter(Boolean) })} placeholder="created, updated" /></label>
         <label className={labelClass}>Entity types (optional)<input className={controlClass} value={(trigger.entityTypes ?? []).join(', ')} onChange={(event) => setTrigger({ ...trigger, entityTypes: event.target.value.split(',').map((value) => value.trim()).filter(Boolean) })} placeholder="issue, message" /></label>
-        <p className="text-xs text-slate-500">Filters normalized live activity from connected integrations. Leave a field blank to accept any value.</p>
+        <p className="text-xs text-muted-foreground">Filters normalized live activity from connected integrations. Leave a field blank to accept any value.</p>
       </div>}
 
       {type === 'webhook' && flowId && (
@@ -1305,18 +1305,18 @@ function TriggerBody({
             </Button>
           </div>
           {webhook && (
-            <div className="space-y-3 rounded-lg border border-slate-200 bg-slate-50 p-2.5">
+            <div className="space-y-3 rounded-lg border border-border bg-muted p-2.5">
               {copyBlock('Webhook URL', webhook.url)}
               {webhook.testUrl && copyBlock('Test URL (runs current draft)', webhook.testUrl)}
               <div>
                 {copyBlock('Auth header', webhookHeader, 'text-amber-700')}
-                {!webhook.secret && <p className="mt-1 text-[11px] text-slate-500">A secret already exists. Rotate to mint and display a new one.</p>}
+                {!webhook.secret && <p className="mt-1 text-[11px] text-muted-foreground">A secret already exists. Rotate to mint and display a new one.</p>}
               </div>
               {copyBlock('Example JSON body', sampleWebhookBody, 'max-h-32', true)}
               {copyBlock('cURL', curlExample, undefined, true)}
             </div>
           )}
-          <p className="text-xs text-slate-500">
+          <p className="text-xs text-muted-foreground">
             POST to the URL with the <code className="font-mono">x-trigger-secret</code> header; the JSON body, or its <code className="font-mono">input</code> field, becomes the flow input. Runs the <strong>published</strong> version.
           </p>
         </div>
@@ -1339,7 +1339,7 @@ function TriggerBody({
           <div className="grid gap-2">
             <label className={labelClass}>Respond to</label>
             {SLACK_EVENT_KINDS.map((kind) => (
-              <label key={kind} className="flex items-center gap-2 text-sm text-slate-700">
+              <label key={kind} className="flex items-center gap-2 text-sm text-muted-foreground">
                 <input
                   type="checkbox"
                   checked={(trigger.events ?? []).includes(kind)}
@@ -1387,19 +1387,19 @@ function TriggerBody({
                 }}
               />
             )}
-            <p className="text-xs text-slate-500">Loaded from the selected Slack connection. Hold ⌘/Ctrl to select more than one.</p>
+            <p className="text-xs text-muted-foreground">Loaded from the selected Slack connection. Hold ⌘/Ctrl to select more than one.</p>
           </div>
           <div className="grid gap-2">
             <label className={labelClass}>Only when the message contains (optional)</label>
             <input className={controlClass} value={trigger.keyword ?? ''} placeholder="deploy" onChange={(event) => setTrigger({ ...trigger, keyword: event.target.value || undefined })} />
           </div>
-          <label className="flex items-center gap-2 text-sm text-slate-700">
+          <label className="flex items-center gap-2 text-sm text-muted-foreground">
             <input type="checkbox" checked={trigger.threadMemory === true} onChange={(event) => setTrigger({ ...trigger, threadMemory: event.target.checked || undefined })} />
             Remember the conversation within a thread
           </label>
           {slackBinding ? (
-            <div className="space-y-2 rounded-lg border border-slate-200 bg-slate-50 p-2.5">
-              <p className="text-xs text-slate-600">
+            <div className="space-y-2 rounded-lg border border-border bg-muted p-2.5">
+              <p className="text-xs text-muted-foreground">
                 Slack bot: <strong>{slackBinding.teamName ?? 'Connected workspace'}</strong> ({slackBinding.status})
               </p>
               {copyBlock('Ingress URL', slackBinding.ingressUrl)}
@@ -1407,7 +1407,7 @@ function TriggerBody({
           ) : (
             <p className="text-xs text-amber-700">No Slack bot connected — add one on the Integrations page first.</p>
           )}
-          <p className="text-xs text-slate-500">
+          <p className="text-xs text-muted-foreground">
             The Slack message arrives as <code className="font-mono">{'{{trigger.input.text}}'}</code> (plus channel, user, ts). Runs the <strong>published</strong> version and replies into the originating thread.
           </p>
         </div>
@@ -1419,7 +1419,7 @@ function TriggerBody({
             const inputType = inputTypeForField(field)
             const InputIcon = inputType.icon
             return (
-              <div key={`${field.name}-${fieldIndex}`} className="grid gap-3 border-b border-slate-200 pb-3 sm:grid-cols-[42px_minmax(110px,0.7fr)_auto_minmax(140px,1fr)_auto_36px]">
+              <div key={`${field.name}-${fieldIndex}`} className="grid gap-3 border-b border-border pb-3 sm:grid-cols-[42px_minmax(110px,0.7fr)_auto_minmax(140px,1fr)_auto_36px]">
                 <span className={cn('flex h-10 w-10 items-center justify-center rounded-full', inputType.tone)}>
                   <InputIcon className="h-5 w-5" />
                 </span>
@@ -1449,19 +1449,19 @@ function TriggerBody({
                   placeholder={inputType.description}
                   aria-label="Prompt shown for input"
                 />
-                <label className="flex items-center gap-1.5 text-xs font-medium text-slate-600" title="The run must supply this value">
+                <label className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground" title="The run must supply this value">
                   <input
                     type="checkbox"
                     checked={field.required === true}
                     onChange={(event) => updateField(fieldIndex, { required: event.target.checked || undefined })}
-                    className="h-4 w-4 rounded border-slate-300 text-blue-600"
+                    className="h-4 w-4 rounded border-border text-blue-600"
                   />
                   Required
                 </label>
                 <button
                   type="button"
                   onClick={() => removeField(fieldIndex)}
-                  className="flex h-10 w-10 items-center justify-center rounded-md text-slate-400 hover:bg-red-50 hover:text-red-600"
+                  className="flex h-10 w-10 items-center justify-center rounded-md text-muted-foreground hover:bg-red-50 hover:text-red-600"
                   aria-label="Remove input"
                 >
                   <Trash2 className="h-4 w-4" />
@@ -1473,8 +1473,8 @@ function TriggerBody({
       )}
 
       {choosingInput ? (
-        <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
-          <p className="mb-3 text-sm font-semibold text-slate-900">Choose the type of user input</p>
+        <div className="rounded-xl border border-border bg-muted p-3">
+          <p className="mb-3 text-sm font-semibold text-foreground">Choose the type of user input</p>
           <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
             {INPUT_TYPES.map((type) => {
               const InputIcon = type.icon
@@ -1483,14 +1483,14 @@ function TriggerBody({
                   key={type.id}
                   type="button"
                   onClick={() => addField(type.id)}
-                  className="flex items-center gap-3 rounded-lg border border-slate-200 bg-white p-3 text-left transition-colors hover:border-blue-300 hover:bg-blue-50"
+                  className="flex items-center gap-3 rounded-lg border border-border bg-card p-3 text-left transition-colors hover:border-blue-300 hover:bg-blue-50"
                 >
                   <span className={cn('flex h-9 w-9 shrink-0 items-center justify-center rounded-full', type.tone)}>
                     <InputIcon className="h-4 w-4" />
                   </span>
                   <span>
-                    <span className="block text-sm font-semibold text-slate-900">{type.label}</span>
-                    <span className="block text-xs text-slate-500">{type.description}</span>
+                    <span className="block text-sm font-semibold text-foreground">{type.label}</span>
+                    <span className="block text-xs text-muted-foreground">{type.description}</span>
                   </span>
                 </button>
               )
@@ -1501,7 +1501,7 @@ function TriggerBody({
         <button
           type="button"
           onClick={() => setChoosingInput(true)}
-          className="flex w-full items-center gap-3 rounded-lg py-2 text-left text-base font-semibold text-slate-700 hover:text-blue-700"
+          className="flex w-full items-center gap-3 rounded-lg py-2 text-left text-base font-semibold text-muted-foreground hover:text-blue-700"
         >
           <Plus className="h-5 w-5" /> Add an input
         </button>
@@ -1514,7 +1514,7 @@ function TriggerBody({
           labelClass={labelClass}
           fieldClass={cn(controlClass, 'h-9 min-w-0 flex-1 px-2')}
           addButtonClass="mt-1.5 text-xs font-semibold text-blue-700 hover:text-blue-900"
-          helperClass="mt-1 text-xs text-slate-500"
+          helperClass="mt-1 text-xs text-muted-foreground"
         />
       )}
     </div>
@@ -1568,7 +1568,7 @@ function AgentBody({
             <button
               type="button"
               onClick={onRefreshAgents}
-              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-slate-300 text-slate-500 hover:bg-slate-100 hover:text-slate-900"
+              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-border text-muted-foreground hover:bg-muted hover:text-foreground"
               aria-label="Refresh agent list"
               title="Refresh agent list"
             >
@@ -1579,7 +1579,7 @@ function AgentBody({
             href="/agents"
             target="_blank"
             rel="noreferrer"
-            className="flex h-10 shrink-0 items-center gap-1.5 rounded-md border border-slate-300 px-3 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+            className="flex h-10 shrink-0 items-center gap-1.5 rounded-md border border-border px-3 text-sm font-semibold text-muted-foreground hover:bg-muted"
             title="Create a new agent on the dashboard"
           >
             <Plus className="h-4 w-4" /> New
@@ -1594,7 +1594,7 @@ function AgentBody({
         </button>
       </div>
       {showInlinePrompt && (
-        <div className="grid gap-3 rounded-lg border border-slate-200 bg-slate-50 p-3">
+        <div className="grid gap-3 rounded-lg border border-border bg-muted p-3">
           <div className="grid gap-2">
             <label className={labelClass}>Prompt</label>
             <TokenTextEditor
@@ -1641,10 +1641,10 @@ function AgentBody({
           ariaLabel="Message to agent"
         />
       </div>
-      <div className="flex items-start justify-between gap-3 rounded-lg bg-slate-50 p-3">
+      <div className="flex items-start justify-between gap-3 rounded-lg bg-muted p-3">
         <div>
-          <p className="text-sm font-semibold text-slate-900">Request human assistance when unsure</p>
-          <p className="mt-0.5 text-xs text-slate-500">When the agent isn&apos;t sure how to proceed, the flow pauses and asks for input.</p>
+          <p className="text-sm font-semibold text-foreground">Request human assistance when unsure</p>
+          <p className="mt-0.5 text-xs text-muted-foreground">When the agent isn&apos;t sure how to proceed, the flow pauses and asks for input.</p>
         </div>
         <button
           type="button"
@@ -1654,12 +1654,12 @@ function AgentBody({
           onClick={() => update({ ...node, data: { ...node.data, humanAssistance: node.data.humanAssistance === false ? undefined : false } })}
           className={cn(
             'relative mt-0.5 h-6 w-11 shrink-0 rounded-full transition-colors',
-            node.data.humanAssistance !== false ? 'bg-blue-600' : 'bg-slate-300',
+            node.data.humanAssistance !== false ? 'bg-blue-600' : 'bg-muted-foreground/30',
           )}
         >
           <span
             className={cn(
-              'absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-all',
+              'absolute top-0.5 h-5 w-5 rounded-full bg-background shadow transition-all',
               node.data.humanAssistance !== false ? 'left-[22px]' : 'left-0.5',
             )}
           />
@@ -1673,13 +1673,13 @@ function AgentBody({
             onChange={(event) =>
               update({ ...node, data: { ...node.data, responseFormat: event.target.value === 'structured' ? 'structured' : undefined } })
             }
-            className="h-8 rounded-md border border-slate-300 bg-white px-2 text-xs font-semibold text-slate-700 outline-none"
+            className="h-8 rounded-md border border-border bg-background px-2 text-xs font-semibold text-muted-foreground outline-none"
           >
             <option value="text">Text only</option>
             <option value="structured">Structured</option>
           </select>
         </div>
-        <p className="text-xs text-slate-500">
+        <p className="text-xs text-muted-foreground">
           {responseFormat === 'structured'
             ? 'The agent must reply with JSON matching these properties; each becomes data for later steps.'
             : 'The agent replies with plain text. Switch to Structured to map fields into later steps.'}
@@ -1710,7 +1710,7 @@ function AgentBody({
                 <button
                   type="button"
                   onClick={() => setOutputFields(outputFields.filter((_, j) => j !== index))}
-                  className="flex h-10 w-10 items-center justify-center rounded-md text-slate-400 hover:bg-red-50 hover:text-red-600"
+                  className="flex h-10 w-10 items-center justify-center rounded-md text-muted-foreground hover:bg-red-50 hover:text-red-600"
                   aria-label="Remove property"
                 >
                   <Trash2 className="h-4 w-4" />
@@ -1760,7 +1760,7 @@ function HttpBody({
             onFocus={focusEditor('http.url')}
             onChange={(url) => update({ ...node, data: { ...node.data, url } })}
             invalid={urlInvalid}
-            className={cn(tokenControlBase, urlInvalid ? 'focus:border-red-500' : 'border-slate-300')}
+            className={cn(tokenControlBase, urlInvalid ? 'focus:border-red-500' : 'border-border')}
             placeholder="https://api.example.com/endpoint"
             ariaLabel="URI"
           />
@@ -1801,7 +1801,7 @@ function HttpBody({
             </option>
           ))}
         </select>
-        <p className="text-xs text-slate-500">
+        <p className="text-xs text-muted-foreground">
           Uses this connection&apos;s login to authorize the request — connections shared with your workspace, plus your own. Your own Authorization header always takes precedence.
         </p>
       </div>
@@ -1813,7 +1813,7 @@ function HttpBody({
         tokenWiring={tokenWiring}
       />
       <div className="grid gap-2">
-        <div className="flex items-center justify-between gap-2"><label className={labelClass}>Body</label><select className="h-8 rounded-md border border-slate-300 bg-white px-2 text-xs" value={node.data.bodyMode ?? 'json'} onChange={(event) => update({ ...node, data: { ...node.data, bodyMode: event.target.value as typeof node.data.bodyMode } })}><option value="json">JSON</option><option value="text">Text</option><option value="raw">Raw</option><option value="formUrlencoded">Form URL encoded</option><option value="multipart">Multipart form</option><option value="binary">Binary (base64)</option><option value="none">No body</option></select></div>
+        <div className="flex items-center justify-between gap-2"><label className={labelClass}>Body</label><select className="h-8 rounded-md border border-border bg-background px-2 text-xs" value={node.data.bodyMode ?? 'json'} onChange={(event) => update({ ...node, data: { ...node.data, bodyMode: event.target.value as typeof node.data.bodyMode } })}><option value="json">JSON</option><option value="text">Text</option><option value="raw">Raw</option><option value="formUrlencoded">Form URL encoded</option><option value="multipart">Multipart form</option><option value="binary">Binary (base64)</option><option value="none">No body</option></select></div>
         <TokenTextEditor
           ref={registerEditor('http.body')}
           multiline
@@ -1898,7 +1898,7 @@ function InlineKeyValue({
             <button
               type="button"
               onClick={() => removeRow(index)}
-              className="flex h-10 w-10 items-center justify-center rounded-md text-slate-400 hover:bg-red-50 hover:text-red-600"
+              className="flex h-10 w-10 items-center justify-center rounded-md text-muted-foreground hover:bg-red-50 hover:text-red-600"
               aria-label={`Remove ${label.toLowerCase()} row`}
             >
               <Trash2 className="h-4 w-4" />
@@ -1966,12 +1966,12 @@ function ToolBody({
         </div>
       )}
       {connection ? (
-        <div className="flex items-start gap-3 rounded-lg bg-slate-50 p-3 text-sm text-slate-600">
+        <div className="flex items-start gap-3 rounded-lg bg-muted p-3 text-sm text-muted-foreground">
           <IntegrationLogo slug={connection.id} name={connection.name} className="h-8 w-8 rounded-lg bg-white p-1" />
           <p>{tool ? tool.description || 'Runs this exact tool with the arguments below.' : 'Choose the action this connection should run.'}</p>
         </div>
       ) : (
-        <p className="rounded-lg bg-slate-50 p-3 text-sm text-slate-600">Connectors available on this workspace will show here.</p>
+        <p className="rounded-lg bg-muted p-3 text-sm text-muted-foreground">Connectors available on this workspace will show here.</p>
       )}
       {node.data.toolName && (
         <ToolArgsEditor
@@ -2005,7 +2005,7 @@ function ConditionBody({
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between gap-2">
-        <p className="text-sm text-slate-600">{node.type === 'condition' ? 'Route the flow based on a rule.' : 'Continue only when this rule is true.'}</p>
+        <p className="text-sm text-muted-foreground">{node.type === 'condition' ? 'Route the flow based on a rule.' : 'Continue only when this rule is true.'}</p>
         {clauses.length > 1 && (
           <select
             value={node.data.match ?? 'all'}
@@ -2090,7 +2090,7 @@ function TransformBody({
   const setFields = (next: typeof fields) => update({ ...node, data: { ...node.data, fields: next } })
   return (
     <div className="space-y-3">
-      <p className="text-sm text-slate-600">Create a clean object for later steps.</p>
+      <p className="text-sm text-muted-foreground">Create a clean object for later steps.</p>
       {fields.map((field, index) => (
         <div key={index} className="grid gap-2 sm:grid-cols-[1fr_1fr_36px]">
           <input
@@ -2114,7 +2114,7 @@ function TransformBody({
           <button
             type="button"
             onClick={() => setFields(fields.filter((_, fieldIndex) => fieldIndex !== index))}
-            className="flex h-10 w-10 items-center justify-center rounded-md text-slate-400 hover:bg-red-50 hover:text-red-600"
+            className="flex h-10 w-10 items-center justify-center rounded-md text-muted-foreground hover:bg-red-50 hover:text-red-600"
             aria-label="Remove field"
           >
             <Trash2 className="h-4 w-4" />
@@ -2143,7 +2143,7 @@ function LoopBody({
   const usesTriggerInput = node.data.over === '{{trigger.input}}'
   return (
     <div className="space-y-3">
-      <p className="text-sm text-slate-600">Run the steps inside this loop once for each item in a list.</p>
+      <p className="text-sm text-muted-foreground">Run the steps inside this loop once for each item in a list.</p>
       <div className="grid gap-2 sm:grid-cols-[180px_1fr]">
         <select
           value={usesTriggerInput ? 'trigger' : 'custom'}
@@ -2183,9 +2183,9 @@ function ErrorShieldBody({
 }) {
   return (
     <div className="space-y-3">
-      <p className="text-sm text-slate-600">
+      <p className="text-sm text-muted-foreground">
         Runs the body below. If a body step fails, the fallback runs instead — with the error available as{' '}
-        <code className="rounded bg-slate-100 px-1 py-0.5 text-xs">{'{{error}}'}</code> — and this step still succeeds.
+        <code className="rounded bg-muted px-1 py-0.5 text-xs">{'{{error}}'}</code> — and this step still succeeds.
       </p>
       {onAddStep && <AddNestedStepMenu label="Add step to body" onPick={onAddStep} />}
       {onAddStep && <AddNestedStepMenu label="Add fallback step" onPick={(type) => onAddStep(type, -1)} />}
@@ -2207,9 +2207,9 @@ function SwitchBody({
   const setCases = (next: typeof cases) => update({ ...node, data: { ...node.data, cases: next } })
   return (
     <div className="space-y-3">
-      <p className="text-sm text-slate-600">Route to the first matching case, otherwise use the default path.</p>
+      <p className="text-sm text-muted-foreground">Route to the first matching case, otherwise use the default path.</p>
       {cases.map((c, index) => (
-        <div key={c.id} className="space-y-2 rounded-lg border border-slate-200 p-2.5">
+        <div key={c.id} className="space-y-2 rounded-lg border border-border p-2.5">
           <div className="flex gap-2">
             <input
               value={c.label ?? ''}
@@ -2291,7 +2291,7 @@ function RouterBody({
   const setBranches = (next: typeof branches) => update({ ...node, data: { ...node.data, branches: next } })
   return (
     <div className="space-y-3">
-      <p className="text-sm text-slate-600">
+      <p className="text-sm text-muted-foreground">
         An AI model reads the routing input, weighs it against each branch&apos;s description below, and continues down the best match — otherwise the <strong>default</strong> path.
       </p>
       <div className="grid gap-2">
@@ -2324,7 +2324,7 @@ function RouterBody({
       </div>
       <div className="space-y-2">
         {branches.map((branch, index) => (
-          <div key={branch.id} className="space-y-2 rounded-lg border border-slate-200 p-2.5">
+          <div key={branch.id} className="space-y-2 rounded-lg border border-border p-2.5">
             <div className="flex gap-2">
               <input
                 value={branch.label ?? ''}
@@ -2445,7 +2445,7 @@ function VariableBody({
           </select>
         )}
         {!isInitialize && nameOptions.length === 0 && (
-          <p className="text-xs text-slate-500">No variables are initialized earlier in this flow — add an Initialize variable step first, or type the name it will use.</p>
+          <p className="text-xs text-muted-foreground">No variables are initialized earlier in this flow — add an Initialize variable step first, or type the name it will use.</p>
         )}
       </div>
       {isInitialize && (
@@ -2466,7 +2466,7 @@ function VariableBody({
       )}
       <div className="grid gap-2">
         <label className={labelClass}>
-          Value {variableValueOptional(node.data.op) ? <span className="font-normal normal-case text-slate-400">(optional)</span> : <span className="text-red-500">*</span>}
+          Value {variableValueOptional(node.data.op) ? <span className="font-normal normal-case text-muted-foreground">(optional)</span> : <span className="text-red-500">*</span>}
         </label>
         <TokenTextEditor
           ref={registerEditor('var.value')}
@@ -2475,7 +2475,7 @@ function VariableBody({
           onFocus={focusEditor('var.value')}
           onChange={(value) => update({ ...node, data: { ...node.data, value } })}
           invalid={valueInvalid}
-          className={cn(tokenControlBase, valueInvalid ? 'focus:border-red-500' : 'border-slate-300')}
+          className={cn(tokenControlBase, valueInvalid ? 'focus:border-red-500' : 'border-border')}
           placeholder={VARIABLE_VALUE_PLACEHOLDER[node.data.op]}
           ariaLabel="Variable value"
         />
@@ -2530,14 +2530,14 @@ function DataBody({
           onFocus={focusEditor('data.input')}
           onChange={(input) => update({ ...node, data: { ...node.data, input } })}
           invalid={inputInvalid}
-          className={cn(tokenControlBase, inputInvalid ? 'focus:border-red-500' : 'border-slate-300')}
+          className={cn(tokenControlBase, inputInvalid ? 'focus:border-red-500' : 'border-border')}
           placeholder={DATA_OP_INPUT_PLACEHOLDER[op]}
           ariaLabel="Input"
         />
       </div>
       {op === 'join' && (
         <div className="grid gap-2">
-          <label className={labelClass}>Join with <span className="font-normal normal-case text-slate-400">(optional)</span></label>
+          <label className={labelClass}>Join with <span className="font-normal normal-case text-muted-foreground">(optional)</span></label>
           <input
             value={node.data.separator ?? ''}
             onChange={(event) => update({ ...node, data: { ...node.data, separator: event.target.value || undefined } })}
@@ -2551,7 +2551,7 @@ function DataBody({
       )}
       {op === 'parseJson' && (
         <div className="grid gap-2">
-          <label className={labelClass}>Schema <span className="font-normal normal-case text-slate-400">(optional)</span></label>
+          <label className={labelClass}>Schema <span className="font-normal normal-case text-muted-foreground">(optional)</span></label>
           <textarea
             rows={4}
             value={node.data.schema ?? ''}
@@ -2562,7 +2562,7 @@ function DataBody({
             placeholder="A JSON Schema describing the parsed shape"
             aria-label="Schema"
           />
-          <p className="text-xs text-slate-500">Optional — stored for reference.</p>
+          <p className="text-xs text-muted-foreground">Optional — stored for reference.</p>
         </div>
       )}
       {op === 'filterArray' && (
@@ -2605,7 +2605,7 @@ function DataBody({
                 type="button"
                 onClick={() => setClauses(list.filter((_, j) => j !== index))}
                 disabled={list.length === 1}
-                className="flex h-10 w-10 items-center justify-center rounded-md text-slate-400 hover:bg-red-50 hover:text-red-600 disabled:pointer-events-none disabled:opacity-30"
+                className="flex h-10 w-10 items-center justify-center rounded-md text-muted-foreground hover:bg-red-50 hover:text-red-600 disabled:pointer-events-none disabled:opacity-30"
                 aria-label="Remove condition"
               >
                 <Trash2 className="h-4 w-4" />
@@ -2648,7 +2648,7 @@ function DataBody({
                 type="button"
                 onClick={() => setFields(list.filter((_, j) => j !== index))}
                 disabled={list.length === 1}
-                className="flex h-10 w-10 items-center justify-center rounded-md text-slate-400 hover:bg-red-50 hover:text-red-600 disabled:pointer-events-none disabled:opacity-30"
+                className="flex h-10 w-10 items-center justify-center rounded-md text-muted-foreground hover:bg-red-50 hover:text-red-600 disabled:pointer-events-none disabled:opacity-30"
                 aria-label="Remove field"
               >
                 <Trash2 className="h-4 w-4" />
@@ -2664,7 +2664,7 @@ function DataBody({
           </button>
         </div>
       )}
-      <p className="text-xs text-slate-500">{DATA_OP_HELPER[op]}</p>
+      <p className="text-xs text-muted-foreground">{DATA_OP_HELPER[op]}</p>
     </div>
   )
 }
@@ -2695,7 +2695,7 @@ function HumanReviewBody({
           onFocus={focusEditor('hr.message')}
           onChange={(message) => update({ ...node, data: { ...node.data, message } })}
           invalid={messageInvalid}
-          className={cn(tokenControlBase, messageInvalid ? 'focus:border-red-500' : 'border-slate-300')}
+          className={cn(tokenControlBase, messageInvalid ? 'focus:border-red-500' : 'border-border')}
           placeholder="What should the person be asked? Their reply becomes this step's output."
           ariaLabel="Message"
         />
@@ -2706,7 +2706,7 @@ function HumanReviewBody({
           and says so in plain english. */}
       <div className="grid gap-2">
         <label className={labelClass}>Assigned to</label>
-        <p className="rounded-lg bg-slate-50 p-3 text-sm text-slate-600">The flow owner is asked by default. The run pauses here until they reply, and the reply becomes this step&apos;s output.</p>
+        <p className="rounded-lg bg-muted p-3 text-sm text-muted-foreground">The flow owner is asked by default. The run pauses here until they reply, and the reply becomes this step&apos;s output.</p>
       </div>
     </div>
   )

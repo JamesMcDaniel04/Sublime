@@ -151,7 +151,7 @@ export function IntegrationLogo({
 
   return (
     <span
-      className={cn(box, 'bg-gray-100 text-[11px] font-semibold uppercase text-gray-600')}
+      className={cn(box, 'bg-muted text-[11px] font-semibold uppercase text-muted-foreground')}
       aria-hidden
     >
       {name.trim().charAt(0) || '?'}

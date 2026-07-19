@@ -53,10 +53,10 @@ const STATUS_TEXT: Record<string, string> = {
   waiting: 'text-blue-600',
   running: 'text-amber-600',
   stopping: 'text-slate-500',
-  skipped: 'text-gray-400',
+  skipped: 'text-muted-foreground',
   stopped: 'text-slate-500',
-  queued: 'text-gray-400',
-  resumed: 'text-gray-400',
+  queued: 'text-muted-foreground',
+  resumed: 'text-muted-foreground',
 }
 
 /** Live runs can be stopped; settled ones can be re-run with their input. */

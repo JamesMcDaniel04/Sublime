@@ -8,8 +8,8 @@ import { advancedParamKeys, advancedParamsSetCount, type AdvancedParamKey } from
 import { AGENT_RUN_MAX_DURATION_SECONDS } from '@/lib/agents/timeouts'
 
 const controlClass =
-  'h-9 w-full rounded-md border border-slate-300 bg-white px-2.5 text-sm text-slate-950 outline-none transition-colors hover:border-slate-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-100'
-const labelClass = 'text-[11px] font-semibold uppercase tracking-wide text-slate-500'
+  'h-9 w-full rounded-md border border-border bg-background px-2.5 text-sm text-foreground outline-none transition-colors hover:border-muted-foreground/50 focus:border-blue-500 focus:ring-2 focus:ring-blue-100'
+const labelClass = 'text-[11px] font-semibold uppercase tracking-wide text-muted-foreground'
 
 /**
  * MS-parity "Advanced parameters" section: collapsed summary ("Showing N of
@@ -172,14 +172,14 @@ export function AdvancedParamsSection({
   }
 
   return (
-    <div className="border-t border-slate-200 pt-3">
+    <div className="border-t border-border pt-3">
       <div className="flex items-center justify-between gap-2">
-        <p className="text-sm font-semibold text-slate-900">Advanced parameters</p>
+        <p className="text-sm font-semibold text-foreground">Advanced parameters</p>
         <div className="flex items-center gap-2">
           <button
             type="button"
             onClick={() => setOpen((value) => !value)}
-            className="flex items-center gap-1.5 rounded-md border border-slate-300 px-2.5 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+            className="flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-xs font-semibold text-muted-foreground hover:bg-muted"
           >
             {open ? 'Hide all' : `Showing ${setCount} of ${keys.length} — Show all`}
             <ChevronDown className={cn('h-3.5 w-3.5 transition-transform', open && 'rotate-180')} />
@@ -188,7 +188,7 @@ export function AdvancedParamsSection({
             type="button"
             onClick={clearAll}
             disabled={setCount === 0}
-            className="rounded-md px-2 py-1.5 text-xs font-semibold text-slate-500 hover:text-slate-900 disabled:pointer-events-none disabled:opacity-40"
+            className="rounded-md px-2 py-1.5 text-xs font-semibold text-muted-foreground hover:text-foreground disabled:pointer-events-none disabled:opacity-40"
           >
             Clear all
           </button>

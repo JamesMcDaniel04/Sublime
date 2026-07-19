@@ -76,7 +76,7 @@ const STEP_TONE: Partial<Record<StepType, string>> = {
   loop: 'bg-sky-500 text-white',
   parallel: 'bg-cyan-600 text-white',
   stop: 'bg-red-500 text-white',
-  agent: 'bg-slate-900 text-white',
+  agent: 'bg-foreground text-background',
   tool: 'bg-orange-500 text-white',
   variable: 'bg-purple-600 text-white',
   data: 'bg-violet-600 text-white',
@@ -89,7 +89,7 @@ const LEAF_ICON: Record<string, LucideIcon> = {
 }
 
 const LEAF_TONE: Record<string, string> = {
-  'ai-run-prompt': 'bg-indigo-600 text-white',
+  'ai-run-prompt': 'bg-foreground text-background',
 }
 
 const GROUP_ICON: Record<string, LucideIcon> = {
@@ -119,7 +119,7 @@ const TRIGGER_ICON: Record<string, LucideIcon> = {
 }
 
 const TRIGGER_TONE: Record<string, string> = {
-  manual: 'bg-slate-900 text-white',
+  manual: 'bg-foreground text-background',
   schedule: 'bg-blue-600 text-white',
   webhook: 'bg-blue-600 text-white',
   signal: 'bg-purple-600 text-white',
@@ -164,7 +164,7 @@ function leafIcon(leaf: PickerLeaf): LucideIcon {
 }
 
 function leafTone(leaf: PickerLeaf): string {
-  return LEAF_TONE[leaf.id] ?? (leaf.stepType && STEP_TONE[leaf.stepType]) ?? (leaf.triggerType && TRIGGER_TONE[leaf.triggerType]) ?? 'bg-slate-700 text-white'
+  return LEAF_TONE[leaf.id] ?? (leaf.stepType && STEP_TONE[leaf.stepType]) ?? (leaf.triggerType && TRIGGER_TONE[leaf.triggerType]) ?? 'bg-foreground text-background'
 }
 
 function includesQuery(text: string, query: string): boolean {
@@ -248,7 +248,7 @@ export function FlowPicker({
     label: agent.title,
     description: 'Run this agent and pass its response to the next step.',
     icon: Bot,
-    tone: 'bg-slate-900 text-white',
+    tone: 'bg-foreground text-background',
     favoriteId: `agent:${agent.id}`,
     onSelect: () => {
       onPick('agent', { agentId: agent.id })
@@ -278,7 +278,7 @@ export function FlowPicker({
     label: group.label,
     description: group.description,
     icon: GROUP_ICON[group.id] ?? Wrench,
-    tone: GROUP_TONE[group.id] ?? 'bg-slate-700 text-white',
+    tone: GROUP_TONE[group.id] ?? 'bg-foreground text-background',
     chevron: true,
     onSelect: () => setDrill({ kind: 'group', group }),
   })
@@ -355,7 +355,7 @@ export function FlowPicker({
             ))}
           </div>
         ) : (
-          <p className="rounded-xl bg-slate-50 p-4 text-sm text-slate-600">Nothing here yet.</p>
+          <p className="rounded-xl bg-muted p-4 text-sm text-muted-foreground">Nothing here yet.</p>
         )}
       </>
     )
@@ -365,7 +365,7 @@ export function FlowPicker({
       <>
         <RowSection title="Favorites" rows={favoriteRows} favorites={favorites} onToggleFavorite={toggleFavorite} />
         <RowSection title="Triggers" rows={triggerRows} favorites={favorites} onToggleFavorite={toggleFavorite} />
-        {favoriteRows.length + triggerRows.length === 0 && <p className="rounded-xl bg-slate-50 p-4 text-sm text-slate-600">No matching triggers found.</p>}
+        {favoriteRows.length + triggerRows.length === 0 && <p className="rounded-xl bg-muted p-4 text-sm text-muted-foreground">No matching triggers found.</p>}
       </>
     )
   } else {
@@ -407,7 +407,7 @@ export function FlowPicker({
         <RowSection title="AI capabilities" rows={aiRows} favorites={favorites} onToggleFavorite={toggleFavorite} />
         <RowSection title="Built-in tools" rows={builtInRows} favorites={favorites} onToggleFavorite={toggleFavorite} />
         <section>
-          <h4 className="mb-2 text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">By connector</h4>
+          <h4 className="mb-2 text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">By connector</h4>
           <div className="mb-2 flex items-center gap-2">
             {(['all', 'builtin', 'connected'] as const).map((key) => (
               <button
@@ -418,7 +418,7 @@ export function FlowPicker({
                   'rounded-full border px-3 py-1 text-xs font-semibold transition-colors',
                   connectorFilter === key
                     ? 'border-blue-300 bg-blue-50 text-blue-700'
-                    : 'border-slate-200 bg-white text-slate-500 hover:border-slate-300 hover:text-slate-800',
+                    : 'border-border bg-card text-muted-foreground hover:border-muted-foreground/50 hover:text-foreground',
                 )}
               >
                 {key === 'all' ? 'All' : key === 'builtin' ? 'Built-in' : 'Connected'}
@@ -433,48 +433,48 @@ export function FlowPicker({
             </div>
           )}
           {showRealConnectors && toolCatalog.length === 0 && (
-            <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 p-4 text-sm text-slate-600">
+            <div className="rounded-xl border border-dashed border-border bg-muted p-4 text-sm text-muted-foreground">
               Connected tools will show here after this workspace has integrations available.
             </div>
           )}
         </section>
-        {totalRows === 0 && <p className="rounded-xl bg-slate-50 p-4 text-sm text-slate-600">No matching actions found.</p>}
+        {totalRows === 0 && <p className="rounded-xl bg-muted p-4 text-sm text-muted-foreground">No matching actions found.</p>}
       </>
     )
   }
 
   return (
     <div>
-      <div className="border-b border-slate-200 p-4">
+      <div className="border-b border-border p-4">
         {drillLabel ? (
           <div className="flex items-center gap-2">
             <button
               type="button"
               onClick={() => setDrill(null)}
               aria-label="Back"
-              className="rounded-full p-1 text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-900"
+              className="rounded-full p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
             >
               <ChevronLeft className="h-4 w-4" />
             </button>
-            <p className="text-lg font-semibold text-slate-950">
-              {baseTitle} <span className="text-slate-400">›</span> {drillLabel}
+            <p className="text-lg font-semibold text-foreground">
+              {baseTitle} <span className="text-muted-foreground">›</span> {drillLabel}
             </p>
           </div>
         ) : (
           <>
-            <p className="text-lg font-semibold text-slate-950">{baseTitle}</p>
-            <p className="mt-1 text-sm text-slate-500">
+            <p className="text-lg font-semibold text-foreground">{baseTitle}</p>
+            <p className="mt-1 text-sm text-muted-foreground">
               {mode === 'trigger' ? 'Choose how this flow starts.' : 'Choose what should happen next in this flow.'}
             </p>
           </>
         )}
-        {drillSubtitle && <p className="mt-1 text-sm text-slate-500">{drillSubtitle}</p>}
-        <div className="mt-4 flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2">
-          <Search className="h-4 w-4 text-slate-400" />
+        {drillSubtitle && <p className="mt-1 text-sm text-muted-foreground">{drillSubtitle}</p>}
+        <div className="mt-4 flex items-center gap-2 rounded-lg border border-border bg-background px-3 py-2">
+          <Search className="h-4 w-4 text-muted-foreground" />
           <input
             value={query}
             onChange={(event) => setQuery(event.target.value)}
-            className="min-w-0 flex-1 bg-transparent text-sm text-slate-950 outline-none placeholder:text-slate-400"
+            className="min-w-0 flex-1 bg-transparent text-sm text-foreground outline-none placeholder:text-muted-foreground"
             placeholder={mode === 'trigger' ? 'Search triggers' : 'Search agents, actions, or connectors'}
             autoFocus
           />
@@ -499,7 +499,7 @@ function RowSection({
   if (!rows.length) return null
   return (
     <section>
-      <h4 className="mb-2 text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">{title}</h4>
+      <h4 className="mb-2 text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">{title}</h4>
       <div className="grid gap-2 sm:grid-cols-2">
         {rows.map((row) => (
           <RowCard key={row.id} row={row} favorited={row.favoriteId ? favorites.has(row.favoriteId) : false} onToggleFavorite={onToggleFavorite} />
@@ -520,7 +520,7 @@ function RowCard({
 }) {
   const Icon = row.icon
   return (
-    <div className="group relative flex min-h-[84px] min-w-0 items-start gap-3 rounded-xl border border-slate-200 bg-white p-3 text-left transition-colors hover:border-blue-300 hover:bg-blue-50">
+    <div className="group relative flex min-h-[84px] min-w-0 items-start gap-3 rounded-xl border border-border bg-card p-3 text-left transition-colors hover:border-blue-300 hover:bg-blue-50">
       <button type="button" onClick={row.onSelect} className="flex min-w-0 flex-1 items-start gap-3 text-left">
         {row.logo ? (
           <IntegrationLogo slug={row.logo.slug} name={row.logo.name} className="h-10 w-10 rounded-lg bg-white p-1 shadow-sm" />
@@ -530,11 +530,11 @@ function RowCard({
           </span>
         ) : null}
         <span className="min-w-0 flex-1 pr-5">
-          <span className="block truncate text-sm font-semibold text-slate-950">{row.label}</span>
-          <span className="mt-0.5 line-clamp-2 block text-xs leading-5 text-slate-500">{row.description}</span>
+          <span className="block truncate text-sm font-semibold text-foreground">{row.label}</span>
+          <span className="mt-0.5 line-clamp-2 block text-xs leading-5 text-muted-foreground">{row.description}</span>
         </span>
       </button>
-      {row.chevron && <ChevronRight className="mt-1 h-4 w-4 shrink-0 text-slate-400" />}
+      {row.chevron && <ChevronRight className="mt-1 h-4 w-4 shrink-0 text-muted-foreground" />}
       {row.favoriteId && (
         <button
           type="button"
@@ -543,7 +543,7 @@ function RowCard({
             onToggleFavorite(row.favoriteId!)
           }}
           aria-label={favorited ? 'Remove from favorites' : 'Add to favorites'}
-          className="absolute right-2 top-2 text-slate-300 transition-colors hover:text-amber-500"
+          className="absolute right-2 top-2 text-muted-foreground/60 transition-colors hover:text-amber-500"
         >
           <Star className={cn('h-4 w-4', favorited && 'fill-amber-400 text-amber-500')} />
         </button>

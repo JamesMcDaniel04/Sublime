@@ -116,10 +116,10 @@ export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenCh
       <DialogContent className="top-[20%] max-w-lg translate-y-0 gap-0 p-0">
         <DialogTitle className="sr-only">Search agents and runs</DialogTitle>
         <div className="flex min-h-12 items-center gap-3 border-b px-4 py-3 pr-12">
-          {searching ? <Loader2 className="h-4 w-4 shrink-0 animate-spin text-gray-400" /> : <Search className="h-4 w-4 shrink-0 text-gray-400" />}
+          {searching ? <Loader2 className="h-4 w-4 shrink-0 animate-spin text-muted-foreground" /> : <Search className="h-4 w-4 shrink-0 text-muted-foreground" />}
           <input
             autoFocus
-            className="min-w-0 flex-1 bg-transparent text-sm text-gray-900 outline-none placeholder:text-gray-400"
+            className="min-w-0 flex-1 bg-transparent text-sm text-foreground outline-none placeholder:text-muted-foreground"
             placeholder="Search agents and runs..."
             value={query}
             onChange={(event) => setQuery(event.target.value)}
@@ -128,28 +128,28 @@ export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenCh
         </div>
         <div className="max-h-80 overflow-y-auto p-2">
           {navMatches.length > 0 && (
-            <div className="px-2 pb-1 pt-2 text-xs font-semibold uppercase tracking-wide text-gray-400">Navigate</div>
+            <div className="px-2 pb-1 pt-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Navigate</div>
           )}
           {navMatches.map((nav, index) => (
             <button
               key={nav.href}
-              className={cn('flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-sm transition-colors duration-fast hover:bg-gray-100', active === index && 'bg-gray-100')}
+              className={cn('flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-sm transition-colors duration-fast hover:bg-muted', active === index && 'bg-muted')}
               onMouseEnter={() => setActive(index)}
               onClick={() => select({ kind: 'nav', nav })}
             >
-              <nav.icon className="h-4 w-4 shrink-0 text-gray-400" aria-hidden="true" />
+              <nav.icon className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
               <span className="flex-1 truncate">{nav.label}</span>
             </button>
           ))}
           {agents.length > 0 && (
-            <div className="px-2 pb-1 pt-2 text-xs font-semibold uppercase tracking-wide text-gray-400">Agents</div>
+            <div className="px-2 pb-1 pt-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Agents</div>
           )}
           {agents.map((agent, index) => {
             const resultIndex = navMatches.length + index
             return (
             <button
               key={agent.id}
-              className={cn('flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-sm transition-colors duration-fast hover:bg-gray-100', active === resultIndex && 'bg-gray-100')}
+              className={cn('flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-sm transition-colors duration-fast hover:bg-muted', active === resultIndex && 'bg-muted')}
               onMouseEnter={() => setActive(resultIndex)}
               onClick={() => select({ kind: 'agent', agent })}
             >
@@ -157,33 +157,33 @@ export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenCh
                 {agent.icon || agent.title.trim().charAt(0) || 'A'}
               </span>
               <span className="flex-1 truncate">{agent.title}</span>
-              {agent.folder && <span className="text-xs text-gray-400">{agent.folder}</span>}
+              {agent.folder && <span className="text-xs text-muted-foreground">{agent.folder}</span>}
             </button>
             )
           })}
           {runs.length > 0 && (
-            <div className="px-2 pb-1 pt-2 text-xs font-semibold uppercase tracking-wide text-gray-400">Runs</div>
+            <div className="px-2 pb-1 pt-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Runs</div>
           )}
           {runs.map((run, index) => {
             const resultIndex = navMatches.length + agents.length + index
             return (
               <button
                 key={run.id}
-                className={cn('flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-sm transition-colors duration-fast hover:bg-gray-100', active === resultIndex && 'bg-gray-100')}
+                className={cn('flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-sm transition-colors duration-fast hover:bg-muted', active === resultIndex && 'bg-muted')}
                 onMouseEnter={() => setActive(resultIndex)}
                 onClick={() => select({ kind: 'run', run })}
               >
                 {runStatusIcon(run.status)}
                 <span className="flex-1 truncate">{run.headline || run.title}</span>
-                <span className="shrink-0 text-xs text-gray-400">{new Date(run.startedAt).toLocaleDateString()}</span>
+                <span className="shrink-0 text-xs text-muted-foreground">{new Date(run.startedAt).toLocaleDateString()}</span>
               </button>
             )
           })}
           {query.trim().length >= 2 && !searching && results.length === 0 && (
-            <p className="px-2 py-6 text-center text-sm text-gray-500">No results for “{query.trim()}”.</p>
+            <p className="px-2 py-6 text-center text-sm text-muted-foreground">No results for “{query.trim()}”.</p>
           )}
           {query.trim().length < 2 && (
-            <p className="px-2 pb-2 pt-4 text-center text-xs text-gray-400">Type at least 2 characters to search agents and runs.</p>
+            <p className="px-2 pb-2 pt-4 text-center text-xs text-muted-foreground">Type at least 2 characters to search agents and runs.</p>
           )}
         </div>
       </DialogContent>

@@ -548,7 +548,7 @@ export function TemplatesExplorer() {
             type="button"
             disabled={search.trim().length < 3 || aiLoading}
             onClick={runAiSearch}
-            className="absolute right-1.5 top-1/2 flex -translate-y-1/2 items-center gap-1.5 rounded-md bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-indigo-700 disabled:pointer-events-none disabled:opacity-50"
+            className="absolute right-1.5 top-1/2 flex -translate-y-1/2 items-center gap-1.5 rounded-md bg-foreground px-3 py-1.5 text-xs font-semibold text-background transition-colors hover:bg-foreground/85 disabled:pointer-events-none disabled:opacity-50"
           >
             <Sparkles className="h-3.5 w-3.5" />
             {aiLoading ? 'Asking…' : 'Ask AI'}

@@ -68,16 +68,16 @@ function InsertMenu({
         }
       }}
     >
-      {!compact && !tail && <div className="h-6 w-px bg-slate-300" />}
+      {!compact && !tail && <div className="h-6 w-px bg-border" />}
       <button
         type="button"
         onClick={() => setOpen((value) => !value)}
         aria-label="Add step"
         className={cn(
-          'group flex items-center justify-center border bg-white text-slate-500 shadow-sm transition-all hover:border-blue-400 hover:text-blue-700 hover:shadow-md',
+          'group flex items-center justify-center border bg-card text-muted-foreground shadow-sm transition-all hover:border-blue-400 hover:text-blue-700 hover:shadow-md',
           compact
             ? 'gap-2 rounded-lg border-dashed px-3 py-2 text-sm font-semibold'
-            : 'h-8 w-8 rounded-full border-slate-300',
+            : 'h-8 w-8 rounded-full border-border',
           dragging && dropAfterId && 'ring-2 ring-indigo-300 rounded-full',
         )}
       >
@@ -86,8 +86,8 @@ function InsertMenu({
       </button>
       {!compact && !tail && (
         <div className="flex flex-col items-center">
-          <div className="h-5 w-px bg-slate-300" />
-          <svg width="10" height="6" viewBox="0 0 10 6" className="-mt-px text-slate-400" aria-hidden="true">
+          <div className="h-5 w-px bg-border" />
+          <svg width="10" height="6" viewBox="0 0 10 6" className="-mt-px text-muted-foreground" aria-hidden="true">
             <path d="M1 1l4 4 4-4" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
           </svg>
         </div>
@@ -98,7 +98,7 @@ function InsertMenu({
           <div className="fixed inset-0 z-20" onClick={() => setOpen(false)} />
           <div
             className={cn(
-              'absolute z-30 mt-2 max-h-[72vh] overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-[0_20px_60px_rgba(15,23,42,0.18)]',
+              'absolute z-30 mt-2 max-h-[72vh] overflow-hidden rounded-2xl border border-border bg-card shadow-[0_20px_60px_rgba(15,23,42,0.18)]',
               compact ? 'left-0 top-full w-[min(620px,calc(100vw-4rem))]' : 'left-1/2 top-full w-[min(720px,calc(100vw-4rem))] -translate-x-1/2',
             )}
           >
@@ -130,14 +130,14 @@ function AddNestedStepMenu({ onPick }: { onPick: (type: EditableType) => void })
       <button
         type="button"
         onClick={() => setOpen((value) => !value)}
-        className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-dashed border-slate-300 px-3 py-2 text-sm font-medium text-slate-600 hover:border-blue-400 hover:text-blue-700"
+        className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-dashed border-border px-3 py-2 text-sm font-medium text-muted-foreground hover:border-blue-400 hover:text-blue-700"
       >
         <Plus className="h-4 w-4" /> Add a step
       </button>
       {open && (
         <>
           <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
-          <div className="absolute left-0 right-0 top-full z-20 mt-1 max-h-72 overflow-auto rounded-lg border border-slate-200 bg-white p-1 shadow-lg">
+          <div className="absolute left-0 right-0 top-full z-20 mt-1 max-h-72 overflow-auto rounded-lg border border-border bg-card p-1 shadow-lg">
             {NODE_TYPES.map((type) => (
               <button
                 key={type.value}
@@ -146,7 +146,7 @@ function AddNestedStepMenu({ onPick }: { onPick: (type: EditableType) => void })
                   setOpen(false)
                   onPick(type.value)
                 }}
-                className="flex w-full items-center rounded-md px-2 py-1.5 text-left text-xs hover:bg-slate-100"
+                className="flex w-full items-center rounded-md px-2 py-1.5 text-left text-xs hover:bg-muted"
               >
                 {type.label}
               </button>
@@ -458,15 +458,15 @@ export function FlowCanvas({
       const fallbackNodes = node.data.fallback.map((id) => byId.get(id)).filter((n): n is FlowNode => Boolean(n))
       return (
         <div className="my-3 grid gap-4 md:grid-cols-2">
-          <div className="rounded-2xl border border-dashed border-slate-300 bg-white/75 p-3">
-            <p className="mb-3 text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Body</p>
+          <div className="rounded-2xl border border-dashed border-border bg-card/75 p-3">
+            <p className="mb-3 text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">Body</p>
             <div className="space-y-3">
               {bodyNodes.map((body, index) => item(body, index + 1))}
               {onAddContainerStep && <AddNestedStepMenu onPick={(type) => onAddContainerStep(node.id, type)} />}
             </div>
           </div>
-          <div className="rounded-2xl border border-dashed border-slate-300 bg-white/75 p-3">
-            <p className="mb-3 text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">On error → fallback</p>
+          <div className="rounded-2xl border border-dashed border-border bg-card/75 p-3">
+            <p className="mb-3 text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">On error → fallback</p>
             <div className="space-y-3">
               {fallbackNodes.map((body, index) => item(body, index + 1))}
               {onAddContainerStep && <AddNestedStepMenu onPick={(type) => onAddContainerStep(node.id, type, -1)} />}
@@ -476,7 +476,7 @@ export function FlowCanvas({
       )
     }
     return (
-      <div className="my-3 ml-10 space-y-3 border-l-2 border-dashed border-slate-300 pl-4">
+      <div className="my-3 ml-10 space-y-3 border-l-2 border-dashed border-border pl-4">
         {nodes.map((body, bodyIndex) => item(body, bodyIndex + 1))}
       </div>
     )
@@ -498,8 +498,8 @@ export function FlowCanvas({
         parts.push(
           <div key={`${node.id}-branches`} className="my-3 grid gap-4 md:grid-cols-2">
             {(['true', 'false'] as const).map((branch) => (
-              <div key={branch} className="rounded-2xl border border-dashed border-slate-300 bg-white/75 p-3">
-                <p className="mb-3 text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+              <div key={branch} className="rounded-2xl border border-dashed border-border bg-card/75 p-3">
+                <p className="mb-3 text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
                   {branch === 'true' ? 'Then' : 'Otherwise'}
                 </p>
                 <div className="space-y-3">
@@ -520,8 +520,8 @@ export function FlowCanvas({
         parts.push(
           <div key={`${node.id}-cases`} className="my-3 grid gap-4 md:grid-cols-2">
             {branches.map((branch) => (
-              <div key={branch.key} className="rounded-2xl border border-dashed border-slate-300 bg-white/75 p-3">
-                <p className="mb-3 truncate text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">{branch.label}</p>
+              <div key={branch.key} className="rounded-2xl border border-dashed border-border bg-card/75 p-3">
+                <p className="mb-3 truncate text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">{branch.label}</p>
                 <div className="space-y-3">
                   {renderChain(branchHead(node.id, branch.key), seen)}
                   <InsertMenu compact agents={agents} toolCatalog={toolCatalog} onPick={(type, seed) => onAppendBranch(node.id, branch.key, type, seed)} />
@@ -540,8 +540,8 @@ export function FlowCanvas({
         parts.push(
           <div key={`${node.id}-router`} className="my-3 grid gap-4 md:grid-cols-2">
             {branches.map((branch) => (
-              <div key={branch.key} className="rounded-2xl border border-dashed border-slate-300 bg-white/75 p-3">
-                <p className="mb-3 truncate text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">{branch.label}</p>
+              <div key={branch.key} className="rounded-2xl border border-dashed border-border bg-card/75 p-3">
+                <p className="mb-3 truncate text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">{branch.label}</p>
                 <div className="space-y-3">
                   {renderChain(branchHead(node.id, branch.key), seen)}
                   <InsertMenu compact agents={agents} toolCatalog={toolCatalog} onPick={(type, seed) => onAppendBranch(node.id, branch.key, type, seed)} />
@@ -568,7 +568,7 @@ export function FlowCanvas({
       } else {
         parts.push(
           <div key={`${node.id}-tail`} className="flex flex-col items-center">
-            <div className="h-6 w-px bg-slate-300" />
+            <div className="h-6 w-px bg-border" />
             <InsertMenu
               tail
               agents={agents}
@@ -601,7 +601,7 @@ export function FlowCanvas({
 
   return (
     <div className="mx-auto flex w-full max-w-[760px] flex-col items-center py-8" onClick={() => onBackgroundClick?.()}>
-      <div className="mb-6 flex items-center gap-2 self-start rounded-full border border-blue-100 bg-white/85 px-3 py-1.5 text-xs font-semibold text-blue-700 shadow-sm">
+      <div className="mb-6 flex items-center gap-2 self-start rounded-full border border-blue-100 bg-card/85 px-3 py-1.5 text-xs font-semibold text-blue-700 shadow-sm">
         <Sparkles className="h-3.5 w-3.5" />
         Designer
       </div>
@@ -609,7 +609,7 @@ export function FlowCanvas({
         {trigger && card(trigger)}
         {trigger && !first && !triggerConfigured && (
           <div
-            className="mt-4 w-full max-w-[620px] overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm"
+            className="mt-4 w-full max-w-[620px] overflow-hidden rounded-2xl border border-border bg-card shadow-sm"
             onClick={(event) => event.stopPropagation()}
           >
             <FlowPicker mode="trigger" agents={agents} toolCatalog={toolCatalog} onPick={() => {}} onPickTrigger={onPickTrigger} onClose={() => {}} />
@@ -617,7 +617,7 @@ export function FlowCanvas({
         )}
         {trigger && !first && (
           <div className="flex flex-col items-center">
-            <div className="h-6 w-px bg-slate-300" />
+            <div className="h-6 w-px bg-border" />
             <InsertMenu
               tail
               agents={agents}

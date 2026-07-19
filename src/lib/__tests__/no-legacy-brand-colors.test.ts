@@ -13,14 +13,7 @@ const BANNED =
 // Landing + auth keep their own scoped theme; never scanned.
 const EXCLUDED = ['src/components/landing', 'src/app/landing.css', 'src/components/auth']
 
-const CLEAN_PATHS = [
-  'src/app/sublime-design.css',
-  'src/app/globals.css',
-  'tailwind.config.js',
-  'src/components/layout',
-  'src/components/ui',
-  'src/app',
-]
+const CLEAN_PATHS = ['src', 'tailwind.config.js']
 
 function filesUnder(path: string): string[] {
   if (EXCLUDED.some((ex) => path.startsWith(ex))) return []

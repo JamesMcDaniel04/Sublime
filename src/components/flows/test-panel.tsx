@@ -11,25 +11,25 @@ import { fieldClass, inputForField, labelClass } from './test-input-panel'
 import type { StepStatus } from './step-card'
 
 const STATUS_DOT: Record<StepStatus, string> = {
-  queued: 'bg-gray-300',
+  queued: 'bg-muted-foreground/40',
   running: 'bg-amber-400 animate-pulse',
   succeeded: 'bg-emerald-500',
   failed: 'bg-red-500',
   waiting: 'bg-blue-500 animate-pulse',
-  skipped: 'bg-gray-300',
+  skipped: 'bg-muted-foreground/40',
   stopped: 'bg-slate-500',
-  resumed: 'bg-gray-300',
+  resumed: 'bg-muted-foreground/40',
 }
 
 const STATUS_TEXT: Record<StepStatus, string> = {
-  queued: 'text-gray-400',
+  queued: 'text-muted-foreground',
   running: 'text-amber-600',
   succeeded: 'text-emerald-600',
   failed: 'text-red-600',
   waiting: 'text-blue-600',
-  skipped: 'text-gray-400',
+  skipped: 'text-muted-foreground',
   stopped: 'text-slate-500',
-  resumed: 'text-gray-400',
+  resumed: 'text-muted-foreground',
 }
 
 export type TestStep = { nodeId: string; status: StepStatus }
