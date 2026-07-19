@@ -39,6 +39,7 @@ model Organization {
   notifications             Notification[]
   mcpConnections            McpConnection[]
   nangoConnections          NangoConnection[]
+  googleOAuthConnections    GoogleOAuthConnection[]
   integrationSecrets        IntegrationSecret[]
   activityEvents            ActivityEvent[]
   activityBackfills         ActivityBackfill[]
@@ -553,6 +554,30 @@ model NangoConnection {
   @@index([organizationId, providerConfigKey])
   @@index([organizationId, userId, status])
   @@map("nango_connections")
+}
+
+// Native Google OAuth connections (Google blocks Nango's flow). The encrypted
+// refresh token lives HERE; a NangoConnection row with provider
+// 'google-native' mirrors each record so every existing read path (grid,
+// status, tool plane, scan plane) works unchanged.
+model GoogleOAuthConnection {
+  id              String   @id @default(cuid())
+  organizationId  String   @db.Uuid
+  userId          String
+  service         String // e.g. 'google-mail'
+  accountEmail    String
+  scopes          String[] @default([])
+  refreshTokenEnc String   @db.Text
+  status          String   @default("connected")
+  lastError       String?  @db.Text
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, userId, service, accountEmail])
+  @@index([organizationId, service])
+  @@map("google_oauth_connections")
 }
 
 // Per-organization secret for built-in integrations (e.g. the Granola API
