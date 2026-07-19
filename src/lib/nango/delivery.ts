@@ -17,6 +17,10 @@ export interface DeliveryConnection {
   connectionId: string
   providerConfigKey: string
   scope: 'user' | 'org'
+  /** Mirror-row provider marker; 'google-native' routes through googleProxy. */
+  provider?: string | null
+  /** Org scope for native-proxy token lookups (tenant-guarded store). */
+  organizationId?: string
 }
 
 /** Provider config keys we treat as delivery targets, by capability. */
@@ -89,6 +93,8 @@ export async function resolveDeliveryConnection(
     connectionId: chosen.connectionId,
     providerConfigKey: chosen.providerConfigKey,
     scope: chosen.userId === userId && userId ? 'user' : 'org',
+    provider: chosen.provider ?? null,
+    organizationId,
   }
 }
 
