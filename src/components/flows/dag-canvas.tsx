@@ -43,8 +43,9 @@ import {
 import { AlertCircle, Plus, X } from 'lucide-react'
 import { toast } from 'sonner'
 import { StepCard, type StepStatus } from './step-card'
+import { AddStepMenu } from './add-step-menu'
 import { FlowPicker } from './flow-picker'
-import { NODE_TYPES, NODE_TYPE_LABEL, nodeIconOf, nodeToneOf, type EditableType } from './node-types'
+import { NODE_TYPE_LABEL, nodeIconOf, nodeToneOf, type EditableType } from './node-types'
 import type { FlowInsertSeed } from './flow-canvas'
 import type { ToolCatalog } from './tool-catalog-type'
 import { autoLayout, containedNodeIds } from '@/lib/flows/auto-layout'
@@ -91,38 +92,6 @@ function siblingsOf(container: FlowNode, childId: string): { list: string[]; bra
   return { list: [] }
 }
 
-/** Compact "add a step" menu used inside a container's panel. */
-function AddNestedStepMenu({ onPick }: Readonly<{ onPick: (type: EditableType) => void }>) {
-  const [open, setOpen] = useState(false)
-  return (
-    <div className="relative">
-      <button
-        type="button"
-        onClick={() => setOpen((value) => !value)}
-        className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-dashed border-border px-3 py-2 text-sm font-medium text-muted-foreground hover:border-blue-400 hover:text-blue-700"
-      >
-        <Plus className="h-4 w-4" /> Add a step
-      </button>
-      {open && (
-        <>
-          <button type="button" aria-label="Close" className="fixed inset-0 z-10 cursor-default" onClick={() => setOpen(false)} />
-          <div className="absolute left-0 right-0 top-full z-20 mt-1 max-h-72 overflow-auto rounded-lg border border-border bg-card p-1 shadow-lg">
-            {NODE_TYPES.map((type) => (
-              <button
-                key={type.value}
-                type="button"
-                onClick={() => { setOpen(false); onPick(type.value) }}
-                className="flex w-full items-center rounded-md px-2 py-1.5 text-left text-xs hover:bg-muted"
-              >
-                {type.label}
-              </button>
-            ))}
-          </div>
-        </>
-      )}
-    </div>
-  )
-}
 
 type WidgetData = {
   node: FlowNode
@@ -496,7 +465,7 @@ function NodeConfigPanel({
                 </div>
               )
             })}
-            {!readOnly && onAddContainerStep && node.type !== 'errorShield' && <AddNestedStepMenu onPick={(type) => onAddContainerStep(node.id, type)} />}
+            {!readOnly && onAddContainerStep && node.type !== 'errorShield' && <AddStepMenu onPick={(type) => onAddContainerStep(node.id, type)} />}
           </div>
         )}
       </div>

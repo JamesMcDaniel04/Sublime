@@ -63,6 +63,7 @@ import { TriggerFilterEditor } from './trigger-filter-editor'
 import type { ToolCatalog } from './tool-catalog-type'
 import { ToolArgsEditor } from './tool-args-editor'
 import { NODE_TYPES, type EditableType } from './node-types'
+import { AddStepMenu } from './add-step-menu'
 import { AdvancedParamsSection } from './advanced-params'
 import { DataTree } from './data-tree'
 import { TokenTextEditor, type TokenTextEditorHandle } from './token-text-editor'
@@ -832,42 +833,6 @@ export function StepCard({
 }
 
 
-/** Compact "+ Add step" menu for loop bodies / parallel branches (was drawer-only). */
-function AddNestedStepMenu({ label, onPick }: { label: string; onPick: (type: EditableType) => void }) {
-  const [open, setOpen] = useState(false)
-  return (
-    <div className="relative">
-      <button
-        type="button"
-        onClick={() => setOpen((value) => !value)}
-        className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-dashed border-border px-3 py-2 text-sm font-medium text-muted-foreground hover:border-blue-400 hover:text-blue-700"
-      >
-        <Plus className="h-4 w-4" /> {label}
-      </button>
-      {open && (
-        <>
-          <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
-          <div className="absolute left-0 right-0 top-full z-20 mt-1 rounded-lg border border-border bg-card p-1 shadow-lg">
-            {NODE_TYPES.map((type) => (
-              <button
-                key={type.value}
-                type="button"
-                onClick={() => {
-                  setOpen(false)
-                  onPick(type.value)
-                }}
-                className="flex w-full items-center rounded-md px-2 py-1.5 text-left text-xs hover:bg-muted"
-              >
-                {type.label}
-              </button>
-            ))}
-          </div>
-        </>
-      )}
-    </div>
-  )
-}
-
 /** Step type + notes — the drawer's shared chrome, now inline on the card. */
 function StepSettingsFooter({
   node,
@@ -975,7 +940,7 @@ function renderNodeBody({
               <option value="merge">Merge (shallow-merge objects)</option>
             </select>
           </div>
-          {onAddStep && <AddNestedStepMenu label="Add parallel branch" onPick={onAddStep} />}
+          {onAddStep && <AddStepMenu label="Add parallel branch" onPick={onAddStep} />}
         </div>
       )
     case 'switch':
@@ -1023,7 +988,7 @@ function RepeatUntilBody({ node, update, tokenWiring, onAddStep }: { node: Extra
   return <div className="space-y-3">
     <ConditionBody node={{ id: node.id, type: 'condition', data: { clauses: node.data.clauses, match: node.data.match } }} update={(updated) => updated.type === 'condition' && update({ ...node, data: { ...node.data, clauses: updated.data.clauses ?? [], match: updated.data.match } })} tokenWiring={tokenWiring} />
     <div className="grid grid-cols-2 gap-2"><label className={labelClass}>Maximum runs<input className={controlClass} type="number" min={1} max={1000} value={node.data.maxIterations} onChange={(event) => update({ ...node, data: { ...node.data, maxIterations: Number(event.target.value) } })} /></label><label className={labelClass}>Delay (ms)<input className={controlClass} type="number" min={0} max={60000} value={node.data.delayMs ?? 0} onChange={(event) => update({ ...node, data: { ...node.data, delayMs: Number(event.target.value) } })} /></label></div>
-    {onAddStep && <AddNestedStepMenu label="Add repeated step" onPick={onAddStep} />}
+    {onAddStep && <AddStepMenu label="Add repeated step" onPick={onAddStep} />}
   </div>
 }
 
@@ -2168,7 +2133,7 @@ function LoopBody({
           />
         )}
       </div>
-      {onAddStep && <AddNestedStepMenu label="Add step to loop" onPick={onAddStep} />}
+      {onAddStep && <AddStepMenu label="Add step to loop" onPick={onAddStep} />}
       <AdvancedParamsSection node={node} onChange={update} />
     </div>
   )
@@ -2187,8 +2152,8 @@ function ErrorShieldBody({
         Runs the body below. If a body step fails, the fallback runs instead — with the error available as{' '}
         <code className="rounded bg-muted px-1 py-0.5 text-xs">{'{{error}}'}</code> — and this step still succeeds.
       </p>
-      {onAddStep && <AddNestedStepMenu label="Add step to body" onPick={onAddStep} />}
-      {onAddStep && <AddNestedStepMenu label="Add fallback step" onPick={(type) => onAddStep(type, -1)} />}
+      {onAddStep && <AddStepMenu label="Add step to body" onPick={onAddStep} />}
+      {onAddStep && <AddStepMenu label="Add fallback step" onPick={(type) => onAddStep(type, -1)} />}
     </div>
   )
 }
