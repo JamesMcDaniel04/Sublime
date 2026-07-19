@@ -586,8 +586,8 @@ export function LandingPage({ fontClassName = '' }: { fontClassName?: string }) 
 
           <InteractiveShowcase
             shots={[
-              { src: agentsShot, alt: 'Sublime agents workspace', label: 'Agents' },
               { src: flowsShot, alt: 'Two teammates collaborating on a Sublime flow canvas', label: 'Collaborative Flows' },
+              { src: agentsShot, alt: 'Sublime agents workspace', label: 'Agents' },
               { src: integrationsShot, alt: 'Sublime integrations catalog', label: 'Integrations' },
             ]}
           />
@@ -599,8 +599,8 @@ export function LandingPage({ fontClassName = '' }: { fontClassName?: string }) 
           <div className="md:hidden mt-12 -mx-6">
             <div className="flex snap-x snap-mandatory gap-4 overflow-x-auto px-6 pb-4 [-webkit-overflow-scrolling:touch] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
               {[
-                { src: agentsShot, alt: 'Sublime agents workspace', label: 'Agents' },
                 { src: flowsShot, alt: 'Two teammates collaborating on a Sublime flow canvas', label: 'Collaborative Flows' },
+                { src: agentsShot, alt: 'Sublime agents workspace', label: 'Agents' },
                 { src: integrationsShot, alt: 'Sublime integrations catalog', label: 'Integrations' },
               ].map((shot) => (
                 <div

@@ -4,6 +4,7 @@ import { Plan } from '@prisma/client'
 import { prisma } from '@/lib/prisma'
 import { getStripe } from '@/lib/stripe'
 import { planForPriceId } from '@/lib/stripe/plans'
+import { grantTopupCredits } from '@/lib/billing/topups'
 import { apiLogger } from '@/lib/logger'
 import { captureError } from '@/lib/observability/sentry'
 
@@ -53,6 +54,22 @@ async function applySubscription(subscription: Stripe.Subscription) {
   })
 }
 
+// Additional-usage purchase: grant the credits recorded on the checkout
+// session. Idempotent on the session id, so webhook retries can't double-grant.
+async function applyCreditTopup(session: Stripe.Checkout.Session) {
+  const organizationId = session.metadata?.organizationId || session.client_reference_id
+  const credits = Number(session.metadata?.credits)
+  if (!organizationId || !Number.isFinite(credits) || credits <= 0) {
+    apiLogger.error('stripe webhook: credit topup session missing org or credits', {
+      sessionId: session.id, organizationId, credits: session.metadata?.credits,
+    })
+    return
+  }
+  const organization = await prisma.organization.findUnique({ where: { id: organizationId }, select: { id: true } })
+  if (!organization) return
+  await grantTopupCredits({ organizationId, credits, stripeRef: session.id })
+}
+
 export async function POST(request: NextRequest) {
   const secret = process.env.STRIPE_WEBHOOK_SECRET
   if (!secret) return NextResponse.json({ error: 'Webhook not configured' }, { status: 500 })
@@ -74,6 +91,8 @@ export async function POST(request: NextRequest) {
       if (session.mode === 'subscription' && typeof session.subscription === 'string') {
         const subscription = await stripe.subscriptions.retrieve(session.subscription)
         await applySubscription(subscription)
+      } else if (session.mode === 'payment' && session.metadata?.purpose === 'credit_topup') {
+        await applyCreditTopup(session)
       }
       break
     }

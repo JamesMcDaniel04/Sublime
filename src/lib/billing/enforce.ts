@@ -1,6 +1,6 @@
 import { prisma } from '@/lib/prisma'
 import { ApiError } from '@/lib/server/api-handler'
-import { formatLimit, limitsForPlan, type PlanLimits } from './limits'
+import { formatLimit, limitsForOrg, type PlanLimits } from './limits'
 import { readAgentMetadata } from '@/lib/agents/metadata'
 import { departmentsForTools } from '@/lib/templates/departments'
 
@@ -15,9 +15,9 @@ import { departmentsForTools } from '@/lib/templates/departments'
 async function orgLimits(organizationId: string): Promise<PlanLimits> {
   const organization = await prisma.organization.findUnique({
     where: { id: organizationId },
-    select: { plan: true },
+    select: { plan: true, settings: true },
   })
-  return limitsForPlan(organization?.plan ?? 'TRIAL')
+  return limitsForOrg(organization?.plan ?? 'TRIAL', organization?.settings)
 }
 
 function overLimitError(what: string, cap: number, planLabel: string): ApiError {

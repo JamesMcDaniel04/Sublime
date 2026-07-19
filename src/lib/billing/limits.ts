@@ -72,6 +72,33 @@ export function limitsForPlan(plan: Plan): PlanLimits {
   return PLAN_LIMITS[plan] ?? INDIVIDUAL_LIMITS
 }
 
+/**
+ * Enterprise "custom" quotas: per-org overrides stored under
+ * `organization.settings.customLimits` (set by internal tooling during
+ * enterprise onboarding — deliberately NOT in the self-serve settings PATCH
+ * allowlist). Only ENTERPRISE plans honor overrides, and only downward/finite
+ * ones make sense there since the plan default is unlimited.
+ */
+const OVERRIDABLE_KEYS = ['seats', 'monthlyCredits', 'maxAgents', 'maxFlows', 'maxIntegrations', 'maxSpecialistAreas'] as const
+
+export function limitsForOrg(plan: Plan, settings: unknown): PlanLimits {
+  const base = limitsForPlan(plan)
+  if (plan !== Plan.ENTERPRISE) return base
+  const raw = settings && typeof settings === 'object' && !Array.isArray(settings)
+    ? (settings as Record<string, unknown>).customLimits
+    : null
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return base
+
+  const overrides: Partial<PlanLimits> = {}
+  for (const key of OVERRIDABLE_KEYS) {
+    const value = (raw as Record<string, unknown>)[key]
+    if (typeof value === 'number' && Number.isFinite(value) && value > 0) {
+      overrides[key] = Math.floor(value)
+    }
+  }
+  return { ...base, ...overrides }
+}
+
 /** Monthly token allowance for a plan; Infinity when the plan is unlimited. */
 export function monthlyTokenAllowance(plan: Plan): number {
   const credits = limitsForPlan(plan).monthlyCredits

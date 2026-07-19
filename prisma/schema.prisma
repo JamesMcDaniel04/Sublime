@@ -45,6 +45,7 @@ model Organization {
   flows                     Flow[]
   pushSubscriptions         PushSubscription[]
   knowledgeDocuments        KnowledgeDocument[]
+  creditGrants              CreditGrant[]
   sharedSkills              SharedSkill[]
   invitations               OrganizationInvitation[]
   flowCollaborators         FlowCollaborator[]
@@ -944,6 +945,27 @@ model ActivityTriggerClaim {
 /// A file uploaded as knowledge for an agent. We store the EXTRACTED TEXT (no
 /// blob storage); the original binary is not retained. Chunks are embedded (when
 /// embeddings are configured) and retrieved into the agent's context at run time.
+/// A purchased (or manually granted) block of additional usage credits,
+/// applied on top of the plan's monthly allowance for one UTC month.
+/// Written only by the Stripe webhook (idempotent on stripeRef) or by
+/// internal tooling — never by a user-facing settings write.
+model CreditGrant {
+  id             String   @id @default(cuid())
+  organizationId String   @db.Uuid
+  credits        Int
+  /// UTC month the grant applies to, e.g. "2026-07".
+  month          String
+  reason         String   @default("topup")
+  /// Stripe checkout session id; unique so webhook retries can't double-grant.
+  stripeRef      String?  @unique
+  createdAt      DateTime @default(now()) @db.Timestamptz(6)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, month])
+  @@map("credit_grants")
+}
+
 model KnowledgeDocument {
   id             String   @id @default(cuid())
   organizationId String   @db.Uuid
@@ -1013,9 +1035,9 @@ model KnowledgeChunk {
   @@map("knowledge_chunks")
 }
 
-/// A user-authored skill in the PUBLIC community library: readable by every
-/// workspace, writable only by the creator's org. Attached to agents by id and
-/// composed into the system prompt at run time alongside built-in skills.
+/// A user-authored skill with explicit creator, workspace, or public visibility.
+/// Attached to agents by id and composed into the system prompt at run time
+/// alongside built-in skills.
 model SharedSkill {
   id             String   @id @default(cuid())
   name           String

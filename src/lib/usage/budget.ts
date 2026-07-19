@@ -1,7 +1,8 @@
 import { Plan } from '@prisma/client'
 import { prisma } from '@/lib/prisma'
 import { cacheGetNumber, cacheIncrBy } from '@/lib/cache'
-import { monthlyTokenAllowance } from '@/lib/billing/limits'
+import { limitsForOrg, TOKENS_PER_CREDIT } from '@/lib/billing/limits'
+import { topupTokensForMonth } from '@/lib/billing/topups'
 
 // Live month-to-date token counter, keyed per org + UTC month. Incremented per
 // turn as tokens are spent, so concurrent runs/workers see each other's spend
@@ -39,13 +40,17 @@ export function monthlyTokenLimit(): number {
 
 /**
  * Month-to-date token budget for an organization, derived from the org's PLAN
- * (see @/lib/billing/limits: Individual/Trial 10k credits, Team 50k, Business
+ * (see @/lib/billing/limits: Individual/unpaid 10k credits, Team 50k, Business
  * 250k; 1 credit = 1,000 tokens; Enterprise unlimited). Enforced at the start
  * of every LLM entry point (agent runs, chats, copilot, drafts) so a runaway
  * agent — or a free rider — can't burn unbounded spend.
  *
  * AGENT_MONTHLY_TOKEN_LIMIT remains an optional GLOBAL backstop: when set, the
  * effective ceiling is the lower of it and the plan allowance.
+ *
+ * The plan allowance honors Enterprise per-org custom quotas
+ * (settings.customLimits.monthlyCredits) and is raised by any purchased
+ * top-up credits for the current month ("Additional usage available").
  */
 export async function checkMonthlyTokenBudget(
   organizationId: string,
@@ -59,9 +64,15 @@ export async function checkMonthlyTokenBudget(
 
   const organization = await prisma.organization.findUnique({
     where: { id: organizationId },
-    select: { plan: true },
+    select: { plan: true, settings: true },
   })
-  const planAllowance = monthlyTokenAllowance(organization?.plan ?? Plan.TRIAL)
+  const limits = limitsForOrg(organization?.plan ?? Plan.TRIAL, organization?.settings)
+  let planAllowance = Number.isFinite(limits.monthlyCredits)
+    ? limits.monthlyCredits * TOKENS_PER_CREDIT
+    : Number.POSITIVE_INFINITY
+  if (Number.isFinite(planAllowance)) {
+    planAllowance += await topupTokensForMonth(organizationId)
+  }
   const envLimit = monthlyTokenLimit()
   const limit = Math.min(planAllowance, envLimit > 0 ? envLimit : Number.POSITIVE_INFINITY)
   if (!Number.isFinite(limit) || limit <= 0) return { over: false, used: 0, limit: 0 }
