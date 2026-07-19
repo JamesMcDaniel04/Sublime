@@ -171,6 +171,14 @@ export class Neo4jGraphStore implements GraphRagStore {
     )
   }
 
+  /** Release the bolt driver (tests/graceful shutdown); safe when never opened. */
+  async close(): Promise<void> {
+    if (!this.driverPromise) return
+    const driver = await this.driverPromise.catch(() => null)
+    this.driverPromise = null
+    await driver?.close().catch(() => undefined)
+  }
+
   /** Org teardown: remove every node (and their edges) for this org. */
   async clear(organizationId: string): Promise<void> {
     const driver = await this.driver()
