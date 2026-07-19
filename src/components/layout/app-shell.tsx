@@ -4,6 +4,7 @@ import { ReactNode } from 'react'
 import { usePathname } from 'next/navigation'
 import { Sidebar } from './sidebar'
 import { ErrorBoundary } from '@/components/ui/error-boundary'
+import { TrialGate } from '@/components/billing/trial-gate'
 
 /**
  * The single app chrome, mounted once in the root layout so the sidebar
