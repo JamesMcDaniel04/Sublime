@@ -31,7 +31,10 @@ export function googleOAuthConfigured(): boolean {
 }
 
 function requireEnv(name: 'GOOGLE_OAUTH_CLIENT_ID' | 'GOOGLE_OAUTH_CLIENT_SECRET' | 'GOOGLE_OAUTH_REDIRECT_URI'): string {
-  const value = process.env[name]
+  // Trimmed: stray whitespace pasted into deployment env (e.g. a trailing
+  // newline) URL-encodes into the consent request, which Google rejects as
+  // an OAuth policy violation.
+  const value = process.env[name]?.trim()
   if (!value) throw new Error(`Native Google OAuth is not configured. Please set ${name}`)
   return value
 }

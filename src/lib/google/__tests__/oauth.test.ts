@@ -28,6 +28,17 @@ test('gmail scope set covers send, readonly, and userinfo.email', () => {
   assert.ok(scopes.includes('https://www.googleapis.com/auth/userinfo.email'))
 })
 
+test('auth url strips stray whitespace from env values', () => {
+  // A trailing newline pasted into the deployment env encodes as %0A in the
+  // redirect_uri, which Google rejects with a secure-response-handling
+  // policy error instead of a redirect_uri_mismatch.
+  process.env.GOOGLE_OAUTH_REDIRECT_URI = 'https://app.example.com/api/google/oauth/callback\n'
+  process.env.GOOGLE_OAUTH_CLIENT_ID = ' client-id.apps.googleusercontent.com\n'
+  const url = new URL(buildAuthUrl({ service: 'google-mail', state: 'abc123' }))
+  assert.equal(url.searchParams.get('redirect_uri'), 'https://app.example.com/api/google/oauth/callback')
+  assert.equal(url.searchParams.get('client_id'), 'client-id.apps.googleusercontent.com')
+})
+
 test('state round-trips and rejects tampering', () => {
   const state = signState({ organizationId: 'org-1', userId: 'user-1', service: 'google-mail' })
   const verified = verifyState(state)
