@@ -33,8 +33,25 @@ if (TEST_DB) {
     }
   })
 
-  test('purgeConnectionLearnings hard-deletes only the matching sourceRef memories', async () => {
-    const org = await prisma.organization.create({ data: { name: 'Purge Org', slug: `purge-${crypto.randomUUID()}` } })
+  test('purgeConnectionLearnings retains everything by default (retainKnowledgeOnDisconnect)', async () => {
+    const org = await prisma.organization.create({ data: { name: 'Purge Org Retain', slug: `purge-retain-${crypto.randomUUID()}` } })
+    orgIds.push(org.id)
+    const agentId = await orgIntelligenceAgentId(org.id)
+
+    const memory = await prisma.agentMemory.create({
+      data: { organizationId: org.id, agentId, kind: 'learning', title: 'Kept', content: 'x', sourceRef: 'mcp:conn123' },
+    })
+
+    await purgeConnectionLearnings({ organizationId: org.id, plane: 'mcp', connectionRef: 'conn123' })
+
+    const remaining = await prisma.agentMemory.findMany({ where: { organizationId: org.id }, select: { id: true } })
+    assert.ok(remaining.some((row: { id: string }) => row.id === memory.id), 'default settings must retain learnings on disconnect')
+  })
+
+  test('purgeConnectionLearnings hard-deletes only the matching sourceRef memories when the org opted out of retention', async () => {
+    const org = await prisma.organization.create({
+      data: { name: 'Purge Org', slug: `purge-${crypto.randomUUID()}`, settings: { retainKnowledgeOnDisconnect: false } },
+    })
     orgIds.push(org.id)
     const agentId = await orgIntelligenceAgentId(org.id)
 

@@ -4,6 +4,7 @@ import { billingStateFor } from '@/lib/billing/trial'
 import { limitsForPlan, tokensToCredits, formatLimit } from '@/lib/billing/limits'
 import { orgUsageSummary } from '@/lib/billing/enforce'
 import { checkMonthlyTokenBudget } from '@/lib/usage/budget'
+import { capabilitiesForPlan } from '@/lib/billing/capabilities'
 
 export const dynamic = 'force-dynamic'
 
@@ -29,6 +30,7 @@ export async function GET() {
     state: billing.state,
     plan: billing.plan,
     hasSubscription: Boolean(organization.stripeSubscriptionId),
+    capabilities: capabilitiesForPlan(organization.plan),
     limits: {
       label: limits.label,
       seats: formatLimit(limits.seats),

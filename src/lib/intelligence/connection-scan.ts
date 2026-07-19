@@ -27,6 +27,7 @@ import { indexConnectionScan, indexToolCatalog, removeConnectionScanFromGraph } 
 import { formatFlowToolConnectionId } from '@/lib/flows/tool-connection-id'
 import { loadMcpConnectionPlaneGroups, loadNangoPlaneGroups, type ToolPlaneGroup } from '@/features/agents/tool-planes'
 import { connectionSourceRef, isScanExcluded, type ScanPlane } from './scan-exclusions'
+import { knowledgeCaptureSettings } from '@/lib/knowledge/settings'
 
 // Re-exported so existing server-side importers of connection-scan.ts (this
 // module owns the domain) keep working unchanged — the implementations live
@@ -386,6 +387,12 @@ export async function scanConnection(params: {
  * leg is isolated so a failure in one never blocks (or throws into) the
  * caller's disconnect flow. An org that never scanned this connection (no
  * holder agent, or no matching memories) is a silent no-op.
+ *
+ * Honors the org's `retainKnowledgeOnDisconnect` setting (default true):
+ * retained business context is the product's core value, so learned memories
+ * and graph insight survive a disconnect unless the org opted out. When the
+ * settings read fails we retain — losing learnings is the irreversible
+ * outcome, so the purge is the leg that must prove it's authorized.
  */
 export async function purgeConnectionLearnings(params: {
   organizationId: string
@@ -394,6 +401,25 @@ export async function purgeConnectionLearnings(params: {
 }): Promise<void> {
   const { organizationId, plane, connectionRef } = params
   const sourceRef = connectionSourceRef(plane, connectionRef)
+
+  try {
+    const organization = await prisma.organization.findUnique({
+      where: { id: organizationId },
+      select: { settings: true },
+    })
+    if (knowledgeCaptureSettings(organization?.settings).retainOnDisconnect) {
+      apiLogger.info('purgeConnectionLearnings: retained (retainKnowledgeOnDisconnect)', {
+        organizationId, plane, connectionRef,
+      })
+      return
+    }
+  } catch (error) {
+    apiLogger.warn('purgeConnectionLearnings: settings read failed, retaining learnings', {
+      organizationId, plane, connectionRef,
+      error: error instanceof Error ? error.message : String(error),
+    })
+    return
+  }
 
   try {
     const agentId = await findOrgIntelligenceAgentId(organizationId)

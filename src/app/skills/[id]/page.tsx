@@ -25,6 +25,7 @@ type Skill = {
   tags: string[]
   integrations?: string[]
   instructions: string
+  visibility?: 'private' | 'organization' | 'public' | 'built_in'
   mine?: boolean
 }
 
@@ -36,6 +37,7 @@ type SkillDraft = {
   instructions: string
   tags: string
   integrations: string
+  visibility: 'private' | 'organization' | 'public'
 }
 
 const csv = (value: string) => value.split(',').map((s) => s.trim()).filter(Boolean)
@@ -125,6 +127,7 @@ export default function SkillDetailsPage() {
       instructions: skill.instructions,
       tags: skill.tags.join(', '),
       integrations: (skill.integrations ?? []).join(', '),
+      visibility: skill.visibility === 'private' || skill.visibility === 'public' ? skill.visibility : 'organization',
     })
   }
 
@@ -147,6 +150,7 @@ export default function SkillDetailsPage() {
           instructions: editDraft.instructions,
           tags: csv(editDraft.tags),
           integrations: csv(editDraft.integrations),
+          visibility: editDraft.visibility,
         }),
       })
       const data = await response.json().catch(() => ({}))
@@ -206,6 +210,7 @@ export default function SkillDetailsPage() {
             <div className="max-w-3xl">
               <div className="mb-3 flex flex-wrap gap-2">
                 <Badge variant="outline">{skill.category}</Badge>
+                {skill.visibility && skill.visibility !== 'built_in' && <Badge variant="secondary" className="capitalize">{skill.visibility === 'organization' ? 'Workspace' : skill.visibility}</Badge>}
                 {skill.tags.slice(0, 3).map((tag) => <Badge key={tag} variant="secondary">{tag}</Badge>)}
               </div>
               <h1 className="text-3xl font-bold tracking-tight">{skill.name}</h1>
@@ -298,6 +303,18 @@ export default function SkillDetailsPage() {
                       <label className="mb-1 block text-xs font-medium text-muted-foreground">Category</label>
                       <Input value={editDraft.category} onChange={(e) => setEditDraft({ ...editDraft, category: e.target.value })} />
                     </div>
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-xs font-medium text-muted-foreground">Who can use this skill?</label>
+                    <select
+                      value={editDraft.visibility}
+                      onChange={(e) => setEditDraft({ ...editDraft, visibility: e.target.value as SkillDraft['visibility'] })}
+                      className="h-9 w-full rounded-md border bg-background px-3 text-sm"
+                    >
+                      <option value="private">Only me</option>
+                      <option value="organization">My workspace</option>
+                      <option value="public">Public community</option>
+                    </select>
                   </div>
                   <div>
                     <label className="mb-1 block text-xs font-medium text-muted-foreground">Description</label>

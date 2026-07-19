@@ -160,8 +160,9 @@ const sections: { id: string; title: string; body: React.ReactNode }[] = [
           </Bullet>
           <Bullet>
             <strong className="text-foreground/90 font-medium">Your workspace.</strong> If you are
-            part of a team workspace, your name, activity, and the agents and runs you create are
-            visible to other members of that workspace as part of normal collaboration.
+            part of a team workspace, your name and explicitly shared agents, flows, skills, and
+            retained workspace knowledge are visible to the members you share them with. Private
+            agents, runs, credentials, and settings remain scoped to their owner.
           </Bullet>
           <Bullet>
             <strong className="text-foreground/90 font-medium">Legal requirements.</strong> When
@@ -190,6 +191,7 @@ const sections: { id: string; title: string; body: React.ReactNode }[] = [
         <Body>We use industry-standard safeguards to protect your information, including:</Body>
         <ul className="mt-4 space-y-2.5">
           <Bullet>Encryption in transit (TLS) and at rest</Bullet>
+          <Bullet>Application-level AES-256-GCM encryption for retained knowledge and stored secrets</Bullet>
           <Bullet>
             Scoped, revocable OAuth access to connected tools. We never ask for your passwords to
             those tools
@@ -225,13 +227,15 @@ const sections: { id: string; title: string; body: React.ReactNode }[] = [
           </Bullet>
           <Bullet>
             <strong className="text-foreground/90 font-medium">Connected-tool data</strong>{' '}
-            associated with a connection is deleted when you disconnect that tool or delete your
-            account.
+            credentials and live access are deleted when you disconnect that tool. By default,
+            redacted business context already learned from the connection remains as encrypted
+            workspace knowledge until you delete it or the workspace.
           </Bullet>
           <Bullet>
             <strong className="text-foreground/90 font-medium">Run logs and workspace content</strong>{' '}
-            are kept while the workspace exists so your team retains its audit history, and removed
-            when the workspace or account is deleted.
+            may have large operational transcripts pruned on a schedule, but useful completed
+            outcomes are promoted into encrypted retained knowledge first. Workspace-retained
+            knowledge remains until it is deleted or the workspace is deleted.
           </Bullet>
           <Bullet>
             <strong className="text-foreground/90 font-medium">Billing records</strong> may be
@@ -262,7 +266,8 @@ const sections: { id: string; title: string; body: React.ReactNode }[] = [
         <div className="mt-4">
           <Body>
             You can exercise many of these directly in the product: updating your profile,
-            disconnecting tools, or deleting your account from settings. For anything else, email
+            exporting or deleting retained knowledge, disconnecting tools, or deleting your account
+            from settings. For anything else, email
             us at hello@trysublime.io and we will respond within the timeframe required by
             applicable law. If you are in the EEA or UK, you also have the right to lodge a
             complaint with your local data protection authority.

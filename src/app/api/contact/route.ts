@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { apiLogger } from '@/lib/logger'
+import { getAuthWithUser } from '@/lib/supabase/auth-utils'
+import { capabilitiesForPlan } from '@/lib/billing/capabilities'
 
 export const dynamic = 'force-dynamic'
 
@@ -28,8 +30,8 @@ const REASON_LABELS: Record<z.infer<typeof contactSchema>['reason'], string> = {
 }
 
 // Public on purpose: the marketing /contact page serves signed-out visitors.
-// Not wrapped in withAuthenticatedApi (no session required, and expired-trial
-// users must still be able to reach sales).
+// Not wrapped in withAuthenticatedApi: no session is required, and unpaid
+// users must still be able to reach sales and support.
 export async function POST(request: NextRequest) {
   const parsed = contactSchema.safeParse(await request.json().catch(() => null))
   if (!parsed.success) {
@@ -49,8 +51,14 @@ export async function POST(request: NextRequest) {
   }
 
   const from = process.env.EMAIL_FROM || 'Sublime <onboarding@resend.dev>'
+  const authenticated = await getAuthWithUser().catch(() => null)
+  const plan = authenticated?.dbUser?.organization?.plan
+  const support = plan ? capabilitiesForPlan(plan).support : 'resources'
   const text = [
     `Reason: ${REASON_LABELS[reason]}`,
+    `Support tier: ${support}`,
+    plan ? `Plan: ${plan}` : null,
+    authenticated?.organizationId ? `Workspace: ${authenticated.organizationId}` : null,
     `Name: ${name}`,
     `Email: ${email}`,
     company ? `Company: ${company}` : null,
@@ -65,7 +73,7 @@ export async function POST(request: NextRequest) {
       from,
       to: [CONTACT_INBOX],
       reply_to: email,
-      subject: `[Contact] ${REASON_LABELS[reason]} — ${name}`,
+      subject: `[${support === 'dedicated' ? 'Dedicated' : support === 'priority' ? 'Priority' : 'Contact'}] ${REASON_LABELS[reason]} — ${name}`,
       text,
     }),
   })

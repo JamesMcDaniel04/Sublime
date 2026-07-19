@@ -63,6 +63,7 @@ interface SkillItem {
   custom?: boolean
   mine?: boolean
   authorName?: string
+  visibility?: 'private' | 'organization' | 'public' | 'built_in'
 }
 
 /** Shared shape for the create/edit dialog across templates and skills. */
@@ -82,12 +83,14 @@ type AssetDraft = {
   requiredIntegrations: string
   recommendedIntegrations: string
   scheduleCron: string
+  skillVisibility: 'private' | 'organization' | 'public'
 }
 
 const emptyAsset = (kind: 'template' | 'skill'): AssetDraft => ({
   kind, name: '', category: kind === 'template' ? 'Custom' : 'Community',
   description: '', instructions: '', tags: '', integrations: '', exampleOutput: '',
   templateKind: 'agent', requiredIntegrations: '', recommendedIntegrations: '', scheduleCron: '',
+  skillVisibility: 'organization',
 })
 
 const csv = (value: string) => value.split(',').map((s) => s.trim()).filter(Boolean)
@@ -183,6 +186,7 @@ export function TemplatesExplorer() {
       requiredIntegrations: (t.requiredIntegrations ?? []).join(', '),
       recommendedIntegrations: (t.recommendedIntegrations ?? []).join(', '),
       scheduleCron: t.schedule?.type === 'cron' ? t.schedule.cron ?? '' : '',
+      skillVisibility: 'organization',
     })
   const openEditSkill = (s: SkillItem) =>
     setDialog({
@@ -190,6 +194,7 @@ export function TemplatesExplorer() {
       instructions: s.instructions ?? '', tags: (s.tags ?? []).join(', '), integrations: (s.integrations ?? []).join(', '),
       exampleOutput: '',
       templateKind: 'agent', requiredIntegrations: '', recommendedIntegrations: '', scheduleCron: '',
+      skillVisibility: s.visibility === 'private' || s.visibility === 'public' ? s.visibility : 'organization',
     })
 
   const saveAsset = async () => {
@@ -213,7 +218,7 @@ export function TemplatesExplorer() {
             kind: dialog.templateKind, requiredIntegrations: csv(dialog.requiredIntegrations),
             recommendedIntegrations: csv(dialog.recommendedIntegrations), schedule,
           }
-        : { name: dialog.name, category: dialog.category, description: dialog.description, instructions: dialog.instructions, tags: csv(dialog.tags), integrations: csv(dialog.integrations) }
+        : { name: dialog.name, category: dialog.category, description: dialog.description, instructions: dialog.instructions, tags: csv(dialog.tags), integrations: csv(dialog.integrations), visibility: dialog.skillVisibility }
     try {
       const res = await fetch(url, {
         method: dialog.id ? 'PUT' : 'POST',
@@ -231,7 +236,7 @@ export function TemplatesExplorer() {
         const list = await fetch('/api/skills', { cache: 'no-store' }).then((r) => r.json())
         setSkills(list.success ? list.skills : [])
       }
-      toast.success(dialog.id ? 'Saved' : `Published to the community library`)
+      toast.success(dialog.id ? 'Saved' : dialog.kind === 'skill' ? 'Skill created' : 'Published to the community library')
       setDialog(null)
     } catch (e: any) {
       toast.error(e?.message || 'Could not save')
@@ -771,7 +776,7 @@ export function TemplatesExplorer() {
             <div className="flex items-center justify-between mb-6">
               <div>
                 <h2 className="text-lg font-semibold">Skills</h2>
-                <p className="text-sm text-muted-foreground">Instruction packs that extend agents at run time. Yours are shared publicly.</p>
+                <p className="text-sm text-muted-foreground">Instruction packs that extend agents at run time. You control who can use each one.</p>
               </div>
               <Button size="sm" onClick={() => openCreate('skill')}><Plus className="mr-1.5 h-4 w-4" /> Create skill</Button>
             </div>
@@ -806,6 +811,7 @@ export function TemplatesExplorer() {
                         <div className="flex items-center gap-1.5">
                           <Badge variant="outline" className={cn('text-[11px] font-medium', accent.badge)}>{skill.category}</Badge>
                           {skill.custom && <Badge variant="outline" className="text-[11px] font-medium border-indigo-200 bg-indigo-50 text-indigo-700 dark:border-indigo-500/30 dark:bg-indigo-500/10 dark:text-indigo-300">Community</Badge>}
+                          {skill.custom && <Badge variant="outline" className="text-[11px] font-medium capitalize">{skill.visibility === 'organization' ? 'Workspace' : skill.visibility}</Badge>}
                         </div>
                         <div className="flex items-start gap-2.5">
                           <span className={cn('flex h-9 w-9 shrink-0 items-center justify-center rounded-lg transition-transform group-hover:scale-105', accent.tile)}>
@@ -972,12 +978,27 @@ export function TemplatesExplorer() {
                   </div>
                 </div>
               )}
-              <p className="text-xs text-muted-foreground">Published to the public community library — visible to every workspace.</p>
+              {dialog.kind === 'skill' ? (
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-muted-foreground">Who can use this skill?</label>
+                  <select
+                    value={dialog.skillVisibility}
+                    onChange={(e) => setDialog({ ...dialog, skillVisibility: e.target.value as AssetDraft['skillVisibility'] })}
+                    className="h-9 w-full rounded-md border bg-background px-3 text-sm"
+                  >
+                    <option value="private">Only me</option>
+                    <option value="organization">My workspace</option>
+                    <option value="public">Public community</option>
+                  </select>
+                </div>
+              ) : (
+                <p className="text-xs text-muted-foreground">Published to the public community library — visible to every workspace.</p>
+              )}
             </div>
           )}
           <DialogFooter>
             <Button variant="outline" onClick={() => setDialog(null)}>Cancel</Button>
-            <Button onClick={saveAsset} loading={savingAsset}>{dialog?.id ? 'Save' : 'Publish'}</Button>
+            <Button onClick={saveAsset} loading={savingAsset}>{dialog?.id ? 'Save' : dialog?.kind === 'skill' ? 'Create skill' : 'Publish'}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -999,4 +1020,3 @@ export function TemplatesExplorer() {
     </>
   )
 }
-

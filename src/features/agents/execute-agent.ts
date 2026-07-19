@@ -609,13 +609,22 @@ export async function runAgentExecution(
     // Cross-tool ledger (behavior spec §2): providers this run actually
     // touched, deduped to one tool_call event per (execution, provider).
     const touchedTools = new Map<string, Set<string>>()
-    // Community skills are public-library rows; resolve any attached ids that
-    // aren't built in and compose them the same way. Best-effort.
-    // systemPrisma: public community skill library — cross-org by design, same
-    // as GET /api/skills (any org may compose any published community skill).
+    // Resolve only attached skills this run owner can still see. Visibility
+    // changes take effect immediately even if an old id remains attached.
     const communitySkills = skillIds.length
       ? await systemPrisma.sharedSkill
-          .findMany({ where: { id: { in: skillIds }, isActive: true }, select: { id: true, name: true, instructions: true } })
+          .findMany({
+            where: {
+              id: { in: skillIds },
+              isActive: true,
+              OR: [
+                { visibility: 'public' },
+                { organizationId, visibility: 'organization' },
+                { organizationId, userId, visibility: 'private' },
+              ],
+            },
+            select: { id: true, name: true, instructions: true },
+          })
           .catch(() => [])
       : []
     let system = buildAgentSystemPrompt(agent.objective, skillIds, communitySkills)
