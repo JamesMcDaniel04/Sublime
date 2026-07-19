@@ -2,11 +2,19 @@
 
 import { Toaster } from 'sonner'
 import { MotionConfig } from 'motion/react'
+import { ThemeProvider } from 'next-themes'
 import { SupabaseProvider } from './supabase-provider'
 
 export function ClientProviders({ children }: { children: React.ReactNode }) {
   return (
     <MotionConfig reducedMotion="user">
+      <ThemeProvider
+        attribute="class"
+        defaultTheme="system"
+        enableSystem
+        storageKey="sublime-theme"
+        disableTransitionOnChange
+      >
       <SupabaseProvider>
         {children}
         <Toaster
@@ -23,6 +31,7 @@ export function ClientProviders({ children }: { children: React.ReactNode }) {
           }}
         />
       </SupabaseProvider>
+      </ThemeProvider>
     </MotionConfig>
   )
 }

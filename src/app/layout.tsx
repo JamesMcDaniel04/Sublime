@@ -29,7 +29,7 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html lang="en" className={`${geist.variable} ${anonymousPro.variable}`}>
+    <html lang="en" suppressHydrationWarning className={`${geist.variable} ${anonymousPro.variable}`}>
       <body>
         <ClientProviders>
           <AppShell>{children}</AppShell>
