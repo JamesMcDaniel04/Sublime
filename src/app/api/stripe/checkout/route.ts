@@ -3,7 +3,6 @@ import { requireAuth } from '@/lib/supabase/auth-utils'
 import { prisma } from '@/lib/prisma'
 import { getStripe, appOrigin } from '@/lib/stripe'
 import { isPaidPlanKey, priceIdFor, type PaidPlanKey } from '@/lib/stripe/plans'
-import { billingStateFor } from '@/lib/billing/trial'
 import { apiLogger } from '@/lib/logger'
 
 export const dynamic = 'force-dynamic'
@@ -43,7 +42,7 @@ async function startCheckout(plan: PaidPlanKey, origin: string) {
 
   const organization = await prisma.organization.findUnique({
     where: { id: auth.organizationId },
-    select: { id: true, name: true, stripeCustomerId: true, plan: true, trialEndsAt: true, createdAt: true },
+    select: { id: true, name: true, stripeCustomerId: true },
   })
   if (!organization) return NextResponse.redirect(new URL('/dashboard', origin))
 
@@ -63,13 +62,6 @@ async function startCheckout(plan: PaidPlanKey, origin: string) {
     })
   }
 
-  // Subscribing while the 14-day trial is still running keeps the remaining
-  // free days: the card goes on file now, the first charge lands when the
-  // trial would have ended, and canceling before then costs nothing. An
-  // expired trial (or a re-subscribe after cancel+expiry) charges immediately.
-  const billing = billingStateFor(organization)
-  const trialDaysLeft = billing.state === 'trialing' ? billing.daysLeft : 0
-
   const session = await stripe.checkout.sessions.create({
     mode: 'subscription',
     customer: customerId,
@@ -80,7 +72,6 @@ async function startCheckout(plan: PaidPlanKey, origin: string) {
     metadata: { organizationId: organization.id, planKey: plan },
     subscription_data: {
       metadata: { organizationId: organization.id, planKey: plan },
-      ...(trialDaysLeft > 0 ? { trial_period_days: trialDaysLeft } : {}),
     },
     success_url: `${origin}/dashboard?billing=success`,
     cancel_url: `${origin}/#pricing`,

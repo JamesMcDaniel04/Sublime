@@ -11,7 +11,7 @@ export const dynamic = 'force-dynamic'
 
 // Statuses that keep the paid plan active. Anything else (canceled, unpaid,
 // incomplete_expired) downgrades to TRIAL until Stripe says otherwise.
-const ACTIVE_STATUSES = new Set(['active', 'trialing', 'past_due'])
+const ACTIVE_STATUSES = new Set(['active', 'past_due'])
 
 async function applySubscription(subscription: Stripe.Subscription) {
   const organizationId = subscription.metadata?.organizationId

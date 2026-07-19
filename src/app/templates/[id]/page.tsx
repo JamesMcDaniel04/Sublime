@@ -130,6 +130,7 @@ export default function TemplateDetails() {
         description: template.description,
         instructions: template.instructions,
         integrations: template.integrations,
+        specialistArea: template.departments?.[0] || 'general',
         skills: template.skills || [],
         model: template.model,
         icon: template.icon || '',

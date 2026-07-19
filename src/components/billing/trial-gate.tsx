@@ -5,10 +5,8 @@ import { CreditCard } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 
 type BillingStatus = {
-  state: 'paid' | 'trialing' | 'expired'
+  state: 'paid' | 'payment_required'
   plan: string
-  trialEndsAt: string | null
-  daysLeft: number
   hasSubscription: boolean
 }
 
@@ -19,9 +17,9 @@ const PLAN_OPTIONS = [
 ]
 
 /**
- * Client half of trial enforcement (the server half is the 402 in
- * requireAuthContext). While trialing it shows a countdown banner; once the
- * trial lapses it covers the app with a non-dismissible paywall. Fails open on
+ * Client half of billing enforcement (the server half is the 402 in
+ * requireAuthContext). An unpaid workspace sees a non-dismissible plan picker.
+ * Fails open on
  * fetch errors — a network blip must never lock a paying customer out.
  */
 export function TrialGate({ children }: { children: ReactNode }) {
@@ -40,17 +38,17 @@ export function TrialGate({ children }: { children: ReactNode }) {
     }
   }, [])
 
-  if (status?.state === 'expired') {
+  if (status?.state === 'payment_required') {
     return (
       <div className="flex h-full min-h-screen items-center justify-center bg-background p-6">
         <div className="w-full max-w-lg rounded-lg border bg-card p-8 shadow-lg">
           <div className="mb-6 flex h-11 w-11 items-center justify-center rounded-full bg-muted">
             <CreditCard className="h-5 w-5 text-muted-foreground" />
           </div>
-          <h1 className="text-xl font-semibold text-foreground">Your free trial has ended</h1>
+          <h1 className="text-xl font-semibold text-foreground">Choose a plan to start</h1>
           <p className="mt-2 text-sm text-muted-foreground">
-            Your 14-day trial is over. Pick a plan to keep using your agents, flows, and
-            connections. Everything is saved exactly where you left it.
+            Sublime is paid from day one. Pick the plan that fits your workspace; your
+            subscription starts immediately and you can cancel anytime.
           </p>
           <div className="mt-6 space-y-2">
             {PLAN_OPTIONS.map((plan) => (
@@ -68,7 +66,7 @@ export function TrialGate({ children }: { children: ReactNode }) {
             ))}
           </div>
           <p className="mt-4 text-xs text-muted-foreground">
-            Checkout is handled securely by Stripe. Need more time or have questions?{' '}
+            Checkout is handled securely by Stripe. Have questions?{' '}
             <a href="mailto:hello@trysublime.io" className="underline hover:text-foreground">
               hello@trysublime.io
             </a>
@@ -78,19 +76,5 @@ export function TrialGate({ children }: { children: ReactNode }) {
     )
   }
 
-  return (
-    <>
-      {status?.state === 'trialing' && !status.hasSubscription && (
-        <div className="flex items-center justify-center gap-3 border-b bg-muted/60 px-4 py-1.5 text-xs text-muted-foreground">
-          <span>
-            Free trial: {status.daysLeft} {status.daysLeft === 1 ? 'day' : 'days'} left
-          </span>
-          <a href="/settings?tab=billing" className="font-medium text-foreground underline underline-offset-2 hover:opacity-80">
-            Add billing
-          </a>
-        </div>
-      )}
-      {children}
-    </>
-  )
+  return children
 }

@@ -8,7 +8,8 @@ import { readAgentMetadata } from '@/lib/agents/metadata'
 import { serializeAgent } from '@/lib/agents/serialize'
 import { indexAgent, removeAgentFromGraph } from '@/lib/rag/indexer'
 import { syncAgentConnectors } from '@/lib/connectors/agent-connectors'
-import { assertAgentCapacity } from '@/lib/billing/enforce'
+import { assertAgentCapacity, assertSpecialistAreaCapacity } from '@/lib/billing/enforce'
+import { departmentsForTools } from '@/lib/templates/departments'
 
 /** Best-effort graph-RAG indexing of an agent node (gated on embeddings). */
 /**
@@ -53,6 +54,7 @@ const agentSchema = z.object({
   instructions: z.string().min(1),
   model: z.string().default(DEFAULT_AGENT_MODEL),
   integrations: z.array(z.string()).default([]),
+  specialistArea: z.string().trim().min(1).max(60).optional(),
   requiredIntegrations: z.array(z.string()).default([]),
   skills: z.array(z.string()).default([]),
   folder: z.string().trim().max(60).nullish(),
@@ -105,7 +107,9 @@ export const GET = withAuthenticatedApi(async (_request, auth) => {
 
 export const POST = withAuthenticatedApi(async (request, auth) => {
   const data = agentSchema.parse(await request.json())
+  const specialistArea = data.specialistArea || departmentsForTools(data.integrations)[0]
   await assertAgentCapacity(auth.organizationId)
+  await assertSpecialistAreaCapacity(auth.organizationId, specialistArea)
   const agent = await prisma.agentTask.create({
     data: {
       agentType: 'CUSTOM',
@@ -123,6 +127,7 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
         description: data.description,
         model: data.model,
         integrations: data.integrations,
+        specialistArea,
         requiredIntegrations: data.requiredIntegrations,
         skills: data.skills,
         icon: data.icon || '',
@@ -161,6 +166,12 @@ export const PUT = withAuthenticatedApi(async (request, auth) => {
     throw new ApiError('Only the agent owner can change who it is shared with', 403, 'FORBIDDEN')
   }
   const metadata = existing.metadata && typeof existing.metadata === 'object' && !Array.isArray(existing.metadata) ? existing.metadata : {}
+  const existingMetadata = readAgentMetadata(existing.metadata)
+  const specialistArea = body.specialistArea
+    || (body.integrations ? departmentsForTools(body.integrations)[0] : existingMetadata.specialistArea || departmentsForTools(existingMetadata.integrations ?? [])[0])
+  if (body.specialistArea !== undefined || body.integrations !== undefined) {
+    await assertSpecialistAreaCapacity(auth.organizationId, specialistArea, existing.id)
+  }
   const agent = await prisma.agentTask.update({
     where: { id: body.id, organizationId: auth.organizationId },
     data: {
@@ -176,6 +187,7 @@ export const PUT = withAuthenticatedApi(async (request, auth) => {
         ...(body.description !== undefined && { description: body.description }),
         ...(body.model !== undefined && { model: body.model }),
         ...(body.integrations !== undefined && { integrations: body.integrations }),
+        ...((body.specialistArea !== undefined || body.integrations !== undefined) && { specialistArea }),
         ...(body.requiredIntegrations !== undefined && { requiredIntegrations: body.requiredIntegrations }),
         ...(body.skills !== undefined && { skills: body.skills }),
         ...(body.icon !== undefined && { icon: body.icon }),

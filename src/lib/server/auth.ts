@@ -49,16 +49,16 @@ export async function requireAuthContext(): Promise<AuthContext> {
     throw new AuthContextError('Organization access required', 403)
   }
 
-  // Trial enforcement: every data API flows through here, so a lapsed trial
-  // blocks the workspace server-side (not just in the UI). Billing endpoints
+  // Payment enforcement: every data API flows through here, so an unpaid
+  // workspace is blocked server-side (not just in the UI). Billing endpoints
   // (/api/billing/status, /api/stripe/*) deliberately do NOT use this wrapper
   // so a locked-out user can still see their status, subscribe, and pay.
   const organization = auth.dbUser.organization
-  if (organization && billingStateFor(organization).state === 'expired') {
+  if (organization && billingStateFor(organization).state === 'payment_required') {
     throw new AuthContextError(
-      'Your free trial has ended. Add a payment method to continue.',
+      'Choose a paid plan to start using Sublime. You can cancel anytime.',
       402,
-      'TRIAL_EXPIRED',
+      'PAYMENT_REQUIRED',
     )
   }
 

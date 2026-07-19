@@ -8,7 +8,7 @@ import { checkMonthlyTokenBudget } from '@/lib/usage/budget'
 export const dynamic = 'force-dynamic'
 
 // Deliberately NOT wrapped in withAuthenticatedApi: that wrapper rejects
-// expired trials with 402, and this endpoint is what the lockout screen reads
+// unpaid workspaces with 402, and this endpoint is what the lockout screen reads
 // to know it should be showing. It must stay reachable while locked.
 export async function GET() {
   const auth = await requireAuth()
@@ -28,8 +28,6 @@ export async function GET() {
     success: true,
     state: billing.state,
     plan: billing.plan,
-    trialEndsAt: 'trialEndsAt' in billing ? billing.trialEndsAt.toISOString() : null,
-    daysLeft: billing.state === 'trialing' ? billing.daysLeft : 0,
     hasSubscription: Boolean(organization.stripeSubscriptionId),
     limits: {
       label: limits.label,
@@ -38,6 +36,7 @@ export async function GET() {
       maxAgents: formatLimit(limits.maxAgents),
       maxFlows: formatLimit(limits.maxFlows),
       maxIntegrations: formatLimit(limits.maxIntegrations),
+      maxSpecialistAreas: formatLimit(limits.maxSpecialistAreas),
     },
     usage: {
       ...usage,

@@ -75,20 +75,14 @@ const sections: { id: string; title: string; body: React.ReactNode }[] = [
   },
   {
     id: 'billing',
-    title: 'Subscriptions, trial, and billing',
+    title: 'Subscriptions and billing',
     body: (
       <>
         <ul className="space-y-2.5">
           <Bullet>
-            <strong className="text-foreground/90 font-medium">Free trial.</strong> Every new
-            workspace gets a 14-day free trial with Individual-tier limits. When you subscribe
-            during the trial, your card goes on file but the first charge only lands when the
-            trial ends. Cancel before then and you pay nothing.
-          </Bullet>
-          <Bullet>
             <strong className="text-foreground/90 font-medium">Subscriptions.</strong> Paid plans
-            bill monthly in advance through Stripe and renew automatically until canceled. Taxes
-            may apply based on your location.
+            start and bill monthly in advance through Stripe from the day you subscribe, then renew
+            automatically until canceled. Taxes may apply based on your location.
           </Bullet>
           <Bullet>
             <strong className="text-foreground/90 font-medium">Cancellation.</strong> You can
@@ -342,8 +336,8 @@ export default function TermsPage() {
           <p className="mt-5 text-[13px] text-muted-foreground">Last updated: {LAST_UPDATED}</p>
           <p className="mt-6 max-w-[640px] text-[14px] leading-[1.7] text-muted-foreground">
             The short version: you own your data, agents act only with the access you give them,
-            every plan starts with a 14-day free trial you can cancel at no charge, and we expect
-            fair use of the platform. The full terms follow.
+            subscriptions begin when you check out and can be canceled anytime, and we expect fair
+            use of the platform. The full terms follow.
           </p>
         </div>
       </section>

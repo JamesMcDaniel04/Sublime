@@ -2,8 +2,9 @@ import { Plan } from '@prisma/client'
 
 /**
  * Per-plan usage limits. Every workspace is treated as an Individual account
- * (STARTER limits) unless it has purchased Team or Business — including TRIAL
- * workspaces, which get Individual-shaped limits while they evaluate.
+ * (STARTER limits) unless it has purchased Team or Business. TRIAL is retained
+ * as the database's legacy "no active subscription" sentinel; it does not
+ * grant a free trial or access to paid product routes.
  *
  * Credits: 1 credit = 1,000 model tokens (input + output combined). The
  * monthly credit allowance is an ORG-wide pool, not per seat.
@@ -19,37 +20,42 @@ export type PlanLimits = {
   maxAgents: number
   maxFlows: number
   maxIntegrations: number
+  /** Number of distinct non-general specialist areas the workspace may use. */
+  maxSpecialistAreas: number
 }
 
 const INDIVIDUAL_LIMITS: PlanLimits = {
   label: 'Individual',
-  seats: 1,
+  seats: 5,
   monthlyCredits: 10_000,
   maxAgents: 5,
   maxFlows: 5,
-  maxIntegrations: 5,
+  maxIntegrations: UNLIMITED,
+  maxSpecialistAreas: 1,
 }
 
 export const PLAN_LIMITS: Record<Plan, PlanLimits> = {
-  // Trials evaluate under Individual limits — nobody gets more than the base
-  // tier without paying for it.
-  [Plan.TRIAL]: { ...INDIVIDUAL_LIMITS, label: 'Trial' },
+  // Unpaid legacy sentinel. Authentication's billing gate prevents product
+  // access until checkout succeeds; these limits only shape plan previews.
+  [Plan.TRIAL]: { ...INDIVIDUAL_LIMITS, label: 'Payment required' },
   [Plan.STARTER]: INDIVIDUAL_LIMITS,
   [Plan.PROFESSIONAL]: {
     label: 'Team',
-    seats: 5,
+    seats: 10,
     monthlyCredits: 50_000,
     maxAgents: 25,
     maxFlows: 25,
     maxIntegrations: UNLIMITED,
+    maxSpecialistAreas: UNLIMITED,
   },
   [Plan.BUSINESS]: {
     label: 'Business',
-    seats: 25,
-    monthlyCredits: 250_000,
+    seats: 20,
+    monthlyCredits: 200_000,
     maxAgents: UNLIMITED,
     maxFlows: UNLIMITED,
     maxIntegrations: UNLIMITED,
+    maxSpecialistAreas: UNLIMITED,
   },
   [Plan.ENTERPRISE]: {
     label: 'Enterprise',
@@ -58,6 +64,7 @@ export const PLAN_LIMITS: Record<Plan, PlanLimits> = {
     maxAgents: UNLIMITED,
     maxFlows: UNLIMITED,
     maxIntegrations: UNLIMITED,
+    maxSpecialistAreas: UNLIMITED,
   },
 }
 

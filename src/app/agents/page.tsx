@@ -435,6 +435,7 @@ function AgentHQ() {
           instructions: agent.instructions,
           model: agent.model,
           integrations: agent.integrations,
+          specialistArea: source.specialistArea,
           requiredIntegrations: source.requiredIntegrations ?? [],
           skills: agent.skills,
           icon: agent.icon,

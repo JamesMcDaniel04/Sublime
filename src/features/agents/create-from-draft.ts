@@ -2,6 +2,8 @@ import type { AgentTask } from '@prisma/client'
 import { prisma } from '@/lib/prisma'
 import { syncAgentConnectors } from '@/lib/connectors/agent-connectors'
 import { DEFAULT_AGENT_MODEL } from '@/lib/llm/model-runner'
+import { assertAgentCapacity, assertSpecialistAreaCapacity } from '@/lib/billing/enforce'
+import { departmentsForTools } from '@/lib/templates/departments'
 
 /**
  * Draft→agent creation shared by POST /api/agents/draft and the Home
@@ -46,6 +48,9 @@ export async function createAgentFromDraft(
   ctx: { organizationId: string; userId: string },
 ): Promise<{ agent: AgentTask; draft: NormalizedDraft }> {
   const normalized = normalizeDraft(draft)
+  const specialistArea = departmentsForTools(normalized.integrations)[0]
+  await assertAgentCapacity(ctx.organizationId)
+  await assertSpecialistAreaCapacity(ctx.organizationId, specialistArea)
   const agent = await prisma.agentTask.create({
     data: {
       agentType: 'CUSTOM',
@@ -61,6 +66,7 @@ export async function createAgentFromDraft(
         description: normalized.description,
         model: normalized.model,
         integrations: normalized.integrations,
+        specialistArea,
         icon: normalized.icon,
       },
     },

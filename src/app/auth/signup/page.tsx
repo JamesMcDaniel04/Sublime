@@ -79,7 +79,7 @@ export default function SignUpPage() {
     <AuthShell
       eyebrow="Get started"
       title="Create your account"
-      subtitle="Start your 14-day free trial — your workspace is ready in a minute."
+      subtitle="Create your workspace, choose a plan, and start immediately. Cancel anytime."
     >
       <div className="space-y-4">
             {error && (

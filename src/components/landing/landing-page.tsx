@@ -755,9 +755,9 @@ export function LandingPage({ fontClassName = '' }: { fontClassName?: string }) 
             </div>
           </div>
           <p className="mt-4 text-[12px] text-muted-foreground">
-            Every plan starts with a 14-day free trial. Cancel before it ends and you won&apos;t be
-            charged. 1 credit = 1,000 AI tokens; credits are shared across your workspace. Checkout
-            and invoicing are handled securely by Stripe.
+            Subscriptions start when you check out and can be canceled anytime. 1 credit = 1,000 AI
+            tokens; credits are shared across your workspace. Checkout and invoicing are handled
+            securely by Stripe.
           </p>
         </div>
       </section>

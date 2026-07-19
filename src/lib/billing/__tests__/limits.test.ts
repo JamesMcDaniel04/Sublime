@@ -10,7 +10,7 @@ import {
   UNLIMITED,
 } from '../limits'
 
-test('trial workspaces get exactly Individual-shaped limits', () => {
+test('unpaid workspaces expose Individual-shaped limits for plan previews', () => {
   const trial = limitsForPlan(Plan.TRIAL)
   const individual = limitsForPlan(Plan.STARTER)
   assert.deepEqual(
@@ -19,24 +19,26 @@ test('trial workspaces get exactly Individual-shaped limits', () => {
   )
   assert.equal(trial.maxAgents, 5)
   assert.equal(trial.maxFlows, 5)
-  assert.equal(trial.maxIntegrations, 5)
+  assert.equal(trial.maxIntegrations, UNLIMITED)
+  assert.equal(trial.maxSpecialistAreas, 1)
   assert.equal(trial.monthlyCredits, 10_000)
-  assert.equal(trial.seats, 1)
+  assert.equal(trial.seats, 5)
 })
 
-test('team plan: 5 seats, 50k credits, 25 agents/flows, unlimited integrations', () => {
+test('team plan: 10 seats, 50k credits, every core area, unlimited integrations', () => {
   const team = limitsForPlan(Plan.PROFESSIONAL)
-  assert.equal(team.seats, 5)
+  assert.equal(team.seats, 10)
   assert.equal(team.monthlyCredits, 50_000)
   assert.equal(team.maxAgents, 25)
   assert.equal(team.maxFlows, 25)
   assert.equal(team.maxIntegrations, UNLIMITED)
+  assert.equal(team.maxSpecialistAreas, UNLIMITED)
 })
 
-test('business plan: 25 seats, 250k credits, unlimited agents/flows/integrations', () => {
+test('business plan: 20 seats, 200k credits, unlimited agents/flows/integrations', () => {
   const business = limitsForPlan(Plan.BUSINESS)
-  assert.equal(business.seats, 25)
-  assert.equal(business.monthlyCredits, 250_000)
+  assert.equal(business.seats, 20)
+  assert.equal(business.monthlyCredits, 200_000)
   assert.equal(business.maxAgents, UNLIMITED)
   assert.equal(business.maxFlows, UNLIMITED)
   assert.equal(business.maxIntegrations, UNLIMITED)
@@ -45,7 +47,7 @@ test('business plan: 25 seats, 250k credits, unlimited agents/flows/integrations
 test('token allowance converts credits at 1,000 tokens per credit', () => {
   assert.equal(monthlyTokenAllowance(Plan.STARTER), 10_000 * TOKENS_PER_CREDIT)
   assert.equal(monthlyTokenAllowance(Plan.PROFESSIONAL), 50_000 * TOKENS_PER_CREDIT)
-  assert.equal(monthlyTokenAllowance(Plan.BUSINESS), 250_000 * TOKENS_PER_CREDIT)
+  assert.equal(monthlyTokenAllowance(Plan.BUSINESS), 200_000 * TOKENS_PER_CREDIT)
   assert.equal(monthlyTokenAllowance(Plan.ENTERPRISE), UNLIMITED)
 })
 
