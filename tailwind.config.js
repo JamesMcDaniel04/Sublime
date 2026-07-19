@@ -9,10 +9,9 @@ const graphite = {
   50: '#FAFAFA', 100: '#F1F2F5', 200: '#E3E3E4', 300: '#C7C7C8', 400: '#ABABAD',
   500: '#8E8E92', 600: '#717178', 700: '#55555E', 800: '#3C3C46', 900: '#171721', 950: '#0F0F17',
 }
-const ember = {
-  50: '#FFF7F2', 100: '#FFF0E8', 200: '#FFD6C4', 300: '#FFB08D', 400: '#FF875A',
-  500: '#FF6B35', 600: '#E95725', 700: '#BE3F18', 800: '#963317', 900: '#792D19', 950: '#411308',
-}
+// The orange "ember" accent scale is retired — legacy `ember-*`/`indigo-*`
+// utilities now resolve to graphite (see colors below) so former accent
+// elements render near-black, like the landing CTA.
 
 module.exports = {
   darkMode: 'class',
@@ -27,7 +26,7 @@ module.exports = {
         // Brand scales, available by name.
         horizon,
         graphite,
-        ember,
+        ember: graphite,
         // Bring existing utility classes onto brand with zero per-file churn:
         // Graphite *is* the brand's neutral ("replaces gray"); Horizon is the
         // single accent ("color reserved for signal"). Semantic red/green/amber
@@ -37,9 +36,9 @@ module.exports = {
         zinc: graphite,
         neutral: graphite,
         blue: horizon,
-        // Existing product accent utilities now inherit the landing highlight.
+        // Existing product accent utilities render neutral near-black.
         // Horizon remains available by its explicit name for informational UI.
-        indigo: ember,
+        indigo: graphite,
         sky: horizon,
         // shadcn token aliases
         border: 'hsl(var(--border))',
