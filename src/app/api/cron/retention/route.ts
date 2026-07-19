@@ -127,8 +127,14 @@ export async function GET(request: Request) {
       data: { status: 'expired' },
     })).count
 
-    apiLogger.info('cron/retention complete', { days, executionsDeleted, transcriptsPruned, userEventsDeleted, patternsExpired })
-    return Response.json({ success: true, days, executionsDeleted, transcriptsPruned, userEventsDeleted, patternsExpired })
+    // Nightly re-embed sweep: backfill vectors for rows written while
+    // embeddings were unconfigured (or whose embed failed at write time), so
+    // they become retrievable instead of staying invisible forever.
+    // Bounded batch; a failure is retried tomorrow, never fails retention.
+    const reEmbedded = await (await import('@/lib/rag/re-embed')).reEmbedMissingVectors()
+
+    apiLogger.info('cron/retention complete', { days, executionsDeleted, transcriptsPruned, userEventsDeleted, patternsExpired, reEmbedded })
+    return Response.json({ success: true, days, executionsDeleted, transcriptsPruned, userEventsDeleted, patternsExpired, reEmbedded })
   } catch (error) {
     apiLogger.error('cron/retention failed', { error: error instanceof Error ? error.message : String(error) })
     return Response.json({ success: false, error: 'Internal server error' }, { status: 500 })

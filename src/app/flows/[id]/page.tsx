@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Badge } from '@/components/ui/badge'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
-import { emptyGraph, type FlowGraph, type FlowNode, type OutputField } from '@/lib/flows/graph'
+import { emptyGraph, type FlowGraph, type FlowNode } from '@/lib/flows/graph'
 import { insertNodeAfter, appendToBranch, duplicateNode, updateNode, deleteNode, changeNodeType, addContainerStep, moveNodeAfter, moveContainerStep, pasteNodeAfter, addNodeAt, addConnectedNodeAt } from '@/lib/flows/mutate'
 import { stackCompatible } from '@/lib/flows/stack-compat'
 import { writeFlowClipboard, readFlowClipboard } from '@/lib/flows/clipboard'
@@ -18,9 +18,7 @@ import { applyCopilotOps, type CopilotOp } from '@/lib/flows/copilot-ops'
 import { remediationForFailedRun, type FlowFailureRemediation } from '@/lib/flows/failure-remediation'
 import { buildDataTree } from '@/lib/flows/datatree'
 import { parseFlowInput } from '@/lib/flows/input'
-import { httpOutputFields, outputFieldsFromJsonSchema } from '@/lib/flows/schema-fields'
 import { validateFlowGraph } from '@/lib/flows/validate'
-import { triggerInputFieldsFromTrigger } from '@/lib/flows/trigger'
 import { defaultStepLabel, stepLabelsOf } from '@/lib/flows/token-text'
 import { missingRequiredInputFields } from '@/lib/flows/input-validation'
 import { storedRunInput, prefillTextFromRunInput } from '@/lib/flows/reuse-input'
@@ -62,131 +60,11 @@ import { getCachedJson, invalidateCachedJson } from '@/lib/client/use-cached-jso
 
 type Agent = { id: string; title: string }
 
-/** Ordered main-chain ids from the trigger, for upstream-token help. */
-function spineIds(graph: FlowGraph): string[] {
-  const byId = new Map(graph.nodes.map((n) => [n.id, n]))
-  const nextId = (node: FlowNode): string | undefined => {
-    const edges = graph.edges.filter((e) => e.source === node.id)
-    return (node.type === 'condition' ? edges.find((e) => e.branch === 'true') ?? edges[0] : edges[0])?.target
-  }
-  const ids: string[] = []
-  const seen = new Set<string>()
-  let current: FlowNode | undefined = byId.get('trigger') ?? graph.nodes[0]
-  while (current && !seen.has(current.id)) {
-    seen.add(current.id)
-    ids.push(current.id)
-    const next = nextId(current)
-    current = next ? byId.get(next) : undefined
-  }
-  return ids
-}
-
-function parentLoop(graph: FlowGraph, nodeId: string | null): { loop: Extract<FlowNode, { type: 'loop' }>; index: number } | null {
-  if (!nodeId) return null
-  for (const node of graph.nodes) {
-    if (node.type !== 'loop') continue
-    const index = node.data.body.indexOf(nodeId)
-    if (index >= 0) return { loop: node, index }
-  }
-  return null
-}
-
-function parentParallelBranch(graph: FlowGraph, nodeId: string | null): { parallelId: string; branch: string[]; index: number } | null {
-  if (!nodeId) return null
-  for (const node of graph.nodes) {
-    if (node.type !== 'parallel') continue
-    for (const branch of node.data.branches) {
-      const index = branch.indexOf(nodeId)
-      if (index >= 0) return { parallelId: node.id, branch, index }
-    }
-  }
-  return null
-}
-
-function parseFlowValue(value: unknown) {
-  if (typeof value !== 'string') return value
-  const trimmed = value.trim()
-  if (!trimmed || (trimmed[0] !== '{' && trimmed[0] !== '[')) return value
-  try {
-    return JSON.parse(trimmed)
-  } catch {
-    return value
-  }
-}
-
-function isRecordLike(value: unknown): value is Record<string, unknown> {
-  return Boolean(value && typeof value === 'object' && !Array.isArray(value))
-}
-
-function triggerInputFields(graph: FlowGraph) {
-  const triggerNode = graph.nodes.find((node): node is Extract<FlowNode, { type: 'trigger' }> => node.type === 'trigger')
-  return triggerInputFieldsFromTrigger(triggerNode?.data.trigger)
-}
-
-function outputFieldsForNode(node: FlowNode | undefined, toolCatalog: ToolCatalog): OutputField[] | undefined {
-  if (!node) return undefined
-  if (node.type === 'agent') return node.data.outputFields
-  if (node.type === 'http') return node.data.outputFields?.length ? node.data.outputFields : httpOutputFields()
-  if (node.type !== 'tool') return undefined
-  if (node.data.outputFields?.length) return node.data.outputFields
-  const tool = toolCatalog
-    .find((connection) => connection.id === node.data.connectionId)
-    ?.tools.find((entry) => entry.name === node.data.toolName)
-  const fields = outputFieldsFromJsonSchema(tool?.outputSchema ?? node.data.actionOutputSchema)
-  return fields.length ? fields : undefined
-}
-
-function previewLoopItems(value: unknown): unknown[] {
-  const parsed = parseFlowValue(value)
-  if (Array.isArray(parsed)) return parsed
-  if (parsed && typeof parsed === 'object') {
-    for (const key of ['items', 'records', 'results', 'data']) {
-      const candidate = (parsed as Record<string, unknown>)[key]
-      if (Array.isArray(candidate)) return candidate
-    }
-    return []
-  }
-  if (typeof parsed !== 'string') return []
-  const trimmed = parsed.trim()
-  if (!trimmed) return []
-  const lines = trimmed.split(/\r?\n/).map((part) => part.trim()).filter(Boolean)
-  if (lines.length > 1) return lines
-  const commaParts = trimmed.split(',').map((part) => part.trim()).filter(Boolean)
-  return commaParts.length > 1 ? commaParts : [trimmed]
-}
-
-function sampleLoopItem(loop: Extract<FlowNode, { type: 'loop' }>, lastOutputs: Record<string, unknown>, testInput: string): unknown {
-  const token = loop.data.over.trim().match(/^\{\{\s*([^{}]+?)\s*\}\}$/)?.[1]
-  let value: unknown = loop.data.over
-  if (token === 'trigger.input') {
-    value = testInput
-  } else if (token?.startsWith('step.')) {
-    const [, nodeId, outputKey, ...rest] = token.split('.')
-    if (outputKey === 'output') {
-      value = lastOutputs[nodeId]
-      for (const part of rest) {
-        if (value == null || typeof value !== 'object') {
-          value = undefined
-          break
-        }
-        value = (value as Record<string, unknown>)[part]
-      }
-    }
-  }
-  return previewLoopItems(value)[0]
-}
-
-function clampZoom(value: number): number {
-  return Math.min(1.5, Math.max(0.5, value))
-}
-
-function filenameSlug(value: string): string {
-  return (value || 'flow')
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, 80) || 'flow'
-}
+import {
+  spineIds, parentLoop, parentParallelBranch, parseFlowValue, isRecordLike,
+  triggerInputFields, outputFieldsForNode, sampleLoopItem,
+  clampZoom, filenameSlug,
+} from './flow-builder-helpers'
 
 /**
  * Peer cursors for the STACK canvas, rendered in CONTENT coordinates inside
