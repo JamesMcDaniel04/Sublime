@@ -5,8 +5,6 @@
    without restyling the product app or the auth pages. The wrapper carries its
    own `.dark` class, which also drives Tailwind's `dark:` variants inside it. */
 
-@import url('https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600;700&display=swap');
-
 .lovable-landing {
   --background: 0 0% 100%;
   --foreground: 0 0% 9%;
@@ -53,7 +51,7 @@
   --radius-xl: 0.75rem;
   --radius-2xl: 1rem;
 
-  font-family: 'Geist', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  /* Geist itself is applied by the next/font className on this same element. */
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
@@ -103,5 +101,5 @@
 .lovable-landing h4,
 .lovable-landing h5,
 .lovable-landing h6 {
-  font-family: 'Geist', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  font-family: inherit;
 }

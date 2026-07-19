@@ -20,9 +20,11 @@ const agentsShot = '/landing/sublime-agents.png'
 const integrationsShot = '/landing/sublime-integrations.png'
 const flowsShot = '/landing/sublime-flows.png'
 
+// Slack/Salesforce/Teams/Amplitude were delisted from the Simple Icons CDN
+// (brand takedowns) — bundled or dropped rather than 404ing in the marquee.
 const INTEGRATION_LOGOS = [
-  { name: 'Salesforce', src: 'https://cdn.simpleicons.org/salesforce' },
-  { name: 'Slack', src: 'https://cdn.simpleicons.org/slack' },
+  { name: 'Salesforce', src: '/logos/salesforce.svg' },
+  { name: 'Slack', src: '/logos/slack.png' },
   { name: 'Google Drive', src: 'https://cdn.simpleicons.org/googledrive' },
   { name: 'Google Sheets', src: 'https://cdn.simpleicons.org/googlesheets' },
   { name: 'Google Docs', src: 'https://cdn.simpleicons.org/googledocs' },
@@ -41,12 +43,10 @@ const INTEGRATION_LOGOS = [
   { name: 'Airtable', src: 'https://cdn.simpleicons.org/airtable' },
   { name: 'Supabase', src: 'https://cdn.simpleicons.org/supabase' },
   { name: 'PostHog', src: 'https://cdn.simpleicons.org/posthog' },
-  { name: 'Amplitude', src: 'https://cdn.simpleicons.org/amplitude' },
   { name: 'ClickUp', src: 'https://cdn.simpleicons.org/clickup' },
   { name: 'Confluence', src: 'https://cdn.simpleicons.org/confluence' },
-  { name: 'Microsoft Teams', src: 'https://cdn.simpleicons.org/microsoftteams' },
   { name: 'Hugging Face', src: 'https://cdn.simpleicons.org/huggingface' },
-  { name: 'Figma', src: 'https://cdn.simpleicons.org/figma' },
+  { name: 'Figma', src: '/logos/figma.svg' },
 ]
 
 const LOGO_VARIANT = 1
@@ -149,7 +149,7 @@ const InteractiveShowcase = ({ shots }: { shots: Shot[] }) => {
   )
 }
 
-export function LandingPage() {
+export function LandingPage({ fontClassName = '' }: { fontClassName?: string }) {
   const [theme, setThemeState] = useState<'light' | 'dark'>('dark')
   const [cubeZoom, setCubeZoom] = useState(360)
 
@@ -174,7 +174,7 @@ export function LandingPage() {
   const diagonalLineColor = isDark ? 'hsl(240 4% 26%' : 'hsl(240 4% 80%'
 
   return (
-    <div className={`lovable-landing ${isDark ? 'dark' : ''} min-h-screen bg-background text-foreground overflow-x-hidden`}>
+    <div className={`lovable-landing ${fontClassName} ${isDark ? 'dark' : ''} min-h-screen bg-background text-foreground overflow-x-hidden`}>
       {/* Nav */}
       <nav className="fixed top-0 z-50 w-full bg-background border-b border-border px-6">
         <div className="mx-auto flex h-[56px] max-w-[1200px] items-center justify-between">

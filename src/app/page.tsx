@@ -1,8 +1,13 @@
 import type { Metadata } from 'next'
+import { Geist } from 'next/font/google'
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { LandingPage } from '@/components/landing/landing-page'
 import './landing.css'
+
+// Self-hosted via next/font: a Google Fonts CSS import would be blocked by the
+// deployment's style-src CSP and silently fall back to system fonts.
+const geist = Geist({ subsets: ['latin'], display: 'swap' })
 
 // Rendered per-request: the try/catch around the Supabase auth check would
 // otherwise swallow the dynamic-usage signal and bake a static page at build.
@@ -36,5 +41,5 @@ export default async function Home() {
   }
   if (user) redirect('/dashboard')
 
-  return <LandingPage />
+  return <LandingPage fontClassName={geist.className} />
 }
