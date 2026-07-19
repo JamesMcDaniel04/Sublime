@@ -21,7 +21,15 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
   const { skillId } = z.object({ skillId: z.string().min(1) }).parse(await request.json())
 
   const skillExists = Boolean(getSkill(skillId)) || Boolean(await systemPrisma.sharedSkill.findFirst({
-    where: { id: skillId, isActive: true },
+    where: {
+      id: skillId,
+      isActive: true,
+      OR: [
+        { visibility: 'public' },
+        { organizationId: auth.organizationId, visibility: 'organization' },
+        { organizationId: auth.organizationId, userId: auth.dbUser.id, visibility: 'private' },
+      ],
+    },
     select: { id: true },
   }))
   if (!skillExists) throw new ApiError('Skill not found', 404, 'NOT_FOUND')

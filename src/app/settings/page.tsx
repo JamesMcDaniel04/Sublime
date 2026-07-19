@@ -41,7 +41,15 @@ async function fileToAvatarDataUrl(file: File): Promise<string> {
 type Factor = { id: string; friendly_name?: string; status: string }
 type Member = { id: string; email: string | null; name: string | null; role: 'ADMIN' | 'USER'; isActive: boolean }
 type Invitation = { id: string; email: string; role: 'ADMIN' | 'USER'; expiresAt: string; createdAt: string }
-type OrgSettings = { disableConnectionScans?: boolean }
+type OrgSettings = {
+  disableConnectionScans?: boolean
+  knowledgeCaptureEnabled?: boolean
+  captureAgentRunKnowledge?: boolean
+  captureFlowRunKnowledge?: boolean
+  captureConnectedKnowledge?: boolean
+  retainKnowledgeOnDisconnect?: boolean
+  zeroDataRetention?: boolean
+}
 
 export default function SettingsPage() {
   const supabase = createClient()
@@ -353,6 +361,7 @@ export default function SettingsPage() {
             )}
           </CardContent>
         </Card>
+        <KnowledgeRetentionCard isAdmin={profile?.role === 'ADMIN'} plan={orgPlan} />
         <LearningsPanel />
         {profile?.role === 'ADMIN' && <PlatformServicesCard />}
         {profile?.role === 'ADMIN' && (
@@ -375,14 +384,14 @@ export default function SettingsPage() {
             <div>
               <p className="text-sm font-medium">Current plan</p>
               <p className="text-xs text-muted-foreground">
-                {({ TRIAL: 'Trial', STARTER: 'Individual — $29.99/mo', PROFESSIONAL: 'Team — $299/mo', BUSINESS: 'Business — $1,999/mo', ENTERPRISE: 'Enterprise' } as Record<string, string>)[orgPlan] || orgPlan}
+                {({ TRIAL: 'Payment required', STARTER: 'Individual — $29.99/mo', PROFESSIONAL: 'Team — $299/mo', BUSINESS: 'Business — $1,999/mo', ENTERPRISE: 'Enterprise' } as Record<string, string>)[orgPlan] || orgPlan}
               </p>
             </div>
             {orgPlan !== 'TRIAL' && <Button variant="outline" onClick={() => { window.location.href = '/api/stripe/portal' }}>Manage billing</Button>}
           </div>
           {orgPlan === 'TRIAL' ? (
             <div className="space-y-2">
-              <p className="text-sm text-muted-foreground">Pick a plan to unlock the full platform. Checkout and invoicing are handled securely by Stripe.</p>
+              <p className="text-sm text-muted-foreground">Pick a plan to start using the platform. Billing begins at checkout, you can cancel anytime, and payments are handled securely by Stripe.</p>
               <div className="flex flex-wrap gap-2">
                 <Button onClick={() => { window.location.href = '/api/stripe/checkout?plan=individual' }}>Individual — $29.99/mo</Button>
                 <Button onClick={() => { window.location.href = '/api/stripe/checkout?plan=team' }}>Team — $299/mo</Button>
@@ -408,8 +417,118 @@ type Capability = { key: string; label: string; configured: boolean; detail: str
  * silently degrade when unconfigured (semantic search, push, graph memory),
  * and this card is where that state stops being invisible.
  */
-type BillingLimits = { label: string; seats: string; monthlyCredits: string; maxAgents: string; maxFlows: string; maxIntegrations: string }
+type BillingLimits = { label: string; seats: string; monthlyCredits: string; maxAgents: string; maxFlows: string; maxIntegrations: string; maxSpecialistAreas: string }
 type BillingUsage = { agents: number; flows: number; integrations: number; members: number; creditsUsed: number }
+
+type KnowledgeSettings = {
+  captureEnabled: boolean
+  captureAgentRuns: boolean
+  captureFlowRuns: boolean
+  captureConnectedData: boolean
+  retainOnDisconnect: boolean
+  zeroDataRetention: boolean
+}
+
+type KnowledgeSummary = {
+  documents: number
+  characters: number
+  passages: number
+  bySource: Record<string, number>
+}
+
+const KNOWLEDGE_SETTING_KEYS = {
+  captureEnabled: 'knowledgeCaptureEnabled',
+  captureAgentRuns: 'captureAgentRunKnowledge',
+  captureFlowRuns: 'captureFlowRunKnowledge',
+  captureConnectedData: 'captureConnectedKnowledge',
+  retainOnDisconnect: 'retainKnowledgeOnDisconnect',
+  zeroDataRetention: 'zeroDataRetention',
+} as const
+
+function KnowledgeRetentionCard({ isAdmin, plan }: { isAdmin: boolean; plan: string }) {
+  const [settings, setSettings] = useState<KnowledgeSettings | null>(null)
+  const [summary, setSummary] = useState<KnowledgeSummary | null>(null)
+  const [saving, setSaving] = useState<keyof KnowledgeSettings | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    fetch('/api/knowledge', { cache: 'no-store' })
+      .then((response) => (response.ok ? response.json() : null))
+      .then((data) => {
+        if (cancelled || !data?.success) return
+        setSettings(data.settings)
+        setSummary(data.summary)
+      })
+      .catch(() => {})
+    return () => { cancelled = true }
+  }, [])
+
+  async function updateSetting(key: keyof KnowledgeSettings, value: boolean) {
+    if (!settings) return
+    setSaving(key)
+    try {
+      const response = await fetch('/api/organizations', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ settings: { [KNOWLEDGE_SETTING_KEYS[key]]: value } }),
+      })
+      const data = await response.json().catch(() => ({}))
+      if (!response.ok) return toast.error(data.error || 'Could not update knowledge retention')
+      setSettings((current) => current ? { ...current, [key]: value } : current)
+      toast.success('Knowledge retention updated')
+    } finally {
+      setSaving(null)
+    }
+  }
+
+  const rows: Array<{ key: keyof KnowledgeSettings; label: string; detail: string; enterpriseOnly?: boolean }> = [
+    { key: 'captureEnabled', label: 'Retain workspace knowledge', detail: 'Store useful business context as durable, encrypted workspace knowledge.' },
+    { key: 'captureAgentRuns', label: 'Learn from agent outcomes', detail: 'Promote completed agent work before temporary run history is pruned.' },
+    { key: 'captureFlowRuns', label: 'Learn from flow outcomes', detail: 'Keep successful workflow results available to future agents and searches.' },
+    { key: 'captureConnectedData', label: 'Learn from connected tools', detail: 'Retain redacted activity summaries and connection profiles during live sync.' },
+    { key: 'retainOnDisconnect', label: 'Keep knowledge after disconnect', detail: 'Remove credentials and live access while preserving already learned business context.' },
+    { key: 'zeroDataRetention', label: 'Zero-data retention mode', detail: 'Enterprise override that disables durable capture and expires temporary execution data.', enterpriseOnly: true },
+  ]
+
+  return (
+    <Card className="mt-6 max-w-2xl">
+      <CardHeader><CardTitle>Knowledge retention</CardTitle></CardHeader>
+      <CardContent className="space-y-4">
+        <p className="text-sm text-muted-foreground">
+          Sublime retains useful workspace context by default. Stored knowledge is encrypted, credential-shaped values are redacted, and providers are not permitted to train on your data.
+        </p>
+        {summary && (
+          <div className="grid grid-cols-3 gap-2">
+            <div className="rounded-md border p-3"><p className="text-lg font-semibold">{summary.documents.toLocaleString()}</p><p className="text-xs text-muted-foreground">Documents</p></div>
+            <div className="rounded-md border p-3"><p className="text-lg font-semibold">{summary.passages.toLocaleString()}</p><p className="text-xs text-muted-foreground">Passages</p></div>
+            <div className="rounded-md border p-3"><p className="text-lg font-semibold">{Object.keys(summary.bySource).length}</p><p className="text-xs text-muted-foreground">Live sources</p></div>
+          </div>
+        )}
+        {settings && rows.map((row) => {
+          const locked = row.enterpriseOnly && plan !== 'ENTERPRISE'
+          return (
+            <div key={row.key} className="flex items-center justify-between gap-4 rounded-md border p-3">
+              <div>
+                <p className="text-sm font-medium">{row.label}{locked ? ' · Enterprise' : ''}</p>
+                <p className="text-xs text-muted-foreground">{row.detail}</p>
+              </div>
+              <Switch
+                checked={settings[row.key]}
+                disabled={!isAdmin || locked || saving !== null}
+                onCheckedChange={(checked) => void updateSetting(row.key, checked)}
+              />
+            </div>
+          )
+        })}
+        <div className="flex flex-wrap items-center gap-2">
+          <Button variant="outline" asChild><a href="/api/knowledge?download=1">Export retained knowledge</a></Button>
+          <span className="text-xs text-muted-foreground">Deleting the workspace permanently removes its retained knowledge.</span>
+        </div>
+        {!isAdmin && <p className="text-xs text-muted-foreground">Only workspace admins can change retention settings.</p>}
+      </CardContent>
+    </Card>
+  )
+}
 
 /**
  * What the current plan includes vs. what the workspace is using — the numbers
@@ -440,6 +559,7 @@ function PlanUsageCard() {
     { label: 'Flows', used: String(usage.flows), cap: limits.maxFlows },
     { label: 'Integrations', used: String(usage.integrations), cap: limits.maxIntegrations },
     { label: 'Seats', used: String(usage.members), cap: limits.seats },
+    { label: 'Core specialist areas', used: 'Plan access', cap: limits.maxSpecialistAreas },
   ]
   return (
     <div className="rounded-md border p-3">

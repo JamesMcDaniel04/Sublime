@@ -10,6 +10,8 @@ import { syncAgentConnectors } from '@/lib/connectors/agent-connectors'
 import type { AgentSchedule } from '@/lib/scheduling/due'
 import type { FlowGraph } from '@/lib/flows/graph'
 import { withTemplateOutputStandard } from '@/lib/templates/output-standard'
+import { assertAgentCapacity, assertFlowCapacity, assertSpecialistAreaCapacity } from '@/lib/billing/enforce'
+import { departmentsForTools } from '@/lib/templates/departments'
 
 const bodySchema = z.object({
   seedKey: z.string().min(1),
@@ -61,7 +63,10 @@ async function materializeAgent(
   organizationId: string,
   userId: string,
   schedule: AgentSchedule = MANUAL_SCHEDULE,
+  specialistArea = departmentsForTools(spec.integrations)[0],
 ): Promise<string> {
+  await assertAgentCapacity(organizationId)
+  await assertSpecialistAreaCapacity(organizationId, specialistArea)
   // Preserve the catalogue description a user saw on the template card; fall
   // back to the title only when the spec carries none (embedded flow specs).
   const description = spec.description?.trim() || spec.title
@@ -80,6 +85,7 @@ async function materializeAgent(
         description,
         model: spec.model ?? DEFAULT_AGENT_MODEL,
         integrations: spec.integrations,
+        specialistArea,
         requiredIntegrations: spec.requiredIntegrations ?? [],
         skills: [],
         icon: '',
@@ -110,11 +116,13 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
 
   if (desiredKind === 'agent') {
     const spec = combinedAgentSpec(seed)
+    const specialistArea = seed.departments?.[0] || departmentsForTools(spec.integrations)[0]
     const agentId = await materializeAgent(
       spec,
       organizationId,
       userId,
       schedule,
+      specialistArea,
     )
     await syncAgentConnectors(agentId, organizationId, userId, spec.integrations)
     return { success: true, kind: 'agent' as const, agentId }
@@ -129,8 +137,11 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
   const refToId: Record<string, string> = {}
   const created: Array<{ id: string; integrations: string[] }> = []
   try {
+    await assertFlowCapacity(organizationId)
+    const specialistArea = seed.departments?.[0] || departmentsForTools(combinedAgentSpec(seed).integrations)[0]
+    await assertSpecialistAreaCapacity(organizationId, specialistArea)
     for (const spec of specs) {
-      const id = await materializeAgent({ ...spec, requiredIntegrations: seed.requiredIntegrations }, organizationId, userId, MANUAL_SCHEDULE)
+      const id = await materializeAgent({ ...spec, requiredIntegrations: seed.requiredIntegrations }, organizationId, userId, MANUAL_SCHEDULE, specialistArea)
       refToId[spec.ref] = id
       created.push({ id, integrations: spec.integrations })
     }

@@ -112,8 +112,8 @@ const sections: { id: string; title: string; body: React.ReactNode }[] = [
         <div className="mt-4">
           <Body>
             You may not circumvent limits (for example by splitting one team across multiple
-            Individual accounts to avoid per-seat pricing, or automating abuse of trial
-            workspaces). We may apply reasonable technical safeguards against usage that degrades
+            Individual accounts to avoid per-seat pricing or automating account creation to evade
+            billing). We may apply reasonable technical safeguards against usage that degrades
             the Service for others.
           </Body>
         </div>

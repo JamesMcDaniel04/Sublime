@@ -52,6 +52,7 @@ const NEW_AGENT = 'new'
  */
 type SerializedAgentExtras = {
   isOwner?: boolean
+  specialistArea?: string
   requiredIntegrations?: string[]
   goal?: string | null
   allowSubagents?: boolean

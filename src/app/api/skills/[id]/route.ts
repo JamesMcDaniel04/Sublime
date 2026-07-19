@@ -15,7 +15,17 @@ export const GET = withAuthenticatedApi(async (request, auth) => {
   const builtIn = getSkill(id)
   const shared = builtIn
     ? null
-    : await systemPrisma.sharedSkill.findFirst({ where: { id, isActive: true } })
+    : await systemPrisma.sharedSkill.findFirst({
+        where: {
+          id,
+          isActive: true,
+          OR: [
+            { visibility: 'public' },
+            { organizationId: auth.organizationId, visibility: 'organization' },
+            { organizationId: auth.organizationId, userId: auth.dbUser.id, visibility: 'private' },
+          ],
+        },
+      })
   const sharedSkill = shared ? {
     id: shared.id,
     name: shared.name,
@@ -25,12 +35,13 @@ export const GET = withAuthenticatedApi(async (request, auth) => {
     tags: Array.isArray(shared.tags) ? shared.tags as string[] : [],
     integrations: Array.isArray(shared.integrations) ? shared.integrations as string[] : [],
     instructions: shared.instructions,
+    visibility: shared.visibility,
     custom: true,
     // Only the creating org may edit/delete its community skills — same rule as
     // the /api/skills list route.
-    mine: shared.organizationId === auth.organizationId,
+    mine: shared.userId === auth.dbUser.id || (shared.organizationId === auth.organizationId && auth.dbUser.role === 'ADMIN'),
   } : null
-  const skill = builtIn ? { ...builtIn, custom: false, mine: false } : sharedSkill
+  const skill = builtIn ? { ...builtIn, visibility: 'built_in', custom: false, mine: false } : sharedSkill
   if (!skill) throw new ApiError('Skill not found', 404, 'NOT_FOUND')
 
   const templates = recommendTemplatesForSkill(skill, SEED_CATALOGUE, 4).map(serializeSeed)

@@ -58,6 +58,31 @@ const THEME_STORAGE_KEY = 'sublime-landing-theme'
 
 type Shot = { src: string; alt: string; label: string }
 
+function CollaborationCursors() {
+  const cursors = [
+    { name: 'Maya', color: '#7c3aed', left: '43%', top: '48%', rotate: '-8deg' },
+    { name: 'Alex', color: '#ea580c', left: '67%', top: '65%', rotate: '7deg' },
+  ]
+  return (
+    <div className="pointer-events-none absolute inset-x-0 bottom-0 top-7 z-20" aria-hidden="true">
+      {cursors.map((cursor) => (
+        <div
+          key={cursor.name}
+          className="absolute flex items-start drop-shadow-[0_3px_6px_rgba(0,0,0,0.3)]"
+          style={{ left: cursor.left, top: cursor.top, transform: `rotate(${cursor.rotate})` }}
+        >
+          <svg width="22" height="27" viewBox="0 0 22 27" fill="none" className="h-5 w-4 md:h-7 md:w-[22px]">
+            <path d="M2 1.8V22l5.4-5.1 3.7 8.1 3.5-1.7-3.8-7.8H20L2 1.8Z" fill={cursor.color} stroke="white" strokeWidth="1.7" strokeLinejoin="round" />
+          </svg>
+          <span className="-ml-0.5 mt-4 whitespace-nowrap rounded px-1.5 py-0.5 text-[7px] font-semibold text-white md:mt-5 md:px-2 md:text-[10px]" style={{ backgroundColor: cursor.color }}>
+            {cursor.name}
+          </span>
+        </div>
+      ))}
+    </div>
+  )
+}
+
 const InteractiveShowcase = ({ shots }: { shots: Shot[] }) => {
   const [tilt, setTilt] = useState({ x: 0, y: 0 })
   const [active, setActive] = useState<string>(shots[0]?.label ?? '')
@@ -126,6 +151,7 @@ const InteractiveShowcase = ({ shots }: { shots: Shot[] }) => {
                 <span className="ml-3 text-[10px] uppercase tracking-[0.12em] text-muted-foreground">{shot.label}</span>
               </div>
               <img src={shot.src} alt={shot.alt} className="w-full h-auto block pointer-events-none" loading="lazy" draggable={false} />
+              {shot.label === 'Collaborative Flows' && <CollaborationCursors />}
             </div>
           )
         })}
@@ -561,7 +587,7 @@ export function LandingPage({ fontClassName = '' }: { fontClassName?: string }) 
           <InteractiveShowcase
             shots={[
               { src: agentsShot, alt: 'Sublime agents workspace', label: 'Agents' },
-              { src: flowsShot, alt: 'Sublime flow canvas', label: 'Flows' },
+              { src: flowsShot, alt: 'Two teammates collaborating on a Sublime flow canvas', label: 'Collaborative Flows' },
               { src: integrationsShot, alt: 'Sublime integrations catalog', label: 'Integrations' },
             ]}
           />
@@ -574,12 +600,12 @@ export function LandingPage({ fontClassName = '' }: { fontClassName?: string }) 
             <div className="flex snap-x snap-mandatory gap-4 overflow-x-auto px-6 pb-4 [-webkit-overflow-scrolling:touch] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
               {[
                 { src: agentsShot, alt: 'Sublime agents workspace', label: 'Agents' },
-                { src: flowsShot, alt: 'Sublime flow canvas', label: 'Flows' },
+                { src: flowsShot, alt: 'Two teammates collaborating on a Sublime flow canvas', label: 'Collaborative Flows' },
                 { src: integrationsShot, alt: 'Sublime integrations catalog', label: 'Integrations' },
               ].map((shot) => (
                 <div
                   key={shot.label}
-                  className="w-[85%] shrink-0 snap-center overflow-hidden rounded-xl border border-border bg-card"
+                  className="relative w-[85%] shrink-0 snap-center overflow-hidden rounded-xl border border-border bg-card"
                   style={{ boxShadow: '0 40px 80px -24px rgba(0,0,0,0.6), 0 0 0 1px hsl(var(--primary) / 0.4)' }}
                 >
                   <div className="flex h-8 items-center gap-1.5 border-b border-border bg-muted/40 px-3">
@@ -589,6 +615,7 @@ export function LandingPage({ fontClassName = '' }: { fontClassName?: string }) 
                     <span className="ml-3 text-[11px] font-medium uppercase tracking-[0.12em] text-foreground/70">{shot.label}</span>
                   </div>
                   <img src={shot.src} alt={shot.alt} className="block aspect-[4/3] w-full object-cover object-center" loading="lazy" />
+                  {shot.label === 'Collaborative Flows' && <CollaborationCursors />}
                 </div>
               ))}
             </div>
@@ -656,11 +683,11 @@ export function LandingPage({ fontClassName = '' }: { fontClassName?: string }) 
                   cadence: '/ month',
                   desc: 'For solo builders getting real work out of AI.',
                   features: [
+                    '5 seats included',
                     '10,000 credits / month',
                     '5 agents · 5 flows',
-                    '5 connected integrations',
-                    'Full agent & flow builder',
-                    'Evidence-backed run logs',
+                    '1 core specialist area',
+                    'Unlimited knowledge & connections',
                   ],
                   href: '/api/stripe/checkout?plan=individual',
                   cta: 'Start with Individual',
@@ -672,11 +699,11 @@ export function LandingPage({ fontClassName = '' }: { fontClassName?: string }) 
                   cadence: '/ month',
                   desc: 'For teams running shared agents and workflows.',
                   features: [
-                    '5 seats included',
+                    '10 seats included',
                     '50,000 credits / month',
                     '25 agents · 25 flows',
-                    'Unlimited integrations',
-                    'Shared workspaces & collaboration',
+                    'Every core specialist area',
+                    'Knowledge sync, sharing & history',
                   ],
                   href: '/api/stripe/checkout?plan=team',
                   cta: 'Start with Team',
@@ -688,11 +715,11 @@ export function LandingPage({ fontClassName = '' }: { fontClassName?: string }) 
                   cadence: '/ month',
                   desc: 'For companies scaling AI across departments.',
                   features: [
-                    '25 seats included',
-                    '250,000 credits / month',
+                    '20 seats included',
+                    '200,000 credits / month',
                     'Unlimited agents & flows',
-                    'Unlimited integrations',
-                    '24/7 customer support',
+                    'Unlimited knowledge & connections',
+                    'Priority support & security scopes',
                   ],
                   href: '/api/stripe/checkout?plan=business',
                   cta: 'Start with Business',

@@ -25,7 +25,7 @@ test('legacy trial dates never grant product access', () => {
   const billing = billingStateFor({
     plan: Plan.TRIAL,
     trialEndsAt: new Date(Date.now() - 1000),
-    createdAt: new Date(Date.now() - 15 * DAY_MS),
+    createdAt: new Date(Date.now() - 15 * 24 * 60 * 60 * 1000),
   })
   assert.equal(billing.state, 'payment_required')
 })

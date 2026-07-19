@@ -11,6 +11,7 @@ export type Agent = {
   instructions: string
   model: string
   integrations: string[]
+  specialistArea?: string
   skills: string[]
   icon: string
   folder: string | null
