@@ -82,6 +82,11 @@ export function userEventGraphParts(
   if (previousEventId) {
     edges.push({ organizationId: org, from: activityId, to: userEventNodeId(previousEventId), rel: 'preceded_by' })
   }
+  // Cross-tool spec §4: tool_call activities also point at the org-shared tool
+  // node, so correlation insights and later phases can traverse tool topology.
+  if (event.kind === 'tool_call' && event.resourceId) {
+    edges.push({ organizationId: org, from: activityId, to: nodeIds.tool(event.resourceId), rel: 'used' })
+  }
   return { nodes, edges }
 }
 

@@ -16,6 +16,7 @@ export const USER_EVENT_KINDS = [
   'copilot_prompt', 'assistant_prompt',
   'suggestion_accepted', 'suggestion_dismissed',
   'template_used', 'connection_added',
+  'tool_call',
 ] as const
 
 export type UserEventKind = (typeof USER_EVENT_KINDS)[number]
@@ -37,6 +38,36 @@ export interface UserEventCreateData {
   resourceType: string | null
   resourceId: string | null
   context: Record<string, unknown>
+}
+
+/**
+ * Deduped integration-usage capture (cross-tool spec §2): one `tool_call`
+ * event per (execution, provider), regardless of how many calls the run made.
+ * Callers accumulate provider → toolNames during a run and flush once.
+ * Context carries references only (provider, tool names, execution id) —
+ * never arguments or results. Fire-and-forget like recordUserEvent.
+ */
+export async function recordToolCallEvents(
+  params: {
+    organizationId: string
+    userId: string
+    executionId: string
+    touched: ReadonlyMap<string, ReadonlySet<string>>
+  },
+  deps?: { record?: typeof recordUserEvent },
+): Promise<void> {
+  const record = deps?.record ?? recordUserEvent
+  for (const [provider, toolNames] of params.touched) {
+    if (!provider || toolNames.size === 0) continue
+    await record({
+      organizationId: params.organizationId,
+      userId: params.userId,
+      kind: 'tool_call',
+      resourceType: 'integration',
+      resourceId: provider,
+      context: { provider, toolNames: [...toolNames].slice(0, 25), executionId: params.executionId },
+    })
+  }
 }
 
 export async function recordUserEvent(

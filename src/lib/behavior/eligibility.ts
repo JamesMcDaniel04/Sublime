@@ -16,11 +16,16 @@ export const MAX_STALE_DAYS = 30
 
 const DAY_MS = 24 * 60 * 60 * 1000
 
+/** tool_correlation needs more support than the generic gate: 5 sessions. */
+export const MIN_CORRELATION_OCCURRENCES = 5
+
 export type GateablePattern = {
   occurrenceCount: number
   firstSeenAt: Date
   lastSeenAt: Date
   status: string
+  /** Pattern kind; omitted rows gate as generic behavior patterns. */
+  kind?: string
 }
 
 export function isPatternEligible(
@@ -29,8 +34,14 @@ export function isPatternEligible(
   now: Date = new Date(),
 ): boolean {
   if (pattern.status !== 'open') return false
-  if (pattern.occurrenceCount < MIN_OCCURRENCES) return false
-  if (pattern.lastSeenAt.getTime() - pattern.firstSeenAt.getTime() < MIN_SPAN_DAYS * DAY_MS) return false
+  // capability_gap evidence is ABSENCE (a dormant connection, an unused
+  // capability) — occurrence/span minimums don't apply; staleness and the
+  // learning period below still do. lastSeenAt is when mining last observed
+  // the gap holding, so an un-re-observed gap decays out like any routine.
+  const isGap = pattern.kind === 'capability_gap'
+  const minOccurrences = pattern.kind === 'tool_correlation' ? MIN_CORRELATION_OCCURRENCES : MIN_OCCURRENCES
+  if (!isGap && pattern.occurrenceCount < minOccurrences) return false
+  if (!isGap && pattern.lastSeenAt.getTime() - pattern.firstSeenAt.getTime() < MIN_SPAN_DAYS * DAY_MS) return false
   if (now.getTime() - pattern.lastSeenAt.getTime() > MAX_STALE_DAYS * DAY_MS) return false
   if (userFirstEventAt == null) return false
   if (now.getTime() - userFirstEventAt.getTime() < LEARNING_PERIOD_DAYS * DAY_MS) return false

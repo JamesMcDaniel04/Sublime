@@ -31,6 +31,7 @@ import { flowToolOutput } from './tool-output'
 import { slackOriginOf } from '@/lib/slack/reply'
 import { deliverSlackRunReply } from '@/lib/slack/deliver'
 import { apiLogger } from '@/lib/logger'
+import { recordToolCallEvents } from '@/lib/behavior/record-event'
 
 export type FlowExecutionJob = {
   flowId: string
@@ -159,6 +160,9 @@ export async function runFlowExecution(
     throw new ApiError('Subflow nesting is too deep.', 400, 'SUBFLOW_DEPTH_EXCEEDED')
   }
   const resuming = Boolean(job.flowRunId && (job.reply !== undefined || job.resumeReason === 'time'))
+  // Cross-tool ledger (behavior spec §2): providers this run's tool steps
+  // touched, deduped to one tool_call event per (run segment, provider).
+  const touchedTools = new Map<string, Set<string>>()
 
   // Resume: atomically claim the run — only a genuinely `waiting` run may be
   // resumed. A concurrent resume, a run the reaper already terminalized, or a
@@ -664,6 +668,9 @@ export async function runFlowExecution(
           resourceType: executor.provider,
           payload: args,
         })
+        const touched = touchedTools.get(executor.provider) ?? new Set<string>()
+        touched.add(toolName)
+        touchedTools.set(executor.provider, touched)
         await finish({ status: 'succeeded', output })
         return { output }
       }
@@ -808,6 +815,14 @@ export async function runFlowExecution(
     where: { id: run.id, organizationId: job.organizationId },
     data: { status, output: jsonValue(result.output), error: runError, wakeAt: result.waiting?.wakeAt ? new Date(result.waiting.wakeAt) : null, webhookResponse: result.webhookResponse ? jsonValue(result.webhookResponse) : undefined, finishedAt: status === 'waiting' ? null : new Date() },
   })
+  // Cross-tool ledger flush: which integrations this segment's tool steps
+  // touched, one event per provider. Fire-and-forget — never blocks the run.
+  void recordToolCallEvents({
+    organizationId: job.organizationId,
+    userId: job.userId,
+    executionId: run.id,
+    touched: touchedTools,
+  }).catch(() => undefined)
   // A humanReview ("Request information") pause has no adapter: its waiting
   // FlowRunStep row was persisted by the interpreter's onStep path (the
   // outcome carries `{ waiting: { kind: 'input', question } }`), so the only

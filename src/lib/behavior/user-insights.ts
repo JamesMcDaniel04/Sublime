@@ -4,7 +4,7 @@
  * src/lib/activity/insights.ts with uevent evidence targets + private scope.
  */
 import { apiLogger } from '@/lib/logger'
-import { commitGraph, type PendingNode } from '@/lib/rag/indexer'
+import { commitGraph, nodeIds, type PendingNode } from '@/lib/rag/indexer'
 import type { GraphEdge } from '@/lib/rag/store'
 import { userEventNodeId } from './index-user-event'
 
@@ -30,6 +30,14 @@ export function userInferenceGraphParts(write: UserInferenceWrite): { nodes: Pen
   const edges: GraphEdge[] = write.evidenceEventIds.map((eventId) => ({
     organizationId: write.organizationId, from: id, to: userEventNodeId(eventId), rel: 'evidence' as const,
   }))
+  // Cross-tool spec §4: a correlation insight also points at the tool nodes it
+  // binds, so graph traversal can go pattern → tools → capabilities.
+  if (write.slug.startsWith('toolcorr:')) {
+    for (const provider of write.slug.replace('toolcorr:', '').split('+')) {
+      if (!provider) continue
+      edges.push({ organizationId: write.organizationId, from: id, to: nodeIds.tool(provider), rel: 'used_with' })
+    }
+  }
   return { nodes, edges }
 }
 

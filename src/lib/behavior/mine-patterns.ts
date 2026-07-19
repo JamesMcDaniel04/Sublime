@@ -10,7 +10,7 @@ export type LedgerEvent = Pick<PersistedUserEvent, 'id' | 'userId' | 'kind' | 'r
 
 export interface PatternCandidate {
   slug: string
-  kind: 'sequence' | 'temporal' | 'friction' | 'intent'
+  kind: 'sequence' | 'temporal' | 'friction' | 'intent' | 'tool_correlation' | 'capability_gap'
   summary: string
   occurrenceCount: number
   firstSeenAt: Date

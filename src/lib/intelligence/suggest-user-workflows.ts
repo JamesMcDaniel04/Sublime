@@ -16,6 +16,7 @@ import { notify } from '@/lib/notifications/service'
 import { buildCopilotGrounding } from '@/lib/flows/copilot-grounding'
 import { generateFlowGraph } from '@/lib/flows/copilot-generate'
 import { listEligiblePatterns, type EligiblePattern } from '@/lib/behavior/eligibility'
+import { loadCapabilityCatalog } from '@/lib/behavior/infer-user-patterns'
 import { loadExistingFlows, loadExistingAgents } from './suggest-workflows'
 
 export const USER_SYNTHESIS_COOLDOWN_DAYS = 7
@@ -89,6 +90,54 @@ export function parseUserSuggestions(raw: string, validSlugs: Set<string>): User
 }
 
 const day = (date: Date) => date.toISOString().slice(0, 10)
+
+const UNUSED_CAPABILITY_PROVIDERS = 8
+const UNUSED_CAPABILITIES_PER_PROVIDER = 5
+
+/**
+ * "Unused capabilities" prompt block (cross-tool spec §5): deterministic,
+ * names only. Scoped to providers the user has actually touched — dormant
+ * tools are the gap miner's job, and listing every capability of every
+ * untouched tool would drown the prompt. Pure so the rendering is testable.
+ */
+export function renderUnusedCapabilities(
+  capabilitiesByProvider: ReadonlyMap<string, string[]>,
+  calledByProvider: ReadonlyMap<string, ReadonlySet<string>>,
+): string[] {
+  const lines: string[] = []
+  for (const provider of [...calledByProvider.keys()].sort().slice(0, UNUSED_CAPABILITY_PROVIDERS)) {
+    const catalog = capabilitiesByProvider.get(provider)
+    if (!catalog?.length) continue
+    const called = calledByProvider.get(provider) ?? new Set<string>()
+    const unused = [...new Set(catalog)].filter((name) => !called.has(name)).sort().slice(0, UNUSED_CAPABILITIES_PER_PROVIDER)
+    if (unused.length === 0) continue
+    lines.push(`- ${provider}: ${unused.join(', ')}`)
+  }
+  return lines
+}
+
+/** The user's called tool names per provider from their tool_call ledger. Never throws. */
+async function loadCalledCapabilities(organizationId: string, userId: string): Promise<Map<string, Set<string>>> {
+  try {
+    const since = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000)
+    const events = await prisma.userEvent.findMany({
+      where: { organizationId, userId, kind: 'tool_call', occurredAt: { gte: since } },
+      select: { resourceId: true, context: true },
+      take: 500,
+    })
+    const called = new Map<string, Set<string>>()
+    for (const event of events) {
+      if (!event.resourceId) continue
+      const names = (event.context as { toolNames?: unknown } | null)?.toolNames
+      const set = called.get(event.resourceId) ?? new Set<string>()
+      if (Array.isArray(names)) for (const name of names) if (typeof name === 'string') set.add(name)
+      called.set(event.resourceId, set)
+    }
+    return called
+  } catch {
+    return new Map()
+  }
+}
 
 /**
  * "why this exists" lines (spec §4) — a SELF-CONTAINED human-readable snapshot.
@@ -182,9 +231,14 @@ export async function synthesizeUserSuggestions(
     if (affected === 0) return { skipped: 'throttled' }
 
     try {
-      const [flows, agents, feedbackRows] = await Promise.all([
+      const [flows, agents, unusedCapabilityLines, feedbackRows] = await Promise.all([
         loadExistingFlows(organizationId),
         loadExistingAgents(organizationId),
+        // Cross-tool spec §5: deterministic unused-capability block. Both
+        // loaders degrade to empty on failure — the block simply disappears.
+        Promise.all([loadCapabilityCatalog(organizationId, userId), loadCalledCapabilities(organizationId, userId)])
+          .then(([catalog, called]) => renderUnusedCapabilities(catalog, called))
+          .catch(() => [] as string[]),
         prisma.userSuggestion.findMany({
           where: { organizationId, userId, status: { in: ['accepted', 'dismissed'] } },
           orderBy: { updatedAt: 'desc' }, take: 20,
@@ -212,6 +266,7 @@ export async function synthesizeUserSuggestions(
         'Propose AT MOST ONE suggestion — the single highest-value one — or null if nothing is clearly worth their attention. Be conservative: a mediocre suggestion costs trust.',
         'kind "new_flow": a new automation replacing a repeated manual routine; include flowPrompt detailed enough for a flow-builder AI. kind "enhancement": a concrete improvement to one EXISTING flow/agent from the lists (exact targetId; never invent one).',
         'sourcePatternSlugs MUST cite the exact slugs of the observed patterns that justify the suggestion. Do not repeat previously dismissed ideas.',
+        'You may connect an observed pattern to an unused capability of a connected tool (listed below) — but the suggestion must still be justified by, and cite, observed pattern slugs. Never suggest from the capability list alone.',
         'Feedback outcomes are what ACTUALLY happened: "accepted-and-adopted" is the strongest positive signal; "accepted-but-never-published" and "accepted-then-deleted" mean the idea sounded good but was not worth acting on — treat those nearly as negatively as dismissed.',
       ].join(' ')
       const userPrompt = [
@@ -226,6 +281,9 @@ export async function synthesizeUserSuggestions(
         '',
         'Prior suggestion feedback (outcome: title):',
         feedback.length ? feedback.map((f) => `- ${f.outcome}: ${f.title}`).join('\n') : '- None yet',
+        '',
+        'Unused capabilities of connected tools (provider: capability names, computed from the catalog vs. actual usage):',
+        unusedCapabilityLines.length ? unusedCapabilityLines.join('\n') : '- None',
       ].join('\n')
 
       const model = process.env.AGENT_REFLECTION_MODEL?.trim() || DEFAULT_SUMMARY_MODEL

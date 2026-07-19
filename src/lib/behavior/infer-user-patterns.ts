@@ -11,6 +11,7 @@ import { captureError } from '@/lib/observability/sentry'
 import { embedTexts, embeddingsConfigured, cosineSimilarity } from '@/lib/rag/embeddings'
 import { MEMORY_SIMILARITY_THRESHOLD } from '@/lib/memory/agent-memory'
 import { mineUserPatternCandidates, mineIntentClusters, type PatternCandidate } from './mine-patterns'
+import { mineToolCorrelations, mineCapabilityGaps } from './mine-correlations'
 import { writeUserInference } from './user-insights'
 
 const WINDOW_DAYS = 90
@@ -21,6 +22,34 @@ export type InferOverrides = {
   db?: typeof systemPrisma
   embed?: (texts: string[]) => Promise<number[][]>
   now?: () => Date
+  /** Catalog tool names per provider; defaults to loading the org's tool planes. */
+  loadCapabilities?: (organizationId: string, userId: string) => Promise<Map<string, string[]>>
+}
+
+/**
+ * Catalog tool names per runtime provider for the gap miner. Loads the same
+ * planes the agent runtime and flow catalog use. Best-effort: any plane (or
+ * the whole load) failing degrades to an empty map — gap rule 3 simply finds
+ * nothing that day. Dynamic import keeps the tool planes (and their MCP/Nango
+ * dependency surface) out of the behavior module load path.
+ */
+export async function loadCapabilityCatalog(organizationId: string, userId: string): Promise<Map<string, string[]>> {
+  try {
+    const planes = await import('@/features/agents/tool-planes')
+    const [mcp, native, nango] = await Promise.all([
+      planes.loadMcpConnectionPlaneGroups(organizationId, userId).catch(() => []),
+      planes.loadNativePlaneGroups(organizationId).catch(() => []),
+      planes.loadNangoPlaneGroups(organizationId, userId).catch(() => []),
+    ])
+    const byProvider = new Map<string, string[]>()
+    for (const group of [...mcp, ...native, ...nango]) {
+      if (!group.tools.length) continue
+      byProvider.set(group.provider, [...(byProvider.get(group.provider) ?? []), ...group.tools.map((t) => t.name)])
+    }
+    return byProvider
+  } catch {
+    return new Map()
+  }
 }
 
 export async function inferUserBehaviorPatterns(
@@ -42,6 +71,27 @@ export async function inferUserBehaviorPatterns(
     if (events.length < MIN_EVENTS) return { skipped: 'too-few-events' }
 
     let candidates: PatternCandidate[] = mineUserPatternCandidates(events)
+
+    // Cross-tool correlation + capability gaps (cross-tool spec §3). Gap
+    // inputs load best-effort: a failed catalog or flow lookup shrinks the
+    // gap surface for the day, never fails inference.
+    candidates = [...candidates, ...mineToolCorrelations(events)]
+    const manualFlowIds = new Set(
+      events.filter((e) => e.kind === 'flow_run_manual' && e.resourceType === 'flow' && e.resourceId).map((e) => e.resourceId as string),
+    )
+    const manualTriggerFlowIds = new Set<string>()
+    if (manualFlowIds.size > 0) {
+      const flows = await db.flow
+        .findMany({ where: { id: { in: [...manualFlowIds] }, organizationId }, select: { id: true, trigger: true } })
+        .catch(() => [])
+      for (const flow of flows) {
+        const trigger = flow.trigger as { type?: string } | null
+        if (!trigger?.type || trigger.type === 'manual') manualTriggerFlowIds.add(flow.id)
+      }
+    }
+    const loadCapabilities = overrides.loadCapabilities ?? loadCapabilityCatalog
+    const capabilitiesByProvider = await loadCapabilities(organizationId, userId)
+    candidates = [...candidates, ...mineCapabilityGaps(events, { capabilitiesByProvider, manualTriggerFlowIds, now })]
 
     // Intent clustering over assistant prompts (needs message text by reference).
     const embed = overrides.embed ?? (embeddingsConfigured() ? (texts: string[]) => embedTexts(texts, { inputType: 'document' }) : null)

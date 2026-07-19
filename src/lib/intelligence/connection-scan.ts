@@ -23,7 +23,7 @@ import { apiLogger } from '@/lib/logger'
 import { generateStructured, DEFAULT_SUMMARY_MODEL } from '@/lib/llm/model-runner'
 import { saveAgentMemory } from '@/lib/memory/agent-memory'
 import { notify } from '@/lib/notifications/service'
-import { indexConnectionScan, removeConnectionScanFromGraph } from '@/lib/rag/indexer'
+import { indexConnectionScan, indexToolCatalog, removeConnectionScanFromGraph } from '@/lib/rag/indexer'
 import { formatFlowToolConnectionId } from '@/lib/flows/tool-connection-id'
 import { loadMcpConnectionPlaneGroups, loadNangoPlaneGroups, type ToolPlaneGroup } from '@/features/agents/tool-planes'
 import { connectionSourceRef, isScanExcluded, type ScanPlane } from './scan-exclusions'
@@ -268,6 +268,15 @@ export async function scanConnection(params: {
 
     const group = await loadScanGroup(organizationId, userId, plane, connectionRef)
     if (!group?.client || group.tools.length === 0) return { skipped: 'no-tools' }
+
+    // Materialize this connection's tool topology as org-shared tool +
+    // capability nodes (cross-tool spec §4) — runs on connect AND rescan so
+    // the graph tracks the live catalog. Fire-and-forget: never blocks the scan.
+    void indexToolCatalog(organizationId, [{
+      provider: group.provider,
+      name: connectionName,
+      tools: group.tools.map((tool) => ({ name: tool.name, description: tool.description })),
+    }]).catch(() => undefined)
 
     const toolNames = selectScanTools(group.tools)
     if (toolNames.length === 0) return { skipped: 'no-safe-tools' }

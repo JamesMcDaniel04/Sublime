@@ -71,3 +71,18 @@ test('evidence lines are fully human-readable — dates and counts, never raw ev
   assert.equal(lines[0], 'Runs A then edits B — observed 4 times between 2026-06-02 and 2026-07-10, most recently 2026-07-10')
   assert.ok(!lines[0].includes('e1'), 'raw event ids must never reach the user-facing snapshot')
 })
+
+test('renderUnusedCapabilities: only touched providers, sorted, capped, fully-used omitted', async () => {
+  const { renderUnusedCapabilities } = await import('@/lib/intelligence/suggest-user-workflows')
+  const catalog = new Map([
+    ['asana', ['list_tasks', 'create_task', 'delete_task']],
+    ['github', ['list_prs']],
+    ['dormant-tool', ['a', 'b']], // never touched — the gap miner's job, not this block's
+  ])
+  const called = new Map([
+    ['asana', new Set(['list_tasks'])],
+    ['github', new Set(['list_prs'])], // fully used
+  ])
+  const lines = renderUnusedCapabilities(catalog, called)
+  assert.deepEqual(lines, ['- asana: create_task, delete_task'])
+})

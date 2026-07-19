@@ -43,6 +43,7 @@ import { shouldStrategize, goalSection, strategizeSection, STRATEGIZE_RETRIEVAL 
 import { isWriteProvider } from '@/lib/connectors/registry'
 import { approvalQuestion, isApprovalReply, toolNeedsApproval, type PendingApproval } from './approval'
 import { serializeToolResult } from '@/lib/agents/tool-result'
+import { recordToolCallEvents } from '@/lib/behavior/record-event'
 import { createRunBudget, chargeRunBudget, type RunBudget } from '@/lib/agents/run-budget'
 
 export type AgentExecutionJob = {
@@ -605,6 +606,9 @@ export async function runAgentExecution(
     const skillIds = Array.isArray(agentMetadata.skills) ? agentMetadata.skills.map(String) : []
     const toolQuery = [agent.objective, data.input].filter(Boolean).join('\n')
     const { tools, bindings } = await loadTools(organizationId, providers, userId, toolQuery)
+    // Cross-tool ledger (behavior spec §2): providers this run actually
+    // touched, deduped to one tool_call event per (execution, provider).
+    const touchedTools = new Map<string, Set<string>>()
     // Community skills are public-library rows; resolve any attached ids that
     // aren't built in and compose them the same way. Best-effort.
     // systemPrisma: public community skill library — cross-org by design, same
@@ -1039,6 +1043,9 @@ export async function runAgentExecution(
           }
 
           const result = await binding.client.executeTool(binding.serverUrl, binding.toolName, call.input)
+          const touched = touchedTools.get(binding.provider) ?? new Set<string>()
+          touched.add(binding.toolName)
+          touchedTools.set(binding.provider, touched)
           await prisma.workflowStep.update({
             where: { id: step.id },
             data: { status: 'succeeded', output: jsonValue(result), completedAt: new Date() },
@@ -1312,6 +1319,14 @@ export async function runAgentExecution(
       agentTaskId: agent.id,
       executionId: execution.id,
     })
+    // Cross-tool ledger flush: which integrations this run touched, one event
+    // per provider. Fire-and-forget — never blocks completion.
+    void recordToolCallEvents({
+      organizationId,
+      userId,
+      executionId: execution.id,
+      touched: touchedTools,
+    }).catch(() => undefined)
     // Index this run (output + correlated entities) into the graph-RAG store so
     // future agents/assistant answers can draw on what happened here. Fire and
     // forget — gated on embeddings, never blocks completion.

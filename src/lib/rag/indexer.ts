@@ -30,6 +30,9 @@ export const nodeIds = {
   entity: (source: string, type: string, ref: string) => `entity:${source}:${type}:${ref}`,
   flow: (id: string) => `flow:${id}`,
   userEvent: (id: string) => `uevent:${id}`,
+  /** Provider strings are plane-scoped runtime binding ids (tool-planes.ts). */
+  tool: (provider: string) => `tool:${provider}`,
+  capability: (provider: string, toolName: string) => `capability:${provider}:${toolName}`,
 }
 const nid = nodeIds
 
@@ -206,6 +209,45 @@ export async function indexConnectionScan(params: {
     await commitGraph(params.organizationId, nodes, [])
   } catch (error) {
     warn('indexConnectionScan', error)
+  }
+}
+
+/**
+ * Materialize the tool catalog as org-shared tool + capability nodes with
+ * `provides` edges, so correlation insights and later phases (cross-user,
+ * archetypes) can traverse tool topology. Keyed stably by provider/toolName —
+ * refreshes upsert in place. Best-effort; gated on embeddings.
+ */
+export async function indexToolCatalog(
+  organizationId: string,
+  groups: Array<{ provider: string; name: string; tools: Array<{ name: string; description?: string; risk?: string }> }>,
+): Promise<void> {
+  if (!ragEnabled()) return
+  try {
+    const nodes: PendingNode[] = []
+    const edges: GraphEdge[] = []
+    for (const group of groups) {
+      const toolNodeId = nid.tool(group.provider)
+      nodes.push({
+        id: toolNodeId, type: 'tool',
+        text: `Connected tool ${group.name} (${group.provider}) with ${group.tools.length} capabilities.`,
+        props: { provider: group.provider, name: group.name, capabilityCount: group.tools.length },
+        visibility: 'shared',
+      })
+      for (const tool of group.tools) {
+        const capabilityId = nid.capability(group.provider, tool.name)
+        nodes.push({
+          id: capabilityId, type: 'capability',
+          text: `${group.name} capability ${tool.name}: ${tool.description ?? ''}`.slice(0, 800),
+          props: { provider: group.provider, toolName: tool.name, risk: tool.risk ?? 'read' },
+          visibility: 'shared',
+        })
+        edges.push({ organizationId, from: toolNodeId, to: capabilityId, rel: 'provides' })
+      }
+    }
+    await commit(organizationId, nodes, edges)
+  } catch (error) {
+    warn('indexToolCatalog', error)
   }
 }
 

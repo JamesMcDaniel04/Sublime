@@ -23,6 +23,8 @@ export type NodeType =
   | 'actor'
   | 'activity'
   | 'entity'
+  | 'tool'
+  | 'capability'
 
 /** Who may see a node. 'shared' = the whole org; 'private' = only its owner. */
 export type NodeVisibility = 'shared' | 'private'
@@ -75,6 +77,9 @@ export type EdgeRelation =
   | 'preceded_by' // activity → prior activity on same entity (state chains)
   | 'evidence' // insight(inferred_pattern) → activity
   | 'based_on' // insight(recommendation) → insight(inferred_pattern)
+  | 'provides' // tool → capability (the tool catalog, materialized)
+  | 'used' // activity → tool (this user action touched this tool)
+  | 'used_with' // insight(tool_correlation) → tool (tools a correlation binds)
 
 export interface GraphEdge {
   organizationId: string

@@ -54,3 +54,18 @@ test('staleness: a routine not observed in MAX_STALE_DAYS is no longer a routine
 test('expired patterns are never eligible', () => {
   assert.equal(isPatternEligible({ ...good, status: 'expired' }, learnedUser, now), false)
 })
+
+test('capability_gap: occurrence/span minimums bypassed (evidence is absence), staleness kept', () => {
+  const gap = { kind: 'capability_gap', occurrenceCount: 1, firstSeenAt: daysAgo(40), lastSeenAt: daysAgo(0), status: 'open' }
+  assert.equal(isPatternEligible(gap, learnedUser, now), true)
+  // A gap row not re-observed by recent mining runs goes stale like anything else.
+  assert.equal(isPatternEligible({ ...gap, lastSeenAt: daysAgo(31) }, learnedUser, now), false)
+  // Learning period still applies: no gap-nagging in week one.
+  assert.equal(isPatternEligible(gap, daysAgo(3), now), false)
+})
+
+test('tool_correlation: needs MIN_CORRELATION_SESSIONS occurrences, not the generic 3', () => {
+  const corr = { kind: 'tool_correlation', occurrenceCount: 4, firstSeenAt: daysAgo(20), lastSeenAt: daysAgo(1), status: 'open' }
+  assert.equal(isPatternEligible(corr, learnedUser, now), false)
+  assert.equal(isPatternEligible({ ...corr, occurrenceCount: 5 }, learnedUser, now), true)
+})

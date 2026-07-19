@@ -42,6 +42,6 @@ test('kind list is the bounded spec set', () => {
     'agent_created', 'agent_edited', 'agent_run_manual',
     'assistant_prompt', 'connection_added', 'copilot_prompt',
     'flow_created', 'flow_edited', 'flow_published', 'flow_run_manual',
-    'suggestion_accepted', 'suggestion_dismissed', 'template_used',
+    'suggestion_accepted', 'suggestion_dismissed', 'template_used', 'tool_call',
   ])
 })
