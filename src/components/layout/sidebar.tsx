@@ -10,6 +10,7 @@ import {
   ChevronRight,
   ChevronsUpDown,
   Folder,
+  Gauge,
   ImagePlus,
   Loader2,
   Lock,
@@ -20,6 +21,7 @@ import {
   Plug,
   Plus,
   Search,
+  Settings,
   Sparkles,
   Trash2,
   Workflow,
@@ -27,8 +29,16 @@ import {
 import { toast } from 'sonner'
 import { CommandPalette } from '@/components/search/command-palette'
 import { NotificationBell } from '@/components/notifications/notification-bell'
+import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { ThemeToggle } from '@/components/ui/theme-toggle'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 import { useAuth } from '@/hooks/use-auth'
 import { normalizeShareValue } from '@/components/share-control'
 import { resizeImageToDataUrl } from '@/lib/client/resize-image'
@@ -105,7 +115,6 @@ export function Sidebar() {
     })
   }, [])
   const [paletteOpen, setPaletteOpen] = useState(false)
-  const [orgMenuOpen, setOrgMenuOpen] = useState(false)
   const [organizations, setOrganizations] = useState<Organization[]>(() => sidebarCache?.organizations ?? [])
   const [uploadingLogo, setUploadingLogo] = useState(false)
   const logoInputRef = useRef<HTMLInputElement>(null)
@@ -455,24 +464,23 @@ export function Sidebar() {
             </div>
           ) : (
             <>
-          <button
-            className="flex w-full items-center gap-2 rounded-xl px-2 py-1.5 transition-colors duration-fast hover:bg-muted"
-            onClick={() => setOrgMenuOpen((open) => !open)}
-            aria-label={`Workspace: ${activeOrg?.name || 'Workspace'}`}
-          >
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src={activeOrg?.logoUrl || DEFAULT_ORG_LOGO}
-              alt=""
-              className="h-8 w-8 rounded-lg bg-white object-cover p-0.5 shadow-2 ring-1 ring-border"
-            />
-            <span className="flex-1 truncate text-left text-sm font-semibold">{activeOrg?.name || 'Workspace'}</span>
-            <ChevronsUpDown className="h-4 w-4 text-muted-foreground" />
-          </button>
-          {orgMenuOpen && (
-            <>
-              <div className="fixed inset-0 z-10" onClick={() => setOrgMenuOpen(false)} />
-              <div className="absolute left-3 right-3 z-20 mt-1 origin-top animate-scale-in rounded-xl border bg-popover p-1 text-popover-foreground shadow-popover">
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button
+                className="flex w-full min-w-0 items-center gap-2 rounded-xl px-2 py-1.5 transition-colors duration-fast hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                aria-label={`Workspace: ${activeOrg?.name || 'Workspace'}`}
+              >
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={activeOrg?.logoUrl || DEFAULT_ORG_LOGO}
+                  alt=""
+                  className="h-8 w-8 shrink-0 rounded-lg bg-white object-cover p-0.5 shadow-2 ring-1 ring-border"
+                />
+                <span className="min-w-0 flex-1 truncate text-left text-sm font-semibold">{activeOrg?.name || 'Workspace'}</span>
+                <ChevronsUpDown className="h-4 w-4 shrink-0 text-muted-foreground" />
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start" sideOffset={6} className="w-[16.5rem]">
                 {/* Membership is single-workspace today, so workspace rows are
                     a plain listing — no click affordance that goes nowhere.
                     When multi-workspace membership lands, these become real
@@ -485,7 +493,7 @@ export function Sidebar() {
                     {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img src={org.logoUrl || DEFAULT_ORG_LOGO} alt="" className="h-5 w-5 rounded object-cover" />
                     <span className="flex-1 truncate text-left">{org.name}</span>
-                    <span className="text-xs text-gray-400">{planLabel(org.plan)}</span>
+                    <span className="text-xs text-muted-foreground">{planLabel(org.plan)}</span>
                     {org.id === activeOrg?.id && <Check className="h-4 w-4 text-foreground" />}
                   </div>
                 ))}
@@ -493,47 +501,45 @@ export function Sidebar() {
                     admin-only (403 for members) — don't offer it to non-admins. */}
                 {isAdmin && (
                   <>
-                    <div className="my-1 border-t" />
-                    <button
-                      className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-gray-700 hover:bg-gray-100 disabled:opacity-50"
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem
                       disabled={uploadingLogo}
-                      onClick={() => logoInputRef.current?.click()}
+                      onSelect={() => logoInputRef.current?.click()}
                     >
                       {uploadingLogo ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ImagePlus className="h-3.5 w-3.5" />}
                       {activeOrg?.logoUrl ? 'Change workspace logo' : 'Upload workspace logo'}
-                    </button>
+                    </DropdownMenuItem>
                     {activeOrg?.logoUrl && (
-                      <button
-                        className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-gray-700 hover:bg-gray-100 disabled:opacity-50"
+                      <DropdownMenuItem
                         disabled={uploadingLogo}
-                        onClick={() => saveOrgLogo(null)}
+                        onSelect={() => saveOrgLogo(null)}
                       >
                         <Trash2 className="h-3.5 w-3.5" /> Remove logo
-                      </button>
+                      </DropdownMenuItem>
                     )}
-                    <input
-                      ref={logoInputRef}
-                      type="file"
-                      accept="image/png,image/jpeg,image/webp,image/svg+xml"
-                      className="hidden"
-                      onChange={(event) => {
-                        const file = event.target.files?.[0]
-                        event.target.value = ''
-                        if (file) uploadOrgLogo(file)
-                      }}
-                    />
                   </>
                 )}
-                <div className="my-1 border-t" />
-                <div className="truncate px-2 py-1 text-xs text-gray-400">{user?.emailAddress}</div>
-                <button
-                  className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-gray-700 hover:bg-gray-100"
-                  onClick={signOut}
+                <DropdownMenuSeparator />
+                <DropdownMenuLabel className="truncate font-normal">{user?.emailAddress}</DropdownMenuLabel>
+                <DropdownMenuItem
+                  onSelect={() => signOut()}
                 >
                   <LogOut className="h-3.5 w-3.5" /> Sign out
-                </button>
-              </div>
-            </>
+                </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+          {isAdmin && (
+            <input
+              ref={logoInputRef}
+              type="file"
+              accept="image/png,image/jpeg,image/webp,image/svg+xml"
+              className="hidden"
+              onChange={(event) => {
+                const file = event.target.files?.[0]
+                event.target.value = ''
+                if (file) uploadOrgLogo(file)
+              }}
+            />
           )}
 
           <div className="mt-2 flex items-center gap-2">
@@ -683,47 +689,48 @@ export function Sidebar() {
         </div>
 
         {/* Footer: usage + user */}
-        <div className={cn('border-t border-border', rail ? 'p-2' : 'p-3')}>
+        <div className={cn('shrink-0 overflow-hidden border-t border-border', rail ? 'p-2' : 'p-3')}>
           {!rail && usage && (
-            <div className="mb-2 px-1">
-              <div className="mb-1 flex justify-between text-xs text-muted-foreground">
-                <span>Usage this month</span>
-                <span>{usage.exempt ? 'Unlimited' : `${creditPct}% of credits`}</span>
+            <div className="mb-2 rounded-xl border border-border/80 bg-muted/40 p-2.5">
+              <div className="flex min-w-0 items-center gap-2 text-xs">
+                <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-background text-muted-foreground shadow-1 ring-1 ring-border/70">
+                  <Gauge className="h-3.5 w-3.5" aria-hidden="true" />
+                </span>
+                <span className="min-w-0 flex-1 truncate font-medium text-foreground">Monthly usage</span>
+                <span className="shrink-0 text-muted-foreground">{usage.exempt ? 'Unlimited' : `${creditPct}%`}</span>
               </div>
               {!usage.exempt && (
-                <div className="h-1.5 overflow-hidden rounded-full bg-muted">
-                  <div className="h-full rounded-full bg-foreground transition-[width] duration-slow ease-out-quart" style={{ width: `${creditPct}%` }} />
+                <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-background ring-1 ring-border/60">
+                  <div className="h-full rounded-full bg-foreground transition-[width] duration-slow ease-out-quart" style={{ width: `${creditPct}%` }} aria-hidden="true" />
                 </div>
               )}
             </div>
           )}
           {/* The user row IS the Settings entry point (not a nav item). */}
-          <div className={cn('flex items-center gap-1', rail && 'flex-col')}>
           <Link
             href="/settings"
             aria-label="Open settings"
             title={rail ? 'Settings' : undefined}
             className={cn(
-              'flex flex-1 items-center gap-2 rounded-xl px-1 py-1 transition-colors hover:bg-muted',
-              rail && 'justify-center px-0',
+              'group flex min-w-0 items-center gap-2.5 rounded-xl p-2 transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+              rail && 'justify-center p-1',
               pathname.startsWith('/settings') && 'bg-muted',
             )}
           >
-            <div className="flex h-8 w-8 items-center justify-center rounded-full bg-muted text-xs font-semibold text-foreground">
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-semibold text-foreground ring-1 ring-border/80">
               {(user?.firstName || 'U').charAt(0).toUpperCase()}
             </div>
             {!rail && (
               <div className="min-w-0 flex-1">
-                <div className="truncate text-sm font-medium">{user?.firstName || 'Account'}</div>
+                <div className="flex min-w-0 items-center gap-2">
+                  <span className="min-w-0 flex-1 truncate text-sm font-semibold">{user?.firstName || 'Account'}</span>
+                  {activeOrg && <Badge variant="secondary" className="max-w-20 shrink-0 truncate px-2 py-0 text-[10px] font-medium">{planLabel(activeOrg.plan)}</Badge>}
+                </div>
                 <div className="truncate text-xs text-muted-foreground">{user?.emailAddress}</div>
               </div>
             )}
-            {!rail && activeOrg && (
-              <span className="rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">{planLabel(activeOrg.plan)}</span>
-            )}
+            {!rail && <Settings className="h-4 w-4 shrink-0 text-muted-foreground transition-transform group-hover:rotate-12 group-hover:text-foreground" aria-hidden="true" />}
           </Link>
-          <ThemeToggle className="h-8 w-8 shrink-0 text-muted-foreground hover:text-foreground" />
-          </div>
         </div>
       </div>
 

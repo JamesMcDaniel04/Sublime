@@ -1,15 +1,17 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
+import { Building2, CreditCard, Palette, ShieldCheck, UserRound, Users } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { PageHeader } from '@/components/ui/page-header'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Switch } from '@/components/ui/switch'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { ThemeSelector } from '@/components/ui/theme-toggle'
 import { toast } from 'sonner'
 import { resizeImageToDataUrl } from '@/lib/client/resize-image'
 import { BILLING_PLAN_CATALOG } from '@/lib/billing/catalog'
@@ -80,7 +82,7 @@ export default function SettingsPage() {
   const [initialTab] = useState(() => {
     if (typeof window === 'undefined') return 'profile'
     const tab = new URLSearchParams(window.location.search).get('tab')
-    return tab && ['profile', 'security', 'members', 'workspace', 'billing'].includes(tab) ? tab : 'profile'
+    return tab && ['profile', 'appearance', 'security', 'members', 'workspace', 'billing'].includes(tab) ? tab : 'profile'
   })
 
   async function load() {
@@ -275,8 +277,8 @@ export default function SettingsPage() {
     toast.success('Invitation revoked')
   }
 
-  return <div className="space-y-6"><PageHeader eyebrow="Account" title="Settings" description="Manage your profile, sign-in security, and active sessions." />
-    {loadError && <Card className="border-red-200"><CardContent className="flex flex-wrap items-center justify-between gap-3 p-4"><p className="text-sm text-red-700">{loadError}</p><Button variant="outline" onClick={() => void load()} loading={loadingSettings}>Try again</Button></CardContent></Card>}
+  return <div className="space-y-6"><PageHeader eyebrow="Account" title="Settings" description="Manage your profile, appearance, workspace, security, and billing." />
+    {loadError && <Card className="border-destructive/30"><CardContent className="flex flex-wrap items-center justify-between gap-3 p-4"><p className="text-sm text-destructive">{loadError}</p><Button variant="outline" onClick={() => void load()} loading={loadingSettings}>Try again</Button></CardContent></Card>}
     {loadingSettings && !profile ? (
       <div className="space-y-6" aria-busy="true" aria-label="Loading settings">
         <Skeleton className="h-9 w-80 max-w-full rounded-lg" />
@@ -284,7 +286,14 @@ export default function SettingsPage() {
         <Skeleton className="h-40 max-w-2xl rounded-xl" />
       </div>
     ) : (
-    <Tabs defaultValue={initialTab}><TabsList className="flex h-auto flex-wrap"><TabsTrigger value="profile">Profile</TabsTrigger><TabsTrigger value="security">Security</TabsTrigger><TabsTrigger value="members">Members</TabsTrigger><TabsTrigger value="workspace">Workspace</TabsTrigger><TabsTrigger value="billing">Billing</TabsTrigger></TabsList>
+    <Tabs defaultValue={initialTab}><TabsList className="flex h-auto max-w-full flex-wrap justify-start">
+      <TabsTrigger value="profile"><UserRound className="mr-1.5 h-3.5 w-3.5" />Profile</TabsTrigger>
+      <TabsTrigger value="appearance"><Palette className="mr-1.5 h-3.5 w-3.5" />Appearance</TabsTrigger>
+      <TabsTrigger value="security"><ShieldCheck className="mr-1.5 h-3.5 w-3.5" />Security</TabsTrigger>
+      <TabsTrigger value="members"><Users className="mr-1.5 h-3.5 w-3.5" />Members</TabsTrigger>
+      <TabsTrigger value="workspace"><Building2 className="mr-1.5 h-3.5 w-3.5" />Workspace</TabsTrigger>
+      <TabsTrigger value="billing"><CreditCard className="mr-1.5 h-3.5 w-3.5" />Billing</TabsTrigger>
+    </TabsList>
       <TabsContent value="profile" className="mt-6">{profile && <Card className="max-w-2xl"><CardHeader><CardTitle>Profile</CardTitle></CardHeader><CardContent><form className="space-y-4" onSubmit={saveProfile}>
         <div className="flex items-center gap-4">
           {profile.imageUrl ? (
@@ -314,7 +323,18 @@ export default function SettingsPage() {
         <div className="space-y-2"><Label htmlFor="name">Display name</Label><Input id="name" value={profile.name || ''} onChange={(e) => setProfile({ ...profile, name: e.target.value })} /></div>
         <Button type="submit" disabled={!profile.name?.trim() || profile.name.trim() === savedProfileName}>Save profile</Button>
       </form></CardContent></Card>}
-        <Card className="mt-6 max-w-2xl border-red-200"><CardHeader><CardTitle>Delete account</CardTitle></CardHeader><CardContent><p className="mb-4 text-sm text-muted-foreground">Permanently removes your account. If you are the only member, the workspace and its data are also deleted.</p><Button variant="outline" onClick={async () => { if (window.prompt('Type DELETE to permanently delete your account') !== 'DELETE') return; const response = await fetch('/api/settings/profile', { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ confirmation: 'DELETE' }) }); const data = await response.json(); if (!response.ok) return toast.error(data.error || 'Could not delete account'); await supabase.auth.signOut(); window.location.replace('/') }}>Delete account</Button></CardContent></Card>
+        <Card className="mt-6 max-w-2xl border-destructive/30"><CardHeader><CardTitle>Delete account</CardTitle></CardHeader><CardContent><p className="mb-4 text-sm text-muted-foreground">Permanently removes your account. If you are the only member, the workspace and its data are also deleted.</p><Button variant="outline" className="border-destructive/30 text-destructive hover:bg-destructive/10 hover:text-destructive" onClick={async () => { if (window.prompt('Type DELETE to permanently delete your account') !== 'DELETE') return; const response = await fetch('/api/settings/profile', { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ confirmation: 'DELETE' }) }); const data = await response.json(); if (!response.ok) return toast.error(data.error || 'Could not delete account'); await supabase.auth.signOut(); window.location.replace('/') }}>Delete account</Button></CardContent></Card>
+      </TabsContent>
+      <TabsContent value="appearance" className="mt-6">
+        <Card className="max-w-3xl" variant="raised">
+          <CardHeader>
+            <CardTitle>Appearance</CardTitle>
+            <CardDescription>Choose how Sublime looks on this device. Your preference is saved automatically.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <ThemeSelector />
+          </CardContent>
+        </Card>
       </TabsContent>
       <TabsContent value="security" className="mt-6 space-y-6">
         <Card className="max-w-2xl"><CardHeader><CardTitle>Email address</CardTitle></CardHeader><CardContent className="flex flex-col gap-3 sm:flex-row"><Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} /><Button onClick={changeEmail}>Change email</Button></CardContent></Card>
@@ -368,13 +388,13 @@ export default function SettingsPage() {
         <LearningsPanel />
         {profile?.role === 'ADMIN' && <PlatformServicesCard />}
         {profile?.role === 'ADMIN' && (
-          <Card className="mt-6 max-w-2xl border-red-200">
+          <Card className="mt-6 max-w-2xl border-destructive/30">
             <CardHeader><CardTitle>Delete workspace</CardTitle></CardHeader>
             <CardContent>
               <p className="mb-4 text-sm text-muted-foreground">
                 Permanently deletes this workspace for every member — all agents, flows, runs, connections, and history. Members&apos; next sign-in starts a fresh personal workspace. This cannot be undone.
               </p>
-              <Button variant="outline" className="border-red-300 text-red-700 hover:bg-red-50" loading={deletingWorkspace} disabled={deletingWorkspace} onClick={deleteWorkspace}>
+              <Button variant="outline" className="border-destructive/30 text-destructive hover:bg-destructive/10 hover:text-destructive" loading={deletingWorkspace} disabled={deletingWorkspace} onClick={deleteWorkspace}>
                 Delete workspace
               </Button>
             </CardContent>
@@ -616,7 +636,7 @@ function PlatformServicesCard() {
       <CardHeader><CardTitle>Platform services</CardTitle></CardHeader>
       <CardContent>
         {error ? (
-          <p className="text-sm text-red-700">{error}</p>
+          <p className="text-sm text-destructive">{error}</p>
         ) : !capabilities ? (
           <p className="text-sm text-muted-foreground">Checking service status…</p>
         ) : (
@@ -624,7 +644,7 @@ function PlatformServicesCard() {
             {capabilities.map((capability) => (
               <li key={capability.key} className="flex items-start gap-3 py-2.5">
                 <span
-                  className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${capability.configured ? 'bg-emerald-500' : 'bg-gray-300'}`}
+                  className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${capability.configured ? 'bg-emerald-500' : 'bg-muted-foreground/35'}`}
                   aria-hidden
                 />
                 <div className="min-w-0">
