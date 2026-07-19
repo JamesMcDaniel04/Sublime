@@ -15,7 +15,7 @@ type BillingStatus = {
 const PLAN_OPTIONS = [
   { key: 'individual', label: 'Individual', price: '$29.99/mo' },
   { key: 'team', label: 'Team', price: '$299/mo' },
-  { key: 'business', label: 'Business', price: '$2,999/mo' },
+  { key: 'business', label: 'Business', price: '$1,999/mo' },
 ]
 
 /**

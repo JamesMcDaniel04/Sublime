@@ -15,7 +15,7 @@ monthly** price:
 | ---------- | ------------ | ------------ |
 | Individual | $29.99/month | STARTER      |
 | Team       | $299/month   | PROFESSIONAL |
-| Business   | $2,999/month | BUSINESS     |
+| Business   | $1,999/month | BUSINESS     |
 
 Copy each price id (`price_…`). Use live-mode prices for production; test-mode
 ids for staging/local.

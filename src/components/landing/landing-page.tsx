@@ -684,7 +684,7 @@ export function LandingPage({ fontClassName = '' }: { fontClassName?: string }) 
                 },
                 {
                   name: 'Business',
-                  price: '$2,999',
+                  price: '$1,999',
                   cadence: '/ month',
                   desc: 'For companies scaling AI across departments.',
                   features: [

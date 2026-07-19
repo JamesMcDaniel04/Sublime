@@ -375,7 +375,7 @@ export default function SettingsPage() {
             <div>
               <p className="text-sm font-medium">Current plan</p>
               <p className="text-xs text-muted-foreground">
-                {({ TRIAL: 'Trial', STARTER: 'Individual — $29.99/mo', PROFESSIONAL: 'Team — $299/mo', BUSINESS: 'Business — $2,999/mo', ENTERPRISE: 'Enterprise' } as Record<string, string>)[orgPlan] || orgPlan}
+                {({ TRIAL: 'Trial', STARTER: 'Individual — $29.99/mo', PROFESSIONAL: 'Team — $299/mo', BUSINESS: 'Business — $1,999/mo', ENTERPRISE: 'Enterprise' } as Record<string, string>)[orgPlan] || orgPlan}
               </p>
             </div>
             {orgPlan !== 'TRIAL' && <Button variant="outline" onClick={() => { window.location.href = '/api/stripe/portal' }}>Manage billing</Button>}
@@ -386,7 +386,7 @@ export default function SettingsPage() {
               <div className="flex flex-wrap gap-2">
                 <Button onClick={() => { window.location.href = '/api/stripe/checkout?plan=individual' }}>Individual — $29.99/mo</Button>
                 <Button onClick={() => { window.location.href = '/api/stripe/checkout?plan=team' }}>Team — $299/mo</Button>
-                <Button onClick={() => { window.location.href = '/api/stripe/checkout?plan=business' }}>Business — $2,999/mo</Button>
+                <Button onClick={() => { window.location.href = '/api/stripe/checkout?plan=business' }}>Business — $1,999/mo</Button>
                 <Button variant="outline" onClick={() => { window.location.href = '/contact?reason=enterprise' }}>Enterprise — contact sales</Button>
               </div>
             </div>
