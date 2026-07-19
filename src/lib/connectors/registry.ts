@@ -114,6 +114,76 @@ export const BUILTIN_CONNECTORS: ConnectorDescriptor[] = [
     matches: has('salesforce'),
     available: () => true,
   },
+  {
+    key: 'asana',
+    label: 'Asana',
+    slug: 'asana',
+    kind: 'nango',
+    isWrite: true,
+    providerId: 'nango:asana',
+    matches: has('asana'),
+    available: () => true,
+  },
+  {
+    key: 'clickup',
+    label: 'ClickUp',
+    slug: 'clickup',
+    kind: 'nango',
+    isWrite: true,
+    providerId: 'nango:clickup',
+    matches: has('clickup'),
+    available: () => true,
+  },
+  {
+    key: 'confluence',
+    label: 'Confluence',
+    slug: 'confluence',
+    kind: 'nango',
+    isWrite: true,
+    providerId: 'nango:confluence',
+    matches: has('confluence'),
+    available: () => true,
+  },
+  {
+    key: 'github',
+    label: 'GitHub',
+    slug: 'github',
+    kind: 'nango',
+    isWrite: true,
+    providerId: 'nango:github',
+    matches: has('github'),
+    available: () => true,
+  },
+  {
+    key: 'intercom',
+    label: 'Intercom',
+    slug: 'intercom',
+    kind: 'nango',
+    isWrite: true, // nango:* planes are write planes by construction (see isWriteProvider)
+    providerId: 'nango:intercom',
+    matches: has('intercom'),
+    available: () => true,
+  },
+  {
+    key: 'monday',
+    label: 'Monday',
+    slug: 'monday',
+    kind: 'nango',
+    isWrite: true,
+    providerId: 'nango:monday',
+    matches: has('monday'),
+    available: () => true,
+  },
+  {
+    key: 'perplexity',
+    label: 'Perplexity',
+    slug: 'perplexity',
+    kind: 'nango',
+    isWrite: true,
+    providerId: 'nango:perplexity',
+    matches: has('perplexity'),
+    available: () => true,
+  },
 ]
 
 /** Nango delivery capability → its registry descriptor (by capability name). */
@@ -145,6 +215,9 @@ export function fromNangoProviderKey(providerConfigKey: string): { key: string; 
   if (k.includes('slack')) return { key: 'slack', label: 'Slack', slug: 'slack' }
   if (k.includes('mail') || k.includes('gmail')) return { key: 'gmail', label: 'Gmail', slug: 'gmail' }
   if (k.includes('salesforce')) return { key: 'salesforce', label: 'Salesforce', slug: 'salesforce' }
+  if (k.includes('github')) return { key: 'github', label: 'GitHub', slug: 'github' }
+  if (k.includes('intercom')) return { key: 'intercom', label: 'Intercom', slug: 'intercom' }
+  if (k.includes('clickup')) return { key: 'clickup', label: 'ClickUp', slug: 'clickup' }
   return { key: k, label: titleCase(k), slug: k }
 }
 

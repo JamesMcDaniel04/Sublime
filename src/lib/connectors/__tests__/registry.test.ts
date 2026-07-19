@@ -39,4 +39,17 @@ test('every write connector is a delivery plane', () => {
 test('nango key derivation is stable and runtime-matchable', () => {
   assert.deepEqual(fromNangoProviderKey('slack-prod'), { key: 'slack', label: 'Slack', slug: 'slack' })
   assert.deepEqual(fromNangoProviderKey('google-mail'), { key: 'gmail', label: 'Gmail', slug: 'gmail' })
+  assert.deepEqual(fromNangoProviderKey('github-app'), { key: 'github', label: 'GitHub', slug: 'github' })
+  assert.deepEqual(fromNangoProviderKey('intercom-fhmb'), { key: 'intercom', label: 'Intercom', slug: 'intercom' })
+})
+
+test('every delivery capability resolves to a registry connector the runtime can activate', async () => {
+  const { DELIVERY_TOOLS } = await import('../../nango/delivery')
+  for (const tool of DELIVERY_TOOLS) {
+    const connector = nangoConnector(tool.capability)
+    assert.ok(connector, `no registry connector for capability ${tool.capability}`)
+    assert.equal(connector!.providerId, `nango:${tool.capability}`)
+    // A UI chip derived from the capability key must activate the connector.
+    assert.equal(isSelected(connector!, [tool.capability]), true)
+  }
 })

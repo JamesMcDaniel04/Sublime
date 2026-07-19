@@ -67,6 +67,35 @@ test('DELIVERY_TOOLS run() dispatches through the adapter with a custom proxy', 
   }
 })
 
+test('new delivery tools proxy the expected provider endpoints', async () => {
+  const runs: Array<{ name: string; args: Record<string, unknown>; endpoint: string; method: string }> = [
+    { name: 'asana_create_task', args: { project_gid: 'p1', name: 'T' }, endpoint: '/api/1.0/tasks', method: 'POST' },
+    { name: 'clickup_create_task', args: { list_id: 'l1', name: 'T' }, endpoint: '/api/v2/list/l1/task', method: 'POST' },
+    { name: 'confluence_create_page', args: { space_id: 's1', title: 'T', body: 'B' }, endpoint: '/wiki/api/v2/pages', method: 'POST' },
+    { name: 'github_create_issue', args: { owner: 'o', repo: 'r', title: 'T' }, endpoint: '/repos/o/r/issues', method: 'POST' },
+    { name: 'intercom_search_contacts', args: { email: 'a@b.com' }, endpoint: '/contacts/search', method: 'POST' },
+    { name: 'monday_create_item', args: { board_id: 'b1', item_name: 'I' }, endpoint: '/v2', method: 'POST' },
+    { name: 'perplexity_search', args: { query: 'q' }, endpoint: '/chat/completions', method: 'POST' },
+  ]
+  for (const spec of runs) {
+    const { calls, proxy } = recordingProxy()
+    const tool = DELIVERY_TOOLS.find((t) => t.name === spec.name)
+    assert.ok(tool, `missing tool ${spec.name}`)
+    await tool!.run(connection, spec.args, proxy)
+    assert.equal(calls[0].endpoint, spec.endpoint, spec.name)
+    assert.equal(calls[0].method, spec.method, spec.name)
+  }
+})
+
+test('monday_create_item passes user input as GraphQL variables, not in the query string', async () => {
+  const { calls, proxy } = recordingProxy()
+  const tool = DELIVERY_TOOLS.find((t) => t.name === 'monday_create_item')!
+  await tool.run(connection, { board_id: 'b1', item_name: 'evil") { boards { id } }' }, proxy)
+  const data = calls[0].data as { query: string; variables: Record<string, unknown> }
+  assert.ok(!data.query.includes('evil'))
+  assert.equal(data.variables.itemName, 'evil") { boards { id } }')
+})
+
 // ── capabilityForProviderConfigKey ──────────────────────────────────────────
 
 test('capabilityForProviderConfigKey: maps a known providerConfigKey to its capability', () => {
@@ -75,6 +104,14 @@ test('capabilityForProviderConfigKey: maps a known providerConfigKey to its capa
   assert.equal(capabilityForProviderConfigKey('gmail'), 'gmail')
   assert.equal(capabilityForProviderConfigKey('salesforce'), 'salesforce')
   assert.equal(capabilityForProviderConfigKey('salesforce-sandbox'), 'salesforce')
+  assert.equal(capabilityForProviderConfigKey('asana'), 'asana')
+  assert.equal(capabilityForProviderConfigKey('clickup'), 'clickup')
+  assert.equal(capabilityForProviderConfigKey('confluence'), 'confluence')
+  assert.equal(capabilityForProviderConfigKey('github-app'), 'github')
+  assert.equal(capabilityForProviderConfigKey('intercom'), 'intercom')
+  assert.equal(capabilityForProviderConfigKey('intercom-fhmb'), 'intercom')
+  assert.equal(capabilityForProviderConfigKey('monday'), 'monday')
+  assert.equal(capabilityForProviderConfigKey('perplexity'), 'perplexity')
 })
 
 test('capabilityForProviderConfigKey: unknown providerConfigKey has no capability', () => {

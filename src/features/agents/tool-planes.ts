@@ -21,6 +21,7 @@ import { prisma } from '@/lib/prisma'
 import { apiLogger } from '@/lib/logger'
 import { cacheGet, cacheSet } from '@/lib/cache'
 import { DELIVERY_TOOLS, nangoConfigured, resolveDeliveryConnection, type DeliveryCapability } from '@/lib/nango/delivery'
+import { listActionTools, runNangoAction } from '@/lib/nango/actions'
 import { McpClient, mcpConfigFromConnection } from '@/lib/mcp/mcp-client'
 import { ensureFreshConnectionToken, persistRefreshedAuthcodeTokens } from '@/lib/mcp/connection-token'
 import { GranolaToolClient, getGranolaApiKey, granolaTools } from '@/lib/integrations/granola'
@@ -284,10 +285,15 @@ export async function loadNativePlaneGroups(
 // ── Nango delivery (outbound writes as the acting user) ───────────────────────
 
 /**
- * Nango delivery planes (Slack/Gmail/Salesforce writes as the acting user),
- * one group per capability with a resolvable connection. When `providers` is
- * given (the agent path) a capability additionally requires a matching
- * selection. These are WRITE planes.
+ * Nango delivery planes, one group per capability with a resolvable
+ * connection. When `providers` is given (the agent path) a capability
+ * additionally requires a matching selection. These are WRITE planes.
+ *
+ * Tool surface per capability: the integration's DEPLOYED Nango actions when
+ * any exist (dashboard "Functions" — typed inputs, provider-maintained), else
+ * the static DELIVERY_TOOLS specs as fallback. Action tool names are
+ * `<capability>_<action>` (post-message → slack_post_message), so the
+ * flagship names stay stable across both paths.
  */
 export async function loadNangoPlaneGroups(
   organizationId: string,
@@ -296,29 +302,59 @@ export async function loadNangoPlaneGroups(
 ): Promise<ToolPlaneGroup[]> {
   if (!nangoConfigured()) return []
   const groups: ToolPlaneGroup[] = []
-  for (const spec of DELIVERY_TOOLS) {
-    const connector = nangoConnector(spec.capability)
+  const capabilities = [...new Set(DELIVERY_TOOLS.map((spec) => spec.capability))]
+  for (const capability of capabilities) {
+    const connector = nangoConnector(capability)
     if (!connector) continue
     if (options.providers && !isSelected(connector, options.providers)) continue
     try {
-      const connection = await resolveDeliveryConnection(organizationId, spec.capability, ownerUserId)
+      const connection = await resolveDeliveryConnection(organizationId, capability, ownerUserId)
       if (!connection) continue
-      const deliveryClient: McpToolClient = {
-        executeTool: (_serverUrl, _toolName, args) => spec.run(connection, args),
+
+      const actionTools = await listActionTools(connection.providerConfigKey, capability)
+      const specs = DELIVERY_TOOLS.filter((spec) => spec.capability === capability)
+
+      let client: McpToolClient
+      let tools: ToolPlaneGroup['tools']
+      if (actionTools.length) {
+        const actionByToolName = new Map(actionTools.map((action) => [action.toolName, action.actionName]))
+        client = {
+          executeTool: (_serverUrl, toolName, args) => {
+            const actionName = actionByToolName.get(toolName)
+            if (!actionName) throw new Error(`Unknown ${connector.label} tool: ${toolName}`)
+            return runNangoAction(connection, actionName, args)
+          },
+        }
+        tools = actionTools.map((action) => ({
+          name: action.toolName,
+          description: action.description,
+          inputSchema: action.inputSchema,
+        }))
+      } else {
+        const specByName = new Map(specs.map((spec) => [spec.name, spec]))
+        client = {
+          executeTool: (_serverUrl, toolName, args) => {
+            const spec = specByName.get(toolName)
+            if (!spec) throw new Error(`Unknown ${connector.label} tool: ${toolName}`)
+            return spec.run(connection, args)
+          },
+        }
+        tools = specs.map((spec) => ({ name: spec.name, description: spec.description, inputSchema: spec.inputSchema }))
       }
+
       groups.push({
-        id: formatFlowToolConnectionId('nango', spec.capability),
+        id: formatFlowToolConnectionId('nango', capability),
         plane: 'nango',
         name: connector.label,
         provider: connector.providerId,
         serverUrl: 'nango',
         isWrite: connector.isWrite,
-        client: deliveryClient,
-        tools: [{ name: spec.name, description: spec.description, inputSchema: spec.inputSchema }],
+        client,
+        tools,
       })
     } catch (error) {
       apiLogger.warn('loadTools: Nango delivery setup failed, skipping capability', {
-        capability: spec.capability,
+        capability,
         organizationId,
         error: error instanceof Error ? error.message : String(error),
       })

@@ -24,6 +24,13 @@ export const DELIVERY_PROVIDERS = {
   slack: ['slack'],
   gmail: ['google-mail', 'gmail'],
   salesforce: ['salesforce', 'salesforce-sandbox'],
+  asana: ['asana'],
+  clickup: ['clickup'],
+  confluence: ['confluence'],
+  github: ['github-app', 'github'],
+  intercom: ['intercom', 'intercom-fhmb'],
+  monday: ['monday'],
+  perplexity: ['perplexity'],
 } as const
 
 export type DeliveryCapability = keyof typeof DELIVERY_PROVIDERS
@@ -180,6 +187,120 @@ export async function salesforceCreateRecord(
   return response.data
 }
 
+export async function asanaCreateTask(
+  connection: DeliveryConnection,
+  args: { projectGid: string; name: string; notes?: string },
+  proxy: NangoProxy = defaultProxy(),
+): Promise<unknown> {
+  const response = await proxy({
+    method: 'POST',
+    endpoint: '/api/1.0/tasks',
+    connectionId: connection.connectionId,
+    providerConfigKey: connection.providerConfigKey,
+    data: { data: { name: args.name, projects: [args.projectGid], ...(args.notes ? { notes: args.notes } : {}) } },
+  })
+  return response.data
+}
+
+export async function clickupCreateTask(
+  connection: DeliveryConnection,
+  args: { listId: string; name: string; description?: string },
+  proxy: NangoProxy = defaultProxy(),
+): Promise<unknown> {
+  const response = await proxy({
+    method: 'POST',
+    endpoint: `/api/v2/list/${encodeURIComponent(args.listId)}/task`,
+    connectionId: connection.connectionId,
+    providerConfigKey: connection.providerConfigKey,
+    data: { name: args.name, ...(args.description ? { description: args.description } : {}) },
+  })
+  return response.data
+}
+
+export async function confluenceCreatePage(
+  connection: DeliveryConnection,
+  args: { spaceId: string; title: string; body: string },
+  proxy: NangoProxy = defaultProxy(),
+): Promise<unknown> {
+  const response = await proxy({
+    method: 'POST',
+    endpoint: '/wiki/api/v2/pages',
+    connectionId: connection.connectionId,
+    providerConfigKey: connection.providerConfigKey,
+    data: {
+      spaceId: args.spaceId,
+      status: 'current',
+      title: args.title,
+      body: { representation: 'storage', value: args.body },
+    },
+  })
+  return response.data
+}
+
+export async function githubCreateIssue(
+  connection: DeliveryConnection,
+  args: { owner: string; repo: string; title: string; body?: string },
+  proxy: NangoProxy = defaultProxy(),
+): Promise<unknown> {
+  const response = await proxy({
+    method: 'POST',
+    endpoint: `/repos/${encodeURIComponent(args.owner)}/${encodeURIComponent(args.repo)}/issues`,
+    connectionId: connection.connectionId,
+    providerConfigKey: connection.providerConfigKey,
+    data: { title: args.title, ...(args.body ? { body: args.body } : {}) },
+  })
+  return response.data
+}
+
+export async function intercomSearchContacts(
+  connection: DeliveryConnection,
+  args: { email: string },
+  proxy: NangoProxy = defaultProxy(),
+): Promise<unknown> {
+  const response = await proxy({
+    method: 'POST',
+    endpoint: '/contacts/search',
+    connectionId: connection.connectionId,
+    providerConfigKey: connection.providerConfigKey,
+    data: { query: { field: 'email', operator: '=', value: args.email } },
+  })
+  return response.data
+}
+
+export async function mondayCreateItem(
+  connection: DeliveryConnection,
+  args: { boardId: string; itemName: string },
+  proxy: NangoProxy = defaultProxy(),
+): Promise<unknown> {
+  // GraphQL with variables — never interpolate user input into the query string.
+  const response = await proxy({
+    method: 'POST',
+    endpoint: '/v2',
+    connectionId: connection.connectionId,
+    providerConfigKey: connection.providerConfigKey,
+    data: {
+      query: 'mutation ($boardId: ID!, $itemName: String!) { create_item (board_id: $boardId, item_name: $itemName) { id name } }',
+      variables: { boardId: args.boardId, itemName: args.itemName },
+    },
+  })
+  return response.data
+}
+
+export async function perplexitySearch(
+  connection: DeliveryConnection,
+  args: { query: string },
+  proxy: NangoProxy = defaultProxy(),
+): Promise<unknown> {
+  const response = await proxy({
+    method: 'POST',
+    endpoint: '/chat/completions',
+    connectionId: connection.connectionId,
+    providerConfigKey: connection.providerConfigKey,
+    data: { model: 'sonar', messages: [{ role: 'user', content: args.query }] },
+  })
+  return response.data
+}
+
 // ── Tool descriptors for the agent runtime ───────────────────────────────────
 
 export interface DeliveryToolSpec {
@@ -244,6 +365,128 @@ export const DELIVERY_TOOLS: DeliveryToolSpec[] = [
         { sobject: String(args.sobject), fields: (args.fields as Record<string, unknown>) ?? {} },
         proxy,
       ),
+  },
+  {
+    capability: 'asana',
+    name: 'asana_create_task',
+    description: 'Create a task in an Asana project via the connected account.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        project_gid: { type: 'string', description: 'The Asana project gid the task belongs to.' },
+        name: { type: 'string', description: 'Task title.' },
+        notes: { type: 'string', description: 'Optional task description.' },
+      },
+      required: ['project_gid', 'name'],
+    },
+    run: (connection, args, proxy) =>
+      asanaCreateTask(
+        connection,
+        { projectGid: String(args.project_gid), name: String(args.name), ...(args.notes ? { notes: String(args.notes) } : {}) },
+        proxy,
+      ),
+  },
+  {
+    capability: 'clickup',
+    name: 'clickup_create_task',
+    description: 'Create a task in a ClickUp list via the connected account.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        list_id: { type: 'string', description: 'The ClickUp list id the task belongs to.' },
+        name: { type: 'string', description: 'Task title.' },
+        description: { type: 'string', description: 'Optional task description.' },
+      },
+      required: ['list_id', 'name'],
+    },
+    run: (connection, args, proxy) =>
+      clickupCreateTask(
+        connection,
+        { listId: String(args.list_id), name: String(args.name), ...(args.description ? { description: String(args.description) } : {}) },
+        proxy,
+      ),
+  },
+  {
+    capability: 'confluence',
+    name: 'confluence_create_page',
+    description: 'Create a Confluence page in a space via the connected account.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        space_id: { type: 'string', description: 'The Confluence space id.' },
+        title: { type: 'string', description: 'Page title.' },
+        body: { type: 'string', description: 'Page body in Confluence storage format (HTML-like) or plain text.' },
+      },
+      required: ['space_id', 'title', 'body'],
+    },
+    run: (connection, args, proxy) =>
+      confluenceCreatePage(
+        connection,
+        { spaceId: String(args.space_id), title: String(args.title), body: String(args.body) },
+        proxy,
+      ),
+  },
+  {
+    capability: 'github',
+    name: 'github_create_issue',
+    description: 'Open a GitHub issue in a repository via the connected account.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        owner: { type: 'string', description: 'Repository owner (user or org).' },
+        repo: { type: 'string', description: 'Repository name.' },
+        title: { type: 'string', description: 'Issue title.' },
+        body: { type: 'string', description: 'Optional issue body (markdown).' },
+      },
+      required: ['owner', 'repo', 'title'],
+    },
+    run: (connection, args, proxy) =>
+      githubCreateIssue(
+        connection,
+        { owner: String(args.owner), repo: String(args.repo), title: String(args.title), ...(args.body ? { body: String(args.body) } : {}) },
+        proxy,
+      ),
+  },
+  {
+    capability: 'intercom',
+    name: 'intercom_search_contacts',
+    description: 'Look up Intercom contacts by email via the connected account.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        email: { type: 'string', description: 'Email address to search for.' },
+      },
+      required: ['email'],
+    },
+    run: (connection, args, proxy) => intercomSearchContacts(connection, { email: String(args.email) }, proxy),
+  },
+  {
+    capability: 'monday',
+    name: 'monday_create_item',
+    description: 'Create an item on a monday.com board via the connected account.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        board_id: { type: 'string', description: 'The monday.com board id.' },
+        item_name: { type: 'string', description: 'Name of the new item.' },
+      },
+      required: ['board_id', 'item_name'],
+    },
+    run: (connection, args, proxy) =>
+      mondayCreateItem(connection, { boardId: String(args.board_id), itemName: String(args.item_name) }, proxy),
+  },
+  {
+    capability: 'perplexity',
+    name: 'perplexity_search',
+    description: 'Ask Perplexity (sonar) a question and get a web-grounded answer via the connected account.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        query: { type: 'string', description: 'The question to research.' },
+      },
+      required: ['query'],
+    },
+    run: (connection, args, proxy) => perplexitySearch(connection, { query: String(args.query) }, proxy),
   },
 ]
 

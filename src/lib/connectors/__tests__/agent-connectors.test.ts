@@ -18,7 +18,7 @@ test('a key naming a per-org MCP connection resolves to an FK', () => {
 })
 
 test('an unknown key is external, no FK', () => {
-  assert.deepEqual(classifyConnector('github', connections), { connectorKey: 'github', kind: 'external', mcpConnectionId: null })
+  assert.deepEqual(classifyConnector('linear', connections), { connectorKey: 'linear', kind: 'external', mcpConnectionId: null })
 })
 
 test('connectorKey is preserved verbatim so runtime matching is unchanged', () => {
