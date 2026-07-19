@@ -2,11 +2,27 @@ import type { User } from '@supabase/supabase-js'
 import { prisma, systemPrisma } from '@/lib/prisma'
 import { createClient } from '@/lib/supabase/server'
 
+// An auth identity resolves to a user either directly (users.supabaseId, the
+// first identity) or via a linked user_identities row (any later sign-in
+// method for the same verified email).
 function findDbUser(supabaseId: string) {
   return prisma.user.findFirst({
-    where: { supabaseId, isActive: true },
+    where: { isActive: true, OR: [{ supabaseId }, { identities: { some: { supabaseId } } }] },
     include: { organization: true },
   })
+}
+
+/**
+ * Only a VERIFIED email may link a new auth identity to an existing user —
+ * otherwise an unconfirmed password signup with someone else's address would
+ * inherit their whole workspace. OAuth providers assert it via
+ * user_metadata.email_verified; confirmed email signups carry
+ * email_confirmed_at.
+ */
+function emailVerified(user: User): boolean {
+  const meta = (user.user_metadata || {}) as Record<string, unknown>
+  if (meta.email_verified === true) return true
+  return Boolean((user as { email_confirmed_at?: string | null }).email_confirmed_at)
 }
 
 // Per-instance cache of the supabaseId → app user (+org) lookup. This query
@@ -60,10 +76,30 @@ export async function provisionUser(user: User, existing?: NonNullable<DbUserRow
       // completed provisioning while this one waited for the lock. Honor that
       // membership instead of re-provisioning it.
       const current = existing ?? await tx.user.findFirst({
-        where: { supabaseId: user.id, isActive: true },
+        where: { isActive: true, OR: [{ supabaseId: user.id }, { identities: { some: { supabaseId: user.id } } }] },
         include: { organization: true },
       })
       if (current?.organizationId) return current
+
+      // Same person, different sign-in method: an active user already exists
+      // for this VERIFIED email under another Supabase identity. Link this
+      // identity to that user instead of minting a duplicate user + workspace
+      // — otherwise their flows/agents split across two "selves" per auth
+      // method. Unverified emails never link (workspace-takeover vector).
+      if (!current && normalizedEmail && emailVerified(user)) {
+        const sameEmail = await tx.user.findFirst({
+          where: { email: normalizedEmail, isActive: true, supabaseId: { not: user.id }, organizationId: { not: null } },
+          orderBy: { createdAt: 'asc' },
+          include: { organization: true },
+        })
+        if (sameEmail) {
+          const provider = (user.app_metadata as Record<string, unknown> | undefined)?.provider
+          await tx.userIdentity.create({
+            data: { supabaseId: user.id, userId: sameEmail.id, provider: typeof provider === 'string' ? provider : null },
+          })
+          return sameEmail
+        }
+      }
 
       const invitation = normalizedEmail
         ? await tx.organizationInvitation.findFirst({

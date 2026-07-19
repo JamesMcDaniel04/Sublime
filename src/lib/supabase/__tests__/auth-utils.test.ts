@@ -99,4 +99,44 @@ if (!TEST_DB) {
     assert.equal(member.role, 'ADMIN')
     assert.ok(accepted?.acceptedAt)
   })
+
+  test('a second auth method with the same VERIFIED email links to the existing user — one workspace, one identity', async () => {
+    const passwordSignup = identity({ user_metadata: { full_name: 'Same Person', email_verified: true } })
+    const first = await provisionUser(passwordSignup)
+    if (first.organizationId) organizationIds.push(first.organizationId)
+
+    // Same email, brand-new Supabase identity (e.g. Google OAuth), verified.
+    const googleSignup = identity({
+      email: passwordSignup.email,
+      user_metadata: { full_name: 'Same Person', email_verified: true },
+      app_metadata: { provider: 'google' },
+    })
+    const linked = await provisionUser(googleSignup)
+
+    assert.equal(linked.id, first.id, 'both auth methods resolve to ONE user row')
+    assert.equal(linked.organizationId, first.organizationId, 'no duplicate workspace')
+    const identityRow = await systemPrisma.userIdentity.findUnique({ where: { supabaseId: googleSignup.id } })
+    assert.equal(identityRow?.userId, first.id)
+    assert.equal(identityRow?.provider, 'google')
+
+    // And provisioning the linked identity again stays idempotent.
+    const again = await provisionUser(googleSignup)
+    assert.equal(again.id, first.id)
+  })
+
+  test('an UNVERIFIED email never links — it gets its own workspace instead of inheriting one', async () => {
+    const owner = identity({ user_metadata: { email_verified: true } })
+    const first = await provisionUser(owner)
+    if (first.organizationId) organizationIds.push(first.organizationId)
+
+    // Same email but unverified (e.g. an unconfirmed password signup):
+    // linking here would hand a stranger the whole workspace.
+    const impostor = identity({ email: owner.email, user_metadata: {} })
+    const provisioned = await provisionUser(impostor)
+    if (provisioned.organizationId) organizationIds.push(provisioned.organizationId)
+
+    assert.notEqual(provisioned.id, first.id)
+    assert.notEqual(provisioned.organizationId, first.organizationId)
+    assert.equal(await systemPrisma.userIdentity.findUnique({ where: { supabaseId: impostor.id } }), null)
+  })
 }

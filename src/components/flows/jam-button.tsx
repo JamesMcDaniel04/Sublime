@@ -263,7 +263,7 @@ export function JamButton({
   const [sending, setSending] = useState(false)
 
   useEffect(() => {
-    if (!open) return
+    if (!open || !canManage) return
     setLoading(true)
     Promise.all([
       fetch('/api/organizations/members', { cache: 'no-store' }).then((response) => response.json()),
@@ -275,7 +275,7 @@ export function JamButton({
       })
       .catch(() => toast.error('Could not load your team.'))
       .finally(() => setLoading(false))
-  }, [flowId, open])
+  }, [flowId, open, canManage])
 
   const invite = async () => {
     setSending(true)
@@ -352,8 +352,10 @@ export function JamButton({
         <ReactionPicker onReact={onReact} onSpotlight={peers.length > 0 ? onSpotlight : undefined} />
       )}
       {/* The invite picker portals out (Radix) — the toolbar's overflow-x
-          scroll container would otherwise clip it behind the canvas. */}
-      <DropdownMenu open={open && canManage} onOpenChange={(next) => canManage && setOpen(next)}>
+          scroll container would otherwise clip it behind the canvas. Opens for
+          EVERYONE (status + who's here); a click must never be a silent no-op.
+          Only the invite/save controls are owner-gated. */}
+      <DropdownMenu open={open} onOpenChange={setOpen}>
         <DropdownMenuTrigger asChild>
           <Button
             variant="outline"
@@ -377,6 +379,12 @@ export function JamButton({
             {connectionDetail && connectionState !== 'connected' && (
               <p className="mt-1 text-[11px] leading-snug text-slate-500">{connectionDetail}</p>
             )}
+            {!canManage && (
+              <p className="mt-2 rounded-lg bg-slate-50 px-2 py-1.5 text-xs text-slate-500">
+                Only the flow owner can invite teammates or change jam access. You&apos;re in the jam just by having this flow open.
+              </p>
+            )}
+            {canManage && (
             <div className="mt-2 max-h-56 space-y-0.5 overflow-y-auto">
               {loading && <Loader2 className="mx-auto my-3 h-4 w-4 animate-spin text-slate-400" />}
               {!loading && members.length === 0 && (
@@ -413,9 +421,12 @@ export function JamButton({
                 )
               })}
             </div>
+            )}
+            {canManage && (
             <Button className="mt-2 w-full" size="sm" disabled={sending} onClick={invite} loading={sending}>
               Save access {selected.size > 0 ? `(${selected.size})` : ''}
             </Button>
+            )}
         </DropdownMenuContent>
       </DropdownMenu>
     </div>

@@ -8,7 +8,7 @@ import '@/test-support/jsdom-env'
 import { test, afterEach } from 'node:test'
 import assert from 'node:assert/strict'
 import React from 'react'
-import { render, cleanup } from '@testing-library/react'
+import { render, cleanup, fireEvent } from '@testing-library/react'
 import { JamButton, type JamHuddleControls } from '../jam-button'
 
 afterEach(() => cleanup())
@@ -81,4 +81,14 @@ test('joining a huddle is only offered while the jam is live (signaling needs th
     React.createElement(JamButton, { ...baseProps, connectionState: 'connected', huddle: huddleOf(false) } as never),
   )
   assert.match(connected.container.textContent ?? '', /Huddle/, 'join appears once the channel is live')
+})
+
+test('clicking Jam always opens the panel — non-owners see status, not a silent no-op', async () => {
+  const { container, findByText } = render(
+    React.createElement(JamButton, { ...baseProps, connectionState: 'connected' } as never),
+  )
+  const jamButton = [...container.querySelectorAll('button')].find((el) => el.textContent?.includes('Jam'))
+  assert.ok(jamButton, 'the Jam button renders')
+  fireEvent.keyDown(jamButton as HTMLButtonElement, { key: 'Enter' })
+  assert.ok(await findByText(/Only the flow owner can invite/), 'non-owners get an explanation instead of nothing')
 })

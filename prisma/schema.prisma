@@ -78,9 +78,30 @@ model User {
   flowCollaborations FlowCollaborator[] @relation("FlowCollaboratorUser")
   flowInvitesSent    FlowCollaborator[] @relation("FlowCollaboratorInviter")
   flowComments       FlowComment[]      @relation("FlowCommentAuthor")
+  identities         UserIdentity[]
 
   @@index([organizationId])
   @@map("users")
+}
+
+// Extra Supabase auth identities resolving to one app user. The first
+// identity stays on users.supabaseId; each additional sign-in method for the
+// same verified email (e.g. Google after email/password) gets a row here so
+// EVERY method lands on the same user row — one workspace, one ownership
+// identity, regardless of how the person signs in.
+model UserIdentity {
+  id         String   @id @default(cuid())
+  supabaseId String   @unique @db.Uuid
+  userId     String
+  // Auth provider that minted this identity (e.g. 'google', 'email') — for
+  // support/debugging only, never authorization.
+  provider   String?
+  createdAt  DateTime @default(now()) @db.Timestamptz(6)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("user_identities")
 }
 
 model OrganizationInvitation {
