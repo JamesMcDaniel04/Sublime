@@ -43,8 +43,6 @@ services:
       - key: SUMMARY_MODEL
         value: claude-haiku-4-5
       # Tool planes + RAG (the worker loads tools and retrieves context).
-      - key: KLAVIS_API_KEY
-        sync: false
       - key: NANGO_SECRET_KEY
         sync: false
       - key: VOYAGE_API_KEY

@@ -2,6 +2,7 @@ import { z } from 'zod'
 import { prisma } from '@/lib/prisma'
 import { ApiError, withAuthenticatedApi } from '@/lib/server/api-handler'
 import { recordUserEvent } from '@/lib/behavior/record-event'
+import { apiLogger } from '@/lib/logger'
 
 export const runtime = 'nodejs'
 
@@ -34,6 +35,32 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
     where: { id: suggestion.id, organizationId: auth.organizationId },
     data: { status: action === 'accept' ? 'accepted' : 'dismissed' },
   })
+
+  // Accepting an enhancement must make it VISIBLE on its target. Agent
+  // targets already got an AgentMemory suggestion at synthesis time; flow
+  // targets need one now, tagged the way the flow builder's banner reads
+  // them (flow:<id> marker under the hidden org intelligence agent — see
+  // /api/flows/[id]/suggestions).
+  if (action === 'accept' && suggestion.kind === 'enhancement' && suggestion.targetType === 'flow' && suggestion.targetId) {
+    try {
+      const { orgIntelligenceAgentId } = await import('@/lib/intelligence/connection-scan')
+      const { FLOW_TARGET_MARKER_PREFIX } = await import('@/lib/intelligence/suggest-workflows')
+      const { saveAgentMemory } = await import('@/lib/memory/agent-memory')
+      const holderAgentId = await orgIntelligenceAgentId(auth.organizationId)
+      await saveAgentMemory({
+        organizationId: auth.organizationId,
+        agentId: holderAgentId,
+        kind: 'suggestion',
+        title: suggestion.title,
+        content: suggestion.description,
+        question: `${FLOW_TARGET_MARKER_PREFIX}${suggestion.targetId}`,
+      })
+    } catch (error) {
+      apiLogger.warn('user-suggestions: flow enhancement memory write failed', {
+        suggestionId: suggestion.id, error: error instanceof Error ? error.message : String(error),
+      })
+    }
+  }
 
   if (action === 'dismiss') {
     // Feedback loop (spec §4): dismissing a suggestion dismisses its source

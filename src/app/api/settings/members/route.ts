@@ -33,6 +33,11 @@ export const PATCH = withAuthenticatedApi(async (request, auth) => {
   const member = await prisma.user.findFirst({ where: { id: input.userId, organizationId: auth.organizationId } })
   if (!member) throw new ApiError('Member not found', 404, 'NOT_FOUND')
   await prisma.user.update({ where: { id: member.id, organizationId: auth.organizationId }, data: { ...(input.role && { role: input.role }), ...(input.isActive !== undefined && { isActive: input.isActive }) } })
+  // Drop the per-instance auth cache immediately — without this, a demoted or
+  // deactivated member keeps their OLD role/active flag on warm instances for
+  // the cache TTL (mirrors the org-delete route's pattern).
+  const { invalidateDbUserCache } = await import('@/lib/supabase/auth-utils')
+  invalidateDbUserCache(member.supabaseId)
   if (input.isActive === false) await createAdminClient().auth.admin.signOut(member.supabaseId, 'global')
   void recordAudit({ organizationId: auth.organizationId, actorUserId: auth.dbUser.id, action: 'organization.member.updated', resourceType: 'user', resourceId: member.id })
   return { success: true }

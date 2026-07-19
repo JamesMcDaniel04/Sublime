@@ -31,7 +31,6 @@ if (TEST_DB) {
   let seeded: any
   let organizationId: string
   let userId: string
-  let childFlowId: string
   let mcpConnectionId: string
   let llmServer: http.Server
   let llmRequests = 0
@@ -112,14 +111,13 @@ if (TEST_DB) {
     userId = seeded.userId
 
     // The agent-callable child flow both seams execute.
-    const child = await prisma.flow.create({
+    await prisma.flow.create({
       data: {
         name: 'QA Echo Child', organizationId, userId, status: 'ACTIVE', visibility: 'shared',
         trigger: { type: 'manual' }, graph: childGraph, publishedGraph: childGraph,
         metadata: { agentCallable: true },
       },
     })
-    childFlowId = child.id
 
     // Scripted Anthropic-wire endpoint (the Qwen path reuses the Anthropic SDK).
     llmServer = http.createServer((req, res) => {

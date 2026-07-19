@@ -107,7 +107,18 @@ export function resultText(activity?: Activity | null) {
   // A still-running (or output-less) run has no result yet — return '' so
   // callers show a status label instead of the string "null".
   if (value == null) return ''
-  return typeof value === 'string' ? value : JSON.stringify(value, null, 2)
+  if (typeof value === 'string') return value
+  // Structured output with no prose field: render a readable "key: value"
+  // digest instead of dumping raw JSON at the user. Full data stays visible
+  // in the expanded run's step outputs.
+  if (typeof value === 'object' && !Array.isArray(value)) {
+    const parts = Object.entries(value as Record<string, unknown>)
+      .filter(([, v]) => v != null)
+      .slice(0, 6)
+      .map(([k, v]) => `${k}: ${typeof v === 'string' ? v : Array.isArray(v) ? `${v.length} items` : typeof v === 'object' ? '…' : String(v)}`)
+    if (parts.length > 0) return parts.join(' · ')
+  }
+  return JSON.stringify(value, null, 2)
 }
 
 function stepDuration(step: RunStep): string | null {

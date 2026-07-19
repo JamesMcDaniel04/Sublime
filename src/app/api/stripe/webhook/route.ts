@@ -4,6 +4,8 @@ import { Plan } from '@prisma/client'
 import { prisma } from '@/lib/prisma'
 import { getStripe } from '@/lib/stripe'
 import { planForPriceId } from '@/lib/stripe/plans'
+import { apiLogger } from '@/lib/logger'
+import { captureError } from '@/lib/observability/sentry'
 
 export const dynamic = 'force-dynamic'
 
@@ -20,9 +22,28 @@ async function applySubscription(subscription: Stripe.Subscription) {
     : await prisma.organization.findUnique({ where: { stripeCustomerId: customerId }, select: { id: true } })
   if (!organization) return
 
-  const priceId = subscription.items.data[0]?.price?.id
-  const paidPlan = priceId ? planForPriceId(priceId) : null
+  // A multi-item subscription carries the base plan on ONE of its items —
+  // match any of them, not just items[0].
+  const paidPlan = subscription.items.data
+    .map((item) => (item.price?.id ? planForPriceId(item.price.id) : null))
+    .find((plan) => plan != null) ?? null
   const isActive = ACTIVE_STATUSES.has(subscription.status)
+
+  // An ACTIVE subscription with an unrecognized price is a configuration bug
+  // (price edited in the Stripe dashboard, annual/legacy price not in
+  // STRIPE_PRICE_*), NOT a cancellation — Stripe is still charging this
+  // customer. Downgrading here would silently lock out a paying org, so keep
+  // their current plan untouched and alarm loudly instead.
+  if (isActive && !paidPlan) {
+    const priceIds = subscription.items.data.map((item) => item.price?.id).filter(Boolean)
+    apiLogger.error('stripe webhook: active subscription with unrecognized price — plan left unchanged', {
+      organizationId: organization.id, subscriptionId: subscription.id, priceIds,
+    })
+    captureError(new Error('Stripe subscription price not in STRIPE_PRICE_* config'), {
+      scope: 'stripe.webhook', organizationId: organization.id,
+    })
+    return
+  }
 
   await prisma.organization.update({
     where: { id: organization.id },

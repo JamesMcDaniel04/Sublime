@@ -15,6 +15,10 @@ const REQUIRED_IN_PRODUCTION = [
   'NEXT_PUBLIC_SUPABASE_URL',
   'NEXT_PUBLIC_SUPABASE_ANON_KEY',
   'ENCRYPTION_KEY',
+  // Without this, Vercel never authenticates its cron invocations, so every
+  // schedule (agents, flows, wait-resumes, reapers, retention, intelligence)
+  // silently never fires while still showing "active" in the UI.
+  'CRON_SECRET',
 ] as const
 
 /** At least one model provider key must be present for agent runs. Claude

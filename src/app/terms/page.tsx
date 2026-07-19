@@ -76,7 +76,7 @@ export default function TermsPage() {
           <section className="mb-8">
             <h2 className="text-2xl font-semibold mb-4">8. Contact Information</h2>
             <p>
-              For questions about these Terms of Service, please contact us at support@sublime.app.
+              For questions about these Terms of Service, please contact us at hello@trysublime.io.
             </p>
           </section>
         </div>

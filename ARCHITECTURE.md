@@ -9,7 +9,7 @@ There are two runtimes:
 
 Both runtimes report errors through `src/lib/observability/sentry.ts`; the worker initializes it at boot (tagged `process: worker`) and flushes on shutdown.
 
-Pipedream owns embedded account connections; Klavis owns agent-facing MCP tool servers. Model access goes through `src/lib/llm/model-runner.ts`, which routes `claude-*` models to the Anthropic SDK and everything else to OpenAI, and falls back to whichever provider's key is configured so a run never hard-fails on a missing vendor. Defaults are OpenAI: the agent model is `AGENT_MODEL` (default `gpt-4o`) and cheap surfaces (run Q&A, activity headlines, the natural-language agent builder) use `SUMMARY_MODEL` (default `gpt-4o-mini`). Set a `claude-*` model plus `ANTHROPIC_API_KEY` to use Anthropic.
+Nango owns embedded account connections and deployed integration actions; user-added MCP servers connect through `src/lib/mcp/`. Model access goes through `src/lib/llm/model-runner.ts`: both Claude and Qwen speak the Anthropic Messages wire (Qwen via `QWEN_BASE_URL`), and `routeModel` orders the endpoint chain with a cross-endpoint fallback so a run never hard-fails on a missing vendor. Defaults are Anthropic: the agent model is `AGENT_MODEL` (default `claude-sonnet-5`) and cheap surfaces (run Q&A, activity headlines, the natural-language agent builder) use `SUMMARY_MODEL` (default `claude-haiku-4-5`). Set `QWEN_API_KEY` + `QWEN_BASE_URL` to enable the Qwen endpoint.
 
 ## Agent Execution
 

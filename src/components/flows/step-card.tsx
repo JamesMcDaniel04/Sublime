@@ -1289,6 +1289,12 @@ function TriggerBody({
             <label className={labelClass}>Response<select className={controlClass} value={trigger.webhookResponse ?? 'immediate'} onChange={(event) => setTrigger({ ...trigger, webhookResponse: event.target.value as TriggerData['webhookResponse'] })}><option value="immediate">Run receipt</option><option value="lastNode">Last step output</option><option value="respondNode">Respond node</option></select></label>
           </div>
           {(trigger.webhookAuth ?? 'header') === 'header' && <label className={labelClass}>Secret header name<input className={controlClass} value={trigger.webhookHeaderName ?? 'x-trigger-secret'} onChange={(event) => setTrigger({ ...trigger, webhookHeaderName: event.target.value || undefined })} /></label>}
+          {trigger.webhookAuth === 'none' && (
+            <p className="rounded-md border border-amber-300 bg-amber-50 px-2.5 py-2 text-xs text-amber-900">
+              <strong>No authentication:</strong> anyone who knows this webhook URL can run this flow. Only use this for
+              services that can&apos;t send auth headers, and treat the URL itself as a secret.
+            </p>
+          )}
           {trigger.webhookAuth === 'basic' && <label className={labelClass}>Basic auth username<input className={controlClass} value={trigger.webhookUsername ?? ''} onChange={(event) => setTrigger({ ...trigger, webhookUsername: event.target.value || undefined })} placeholder="webhook" /></label>}
           <div className="flex gap-2">
             <Button type="button" variant="outline" size="sm" className="flex-1" onClick={() => mintWebhook(false)} loading={minting}>

@@ -20,6 +20,7 @@ const FULL_PROD_ENV = {
   NEXT_PUBLIC_SUPABASE_URL: 'https://x.supabase.co',
   NEXT_PUBLIC_SUPABASE_ANON_KEY: 'anon',
   ENCRYPTION_KEY: 'k',
+  CRON_SECRET: 'cron-secret',
   ANTHROPIC_API_KEY: 'sk-ant-x',
 }
 

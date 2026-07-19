@@ -1,7 +1,7 @@
 'use client'
 
 import { Fragment, useEffect, useState } from 'react'
-import { useParams } from 'next/navigation'
+import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { ChevronRight, RefreshCw, ScrollText, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
@@ -150,10 +150,15 @@ function WaitingBanner({
 
 export default function FlowActivityPage() {
   const { id } = useParams<{ id: string }>()
+  const router = useRouter()
   const [flowName, setFlowName] = useState('')
   const [graph, setGraph] = useState<FlowGraph | null>(null)
   const [runs, setRuns] = useState<RunSummary[]>([])
   const [loading, setLoading] = useState(true)
+  // Distinguish "no runs yet" from "could not load runs" / "flow not found" —
+  // a fetch failure must never masquerade as an empty history.
+  const [loadError, setLoadError] = useState(false)
+  const [notFound, setNotFound] = useState(false)
   const [filter, setFilter] = useState<StatusFilter>('all')
   const [expandedId, setExpandedId] = useState<string | null>(null)
   const [refreshKey, setRefreshKey] = useState(0)
@@ -189,11 +194,22 @@ export default function FlowActivityPage() {
     const load = async () => {
       const qs = new URLSearchParams({ summary: '1', take: String(take) })
       if (filter !== 'all') qs.set('status', filter)
-      const data = await fetch(`/api/flows/${id}/runs?${qs.toString()}`, { cache: 'no-store' })
-        .then((response) => response.json())
+      const result = await fetch(`/api/flows/${id}/runs?${qs.toString()}`, { cache: 'no-store' })
+        .then(async (response) => ({ status: response.status, data: await response.json().catch(() => null) }))
         .catch(() => null)
       if (cancelled) return
-      const nextRuns: RunSummary[] = data?.success ? data.runs : []
+      if (result?.status === 404) {
+        setNotFound(true)
+        setLoading(false)
+        return
+      }
+      if (!result?.data?.success) {
+        setLoadError(true)
+        setLoading(false)
+        return
+      }
+      setLoadError(false)
+      const nextRuns: RunSummary[] = result.data.runs
       setRuns(nextRuns)
       setLoading(false)
       const active = nextRuns.some((run) => run.status === 'running' || run.status === 'waiting' || run.status === 'stopping')
@@ -274,6 +290,20 @@ export default function FlowActivityPage() {
             <Skeleton key={i} className="h-12 rounded-lg" />
           ))}
         </div>
+      ) : notFound ? (
+        <EmptyState
+          icon={ScrollText}
+          title="Flow not found"
+          description="This flow doesn't exist or you don't have access to it."
+          action={<Button variant="outline" onClick={() => router.push('/flows')}>Back to flows</Button>}
+        />
+      ) : loadError ? (
+        <EmptyState
+          icon={ScrollText}
+          title="Couldn't load run history"
+          description="Something went wrong fetching this flow's runs."
+          action={<Button variant="outline" onClick={() => { setLoadError(false); setLoading(true); setRefreshKey((k) => k + 1) }}>Try again</Button>}
+        />
       ) : runs.length === 0 ? (
         <EmptyState
           icon={ScrollText}

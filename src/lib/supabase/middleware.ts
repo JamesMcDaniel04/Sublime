@@ -14,6 +14,8 @@ const publicPages = new Set([
   '/auth/update-password',
   '/privacy',
   '/terms',
+  '/about',
+  '/contact',
 ])
 
 function copyCookies(source: NextResponse, target: NextResponse) {

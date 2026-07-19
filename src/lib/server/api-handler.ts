@@ -64,6 +64,16 @@ export function withAuthenticatedApi(handler: AuthenticatedHandler) {
         )
       }
 
+      // A malformed/empty JSON body throws SyntaxError from request.json()
+      // before any handler logic runs — that's the caller's error (400), not
+      // an internal failure, and must not page Sentry.
+      if (error instanceof SyntaxError) {
+        return NextResponse.json(
+          { success: false, error: 'Request body must be valid JSON', code: 'INVALID_JSON' },
+          { status: 400 },
+        )
+      }
+
       apiLogger.error('API request failed', {
         path: request.nextUrl.pathname,
         error: error instanceof Error ? error.message : String(error),

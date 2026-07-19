@@ -54,7 +54,6 @@ if (TEST_DB) {
     { name: 'GET /api/granola/notes', run: async () => (await import('../granola/notes/route')).GET(req('/api/granola/notes')) },
     { name: 'GET /api/integrations/available', run: async () => (await import('../integrations/available/route')).GET(req('/api/integrations/available')) },
     { name: 'GET /api/integrations/granola', run: async () => (await import('../integrations/granola/route')).GET(req('/api/integrations/granola')) },
-    { name: 'GET /api/integrations/status', run: async () => (await import('../integrations/status/route')).GET(req('/api/integrations/status')) },
     { name: 'GET /api/intelligence/learnings', run: async () => (await import('../intelligence/learnings/route')).GET(req('/api/intelligence/learnings')) },
     { name: 'GET /api/mcp-connections', run: async () => (await import('../mcp-connections/route')).GET(req('/api/mcp-connections')) },
     { name: 'GET /api/mcp-connections/oauth/start', run: async () => (await import('../mcp-connections/oauth/start/route')).GET(req('/api/mcp-connections/oauth/start')) },
@@ -88,6 +87,17 @@ if (TEST_DB) {
     // Fail-closed [id] routes: an unknown id 404s (< 500) — no seeding needed.
     { name: 'GET /api/slack/connections/[id]/manifest', run: async () => (await import('../slack/connections/[id]/manifest/route')).GET(req('/api/slack/connections/no-such-id/manifest')) },
     { name: 'GET /api/notifications/[id]', run: async () => (await import('../notifications/[id]/route')).GET(req('/api/notifications/no-such-id')) },
+    { name: 'GET /api/agents/[id]/export', run: async () => (await import('../agents/[id]/export/route')).GET(req('/api/agents/no-such-id/export')) },
+    { name: 'GET /api/flows/[id]/collaboration', run: async () => (await import('../flows/[id]/collaboration/route')).GET(req('/api/flows/no-such-id/collaboration')) },
+    { name: 'GET /api/flows/[id]/comments', run: async () => (await import('../flows/[id]/comments/route')).GET(req('/api/flows/no-such-id/comments')) },
+    { name: 'GET /api/flows/[id]/export', run: async () => (await import('../flows/[id]/export/route')).GET(req('/api/flows/no-such-id/export')) },
+    { name: 'GET /api/flows/[id]/jam', run: async () => (await import('../flows/[id]/jam/route')).GET(req('/api/flows/no-such-id/jam')) },
+    { name: 'GET /api/skills/[id]', run: async () => (await import('../skills/[id]/route')).GET(req('/api/skills/no-such-id')) },
+    // Plain authenticated GETs with no seeding requirements.
+    { name: 'GET /api/activity/backfill', run: async () => (await import('../activity/backfill/route')).GET(req('/api/activity/backfill')) },
+    { name: 'GET /api/intelligence/user-suggestions', run: async () => (await import('../intelligence/user-suggestions/route')).GET(req('/api/intelligence/user-suggestions')) },
+    { name: 'GET /api/rtc/ice', run: async () => (await import('../rtc/ice/route')).GET(req('/api/rtc/ice')) },
+    { name: 'GET /api/slack/connections/[id]/channels', run: async () => (await import('../slack/connections/[id]/channels/route')).GET(req('/api/slack/connections/no-such-id/channels')) },
   ]
 
   for (const c of cases) {

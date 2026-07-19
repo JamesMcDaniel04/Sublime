@@ -273,10 +273,15 @@ export function HomeAssistant() {
       })
       if (!response.ok) throw new Error('request failed')
       const accepted = action === 'accept'
-      const flowId = suggestion.flowId
+      const { flowId, targetType, targetId } = suggestion
       setSuggestion(null)
+      // Accepting always lands the user ON the thing that changed: the draft
+      // flow, the enhanced flow, or the enhanced agent's config (where the
+      // suggestion banner now shows it).
       if (accepted && flowId) router.push(`/flows/${flowId}`)
-      else if (accepted) toast.success('Saved — you can find it on the agent it applies to.')
+      else if (accepted && targetType === 'flow' && targetId) router.push(`/flows/${targetId}`)
+      else if (accepted && targetType === 'agent' && targetId) router.push(`/agents?agent=${targetId}`)
+      else if (accepted) toast.success('Suggestion saved.')
     } catch {
       toast.error('Could not update the suggestion. Try again.')
     } finally {
@@ -410,6 +415,14 @@ export function HomeAssistant() {
       const actionMessage = returned.find((message) => message.action?.type === 'execute')
       if (actionMessage?.action) void executeAgent(actionMessage.action.agentId, actionMessage.id)
       void loadSessions()
+    } catch {
+      // Network-level failure (offline, DNS, aborted): mirror the !response.ok
+      // path — roll the optimistic message back and restore the composer so
+      // the user can retry.
+      toast.error('Could not reach the assistant — check your connection and try again.')
+      setMessages((previous) => previous.filter((message) => message.id !== localId))
+      setInput(content)
+      setAttachment(sentAttachment)
     } finally {
       setSending(false)
     }

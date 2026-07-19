@@ -719,7 +719,21 @@ export function LandingPage({ fontClassName = '' }: { fontClassName?: string }) 
             <StackedLogo size={16} />
             <span className="text-[12px] font-bold text-foreground uppercase tracking-[0.08em]">Sublime</span>
           </div>
-          <span className="text-[12px] text-muted-foreground">© {new Date().getFullYear()}</span>
+          <div className="flex items-center gap-5">
+            <Link href="/about" className="text-[12px] text-muted-foreground hover:text-foreground transition-colors">
+              About
+            </Link>
+            <Link href="/contact" className="text-[12px] text-muted-foreground hover:text-foreground transition-colors">
+              Contact
+            </Link>
+            <Link href="/privacy" className="text-[12px] text-muted-foreground hover:text-foreground transition-colors">
+              Privacy
+            </Link>
+            <Link href="/terms" className="text-[12px] text-muted-foreground hover:text-foreground transition-colors">
+              Terms
+            </Link>
+            <span className="text-[12px] text-muted-foreground">© {new Date().getFullYear()}</span>
+          </div>
         </div>
       </div>
     </div>
