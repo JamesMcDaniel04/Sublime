@@ -1,0 +1,45 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="2048" height="2048" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
+  <title id="title">Sublime logo</title>
+  <desc id="desc">A folded coral and mint ribbon forming an abstract letter S on a deep navy field.</desc>
+  <defs>
+    <radialGradient id="background" cx="50%" cy="47%" r="72%">
+      <stop offset="0" stop-color="#0b174a" />
+      <stop offset="0.58" stop-color="#071038" />
+      <stop offset="1" stop-color="#020720" />
+    </radialGradient>
+    <linearGradient id="coralTop" x1="198" y1="213" x2="380" y2="71" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#ff4a26" />
+      <stop offset="0.58" stop-color="#ff5530" />
+      <stop offset="1" stop-color="#ff6039" />
+    </linearGradient>
+    <linearGradient id="coralBottom" x1="151" y1="405" x2="340" y2="250" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#ff5832" />
+      <stop offset="0.58" stop-color="#ff4f29" />
+      <stop offset="1" stop-color="#ff5c37" />
+    </linearGradient>
+    <linearGradient id="mintFold" x1="219" y1="206" x2="310" y2="281" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#abe8c7" />
+      <stop offset="1" stop-color="#8bdcaf" />
+    </linearGradient>
+  </defs>
+
+  <rect width="512" height="512" fill="url(#background)" />
+
+  <!-- Upper face of the ribbon. -->
+  <path
+    fill="url(#coralTop)"
+    d="M390 47.5v22.2c0 38.9-20.4 71.3-54.9 86.8l-91.3 32.8c-26.1 9.4-39.1 26.4-34.5 47.5 1.2 5.6 3.8 10.6 7.4 15-20.4-9.5-29-31.8-29-58.8 0-43.7 23.6-79.6 63.7-96.8L390 47.5Z"
+  />
+
+  <!-- Reverse face of the fold. -->
+  <path
+    fill="url(#mintFold)"
+    d="M216.7 251.8c-8.3-7.3-11.5-16.1-8.8-25.2 3.7-12.7 16.8-24.2 35.9-31.1l10.8-3.9 43.2 16.2c21.5 8.1 30.7 21.2 26 38.7-3.5 13-15.3 25-34.6 34.8l-70.6-27.6-1.9-1.9Z"
+  />
+
+  <!-- Lower face overlaps the fold to create the continuous S. -->
+  <path
+    fill="url(#coralBottom)"
+    d="M140.5 423.2v-22.4c0-39.1 20.5-71.7 55-87.4l92-33.3c25.9-9.4 38.8-26.3 34.3-47.2-1.2-5.7-3.9-10.9-7.6-15.3 20.6 9.5 29.3 31.9 29.3 59.1 0 43.8-23.7 79.9-64 97.2l-139 49.3Z"
+  />
+</svg>

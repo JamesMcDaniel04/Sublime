@@ -17,6 +17,14 @@ export async function ingestActivity(
     if (ingestKind !== 'backfill') {
       for (const event of created) await routeActivityEvent(event)
     }
+    // The immutable ledger remains the replay source; this encrypted document
+    // makes the same activity searchable by agents immediately.
+    void import('@/lib/knowledge/capture')
+      .then(({ captureActivityKnowledge }) => captureActivityKnowledge(organizationId, created))
+      .catch((error) => apiLogger.warn('activity.knowledge capture failed', {
+        organizationId,
+        error: error instanceof Error ? error.message : String(error),
+      }))
     return created
   } catch (error) {
     apiLogger.warn('activity.ingest failed', {

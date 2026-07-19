@@ -815,6 +815,23 @@ export async function runFlowExecution(
     where: { id: run.id, organizationId: job.organizationId },
     data: { status, output: jsonValue(result.output), error: runError, wakeAt: result.waiting?.wakeAt ? new Date(result.waiting.wakeAt) : null, webhookResponse: result.webhookResponse ? jsonValue(result.webhookResponse) : undefined, finishedAt: status === 'waiting' ? null : new Date() },
   })
+  if (status === 'succeeded') {
+    void import('@/lib/knowledge/capture')
+      .then(({ captureFlowRunKnowledge }) => captureFlowRunKnowledge({
+        organizationId: job.organizationId,
+        userId: job.userId,
+        flowId: flow.id,
+        flowRunId: run.id,
+        flowName: flow.name,
+        trigger: run.trigger,
+        runInput: input,
+        output: result.output,
+      }))
+      .catch((error) => apiLogger.warn('flow knowledge capture failed', {
+        flowRunId: run.id,
+        error: error instanceof Error ? error.message : String(error),
+      }))
+  }
   // Cross-tool ledger flush: which integrations this segment's tool steps
   // touched, one event per provider. Fire-and-forget — never blocks the run.
   void recordToolCallEvents({

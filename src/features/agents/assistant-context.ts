@@ -140,6 +140,7 @@ export async function buildAssistantContext(agent: AgentTask, question = '', vie
     const hits = await retrieveKnowledge({
       organizationId: agent.organizationId,
       agentId: agent.id,
+      userId: viewerUserId,
       query: `${question}\n${agent.objective}`.slice(0, 2000),
     })
     knowledge = renderKnowledge(hits)

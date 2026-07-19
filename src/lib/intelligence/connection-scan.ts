@@ -305,6 +305,24 @@ export async function scanConnection(params: {
 
     await indexConnectionScan({ organizationId, plane, connectionRef, connectionName, profile })
 
+    await import('@/lib/knowledge/capture')
+      .then(({ captureConnectionProfileKnowledge }) => captureConnectionProfileKnowledge({
+        organizationId,
+        userId,
+        plane,
+        connectionRef,
+        connectionName,
+        profile,
+      }))
+      .catch((error) => {
+        apiLogger.warn('connectionScan: knowledge capture failed', {
+          organizationId,
+          plane,
+          connectionRef,
+          error: error instanceof Error ? error.message : String(error),
+        })
+      })
+
     const agentId = await orgIntelligenceAgentId(organizationId)
     for (const process of profile.processes.slice(0, 5)) {
       await saveAgentMemory({

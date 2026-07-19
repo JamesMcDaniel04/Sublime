@@ -28,6 +28,12 @@ const LOGO_MAX_LENGTH = 300_000 // ~220KB of image data once base64-encoded
 // blob (never replaces it) so unrelated/future keys survive untouched.
 const settingsPatchSchema = z.object({
   disableConnectionScans: z.boolean().optional(),
+  knowledgeCaptureEnabled: z.boolean().optional(),
+  captureAgentRunKnowledge: z.boolean().optional(),
+  captureFlowRunKnowledge: z.boolean().optional(),
+  captureConnectedKnowledge: z.boolean().optional(),
+  retainKnowledgeOnDisconnect: z.boolean().optional(),
+  zeroDataRetention: z.boolean().optional(),
   // Per-connection learning opt-out (Task 4.5): entries shaped
   // `<plane>:<connectionRef>` — the connections the usage scan must skip.
   // The full replacement array is sent each time (read-modify-write from the
@@ -54,12 +60,15 @@ export const PATCH = withAuthenticatedApi(async (request, auth) => {
   if (settings) {
     const existing = await prisma.organization.findUnique({
       where: { id: auth.organizationId },
-      select: { settings: true },
+      select: { settings: true, plan: true },
     })
     const existingSettings =
       existing?.settings && typeof existing.settings === 'object' && !Array.isArray(existing.settings)
         ? (existing.settings as Record<string, unknown>)
         : {}
+    if (settings.zeroDataRetention === true && existing?.plan !== 'ENTERPRISE') {
+      throw new ApiError('Zero-data retention is available on Enterprise plans.', 403, 'PLAN_LIMIT')
+    }
     mergedSettings = { ...existingSettings, ...settings }
   }
 

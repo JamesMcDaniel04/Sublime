@@ -950,17 +950,41 @@ model KnowledgeDocument {
   agentId        String? // the agent this knowledge belongs to (null = org-wide)
   userId         String?
   filename       String
+  title          String?
   mimeType       String
   sizeBytes      Int      @default(0)
   charCount      Int      @default(0)
+  // Canonical source contract. Uploads, completed runs, connected-tool
+  // profiles, and normalized activity all enter retrieval through the same
+  // durable document/chunk substrate.
+  sourceType     String   @default("upload")
+  sourceId       String?
+  // 'private' = creating user, 'agent' = users who can run the attached
+  // agent, 'organization' = workspace-wide distilled knowledge.
+  visibility     String   @default("agent")
+  // Full canonical body is encrypted with ENCRYPTION_KEY. Chunks have their
+  // own encrypted copy so future migrations can drop the legacy plaintext
+  // column without losing keyword/vector retrieval compatibility.
+  contentEncrypted String? @db.Text
+  contentHash      String?
+  provenance       Json     @default("{}")
+  // workspace = retain until explicit deletion/workspace teardown;
+  // zero = do not retain; expiring = expiresAt controls cleanup.
+  retentionPolicy String   @default("workspace")
+  lastSyncedAt    DateTime? @db.Timestamptz(6)
+  expiresAt       DateTime? @db.Timestamptz(6)
   status         String   @default("ready") // ready | failed
   error          String?
   createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
 
   organization Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   chunks       KnowledgeChunk[]
 
   @@index([organizationId, agentId])
+  @@index([organizationId, userId, createdAt])
+  @@index([organizationId, sourceType, lastSyncedAt])
+  @@unique([organizationId, sourceType, sourceId])
   @@map("knowledge_documents")
 }
 
@@ -971,6 +995,7 @@ model KnowledgeChunk {
   agentId        String?
   ordinal        Int     @default(0)
   content        String  @db.Text
+  contentEncrypted String? @db.Text
   embedding      Json? // number[] embedding, or null when embeddings are unconfigured
 
   /// pgvector copy of `embedding` (WS-R5). Reads/writes go through raw SQL —

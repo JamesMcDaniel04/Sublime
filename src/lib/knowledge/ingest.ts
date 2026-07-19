@@ -1,12 +1,5 @@
-import { prisma } from '@/lib/prisma'
-import { embedTexts, embeddingsConfigured, toSqlVector } from '@/lib/rag/embeddings'
-import { extractText, chunkText, isSupported } from './extract'
-import { Prisma } from '@prisma/client'
-
-// Bound the work per upload: cap extracted text and chunk count so one huge file
-// can't dominate storage or the embeddings bill.
-const MAX_CHARS = 200_000
-const MAX_CHUNKS = 200
+import { extractText, isSupported } from './extract'
+import { storeKnowledge } from './store'
 
 export class UnsupportedFileError extends Error {}
 
@@ -30,71 +23,27 @@ export async function ingestKnowledgeFile(params: {
   }
   const raw = await extractText(params.buffer, params.mimeType, params.filename)
   if (!raw) throw new UnsupportedFileError('No readable text was found in that file.')
-  const text = raw.slice(0, MAX_CHARS)
-  const chunks = chunkText(text).slice(0, MAX_CHUNKS)
-
-  const doc = await prisma.knowledgeDocument.create({
-    data: {
-      organizationId: params.organizationId,
-      agentId: params.agentId,
-      userId: params.userId,
-      filename: params.filename,
-      mimeType: params.mimeType,
-      sizeBytes: params.buffer.length,
-      charCount: text.length,
-      status: 'ready',
-    },
+  const stored = await storeKnowledge({
+    organizationId: params.organizationId,
+    agentId: params.agentId,
+    userId: params.userId,
+    sourceType: 'upload',
+    title: params.filename,
+    filename: params.filename,
+    mimeType: params.mimeType,
+    sizeBytes: params.buffer.length,
+    content: raw,
+    visibility: params.agentId ? 'agent' : 'organization',
+    provenance: { kind: 'upload', originalFilename: params.filename },
   })
-
-  // Embed the chunks up front so retrieval is fast; degrade to keyword search
-  // (no embedding stored) when embeddings aren't configured or the call fails.
-  let embeddings: number[][] | null = null
-  if (embeddingsConfigured() && chunks.length) {
-    try {
-      embeddings = await embedTexts(chunks, { inputType: 'document' })
-    } catch {
-      embeddings = null
-    }
+  if (!stored.stored || !stored.id) throw new UnsupportedFileError('Knowledge storage is disabled for this workspace.')
+  return {
+    id: stored.id,
+    filename: params.filename,
+    mimeType: params.mimeType,
+    sizeBytes: params.buffer.length,
+    charCount: raw.slice(0, 200_000).length,
+    chunkCount: stored.chunkCount ?? 0,
+    createdAt: stored.createdAt ?? new Date(),
   }
-
-  if (chunks.length) {
-    await prisma.knowledgeChunk.createMany({
-      data: chunks.map((content, i) => ({
-        documentId: doc.id,
-        organizationId: params.organizationId,
-        agentId: params.agentId,
-        ordinal: i,
-        content,
-        // Legacy Json `embedding` deliberately NOT written: knowledge
-        // retrieval reads only the pgvector column below (keyword fallback is
-        // text-based), so the Json copy was pure row bloat. The column itself
-        // is dropped in a future migration once old deploys are gone.
-      })),
-    })
-
-    // Write the pgvector column. createMany doesn't return generated ids,
-    // so re-fetch ordered by ordinal to line them back up with `embeddings`.
-    if (embeddings) {
-      const created = await prisma.knowledgeChunk.findMany({
-        where: { documentId: doc.id, organizationId: params.organizationId },
-        orderBy: { ordinal: 'asc' },
-        select: { id: true },
-      })
-      const values = created.map((row, i) => Prisma.sql`(${row.id}::text, ${toSqlVector(embeddings![i])}::vector(1024))`)
-      if (values.length) {
-        // search_path guard: see retrieveKnowledge for the Supabase
-        // extensions-schema note — SET LOCAL scopes it to this transaction.
-        await prisma.$transaction(async (tx) => {
-          await tx.$executeRawUnsafe('SET LOCAL search_path = public, extensions')
-          await tx.$executeRaw`
-            UPDATE "knowledge_chunks" AS c
-            SET "embeddingVec" = v.vec
-            FROM (VALUES ${Prisma.join(values)}) AS v(id, vec)
-            WHERE c."id" = v.id AND c."organizationId" = ${params.organizationId}::uuid
-          `
-        })
-      }
-    }
-  }
-  return { id: doc.id, filename: doc.filename, mimeType: doc.mimeType, sizeBytes: doc.sizeBytes, charCount: doc.charCount, chunkCount: chunks.length, createdAt: doc.createdAt }
 }

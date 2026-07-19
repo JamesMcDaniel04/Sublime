@@ -16,6 +16,7 @@
 import { systemPrisma } from '@/lib/prisma'
 import { apiLogger } from '@/lib/logger'
 import { embedTexts, embeddingsConfigured, toSqlVector } from '@/lib/rag/embeddings'
+import { decryptKnowledgeContent } from '@/lib/knowledge/store'
 
 const DEFAULT_CAP = 100
 
@@ -32,11 +33,12 @@ export async function reEmbedMissingVectors(db = systemPrisma, cap = DEFAULT_CAP
         ORDER BY "createdAt" ASC
         LIMIT ${cap}
       `,
-      db.$queryRaw<Array<{ id: string; organizationId: string; content: string }>>`
-        SELECT "id", "organizationId", "content"
-        FROM "knowledge_chunks"
-        WHERE "embeddingVec" IS NULL
-        ORDER BY "createdAt" ASC
+      db.$queryRaw<Array<{ id: string; organizationId: string; content: string; contentEncrypted: string | null }>>`
+        SELECT c."id", c."organizationId", c."content", c."contentEncrypted"
+        FROM "knowledge_chunks" c
+        JOIN "knowledge_documents" d ON d."id" = c."documentId"
+        WHERE c."embeddingVec" IS NULL
+        ORDER BY d."createdAt" ASC, c."ordinal" ASC
         LIMIT ${cap}
       `,
     ])
@@ -45,7 +47,10 @@ export async function reEmbedMissingVectors(db = systemPrisma, cap = DEFAULT_CAP
     const memoryTexts = memories.map((m) =>
       m.kind === 'user_answer' ? (m.question ?? m.content) : `${m.title}\n${m.content}`,
     )
-    const vectors = await embedTexts([...memoryTexts, ...chunks.map((c) => c.content)], { inputType: 'document' })
+    const vectors = await embedTexts([
+      ...memoryTexts,
+      ...chunks.map((c) => decryptKnowledgeContent(c.contentEncrypted, c.content)),
+    ], { inputType: 'document' })
 
     let memoryWrites = 0
     for (let i = 0; i < memories.length; i++) {

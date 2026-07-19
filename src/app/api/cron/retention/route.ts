@@ -23,6 +23,9 @@ export const maxDuration = 300
 export const dynamic = 'force-dynamic'
 
 const CAP = 5000
+// Canonical knowledge promotion performs encryption/chunking (and may embed),
+// so keep this leg bounded independently from cheap row pruning.
+const KNOWLEDGE_PROMOTION_CAP = 250
 
 function checkAuthorized(request: Request): Response | null {
   const secret = process.env.CRON_SECRET
@@ -47,14 +50,70 @@ export async function GET(request: Request) {
   try {
     // systemPrisma: global retention sweep — prunes across all orgs by design (CRON_SECRET-gated).
     const staleExecutions = await systemPrisma.agentExecution.findMany({
-      where: { startedAt: { lt: cutoff } }, select: { id: true, organizationId: true }, take: CAP,
+      where: { startedAt: { lt: cutoff } },
+      select: {
+        id: true,
+        organizationId: true,
+        userId: true,
+        agentTaskId: true,
+        agentType: true,
+        status: true,
+        input: true,
+        output: true,
+        error: true,
+        startedAt: true,
+        completedAt: true,
+        agentTask: { select: { description: true, objective: true } },
+      },
+      take: KNOWLEDGE_PROMOTION_CAP,
     })
+    // Promote operational history into the encrypted knowledge substrate
+    // BEFORE pruning it. A failed promotion leaves the execution in place so
+    // transient storage/embedding problems cannot silently destroy value.
+    const deletableExecutions: typeof staleExecutions = []
+    let knowledgePromoted = 0
+    const { storeKnowledge } = await import('@/lib/knowledge/store')
+    for (const execution of staleExecutions) {
+      try {
+        const captured = await storeKnowledge({
+          organizationId: execution.organizationId,
+          userId: execution.userId,
+          agentId: execution.agentTaskId,
+          sourceType: 'agent_run',
+          sourceId: execution.id,
+          title: `${execution.agentTask?.description || execution.agentType} — retained run`,
+          filename: `agent-runs/${execution.agentTaskId || 'unlinked'}/${execution.id}.md`,
+          visibility: 'private',
+          content: {
+            objective: execution.agentTask?.objective,
+            input: execution.input,
+            output: execution.output,
+            status: execution.status,
+            error: execution.error,
+            startedAt: execution.startedAt,
+            completedAt: execution.completedAt,
+          },
+          provenance: { executionId: execution.id, kind: 'retention-promotion' },
+        })
+        // Explicit zero-retention/capture opt-out authorizes normal pruning;
+        // otherwise only a successfully stored document is deletable.
+        if (captured.stored || captured.reason === 'zero-data-retention' || captured.reason === 'capture-disabled') {
+          deletableExecutions.push(execution)
+          if (captured.stored) knowledgePromoted += 1
+        }
+      } catch (error) {
+        apiLogger.warn('cron/retention: knowledge promotion failed; keeping execution', {
+          executionId: execution.id,
+          error: error instanceof Error ? error.message : String(error),
+        })
+      }
+    }
     // Graph parity: prune the run: nodes for the rows this sweep is
     // about to delete — graph-first, because after the Postgres delete the
     // ids are gone and a missed node would linger forever (audit: deleted
     // PII resurfacing in RAG context).
     const graphGroups = new Map<string, { organizationId: string; executionIds: string[] }>()
-    for (const e of staleExecutions) {
+    for (const e of deletableExecutions) {
       const group = graphGroups.get(e.organizationId) ?? { organizationId: e.organizationId, executionIds: [] }
       group.executionIds.push(e.id)
       graphGroups.set(e.organizationId, group)
@@ -66,8 +125,8 @@ export async function GET(request: Request) {
     }
 
     // systemPrisma: global retention sweep — prunes across all orgs by design (CRON_SECRET-gated).
-    const executionsDeleted = staleExecutions.length
-      ? (await systemPrisma.agentExecution.deleteMany({ where: { id: { in: staleExecutions.map((e) => e.id) } } })).count
+    const executionsDeleted = deletableExecutions.length
+      ? (await systemPrisma.agentExecution.deleteMany({ where: { id: { in: deletableExecutions.map((e) => e.id) } } })).count
       : 0
 
     // Transcripts are the fattest column (provider message JSON, growing per
@@ -133,8 +192,15 @@ export async function GET(request: Request) {
     // Bounded batch; a failure is retried tomorrow, never fails retention.
     const reEmbedded = await (await import('@/lib/rag/re-embed')).reEmbedMissingVectors()
 
-    apiLogger.info('cron/retention complete', { days, executionsDeleted, transcriptsPruned, userEventsDeleted, patternsExpired, reEmbedded })
-    return Response.json({ success: true, days, executionsDeleted, transcriptsPruned, userEventsDeleted, patternsExpired, reEmbedded })
+    // Explicitly expiring knowledge is the only knowledge the general sweep
+    // removes. Workspace-retained documents survive until a user deletes them
+    // or the workspace cascade runs.
+    const expiredKnowledgeDeleted = (await systemPrisma.knowledgeDocument.deleteMany({
+      where: { retentionPolicy: 'expiring', expiresAt: { lt: new Date() } },
+    })).count
+
+    apiLogger.info('cron/retention complete', { days, executionsDeleted, knowledgePromoted, transcriptsPruned, userEventsDeleted, patternsExpired, reEmbedded, expiredKnowledgeDeleted })
+    return Response.json({ success: true, days, executionsDeleted, knowledgePromoted, transcriptsPruned, userEventsDeleted, patternsExpired, reEmbedded, expiredKnowledgeDeleted })
   } catch (error) {
     apiLogger.error('cron/retention failed', { error: error instanceof Error ? error.message : String(error) })
     return Response.json({ success: false, error: 'Internal server error' }, { status: 500 })

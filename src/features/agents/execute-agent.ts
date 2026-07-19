@@ -769,6 +769,7 @@ export async function runAgentExecution(
       const knowledgeHits = await retrieveKnowledge({
         organizationId,
         agentId: agent.id,
+        userId,
         query: `${agent.objective}\n${data.input ?? ''}`.slice(0, 2000),
       })
       const budgetedKnowledge = contextAssembler.take(knowledgeHits, (h) => h.content, (h) => h.score)
@@ -776,9 +777,9 @@ export async function runAgentExecution(
       if (knowledgeBlock) {
         system = `${system}\n\n${knowledgeBlock}`
         await recordEvent(execution.id, null, 'knowledge.retrieved', {
-          source: 'uploaded-files',
+          source: 'retained-knowledge',
           files: [...new Set(budgetedKnowledge.map((h) => h.filename))],
-          summary: `Pulled ${budgetedKnowledge.length} passage(s) from ${new Set(budgetedKnowledge.map((h) => h.filename)).size} uploaded file(s).`,
+          summary: `Pulled ${budgetedKnowledge.length} passage(s) from ${new Set(budgetedKnowledge.map((h) => h.filename)).size} retained source(s).`,
         })
       }
     } catch (error) {
@@ -1343,6 +1344,24 @@ export async function runAgentExecution(
       ownerUserId: agent.userId ?? null,
       visibility: agent.visibility === 'private' ? 'private' : 'shared',
     }).catch(() => undefined)
+    // Durable knowledge capture is separate from operational run retention:
+    // logs/transcripts may be pruned, but the encrypted outcome remains
+    // searchable until the user deletes it or the workspace is removed.
+    void import('@/lib/knowledge/capture')
+      .then(({ captureAgentRunKnowledge }) => captureAgentRunKnowledge({
+        organizationId,
+        userId,
+        agentId: agent.id,
+        executionId: execution.id,
+        agentTitle: (agentMetadata.title as string) || agent.description,
+        objective: agent.objective,
+        runInput: queuedExecution?.input ?? { prompt: data.input },
+        output,
+      }))
+      .catch((error) => apiLogger.warn('agent knowledge capture failed', {
+        executionId: execution.id,
+        error: error instanceof Error ? error.message : String(error),
+      }))
     // Post-run reflection (WS1.9): distill learnings + critique + suggestions.
     // Chained before graph indexing enrichment is NOT needed — indexExecution
     // already ran; reflection memories are graph-indexed via their own path in
