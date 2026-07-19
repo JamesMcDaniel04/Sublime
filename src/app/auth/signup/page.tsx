@@ -5,7 +5,7 @@ import { useSupabase } from '@/components/providers/supabase-provider'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { AuthShell } from '@/components/auth/auth-shell'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { toast } from 'sonner'
@@ -76,29 +76,20 @@ export default function SignUpPage() {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-gradient-horizon p-4">
-      <div className="w-full max-w-md animate-fade-in-up">
-        <div className="mb-8 text-center">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/sublime-logo-white.svg" alt="Sublime" className="mx-auto mb-6 h-7" />
-          <h1 className="text-2xl font-semibold text-white">Create your account</h1>
-          <p className="mt-1 text-white/70">Get started with Sublime.</p>
-        </div>
-
-        <Card className="shadow-3">
-          <CardHeader>
-            <CardTitle>Create account</CardTitle>
-            <CardDescription>Enter your details to create your workspace.</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
+    <AuthShell
+      eyebrow="Get started"
+      title="Create your account"
+      subtitle="Start your 14-day free trial — your workspace is ready in a minute."
+    >
+      <div className="space-y-4">
             {error && (
-              <div className="animate-fade-in rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+              <div className="border border-destructive/40 bg-destructive/10 p-3 text-[13px] text-destructive">
                 {error}
               </div>
             )}
 
             {success && (
-              <div className="animate-fade-in rounded-md border border-green-200 bg-green-50 p-3 text-sm text-green-700">
+              <div className="border border-success/40 bg-success/10 p-3 text-[13px] text-foreground">
                 {success}
               </div>
             )}
@@ -106,7 +97,7 @@ export default function SignUpPage() {
             <GoogleSignInButton returnTo={returnTo} />
             <div className="flex items-center gap-3">
               <div className="h-px flex-1 bg-border" />
-              <span className="text-xs uppercase tracking-wide text-muted-foreground">or</span>
+              <span className="text-[10px] uppercase tracking-[0.15em] text-muted-foreground">or</span>
               <div className="h-px flex-1 bg-border" />
             </div>
 
@@ -171,22 +162,20 @@ export default function SignUpPage() {
                   minLength={12}
                 />
               </div>
-              <Button type="submit" className="w-full" loading={loading}>
+              <Button type="submit" className="w-full bg-foreground text-background hover:bg-foreground/90" loading={loading}>
                 {loading ? 'Creating account…' : 'Create account'}
               </Button>
             </form>
 
-            <div className="text-center">
-              <p className="text-sm text-muted-foreground">
+            <div className="border-t border-border pt-4 text-center">
+              <p className="text-[13px] text-muted-foreground">
                 Already have an account?{' '}
-                <Link href={`/auth/login?return_to=${encodeURIComponent(returnTo)}`} className="font-medium text-primary hover:underline">
+                <Link href={`/auth/login?return_to=${encodeURIComponent(returnTo)}`} className="font-medium text-foreground underline underline-offset-4 decoration-foreground/30 transition-colors hover:decoration-foreground">
                   Sign in
                 </Link>
               </p>
             </div>
-          </CardContent>
-        </Card>
       </div>
-    </div>
+    </AuthShell>
   )
 }

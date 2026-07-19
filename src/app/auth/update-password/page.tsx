@@ -3,9 +3,9 @@
 import { useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { AuthShell } from '@/components/auth/auth-shell'
 
 export default function UpdatePasswordPage() {
   const [password, setPassword] = useState('')
@@ -25,12 +25,30 @@ export default function UpdatePasswordPage() {
     window.location.replace('/dashboard?password=updated')
   }
 
-  return <div className="flex min-h-screen items-center justify-center bg-gradient-horizon p-4"><Card className="w-full max-w-md shadow-3">
-    <CardHeader><CardTitle>Choose a new password</CardTitle></CardHeader><CardContent><form className="space-y-4" onSubmit={submit}>
-      {message && <p role="alert" className="text-sm text-muted-foreground">{message}</p>}
-      <div className="space-y-2"><Label htmlFor="password">New password</Label><Input id="password" type="password" autoComplete="new-password" minLength={12} required value={password} onChange={(e) => setPassword(e.target.value)} /></div>
-      <div className="space-y-2"><Label htmlFor="confirm">Confirm password</Label><Input id="confirm" type="password" autoComplete="new-password" minLength={12} required value={confirm} onChange={(e) => setConfirm(e.target.value)} /></div>
-      <Button className="w-full" type="submit" loading={loading}>Update password</Button>
-    </form></CardContent>
-  </Card></div>
+  return (
+    <AuthShell
+      eyebrow="Reset password"
+      title="Choose a new password"
+      subtitle="Use at least 12 characters. Other sessions are signed out after the change."
+    >
+      <form className="space-y-4" onSubmit={submit}>
+        {message && (
+          <p role="alert" className="border border-destructive/40 bg-destructive/10 p-3 text-[13px] text-destructive">
+            {message}
+          </p>
+        )}
+        <div className="space-y-2">
+          <Label htmlFor="password">New password</Label>
+          <Input id="password" type="password" autoComplete="new-password" minLength={12} required value={password} onChange={(e) => setPassword(e.target.value)} />
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor="confirm">Confirm password</Label>
+          <Input id="confirm" type="password" autoComplete="new-password" minLength={12} required value={confirm} onChange={(e) => setConfirm(e.target.value)} />
+        </div>
+        <Button className="w-full bg-foreground text-background hover:bg-foreground/90" type="submit" loading={loading}>
+          Update password
+        </Button>
+      </form>
+    </AuthShell>
+  )
 }

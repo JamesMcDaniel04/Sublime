@@ -5,7 +5,7 @@ import { useSupabase } from '@/components/providers/supabase-provider'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { AuthShell } from '@/components/auth/auth-shell'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { toast } from 'sonner'
@@ -103,33 +103,24 @@ export default function LoginPage() {
   // Show loading spinner while checking auth state
   if (authLoading) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-gradient-horizon p-4">
-        <div className="flex items-center gap-2 text-white">
-          <div className="h-8 w-8 animate-spin rounded-full border-b-2 border-white motion-reduce:animate-none" />
-          <span>Loading…</span>
+      <div className="lovable-landing dark flex min-h-screen items-center justify-center bg-background p-4">
+        <div className="flex items-center gap-2 text-muted-foreground">
+          <div className="h-6 w-6 animate-spin rounded-full border-b-2 border-foreground motion-reduce:animate-none" />
+          <span className="text-sm">Loading…</span>
         </div>
       </div>
     )
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-gradient-horizon p-4">
-      <div className="w-full max-w-md animate-fade-in-up">
-        <div className="mb-8 text-center">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/sublime-logo-white.svg" alt="Sublime" className="mx-auto mb-6 h-7" />
-          <h1 className="text-2xl font-semibold text-white">Welcome back</h1>
-          <p className="mt-1 text-white/70">Sign in to your Sublime workspace.</p>
-        </div>
-
-        <Card className="shadow-3">
-          <CardHeader>
-            <CardTitle>Sign in</CardTitle>
-            <CardDescription>Enter your credentials to access your workspace.</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
+    <AuthShell
+      eyebrow="Welcome back"
+      title={mfa ? 'Two-factor check' : 'Sign in to Sublime'}
+      subtitle={mfa ? 'Enter the 6-digit code from your authenticator app.' : 'Enter your credentials to access your workspace.'}
+    >
+      <div className="space-y-4">
             {error && (
-              <div className="animate-fade-in rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+              <div className="border border-destructive/40 bg-destructive/10 p-3 text-[13px] text-destructive">
                 {error}
               </div>
             )}
@@ -139,7 +130,7 @@ export default function LoginPage() {
                 <GoogleSignInButton returnTo={returnTo} />
                 <div className="flex items-center gap-3">
                   <div className="h-px flex-1 bg-border" />
-                  <span className="text-xs uppercase tracking-wide text-muted-foreground">or</span>
+                  <span className="text-[10px] uppercase tracking-[0.15em] text-muted-foreground">or</span>
                   <div className="h-px flex-1 bg-border" />
                 </div>
               </>
@@ -147,7 +138,7 @@ export default function LoginPage() {
 
             {mfa ? <form onSubmit={verifyMfa} className="space-y-4">
               <div className="space-y-2"><Label htmlFor="mfaCode">Authentication code</Label><Input id="mfaCode" inputMode="numeric" autoComplete="one-time-code" pattern="[0-9]{6}" maxLength={6} value={mfaCode} onChange={(e) => setMfaCode(e.target.value.replace(/\D/g, ''))} required /></div>
-              <Button type="submit" className="w-full" loading={loading}>Verify</Button>
+              <Button type="submit" className="w-full bg-foreground text-background hover:bg-foreground/90" loading={loading}>Verify</Button>
             </form> : <form onSubmit={handleEmailLogin} className="space-y-4">
               <div className="space-y-2">
                 <Label htmlFor="email">Email</Label>
@@ -172,27 +163,25 @@ export default function LoginPage() {
                   required
                 />
               </div>
-              <Button type="submit" className="w-full" loading={loading}>
+              <Button type="submit" className="w-full bg-foreground text-background hover:bg-foreground/90" loading={loading}>
                 {loading ? 'Signing in…' : 'Sign in'}
               </Button>
               <div className="text-right">
-                <Link href="/auth/forgot-password" className="text-sm font-medium text-primary hover:underline">
+                <Link href="/auth/forgot-password" className="text-[13px] text-muted-foreground underline underline-offset-4 decoration-foreground/30 transition-colors hover:text-foreground hover:decoration-foreground">
                   Forgot password?
                 </Link>
               </div>
             </form>}
 
-            <div className="text-center">
-              <p className="text-sm text-muted-foreground">
+            <div className="border-t border-border pt-4 text-center">
+              <p className="text-[13px] text-muted-foreground">
                 Don&apos;t have an account?{' '}
-                <Link href={`/auth/signup?return_to=${encodeURIComponent(returnTo)}`} className="font-medium text-primary hover:underline">
+                <Link href={`/auth/signup?return_to=${encodeURIComponent(returnTo)}`} className="font-medium text-foreground underline underline-offset-4 decoration-foreground/30 transition-colors hover:decoration-foreground">
                   Sign up
                 </Link>
               </p>
             </div>
-          </CardContent>
-        </Card>
       </div>
-    </div>
+    </AuthShell>
   )
 }

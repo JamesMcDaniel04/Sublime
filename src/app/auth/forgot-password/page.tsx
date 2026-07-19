@@ -4,9 +4,9 @@ import { useState } from 'react'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { AuthShell } from '@/components/auth/auth-shell'
 
 export default function ForgotPasswordPage() {
   const [email, setEmail] = useState('')
@@ -25,16 +25,43 @@ export default function ForgotPasswordPage() {
     setLoading(false)
   }
 
-  return <div className="flex min-h-screen items-center justify-center bg-gradient-horizon p-4">
-    <Card className="w-full max-w-md shadow-3">
-      <CardHeader><CardTitle>Reset your password</CardTitle></CardHeader>
-      <CardContent>
-        {sent ? <div className="space-y-4"><p className="text-sm text-muted-foreground">If an account exists for that email, a reset link is on its way.</p><Link className="text-sm font-medium text-primary hover:underline" href="/auth/login">Return to sign in</Link></div> :
-          <form className="space-y-4" onSubmit={submit}>
-            <div className="space-y-2"><Label htmlFor="email">Email</Label><Input id="email" type="email" autoComplete="email" required value={email} onChange={(e) => setEmail(e.target.value)} /></div>
-            <Button className="w-full" type="submit" loading={loading}>Send reset link</Button>
-          </form>}
-      </CardContent>
-    </Card>
-  </div>
+  return (
+    <AuthShell
+      eyebrow="Reset password"
+      title="Reset your password"
+      subtitle="Enter your email and we'll send you a reset link."
+    >
+      {sent ? (
+        <div className="space-y-4">
+          <p className="text-[13px] leading-[1.6] text-muted-foreground">
+            If an account exists for that email, a reset link is on its way.
+          </p>
+          <Link
+            className="text-[13px] font-medium text-foreground underline underline-offset-4 decoration-foreground/30 transition-colors hover:decoration-foreground"
+            href="/auth/login"
+          >
+            Return to sign in
+          </Link>
+        </div>
+      ) : (
+        <form className="space-y-4" onSubmit={submit}>
+          <div className="space-y-2">
+            <Label htmlFor="email">Email</Label>
+            <Input id="email" type="email" autoComplete="email" required value={email} onChange={(e) => setEmail(e.target.value)} />
+          </div>
+          <Button className="w-full bg-foreground text-background hover:bg-foreground/90" type="submit" loading={loading}>
+            Send reset link
+          </Button>
+          <div className="border-t border-border pt-4 text-center">
+            <Link
+              className="text-[13px] text-muted-foreground underline underline-offset-4 decoration-foreground/30 transition-colors hover:text-foreground hover:decoration-foreground"
+              href="/auth/login"
+            >
+              Back to sign in
+            </Link>
+          </div>
+        </form>
+      )}
+    </AuthShell>
+  )
 }
