@@ -27,26 +27,35 @@ export function userInferenceGraphParts(write: UserInferenceWrite): { nodes: Pen
     props: { insightKind: 'behavior_pattern', slug: write.slug, evidenceCount: write.evidenceEventIds.length },
     ownerUserId: write.userId, visibility: 'private',
   }]
-  const edges: GraphEdge[] = write.evidenceEventIds.map((eventId) => ({
-    organizationId: write.organizationId, from: id, to: userEventNodeId(eventId), rel: 'evidence' as const,
-  }))
-  // Cross-tool spec §4: a correlation insight also points at the tool nodes it
-  // binds, so graph traversal can go pattern → tools → capabilities.
-  if (write.slug.startsWith('toolcorr:')) {
-    for (const provider of write.slug.replace('toolcorr:', '').split('+')) {
-      if (!provider) continue
-      edges.push({ organizationId: write.organizationId, from: id, to: nodeIds.tool(provider), rel: 'used_with' })
-    }
-  }
-  // Peer-practices spec: a peer insight also points at the org-shared flow it
-  // describes, so traversal can go peer-insight → flow → (runs, agents).
-  if (write.slug.startsWith('peer:flow:')) {
-    const flowId = write.slug.replace('peer:flow:', '')
-    if (flowId) {
-      edges.push({ organizationId: write.organizationId, from: id, to: nodeIds.flow(flowId), rel: 'relates_to' })
-    }
-  }
+  const edges: GraphEdge[] = [
+    ...write.evidenceEventIds.map((eventId) => ({
+      organizationId: write.organizationId, from: id, to: userEventNodeId(eventId), rel: 'evidence' as const,
+    })),
+    ...slugTopologyEdges(write.organizationId, id, write.slug),
+  ]
   return { nodes, edges }
+}
+
+/**
+ * Topology edges derived from a pattern's slug, so graph traversal can go
+ * pattern → tools/flows: correlation and archetype insights point at the tool
+ * nodes they bind (cross-tool spec §4, platform-archetypes spec); peer
+ * insights point at the org-shared flow they describe (peer-practices spec).
+ */
+function slugTopologyEdges(organizationId: string, insightId: string, slug: string): GraphEdge[] {
+  const toolEdge = (provider: string): GraphEdge => ({ organizationId, from: insightId, to: nodeIds.tool(provider), rel: 'used_with' })
+  if (slug.startsWith('toolcorr:')) {
+    return slug.replace('toolcorr:', '').split('+').filter(Boolean).map(toolEdge)
+  }
+  if (slug.startsWith('archetype:')) {
+    const signature = slug.replace('archetype:', '')
+    return signature.slice(0, signature.lastIndexOf(':')).split('+').filter(Boolean).map(toolEdge)
+  }
+  if (slug.startsWith('peer:flow:')) {
+    const flowId = slug.replace('peer:flow:', '')
+    return flowId ? [{ organizationId, from: insightId, to: nodeIds.flow(flowId), rel: 'relates_to' }] : []
+  }
+  return []
 }
 
 /** Invariant violations throw; graph-store failures remain best-effort. */

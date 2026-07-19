@@ -398,6 +398,16 @@ export async function GET(request: Request) {
       suggestionOrgsChecked = orgs.length
     }
 
+    // Daily platform-archetype aggregation (intelligence phase 3): k-anonymous
+    // cross-org automation shapes. The cron ticks every 15 minutes, so exactly
+    // one tick lands in the [04:00, 04:15) UTC window. Fire-and-forget — a
+    // failed sweep logs and retries tomorrow, never extends the tick.
+    if (now.getUTCHours() === 4 && now.getUTCMinutes() < 15) {
+      void import('@/lib/intelligence/aggregate-archetypes')
+        .then((mod) => mod.aggregatePlatformArchetypes())
+        .catch(() => undefined)
+    }
+
     // Revisit orgs that observed activity in the last day. Inference is
     // best-effort background work and must not extend or fail the cron tick.
     const dayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000)

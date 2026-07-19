@@ -14,6 +14,7 @@ import { Prisma } from '@prisma/client'
 import { mineUserPatternCandidates, mineIntentClusters, type PatternCandidate } from './mine-patterns'
 import { mineToolCorrelations, mineCapabilityGaps } from './mine-correlations'
 import { minePeerPractices, groupProvidersByExecution, type PeerPracticeInputs } from './mine-peer-practices'
+import { mineArchetypeGaps, type ArchetypeInputs } from './mine-archetypes'
 import { writeUserInference } from './user-insights'
 
 const WINDOW_DAYS = 90
@@ -28,6 +29,45 @@ export type InferOverrides = {
   loadCapabilities?: (organizationId: string, userId: string) => Promise<Map<string, string[]>>
   /** Peer-practice inputs; defaults to loading org-shared flows + their runs. */
   loadPeerInputs?: (organizationId: string, userId: string, now: Date) => Promise<PeerPracticeInputs | null>
+  /** Archetype inputs; defaults to loading k-anon platform rows + org shapes. */
+  loadArchetypeInputs?: (organizationId: string, now: Date) => Promise<ArchetypeInputs | null>
+}
+
+/**
+ * Archetype-gap inputs (platform-archetypes spec): the k-anonymous platform
+ * rows (the table only ever holds rows at/above the floor) plus this org's
+ * own shapes and touched providers. Returns null on any failure.
+ */
+async function loadPlatformArchetypeInputs(
+  db: typeof systemPrisma,
+  organizationId: string,
+  now: Date,
+): Promise<ArchetypeInputs | null> {
+  try {
+    const { computeShapesForOrg } = await import('@/lib/intelligence/aggregate-archetypes')
+    const [archetypes, org] = await Promise.all([
+      db.platformArchetype.findMany({
+        orderBy: { orgCount: 'desc' },
+        take: 100,
+        select: { signature: true, providers: true, triggerType: true, orgCount: true },
+      }),
+      computeShapesForOrg(organizationId, now, db),
+    ])
+    if (archetypes.length === 0) return null
+    return {
+      archetypes: archetypes.map((row) => ({
+        signature: row.signature,
+        providers: Array.isArray(row.providers) ? (row.providers as string[]) : [],
+        triggerType: row.triggerType,
+        orgCount: row.orgCount,
+      })),
+      orgShapeSignatures: new Set(org.shapes.keys()),
+      orgProviders: org.orgProviders,
+      now,
+    }
+  } catch {
+    return null
+  }
 }
 
 const PEER_RUN_WINDOW_DAYS = 30
@@ -182,6 +222,12 @@ export async function inferUserBehaviorPatterns(
     const loadPeerInputs = overrides.loadPeerInputs ?? ((org: string, user: string, at: Date) => loadPeerPracticeInputs(db, org, user, at))
     const peerInputs = await loadPeerInputs(organizationId, userId, now)
     if (peerInputs) candidates = [...candidates, ...minePeerPractices(events, peerInputs)]
+
+    // Platform archetypes (phase 3): what many OTHER orgs automate over this
+    // org's tool mix. Rows are k-anonymous by construction; best-effort load.
+    const loadArchetypes = overrides.loadArchetypeInputs ?? ((org: string, at: Date) => loadPlatformArchetypeInputs(db, org, at))
+    const archetypeInputs = await loadArchetypes(organizationId, now)
+    if (archetypeInputs) candidates = [...candidates, ...mineArchetypeGaps(events, archetypeInputs)]
 
     // Intent clustering over assistant prompts (needs message text by reference).
     const embed = overrides.embed ?? (embeddingsConfigured() ? (texts: string[]) => embedTexts(texts, { inputType: 'document' }) : null)

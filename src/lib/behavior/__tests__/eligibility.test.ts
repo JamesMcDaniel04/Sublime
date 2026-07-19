@@ -76,3 +76,10 @@ test('peer_practice: gates like a gap — miner thresholds own the occurrence ru
   assert.equal(isPatternEligible({ ...peer, lastSeenAt: daysAgo(31) }, learnedUser, now), false) // decays
   assert.equal(isPatternEligible(peer, daysAgo(3), now), false) // learning period still applies
 })
+
+test('archetype_gap: gates like a gap — staleness and learning period only', () => {
+  const arch = { kind: 'archetype_gap', occurrenceCount: 12, firstSeenAt: daysAgo(2), lastSeenAt: daysAgo(0), status: 'open' }
+  assert.equal(isPatternEligible(arch, learnedUser, now), true)
+  assert.equal(isPatternEligible({ ...arch, lastSeenAt: daysAgo(31) }, learnedUser, now), false)
+  assert.equal(isPatternEligible(arch, daysAgo(3), now), false)
+})

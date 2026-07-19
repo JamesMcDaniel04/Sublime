@@ -40,7 +40,7 @@ export function isPatternEligible(
   // the learning period below still do. lastSeenAt is when mining last
   // observed the condition holding, so an un-re-observed row decays out like
   // any routine.
-  const isGap = pattern.kind === 'capability_gap' || pattern.kind === 'peer_practice'
+  const isGap = pattern.kind === 'capability_gap' || pattern.kind === 'peer_practice' || pattern.kind === 'archetype_gap'
   const minOccurrences = pattern.kind === 'tool_correlation' ? MIN_CORRELATION_OCCURRENCES : MIN_OCCURRENCES
   if (!isGap && pattern.occurrenceCount < minOccurrences) return false
   if (!isGap && pattern.lastSeenAt.getTime() - pattern.firstSeenAt.getTime() < MIN_SPAN_DAYS * DAY_MS) return false

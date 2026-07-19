@@ -837,6 +837,25 @@ model UserEvent {
 /// Durable per-user behavior pattern (spec §3). Postgres is the source of
 /// truth (the graph projection is a retrieval view). status 'dismissed'
 /// permanently suppresses the slug and similar summaries.
+// Platform-wide anonymized automation archetypes (intelligence phase 3).
+// GLOBAL table — no organizationId by design: rows are k-anonymous aggregates
+// of automation SHAPES (provider set + trigger type, platform vocabulary
+// only) and are only ever written when >= MIN_ARCHETYPE_ORGS distinct orgs
+// share the shape. Nothing org-, user-, or content-identifiable is stored.
+model PlatformArchetype {
+  id          String   @id @default(cuid())
+  signature   String   @unique // "<providers sorted, '+'-joined>:<triggerType>"
+  providers   Json // string[] — runtime provider vocabulary
+  triggerType String // manual | schedule | signal
+  orgCount    Int // distinct orgs running this shape (always >= the k-anon floor)
+  flowCount   Int // qualifying flows across those orgs
+  createdAt   DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt   DateTime @updatedAt @db.Timestamptz(6)
+
+  @@index([orgCount])
+  @@map("platform_archetypes")
+}
+
 model UserPattern {
   id              String   @id @default(cuid())
   organizationId  String   @db.Uuid
