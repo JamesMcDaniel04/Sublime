@@ -38,6 +38,14 @@ export function userInferenceGraphParts(write: UserInferenceWrite): { nodes: Pen
       edges.push({ organizationId: write.organizationId, from: id, to: nodeIds.tool(provider), rel: 'used_with' })
     }
   }
+  // Peer-practices spec: a peer insight also points at the org-shared flow it
+  // describes, so traversal can go peer-insight → flow → (runs, agents).
+  if (write.slug.startsWith('peer:flow:')) {
+    const flowId = write.slug.replace('peer:flow:', '')
+    if (flowId) {
+      edges.push({ organizationId: write.organizationId, from: id, to: nodeIds.flow(flowId), rel: 'relates_to' })
+    }
+  }
   return { nodes, edges }
 }
 

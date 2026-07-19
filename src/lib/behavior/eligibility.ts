@@ -35,10 +35,12 @@ export function isPatternEligible(
 ): boolean {
   if (pattern.status !== 'open') return false
   // capability_gap evidence is ABSENCE (a dormant connection, an unused
-  // capability) — occurrence/span minimums don't apply; staleness and the
-  // learning period below still do. lastSeenAt is when mining last observed
-  // the gap holding, so an un-re-observed gap decays out like any routine.
-  const isGap = pattern.kind === 'capability_gap'
+  // capability) and peer_practice occurrence is TEAMMATE runs (thresholded by
+  // its miner) — occurrence/span minimums don't apply to either; staleness and
+  // the learning period below still do. lastSeenAt is when mining last
+  // observed the condition holding, so an un-re-observed row decays out like
+  // any routine.
+  const isGap = pattern.kind === 'capability_gap' || pattern.kind === 'peer_practice'
   const minOccurrences = pattern.kind === 'tool_correlation' ? MIN_CORRELATION_OCCURRENCES : MIN_OCCURRENCES
   if (!isGap && pattern.occurrenceCount < minOccurrences) return false
   if (!isGap && pattern.lastSeenAt.getTime() - pattern.firstSeenAt.getTime() < MIN_SPAN_DAYS * DAY_MS) return false

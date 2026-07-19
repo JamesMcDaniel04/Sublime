@@ -267,6 +267,7 @@ export async function synthesizeUserSuggestions(
         'kind "new_flow": a new automation replacing a repeated manual routine; include flowPrompt detailed enough for a flow-builder AI. kind "enhancement": a concrete improvement to one EXISTING flow/agent from the lists (exact targetId; never invent one).',
         'sourcePatternSlugs MUST cite the exact slugs of the observed patterns that justify the suggestion. Do not repeat previously dismissed ideas.',
         'You may connect an observed pattern to an unused capability of a connected tool (listed below) — but the suggestion must still be justified by, and cite, observed pattern slugs. Never suggest from the capability list alone.',
+        'peer_practice patterns describe org-shared automations that ALREADY EXIST: prefer suggesting the user adopt or adapt that existing flow (kind "enhancement" targeting it, or "new_flow" for a personal variant) over inventing something new. Never mention who owns it.',
         'Feedback outcomes are what ACTUALLY happened: "accepted-and-adopted" is the strongest positive signal; "accepted-but-never-published" and "accepted-then-deleted" mean the idea sounded good but was not worth acting on — treat those nearly as negatively as dismissed.',
       ].join(' ')
       const userPrompt = [

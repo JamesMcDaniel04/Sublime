@@ -10,8 +10,10 @@ import { apiLogger } from '@/lib/logger'
 import { captureError } from '@/lib/observability/sentry'
 import { embedTexts, embeddingsConfigured, cosineSimilarity } from '@/lib/rag/embeddings'
 import { MEMORY_SIMILARITY_THRESHOLD } from '@/lib/memory/agent-memory'
+import { Prisma } from '@prisma/client'
 import { mineUserPatternCandidates, mineIntentClusters, type PatternCandidate } from './mine-patterns'
 import { mineToolCorrelations, mineCapabilityGaps } from './mine-correlations'
+import { minePeerPractices, groupProvidersByExecution, type PeerPracticeInputs } from './mine-peer-practices'
 import { writeUserInference } from './user-insights'
 
 const WINDOW_DAYS = 90
@@ -24,6 +26,87 @@ export type InferOverrides = {
   now?: () => Date
   /** Catalog tool names per provider; defaults to loading the org's tool planes. */
   loadCapabilities?: (organizationId: string, userId: string) => Promise<Map<string, string[]>>
+  /** Peer-practice inputs; defaults to loading org-shared flows + their runs. */
+  loadPeerInputs?: (organizationId: string, userId: string, now: Date) => Promise<PeerPracticeInputs | null>
+}
+
+const PEER_RUN_WINDOW_DAYS = 30
+
+/**
+ * Peer-practice inputs (peer-practices spec): org-SHARED flows owned by
+ * others, their succeeded-run counts, and the runtime providers those runs
+ * touched — resolved from the org's tool_call ledger via executionId, so the
+ * provider vocabulary matches the user's own events exactly. Privacy: only
+ * `visibility != 'private'` flows are ever loaded; owner identity goes no
+ * further than the `userId != user` filter. Returns null on any failure.
+ * db is systemPrisma in the cron path — the org-wide event scan is by design.
+ */
+async function loadPeerPracticeInputs(
+  db: typeof systemPrisma,
+  organizationId: string,
+  userId: string,
+  now: Date,
+): Promise<PeerPracticeInputs | null> {
+  try {
+    const [peerFlows, ownFlows] = await Promise.all([
+      db.flow.findMany({
+        where: {
+          organizationId,
+          visibility: { not: 'private' },
+          NOT: { userId },
+          OR: [{ status: 'ACTIVE' }, { NOT: { publishedGraph: { equals: Prisma.DbNull } } }],
+        },
+        select: { id: true, name: true },
+        take: 50,
+      }),
+      db.flow.findMany({ where: { organizationId, userId }, select: { id: true }, take: 50 }),
+    ])
+    if (peerFlows.length === 0) return { peerFlows: [], ownFlowProviders: [], now }
+
+    const allFlowIds = [...peerFlows.map((f) => f.id), ...ownFlows.map((f) => f.id)]
+    const runSince = new Date(now.getTime() - PEER_RUN_WINDOW_DAYS * 24 * 60 * 60 * 1000)
+    const [runs, toolEvents] = await Promise.all([
+      db.flowRun.findMany({
+        where: { organizationId, flowId: { in: allFlowIds }, status: 'succeeded', startedAt: { gte: runSince } },
+        select: { id: true, flowId: true, startedAt: true },
+        orderBy: { startedAt: 'asc' },
+        take: 2000,
+      }),
+      db.userEvent.findMany({
+        where: { organizationId, kind: 'tool_call', occurredAt: { gte: runSince } },
+        select: { resourceId: true, context: true },
+        take: 4000,
+      }),
+    ])
+    const providersByExecution = groupProvidersByExecution(toolEvents)
+
+    const byFlow = new Map<string, { providers: Set<string>; runs: number; firstRunAt: Date }>()
+    for (const run of runs) {
+      const acc = byFlow.get(run.flowId) ?? { providers: new Set<string>(), runs: 0, firstRunAt: run.startedAt }
+      acc.runs += 1
+      for (const provider of providersByExecution.get(run.id) ?? []) acc.providers.add(provider)
+      byFlow.set(run.flowId, acc)
+    }
+    const ownFlowIds = new Set(ownFlows.map((f) => f.id))
+    return {
+      peerFlows: peerFlows.map((flow) => {
+        const acc = byFlow.get(flow.id)
+        return {
+          id: flow.id,
+          name: flow.name,
+          providers: [...(acc?.providers ?? [])].sort(),
+          successfulRuns: acc?.runs ?? 0,
+          firstRunAt: acc?.firstRunAt ?? now,
+        }
+      }),
+      ownFlowProviders: [...byFlow.entries()]
+        .filter(([flowId]) => ownFlowIds.has(flowId))
+        .map(([, acc]) => [...acc.providers].sort()),
+      now,
+    }
+  } catch {
+    return null
+  }
 }
 
 /**
@@ -92,6 +175,13 @@ export async function inferUserBehaviorPatterns(
     const loadCapabilities = overrides.loadCapabilities ?? loadCapabilityCatalog
     const capabilitiesByProvider = await loadCapabilities(organizationId, userId)
     candidates = [...candidates, ...mineCapabilityGaps(events, { capabilitiesByProvider, manualTriggerFlowIds, now })]
+
+    // Org-level peer practices (peer-practices spec): org-shared automations
+    // teammates run over tools this user touches. Best-effort — a failed load
+    // means no peer candidates today, never a failed inference.
+    const loadPeerInputs = overrides.loadPeerInputs ?? ((org: string, user: string, at: Date) => loadPeerPracticeInputs(db, org, user, at))
+    const peerInputs = await loadPeerInputs(organizationId, userId, now)
+    if (peerInputs) candidates = [...candidates, ...minePeerPractices(events, peerInputs)]
 
     // Intent clustering over assistant prompts (needs message text by reference).
     const embed = overrides.embed ?? (embeddingsConfigured() ? (texts: string[]) => embedTexts(texts, { inputType: 'document' }) : null)

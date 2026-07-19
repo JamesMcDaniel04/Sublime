@@ -69,3 +69,10 @@ test('tool_correlation: needs MIN_CORRELATION_SESSIONS occurrences, not the gene
   assert.equal(isPatternEligible(corr, learnedUser, now), false)
   assert.equal(isPatternEligible({ ...corr, occurrenceCount: 5 }, learnedUser, now), true)
 })
+
+test('peer_practice: gates like a gap — miner thresholds own the occurrence rule', () => {
+  const peer = { kind: 'peer_practice', occurrenceCount: 3, firstSeenAt: daysAgo(20), lastSeenAt: daysAgo(0), status: 'open' }
+  assert.equal(isPatternEligible(peer, learnedUser, now), true)
+  assert.equal(isPatternEligible({ ...peer, lastSeenAt: daysAgo(31) }, learnedUser, now), false) // decays
+  assert.equal(isPatternEligible(peer, daysAgo(3), now), false) // learning period still applies
+})
