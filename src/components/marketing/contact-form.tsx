@@ -14,7 +14,7 @@ const REASONS = [
 ]
 
 const FIELD_CLASSES =
-  'w-full border border-input bg-background px-3 py-2.5 text-[14px] text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-ring transition-colors'
+  'w-full border border-input bg-background px-3 py-2.5 text-[14px] text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:border-ring transition-colors'
 
 /**
  * Contact form in the landing visual language. Submissions go to

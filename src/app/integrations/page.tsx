@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import { Cable, Server } from 'lucide-react'
 import { McpServersPanel } from '@/components/connections/mcp-servers-panel'
 import { PageHeader } from '@/components/ui/page-header'
+import { Skeleton } from '@/components/ui/skeleton'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { OAuthIntegrationsGrid } from './oauth-integrations-grid'
 
@@ -25,7 +26,15 @@ function IntegrationsTabs() {
         <TabsTrigger value="mcp"><Server className="mr-2 h-4 w-4" />MCP Servers</TabsTrigger>
       </TabsList>
       <TabsContent value="accounts" className="mt-6 space-y-6">
-        <Suspense fallback={<p className="text-sm text-muted-foreground">Loading integrations...</p>}>
+        <Suspense
+          fallback={
+            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+              {Array.from({ length: 6 }, (_, i) => (
+                <Skeleton key={`integration-skeleton-${i}`} className="h-40 rounded-xl" />
+              ))}
+            </div>
+          }
+        >
           <OAuthIntegrationsGrid />
         </Suspense>
       </TabsContent>
