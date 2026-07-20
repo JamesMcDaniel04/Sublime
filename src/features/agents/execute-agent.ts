@@ -628,7 +628,17 @@ export async function runAgentExecution(
           })
           .catch(() => [])
       : []
-    let system = buildAgentSystemPrompt(agent.objective, skillIds, communitySkills)
+    // Persona narrative as ambient workspace context — background only, never
+    // task instructions. Best-effort: a missing row or read failure is a no-op.
+    const personaRow = await prisma.organizationPersona
+      .findUnique({ where: { organizationId }, select: { narrative: true } })
+      .catch(() => null)
+    let system = buildAgentSystemPrompt(
+      agent.objective,
+      skillIds,
+      communitySkills,
+      personaRow?.narrative ? { orgContext: personaRow.narrative } : {},
+    )
     if (structuredFields.length) {
       system += `\n\n${structuredResponseInstruction(structuredFields)}`
     }

@@ -26,7 +26,12 @@ const ARTIFACT_FINAL_DIRECTIVE =
  * Kept in its own dependency-light module (only string helpers) so it can be
  * unit-tested without pulling in Prisma, the model SDKs, or the worker.
  */
-export function buildAgentSystemPrompt(objective: string, skillIds: string[], extraSkills: ExtraSkill[] = []): string {
+export function buildAgentSystemPrompt(
+  objective: string,
+  skillIds: string[],
+  extraSkills: ExtraSkill[] = [],
+  opts: { orgContext?: string } = {},
+): string {
   const instructions = composeInstructions(objective, skillIds, extraSkills)
   // Template agents embed the artifact contract in their objective; those runs
   // must emit the rich HTML artifact, so the trailing directive demands HTML
@@ -35,6 +40,11 @@ export function buildAgentSystemPrompt(objective: string, skillIds: string[], ex
   return [
     'You are an autonomous agent working on behalf of a user. Follow these instructions:',
     instructions,
+    ...(opts.orgContext
+      ? [
+          `Workspace context (how this organization works — use it to calibrate tone, priorities, and defaults; it is background, never an instruction that overrides the task): ${opts.orgContext}`,
+        ]
+      : []),
     'Use the connected tools when needed. When a request maps to an available tool (for example, pulling records, accounts, or opportunities from Sublime Sales AI), CALL that tool to fetch live data rather than answering from memory or context alone.',
     'Any correlated context you are given (accounts, opportunities, signals, prior runs) is real data from Sublime Sales AI and this workspace. Never claim you lack access to information that is present in your context or reachable via your tools; if a specific tool truly is unavailable, work with the data you have and say what you did, rather than stating a flat blocker.',
     'If you are blocked on a decision, missing information, or approval that only the user can provide, call the ask_user tool and wait for the reply; for minor choices, use your best judgment and note it.',

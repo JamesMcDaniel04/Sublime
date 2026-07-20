@@ -45,4 +45,15 @@ describe('buildAgentSystemPrompt', () => {
     assert.ok(prompt.includes('Format the final response as clean Markdown'))
     assert.ok(!prompt.includes('semantic HTML artifact'))
   })
+
+  it('includes workspace context when provided', () => {
+    const prompt = buildAgentSystemPrompt('Objective.', [], [], { orgContext: 'A sales-led org living in Salesforce.' })
+    assert.ok(prompt.includes('A sales-led org living in Salesforce.'))
+    assert.ok(prompt.includes('Workspace context'))
+  })
+
+  it('omits the workspace-context line entirely when absent', () => {
+    const prompt = buildAgentSystemPrompt('Objective.', [])
+    assert.ok(!prompt.includes('Workspace context'))
+  })
 })
