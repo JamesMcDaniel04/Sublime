@@ -21,11 +21,13 @@ test('configured only when all three env vars are set', () => {
   assert.equal(googleOAuthConfigured(), false)
 })
 
-test('gmail scope set covers send, readonly, and userinfo.email', () => {
-  const scopes = GOOGLE_SERVICE_SCOPES['google-mail']
+test('gmail scope set covers send and userinfo.email, and stays clear of restricted scopes', () => {
+  const scopes: readonly string[] = GOOGLE_SERVICE_SCOPES['google-mail']
   assert.ok(scopes.includes('https://www.googleapis.com/auth/gmail.send'))
-  assert.ok(scopes.includes('https://www.googleapis.com/auth/gmail.readonly'))
   assert.ok(scopes.includes('https://www.googleapis.com/auth/userinfo.email'))
+  // Restricted Gmail scopes (readonly/modify/compose/full) trigger Google's
+  // annual CASA security assessment — keep them out unless a feature needs them.
+  assert.ok(!scopes.some((s) => /gmail\.(readonly|modify|compose|insert|metadata|settings)|mail\.google\.com/.test(s)))
 })
 
 test('auth url strips stray whitespace from env values', () => {

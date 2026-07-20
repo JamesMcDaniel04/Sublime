@@ -13,9 +13,12 @@ const STATE_TTL_MS = 10 * 60 * 1000
 const TOKEN_TIMEOUT_MS = 10_000
 
 export const GOOGLE_SERVICE_SCOPES = {
+  // gmail.send only: it is a "sensitive" scope, so app verification skips the
+  // annual CASA security assessment that any "restricted" scope (e.g.
+  // gmail.readonly) would trigger. Add read scopes only alongside a shipped
+  // feature that uses them.
   'google-mail': [
     'https://www.googleapis.com/auth/gmail.send',
-    'https://www.googleapis.com/auth/gmail.readonly',
     'https://www.googleapis.com/auth/userinfo.email',
   ],
 } as const
