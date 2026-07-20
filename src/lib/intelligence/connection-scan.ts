@@ -350,6 +350,14 @@ export async function scanConnection(params: {
       link: '/integrations',
     })
 
+    // Persona refresh: this scan may be the org's first real usage signal.
+    // Dynamic import — compute.ts imports findOrgIntelligenceAgentId from
+    // THIS module, so a static import back would be a cycle. Debounced
+    // internally, so repeated scans are cheap no-ops.
+    void import('@/lib/persona/compute')
+      .then((mod) => mod.recomputeOrgPersona(organizationId))
+      .catch(() => undefined)
+
     // Fire-and-forget: a fresh profile may be the one that tips the org over
     // the >=3-connection suggestion gate, or add new cross-tool signal to an
     // org already past it. Dynamically imported to avoid a static import

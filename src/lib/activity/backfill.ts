@@ -76,6 +76,11 @@ export async function runActivityBackfill(backfillId: string, opts: { maxBatches
   })
   if (result.status === 'done') {
     void inferActivityPatterns(row.organizationId).catch(() => undefined)
+    // Persona refresh: a completed historical backfill is exactly the signal
+    // the persona's activity weighting exists for. Debounced internally.
+    void import('@/lib/persona/compute')
+      .then((mod) => mod.recomputeOrgPersona(row.organizationId))
+      .catch(() => undefined)
   }
 }
 
