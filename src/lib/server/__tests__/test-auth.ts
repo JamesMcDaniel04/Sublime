@@ -8,7 +8,10 @@ export async function seedTestOrg(prisma: any): Promise<{ organizationId: string
   const user = await prisma.user.create({ data: { supabaseId: crypto.randomUUID(), organizationId: org.id, isActive: true } })
   const auth: AuthContext = {
     organizationId: org.id,
-    userId: user.id,
+    // Production semantics (requireAuthContext): auth.userId is the SUPABASE
+    // id, distinct from dbUser.id. Routes that persist a user reference must
+    // use dbUser.id — a seam that conflated the two hid exactly that bug.
+    userId: user.supabaseId,
     dbUser: user,
     user: { id: user.supabaseId } as never,
   }

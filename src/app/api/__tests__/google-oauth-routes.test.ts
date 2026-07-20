@@ -35,6 +35,28 @@ if (TEST_DB) {
     const state = verifyState(location.searchParams.get('state') ?? '')
     assert.equal(state?.organizationId, seeded.organizationId)
     assert.equal(state?.service, 'google-mail')
+    // Must be the DB user id (dbUser.id), NOT auth.userId (the Supabase id):
+    // the callback persists this into the connection rows, and the status
+    // route queries them by dbUser.id — a mismatch stores the connection
+    // under an id no reader ever queries, so the UI shows "Not connected".
+    assert.equal(state?.userId, seeded.userId)
+  })
+
+  test('status route reports a stored native connection as connected', async () => {
+    const { upsertGoogleConnection } = await import('@/lib/google/store')
+    await upsertGoogleConnection({
+      organizationId: seeded.organizationId,
+      userId: seeded.userId,
+      service: 'google-mail',
+      accountEmail: 'status@b.co',
+      scopes: ['https://www.googleapis.com/auth/gmail.send'],
+      refreshToken: 'rt-status',
+    })
+    const { GET } = await import('../nango/status/route')
+    const response = await GET(new NextRequest(new URL('http://test/api/nango/status')))
+    const body = (await response.json()) as { connections?: Record<string, { connected: boolean; native?: boolean }> }
+    assert.equal(body.connections?.['google-mail']?.connected, true)
+    assert.equal(body.connections?.['google-mail']?.native, true)
   })
 
   test('start route rejects unknown services', async () => {

@@ -22,7 +22,10 @@ export const GET = withAuthenticatedApi(async (request, auth) => {
   }
   const state = signState({
     organizationId: auth.organizationId,
-    userId: auth.userId,
+    // dbUser.id, not auth.userId (the Supabase id): the callback persists
+    // this as the connection rows' userId, which the status route and scan
+    // plane query by DB user id.
+    userId: auth.dbUser.id,
     service: service as GoogleOAuthService,
   })
   return NextResponse.redirect(buildAuthUrl({ service: service as GoogleOAuthService, state }))
