@@ -1,5 +1,6 @@
 import type { Metadata } from 'next'
 import { Anonymous_Pro, Geist } from 'next/font/google'
+import { Analytics } from '@vercel/analytics/next'
 import { ClientProviders } from '@/components/providers/client-providers'
 import { AppShell } from '@/components/layout/app-shell'
 import './globals.css'
@@ -34,6 +35,7 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
         <ClientProviders>
           <AppShell>{children}</AppShell>
         </ClientProviders>
+        <Analytics />
       </body>
     </html>
   )

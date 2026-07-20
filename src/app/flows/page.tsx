@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { toast } from 'sonner'
@@ -15,7 +15,7 @@ import { PageHeader } from '@/components/ui/page-header'
 import { Pagination, paginate } from '@/components/ui/pagination'
 import { Skeleton } from '@/components/ui/skeleton'
 import { cn } from '@/lib/utils'
-import { getCachedJson, invalidateCachedJson } from '@/lib/client/use-cached-json'
+import { useCachedJson } from '@/lib/client/use-cached-json'
 import { STARTER_TEMPLATES } from '@/lib/flows/starter-templates'
 import { TemplateCatalogueCard } from '@/components/templates/template-catalogue-card'
 
@@ -45,56 +45,40 @@ const STATUS_STYLE: Record<string, string> = {
   disabled: 'border-border bg-muted text-muted-foreground',
 }
 
+type FlowsResponse = { success?: boolean; error?: string; flows?: FlowItem[]; suggestionReadiness?: SuggestionReadiness | null }
+
 export default function FlowsPage() {
   const router = useRouter()
-  const [flows, setFlows] = useState<FlowItem[]>([])
-  const [readiness, setReadiness] = useState<SuggestionReadiness | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [loadError, setLoadError] = useState('')
-  const [loadAttempt, setLoadAttempt] = useState(0)
+  // Stale-while-revalidate: paint instantly from the client cache (warmed at
+  // sign-in by the sidebar) and refresh in the background — the previous
+  // fetch-on-mount pattern blocked every visit on a network round-trip.
+  const { data, loading, error, refresh, mutate } = useCachedJson<FlowsResponse>('/api/flows')
+  const flows = useMemo(() => data?.flows ?? [], [data])
+  const readiness = data?.suggestionReadiness ?? null
+  const loadError = error ? (error instanceof Error ? error.message : 'Could not load flows.') : ''
   const [page, setPage] = useState(1)
   const [creating, setCreating] = useState(false)
   const [dismissingId, setDismissingId] = useState<string | null>(null)
   const [duplicatingId, setDuplicatingId] = useState<string | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<FlowItem | null>(null)
 
-  useEffect(() => {
-    let cancelled = false
-    setLoading(true)
-    setLoadError('')
-    getCachedJson<any>('/api/flows')
-      .then((data) => {
-        if (cancelled) return
-        if (!data.success) throw new Error(data.error || 'Could not load flows.')
-        setFlows(data.flows ?? [])
-        setReadiness(data.suggestionReadiness ?? null)
-      })
-      .catch((cause) => { if (!cancelled) setLoadError(cause instanceof Error ? cause.message : 'Could not load flows.') })
-      .finally(() => {
-        if (!cancelled) setLoading(false)
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [loadAttempt])
-
   const suggestedFlows = useMemo(() => flows.filter((flow) => flow.suggested && flow.status === 'draft'), [flows])
   const otherFlows = useMemo(() => flows.filter((flow) => !(flow.suggested && flow.status === 'draft')), [flows])
 
   const dismissSuggestion = async (id: string) => {
     setDismissingId(id)
-    const previous = flows
-    setFlows((prev) => prev.filter((flow) => flow.id !== id))
+    const previous = data
+    mutate({ ...data, flows: flows.filter((flow) => flow.id !== id) })
     try {
       const response = await fetch(`/api/flows/${id}/dismiss-suggestion`, { method: 'POST' })
       if (!response.ok) {
-        setFlows(previous)
+        if (previous) mutate(previous)
         toast.error('Could not dismiss that suggestion.')
       } else {
-        invalidateCachedJson('/api/flows')
+        void refresh()
       }
     } catch {
-      setFlows(previous)
+      if (previous) mutate(previous)
       toast.error('Could not dismiss that suggestion.')
     } finally {
       setDismissingId(null)
@@ -109,12 +93,14 @@ export default function FlowsPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name: 'Untitled flow' }),
       })
-      const data = await response.json().catch(() => ({}))
-      if (response.ok && data.flow) {
-        invalidateCachedJson('/api/flows')
-        router.push(`/flows/${data.flow.id}`)
+      const body = await response.json().catch(() => ({}))
+      if (response.ok && body.flow) {
+        // Background refresh keeps the list cache warm (an invalidate would
+        // make the next /flows visit block on an empty cache again).
+        void refresh()
+        router.push(`/flows/${body.flow.id}`)
       }
-      else toast.error(data.error || 'Could not create the flow.')
+      else toast.error(body.error || 'Could not create the flow.')
     } catch {
       toast.error('Could not create the flow.')
     } finally {
@@ -135,12 +121,12 @@ export default function FlowsPage() {
           graph: flow.graph,
         }),
       })
-      const data = await response.json().catch(() => ({}))
-      if (response.ok && data.flow) {
-        invalidateCachedJson('/api/flows')
-        router.push(`/flows/${data.flow.id}`)
+      const body = await response.json().catch(() => ({}))
+      if (response.ok && body.flow) {
+        void refresh()
+        router.push(`/flows/${body.flow.id}`)
       } else {
-        toast.error(data.error || 'Could not duplicate the flow.')
+        toast.error(body.error || 'Could not duplicate the flow.')
       }
     } catch {
       toast.error('Could not duplicate the flow.')
@@ -151,8 +137,8 @@ export default function FlowsPage() {
 
   /** Optimistic delete: remove the card immediately, restore + toast on failure. */
   const deleteFlow = async (flow: FlowItem) => {
-    const previous = flows
-    setFlows((prev) => prev.filter((entry) => entry.id !== flow.id))
+    const previous = data
+    mutate({ ...data, flows: flows.filter((entry) => entry.id !== flow.id) })
     setDeleteTarget(null)
     try {
       const response = await fetch('/api/flows', {
@@ -161,12 +147,12 @@ export default function FlowsPage() {
         body: JSON.stringify({ id: flow.id }),
       })
       if (!response.ok) {
-        const data = await response.json().catch(() => ({}))
-        throw new Error(data.error)
+        const body = await response.json().catch(() => ({}))
+        throw new Error(body.error)
       }
-      invalidateCachedJson('/api/flows')
+      void refresh()
     } catch (cause) {
-      setFlows(previous)
+      if (previous) mutate(previous)
       toast.error(cause instanceof Error && cause.message ? cause.message : 'Could not delete the flow.')
     }
   }
@@ -225,7 +211,7 @@ export default function FlowsPage() {
           ))}
         </div>
       ) : loadError ? (
-        <div className="rounded-xl border border-red-200 bg-red-50 p-5 text-sm text-red-800"><p className="font-medium">Your flows could not be loaded.</p><p className="mt-1">{loadError}</p><Button className="mt-3" variant="outline" onClick={() => { invalidateCachedJson('/api/flows'); setLoadAttempt((value) => value + 1) }}>Try again</Button></div>
+        <div className="rounded-xl border border-red-200 bg-red-50 p-5 text-sm text-red-800"><p className="font-medium">Your flows could not be loaded.</p><p className="mt-1">{loadError}</p><Button className="mt-3" variant="outline" onClick={() => void refresh()}>Try again</Button></div>
       ) : otherFlows.length === 0 ? (
         suggestedFlows.length === 0 ? (
           <EmptyState

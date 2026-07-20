@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { toast } from 'sonner'
@@ -22,7 +22,7 @@ import { IntegrationChip } from '@/components/integrations/integration-chip'
 import { cn } from '@/lib/utils'
 import { PRODUCT_DEPARTMENTS, type Department } from '@/lib/templates/departments'
 import { connectedSlugSet, missingIntegrations, sortByReadiness } from '@/lib/templates/relevance'
-import { getCachedJson, invalidateCachedJson } from '@/lib/client/use-cached-json'
+import { useCachedJson } from '@/lib/client/use-cached-json'
 import { TemplateCatalogueCard } from '@/components/templates/template-catalogue-card'
 
 /** Cards per page on the Templates and Skills grids. */
@@ -146,11 +146,20 @@ export function TemplatesExplorer() {
   const searchParams = useSearchParams()
   const activeTab = searchParams.get('tab') === 'skills' ? 'skills' : 'templates'
 
-  const [templates, setTemplates] = useState<TemplateItem[]>([])
-  const [skills, setSkills] = useState<SkillItem[]>([])
-  const [agents, setAgents] = useState<AgentItem[]>([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
+  // Stale-while-revalidate (same pattern as the integrations grid): paint
+  // instantly from the client cache — warmed at sign-in by the sidebar — and
+  // revalidate in the background. The previous fetch-on-mount pattern blocked
+  // every visit on four network round-trips before rendering anything.
+  const templatesQuery = useCachedJson<{ templates?: TemplateItem[] }>('/api/agent-templates')
+  const skillsQuery = useCachedJson<{ success?: boolean; skills?: SkillItem[] }>('/api/skills')
+  const agentsQuery = useCachedJson<{ success?: boolean; agents?: AgentItem[] }>('/api/agents')
+  const integrationsQuery = useCachedJson<{ success?: boolean; tools?: Parameters<typeof connectedSlugSet>[0] }>('/api/integrations/available')
+  const templates = useMemo(() => templatesQuery.data?.templates ?? [], [templatesQuery.data])
+  const skills = useMemo(() => (skillsQuery.data?.success ? skillsQuery.data.skills ?? [] : []), [skillsQuery.data])
+  const agents = useMemo(() => (agentsQuery.data?.success ? agentsQuery.data.agents ?? [] : []), [agentsQuery.data])
+  const loading = templatesQuery.loading || skillsQuery.loading || agentsQuery.loading || integrationsQuery.loading
+  const loadFailure = templatesQuery.error ?? skillsQuery.error ?? agentsQuery.error ?? integrationsQuery.error
+  const error = loadFailure ? (loadFailure instanceof Error ? loadFailure.message : 'Failed to load templates') : null
   // Goal prompt for the AI catalogue assistant. It intentionally does not
   // filter the grids while someone is still describing what they need.
   const [search, setSearch] = useState('')
@@ -159,7 +168,6 @@ export function TemplatesExplorer() {
   const [aiLoading, setAiLoading] = useState(false)
   const [aiError, setAiError] = useState<string | null>(null)
   // Card grids cap at 9 per page; each tab pages independently.
-  const [templatesPage, setTemplatesPage] = useState(1)
   const [cataloguePage, setCataloguePage] = useState(1)
   const [myTemplatesPage, setMyTemplatesPage] = useState(1)
   const [skillsPage, setSkillsPage] = useState(1)
@@ -175,7 +183,10 @@ export function TemplatesExplorer() {
   // Org's connected integrations (canonical slugs) — drives the Starter
   // catalogue's ready-first sort and per-card Connect CTA. Never used to hide
   // a template, only to order/annotate it.
-  const [connected, setConnected] = useState<Set<string>>(new Set())
+  const connected = useMemo(
+    () => connectedSlugSet(integrationsQuery.data?.success ? integrationsQuery.data.tools ?? [] : []),
+    [integrationsQuery.data],
+  )
   const [dept, setDept] = useState<Department | 'all'>('all')
   const openCreate = (kind: 'template' | 'skill') => setDialog(emptyAsset(kind))
   const openEditTemplate = (t: TemplateItem) =>
@@ -228,15 +239,9 @@ export function TemplatesExplorer() {
       })
       const data = await res.json().catch(() => ({}))
       if (!res.ok) throw new Error(data.error || 'Save failed')
-      // Refetch so the new/edited card shows immediately.
-      invalidateCachedJson(url)
-      if (dialog.kind === 'template') {
-        const list = await fetch('/api/agent-templates', { cache: 'no-store' }).then((r) => r.json())
-        setTemplates(list.templates || [])
-      } else {
-        const list = await fetch('/api/skills', { cache: 'no-store' }).then((r) => r.json())
-        setSkills(list.success ? list.skills : [])
-      }
+      // Refetch (through the shared cache) so the new/edited card shows
+      // immediately here and on the next visit alike.
+      await (dialog.kind === 'template' ? templatesQuery.refresh() : skillsQuery.refresh())
       toast.success(dialog.id ? 'Saved' : dialog.kind === 'skill' ? 'Skill created' : 'Published to the community library')
       setDialog(null)
     } catch (e: any) {
@@ -253,17 +258,17 @@ export function TemplatesExplorer() {
     const url = kind === 'template' ? '/api/agent-templates' : '/api/skills'
     // Optimistic removal — the card disappears immediately and is restored if
     // the DELETE fails.
-    const prevTemplates = templates
-    const prevSkills = skills
-    if (kind === 'template') setTemplates((prev) => prev.filter((t) => t.id !== id))
-    else setSkills((prev) => prev.filter((s) => s.id !== id))
+    const prevTemplatesData = templatesQuery.data
+    const prevSkillsData = skillsQuery.data
+    if (kind === 'template') templatesQuery.mutate({ ...prevTemplatesData, templates: templates.filter((t) => t.id !== id) })
+    else skillsQuery.mutate({ ...prevSkillsData, success: true, skills: skills.filter((s) => s.id !== id) })
     const res = await fetch(url, { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id }) }).catch(() => null)
     if (res?.ok) {
-      invalidateCachedJson(url)
+      void (kind === 'template' ? templatesQuery.refresh() : skillsQuery.refresh())
       toast.success('Removed')
     } else {
-      if (kind === 'template') setTemplates(prevTemplates)
-      else setSkills(prevSkills)
+      if (kind === 'template' && prevTemplatesData) templatesQuery.mutate(prevTemplatesData)
+      else if (kind === 'skill' && prevSkillsData) skillsQuery.mutate(prevSkillsData)
       toast.error('Could not remove')
     }
   }
@@ -271,31 +276,6 @@ export function TemplatesExplorer() {
   const handleTabChange = (value: string) => {
     router.replace(value === 'skills' ? '/agents?view=templates&tab=skills' : '/agents?view=templates', { scroll: false })
   }
-
-  useEffect(() => {
-    let cancelled = false
-    const load = async () => {
-      try {
-        const [templatesData, skillsData, agentsData, integrationsData] = await Promise.all([
-          getCachedJson<any>('/api/agent-templates'),
-          getCachedJson<any>('/api/skills'),
-          getCachedJson<any>('/api/agents', 30_000),
-          getCachedJson<any>('/api/integrations/available', 30_000),
-        ])
-        if (cancelled) return
-        setTemplates(templatesData.templates || [])
-        setSkills(skillsData.success ? skillsData.skills : [])
-        setAgents(agentsData.success ? agentsData.agents : [])
-        setConnected(connectedSlugSet(integrationsData.success ? integrationsData.tools || [] : []))
-      } catch (e: any) {
-        if (!cancelled) setError(e?.message || 'Failed to load templates')
-      } finally {
-        if (!cancelled) setLoading(false)
-      }
-    }
-    load()
-    return () => { cancelled = true }
-  }, [])
 
   // Close dropdown when clicking outside
   useEffect(() => {
@@ -310,12 +290,11 @@ export function TemplatesExplorer() {
   }, [openSkillMenu])
 
   // Org-scoped catalogue priority: the caller's own templates (auto-distilled
-  // from their runs, or hand-authored by their org) always render above the
-  // shared community library, in their own "Your library" section. Seed
-  // (Starter catalogue) rows are pulled into their own section below.
+  // from their runs, or hand-authored by their org) render in their own
+  // "Your library" section. Seed (Starter catalogue) rows are pulled into
+  // their own section below. Cross-org community templates are not shown.
   const seeds = templates.filter((t) => t.seed)
   const myTemplates = templates.filter((t) => t.mine && !t.seed)
-  const communityTemplates = templates.filter((t) => !t.mine && !t.seed)
   const filteredSkills = skills
 
   // Department filter — applies only to the Starter catalogue; never hides a
@@ -475,10 +454,12 @@ export function TemplatesExplorer() {
         body: JSON.stringify({ skillId: skill.id }),
       })
       if (!res.ok) throw new Error(`status ${res.status}`)
-      // Update local agent list so subsequent "add" operations see the latest skills
-      setAgents((prev) =>
-        prev.map((a) => a.id === agent.id ? { ...a, skills: updatedSkills } : a)
-      )
+      // Update the cached agent list so subsequent "add" operations see the latest skills
+      agentsQuery.mutate({
+        ...agentsQuery.data,
+        success: true,
+        agents: agents.map((a) => (a.id === agent.id ? { ...a, skills: updatedSkills } : a)),
+      })
       toast.success(`Added "${skill.name}" to ${agent.title}`)
     } catch {
       toast.error(`Failed to add skill to ${agent.title}`)
@@ -500,12 +481,14 @@ export function TemplatesExplorer() {
       }),
     )
     const succeeded = results.filter((r) => r.ok)
-    setAgents((prev) =>
-      prev.map((a) => {
+    agentsQuery.mutate({
+      ...agentsQuery.data,
+      success: true,
+      agents: agents.map((a) => {
         const hit = succeeded.find((r) => r.agent.id === a.id)
         return hit ? { ...a, skills: hit.updatedSkills } : a
       }),
-    )
+    })
     if (succeeded.length === results.length) toast.success(`Added "${skill.name}" to all ${succeeded.length} agents`)
     else toast.error(`Added to ${succeeded.length} of ${results.length} agents — some failed`)
   }
@@ -633,7 +616,7 @@ export function TemplatesExplorer() {
             <div className="flex items-center justify-between">
               <div>
                 <h2 className="text-lg font-semibold">Templates</h2>
-                <p className="text-sm text-muted-foreground">Your library, distilled from your runs, plus the shared community catalogue.</p>
+                <p className="text-sm text-muted-foreground">Your library, distilled from your runs, plus the starter catalogue.</p>
               </div>
               <Button size="sm" onClick={() => openCreate('template')}><Plus className="mr-1.5 h-4 w-4" /> Create template</Button>
             </div>
@@ -708,25 +691,6 @@ export function TemplatesExplorer() {
               </section>
             )}
 
-            <section className="space-y-3">
-              <h3 className="text-sm font-semibold text-muted-foreground">Community</h3>
-              {communityTemplates.length === 0 ? (
-                <EmptyState
-                  icon={Sparkles}
-                  title="No community templates available yet"
-                  description="Templates published to the community library appear here."
-                />
-              ) : (
-                <div className="stagger-children grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                  {paginate(communityTemplates, templatesPage, PAGE_SIZE).pageItems.map((t) => renderTemplateCard(t))}
-                </div>
-              )}
-              <Pagination
-                page={paginate(communityTemplates, templatesPage, PAGE_SIZE).page}
-                pageCount={paginate(communityTemplates, templatesPage, PAGE_SIZE).pageCount}
-                onPageChange={setTemplatesPage}
-              />
-            </section>
           </TabsContent>
 
           {/* ── Skills tab ────────────────────────────────────────────────── */}

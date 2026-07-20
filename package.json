@@ -42,6 +42,7 @@
     "@supabase/ssr": "^0.6.1",
     "@supabase/supabase-js": "^2.50.0",
     "@types/web-push": "^3.6.4",
+    "@vercel/analytics": "^2.0.1",
     "@xyflow/react": "^12.11.2",
     "bullmq": "^5.58.2",
     "class-variance-authority": "^0.7.1",
