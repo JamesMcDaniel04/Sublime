@@ -3,6 +3,7 @@ import { prisma, systemPrisma } from '@/lib/prisma'
 import { ApiError, withAuthenticatedApi } from '@/lib/server/api-handler'
 import { selectVisibleTemplates } from '@/lib/intelligence/template-visibility'
 import { SEED_CATALOGUE, serializeSeed } from '@/lib/templates/catalogue'
+import { sortByPersonaFit } from '@/lib/templates/relevance'
 
 const templateSchema = z.object({
   name: z.string().min(1),
@@ -103,7 +104,14 @@ export const GET = withAuthenticatedApi(async (request, auth) => {
   // Cross-org leak-prevention + sectioning (caller's own catalogue — auto-
   // generated from their runs plus anything else they authored — before the
   // shared community library): see selectVisibleTemplates.
-  const templates = selectVisibleTemplates(serialized, builtIns)
+  // Persona-fit seed ordering: server pre-orders the Starter catalogue by the
+  // org's persona department weights; the client's stable sortByReadiness
+  // keeps readiness primary and this order as the within-group tiebreak.
+  const personaRow = await prisma.organizationPersona
+    .findUnique({ where: { organizationId: auth.organizationId }, select: { departmentWeights: true } })
+    .catch(() => null)
+  const personaWeights = (personaRow?.departmentWeights ?? null) as Record<string, number> | null
+  const templates = selectVisibleTemplates(serialized, sortByPersonaFit(builtIns, personaWeights))
   const limit = Number(request.nextUrl.searchParams.get('limit'))
   return { success: true, templates: limit > 0 ? templates.slice(0, limit) : templates }
 })

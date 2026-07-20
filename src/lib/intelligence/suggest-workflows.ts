@@ -26,6 +26,7 @@ import { orgIntelligenceAgentId, NANGO_CONNECTED_STATUS } from '@/lib/intelligen
 import { notify } from '@/lib/notifications/service'
 import { buildCopilotGrounding } from '@/lib/flows/copilot-grounding'
 import { generateFlowGraph } from '@/lib/flows/copilot-generate'
+import { topPersonaDepartments } from '@/lib/persona/weights'
 
 /** ≤1 synthesis per org per calendar day, regardless of trigger. */
 export const SUGGESTION_SYNTHESIS_COOLDOWN_MS = 24 * 60 * 60 * 1000
@@ -188,13 +189,14 @@ export async function loadExistingAgents(organizationId: string): Promise<AgentS
   })
 }
 
-function buildSynthesisPrompt(params: {
+export function buildSynthesisPrompt(params: {
   profiles: { title: string; content: string }[]
   flows: FlowSummary[]
   agents: AgentSummary[]
   feedback?: { title: string; status: string }[]
+  persona?: { departments: string[]; narrative: string | null }
 }): { system: string; user: string } {
-  const { profiles, flows, agents, feedback = [] } = params
+  const { profiles, flows, agents, feedback = [], persona } = params
   return {
     system: [
       'You are the workflow-suggestion engine for an org that has connected several business tools to an automation platform.',
@@ -203,10 +205,20 @@ function buildSynthesisPrompt(params: {
       'Also review the existing flows and agents listed below against the same usage profiles, and propose up to 5 concrete improvements: a schedule that matches an observed cadence, a trigger filter that matches an observed pattern, converting a manual flow to scheduled, splitting an overloaded agent, etc. Each improvement needs targetType (flow or agent), the EXACT targetId from the list below (never invent one), a short title, and a one-sentence rationale grounded in the usage profiles or run history.',
       'Only propose an improvement when the existing flows/agents list below is non-empty and you have a concrete, evidenced change to suggest — otherwise leave improvements empty. Never fabricate a targetId.',
       'Use prior feedback as preference learning: do not repeat dismissed ideas, and favor the kinds of improvements the workspace accepted when evidence supports them.',
+      ...(persona
+        ? ['An organization persona is provided below. Prefer suggestions that serve its dominant departments and working style, while still grounding every suggestion in the usage profiles.']
+        : []),
     ].join(' '),
     user: [
       'Usage profiles (from connected tools):',
       ...profiles.map((p) => `### ${p.title}\n${truncate(p.content, 600)}`),
+      ...(persona
+        ? [
+            '',
+            'Organization persona:',
+            [`- Dominant departments: ${persona.departments.join(', ') || 'general'}`, ...(persona.narrative ? [`- ${persona.narrative}`] : [])].join('\n'),
+          ]
+        : []),
       '',
       'Existing flows:',
       flows.length
@@ -341,7 +353,13 @@ export async function synthesizeWorkflowSuggestions(organizationId: string, over
         loadExistingAgents(organizationId),
         prisma.agentMemory.findMany({ where: { organizationId, agentId, kind: 'suggestion', status: { in: ['accepted', 'dismissed'] } }, orderBy: { updatedAt: 'desc' }, take: 30, select: { title: true, status: true } }),
       ])
-      const { system, user } = buildSynthesisPrompt({ profiles: memories, flows, agents, feedback })
+      const personaRow = await prisma.organizationPersona
+        .findUnique({ where: { organizationId }, select: { departmentWeights: true, narrative: true } })
+        .catch(() => null)
+      const persona = personaRow
+        ? { departments: topPersonaDepartments(personaRow.departmentWeights), narrative: personaRow.narrative }
+        : undefined
+      const { system, user } = buildSynthesisPrompt({ profiles: memories, flows, agents, feedback, ...(persona ? { persona } : {}) })
 
       const model = process.env.AGENT_REFLECTION_MODEL?.trim() || DEFAULT_SUMMARY_MODEL
       const raw = await generate({ system, user, schema: SUGGESTIONS_JSON_SCHEMA, schemaName: 'workflow_suggestions', maxTokens: 2000, model })

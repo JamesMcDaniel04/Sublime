@@ -35,3 +35,22 @@ export function sortByReadiness<T extends { requiredIntegrations: string[] }>(it
   const ready = (t: T) => t.requiredIntegrations.map(canonicalIntegrationSlug).every((s) => have.has(s))
   return [...items].sort((a, b) => Number(ready(b)) - Number(ready(a)))
 }
+
+/**
+ * Persona-fit ordering: stable sort desc by the sum of the org's persona
+ * department weights over an item's departments. Identity when no weights
+ * exist (new org, persona not yet computed). Composes with sortByReadiness:
+ * both are stable, so applying persona fit FIRST leaves readiness as the
+ * primary key and persona fit as the within-group tiebreak.
+ */
+export function sortByPersonaFit<T extends { departments?: readonly string[] }>(
+  items: T[],
+  weights: Record<string, number> | null | undefined,
+): T[] {
+  if (!weights) return items
+  const fit = (item: T) => (item.departments ?? []).reduce((sum, d) => sum + (weights[d] ?? 0), 0)
+  return items
+    .map((item, index) => ({ item, index, fit: fit(item) }))
+    .sort((a, b) => b.fit - a.fit || a.index - b.index)
+    .map((entry) => entry.item)
+}

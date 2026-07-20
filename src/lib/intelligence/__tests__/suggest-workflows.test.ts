@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { meetsSuggestionGate, parseSuggestions, FLOW_TARGET_MARKER_PREFIX } from '../suggest-workflows'
+import { meetsSuggestionGate, parseSuggestions, buildSynthesisPrompt, FLOW_TARGET_MARKER_PREFIX } from '../suggest-workflows'
 
 test('meetsSuggestionGate: below 3 total connections is not met', () => {
   assert.equal(meetsSuggestionGate({ nango: 0, mcp: 0 }), false)
@@ -62,4 +62,15 @@ test('parseSuggestions: null on garbage input', () => {
 
 test('FLOW_TARGET_MARKER_PREFIX: stable marker shape', () => {
   assert.equal(FLOW_TARGET_MARKER_PREFIX, 'flow:')
+})
+
+test('buildSynthesisPrompt includes the persona block only when provided', () => {
+  const base = { profiles: [{ title: 't', content: 'c' }], flows: [], agents: [] }
+  const without = buildSynthesisPrompt(base)
+  assert.ok(!without.user.includes('Organization persona'))
+  const withPersona = buildSynthesisPrompt({ ...base, persona: { departments: ['engineering'], narrative: 'Ships fast.' } })
+  assert.ok(withPersona.user.includes('Organization persona'))
+  assert.ok(withPersona.user.includes('engineering'))
+  assert.ok(withPersona.user.includes('Ships fast.'))
+  assert.ok(withPersona.system.toLowerCase().includes('persona'))
 })
