@@ -96,7 +96,7 @@ export function makeGithubActivitySource(proxyOverride?: NangoProxy): ActivitySo
       const call = (endpoint: string, params: Record<string, string | number>) =>
         proxy({ method: 'GET', endpoint, connectionId: connection.connectionId, providerConfigKey: connection.providerConfigKey, params })
       const since = windowStart(window, new Date())
-      const sinceParam = since ? { since: since.toISOString() } : {}
+      const sinceParam: Record<string, string> = since ? { since: since.toISOString() } : {}
 
       let state: GithubCursor
       if (cursor) {

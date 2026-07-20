@@ -7,6 +7,7 @@ import { nangoApiError } from '@/lib/nango/errors'
 import { withAuthenticatedApi } from '@/lib/server/api-handler'
 import { scanConnection, shouldScanNangoConnection, purgeConnectionLearnings } from '@/lib/intelligence/connection-scan'
 import { capabilityForProviderConfigKey, capabilitiesToPurgeOnDisconnect, type DeliveryCapability } from '@/lib/nango/delivery'
+import { triggerAutoBackfills } from '@/lib/activity/auto-backfill'
 import { fromNangoProviderKey } from '@/lib/connectors/registry'
 import { apiLogger } from '@/lib/logger'
 
@@ -215,6 +216,10 @@ export const GET = withAuthenticatedApi(async (_request, auth) => {
       )
     }
   }
+
+  // Auto-backfill on connect: historical usage for sources with a registered
+  // adapter (currently GitHub). Same fire-and-forget shape as the scans.
+  after(() => triggerAutoBackfills(organizationId, newlyConnected).catch(() => undefined))
 
   // Fire-and-forget usage scans for freshly-mirrored connections that map to
   // a known delivery capability (the only ones the scan plane can sample).
