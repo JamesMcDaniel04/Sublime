@@ -26,11 +26,9 @@ import {
   Controls,
   Handle,
   MiniMap,
-  Panel,
   Position,
   ReactFlow,
   ViewportPortal,
-  useReactFlow,
   useStore,
   useViewport,
   type Connection,
@@ -309,52 +307,6 @@ function JamDagCursors({ peers }: Readonly<{ peers: JamPeer[] }>) {
         })}
       </div>
     </>
-  )
-}
-
-/**
- * "Add step" for the canvas. Lives inside <ReactFlow> so it can use
- * `screenToFlowPosition` to drop the new widget where the user is looking.
- */
-function AddStepPanel({
-  agents,
-  toolCatalog,
-  onAddNode,
-}: Readonly<{
-  agents: Agent[]
-  toolCatalog: ToolCatalog
-  onAddNode: (type: StepType, seed: FlowInsertSeed | undefined, position: { x: number; y: number }) => void
-}>) {
-  const { screenToFlowPosition } = useReactFlow()
-  const [open, setOpen] = useState(false)
-  return (
-    <Panel position="top-left">
-      <button
-        type="button"
-        onClick={() => setOpen((value) => !value)}
-        className="flex items-center gap-1.5 rounded-lg border border-border bg-card px-3 py-2 text-sm font-semibold text-muted-foreground shadow-sm hover:border-blue-400 hover:text-blue-700"
-      >
-        <Plus className="h-4 w-4" /> Add step
-      </button>
-      {open && (
-        <>
-          <button type="button" aria-label="Close" className="fixed inset-0 z-30 cursor-default" onClick={() => setOpen(false)} />
-          <div className="absolute z-40 mt-2 max-h-[72vh] w-[34rem] max-w-[90vw] overflow-hidden rounded-2xl border border-border bg-card shadow-[0_20px_60px_rgba(15,23,42,0.18)]">
-            <FlowPicker
-              mode="action"
-              agents={agents}
-              toolCatalog={toolCatalog}
-              onPick={(type, seed) => {
-                const position = screenToFlowPosition({ x: window.innerWidth / 2, y: window.innerHeight / 2 })
-                onAddNode(type as StepType, seed, position)
-                setOpen(false)
-              }}
-              onClose={() => setOpen(false)}
-            />
-          </div>
-        </>
-      )}
-    </Panel>
   )
 }
 
@@ -749,7 +701,6 @@ export function DagCanvas({
           proOptions={{ hideAttribution: true }}
           fitView
         >
-          {!readOnly && <AddStepPanel agents={agents} toolCatalog={toolCatalog} onAddNode={onAddNode} />}
           <Background gap={28} size={1} color="rgba(15, 23, 42, 0.22)" />
           <Controls showInteractive={false} />
           <MiniMap pannable zoomable className="!bg-card" />

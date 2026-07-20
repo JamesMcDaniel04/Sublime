@@ -1864,7 +1864,7 @@ function FlowBuilder() {
             side drawer was removed once the cards reached full parity. */}
 
         {showCopilot && (
-          <ResizablePanel storageKey="flow.copilotWidth">
+          <ResizablePanel storageKey="flow.copilotWidth" defaultWidth={420}>
             <CopilotPanel
               graph={graph}
               onOps={onCopilotOps}
