@@ -1,15 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import {
-  irUser,
-  irToolResults,
-  irFromAnthropic,
-  irFromOpenAI,
-  toAnthropicMessages,
-  toOpenAIMessages,
-  coerceToIR,
-  type IRMessage,
-} from '../ir'
+import { irUser, irToolResults, irFromAnthropic, toAnthropicMessages, coerceToIR, type IRMessage } from '../ir'
 import { routeModel } from '../model-runner'
 
 // A synthetic Anthropic response with a thinking block, text, and a tool call.
@@ -20,14 +11,6 @@ const anthropicMessage = {
     { type: 'tool_use', id: 'toolu_1', name: 'crm_get_account', input: { account: 'ACME' } },
   ],
   usage: { input_tokens: 10, output_tokens: 5 },
-} as never
-
-const openaiMessage = {
-  role: 'assistant',
-  content: 'Done.',
-  tool_calls: [
-    { id: 'call_1', type: 'function', function: { name: 'send', arguments: '{"channel":"#deals"}' } },
-  ],
 } as never
 
 test('irFromAnthropic keeps neutral fields AND raw native content', () => {
@@ -44,36 +27,34 @@ test('same-provider replay is lossless — thinking blocks survive the round-tri
   assert.deepEqual(assistant.content, (anthropicMessage as { content: unknown }).content)
 })
 
-test('cross-provider translation DROPS thinking, keeps text + tool calls', () => {
-  const ir: IRMessage[] = [irUser('go'), irFromAnthropic(anthropicMessage)]
-  const messages = toOpenAIMessages(ir, 'SYS')
-  assert.equal(messages[0].role, 'system')
-  const assistant = messages.find((m) => m.role === 'assistant') as {
-    content: string | null
-    tool_calls?: { function: { name: string } }[]
-  }
-  assert.equal(assistant.content, 'Looking up ACME.')
-  assert.equal(assistant.tool_calls?.length, 1)
-  assert.equal(assistant.tool_calls?.[0].function.name, 'crm_get_account')
-  // No thinking leaked into the OpenAI shape.
-  assert.ok(!JSON.stringify(assistant).includes('thinking'))
+// Exercises the live cross-provider path: an assistant message tagged with a
+// raw provider OTHER than 'anthropic' (e.g. a run resumed after switching
+// endpoints, or an old execution persisted under a since-removed OpenAI
+// provider) must ignore `raw` and rebuild from the neutral fields — which
+// correctly drops thinking, since it never survived translation to begin
+// with (only the neutral text/toolCalls fields did).
+test('cross-provider translation DROPS raw content, rebuilds from neutral fields', () => {
+  const ir: IRMessage[] = [
+    irUser('go'),
+    {
+      role: 'assistant',
+      text: 'Looking up ACME.',
+      toolCalls: [{ id: 'toolu_1', name: 'crm_get_account', input: { account: 'ACME' } }],
+      raw: { provider: 'openai', content: { role: 'assistant', content: 'Looking up ACME.', tool_calls: [] } },
+    },
+  ]
+  const [, assistant] = toAnthropicMessages(ir)
+  assert.deepEqual(assistant.content, [
+    { type: 'text', text: 'Looking up ACME.' },
+    { type: 'tool_use', id: 'toolu_1', name: 'crm_get_account', input: { account: 'ACME' } },
+  ])
 })
 
-test('irFromOpenAI parses tool_calls and JSON arguments', () => {
-  const ir = irFromOpenAI(openaiMessage)
-  assert.equal(ir.text, 'Done.')
-  assert.deepEqual(ir.toolCalls, [{ id: 'call_1', name: 'send', input: { channel: '#deals' } }])
-  assert.equal(ir.raw?.provider, 'openai')
-})
-
-test('tool results translate to both provider shapes', () => {
+test('tool results translate to the Anthropic tool_result shape', () => {
   const ir: IRMessage[] = [irToolResults([{ toolCallId: 'toolu_1', content: '{"ok":true}' }])]
   const [anthropic] = toAnthropicMessages(ir)
   assert.equal(anthropic.role, 'user')
   assert.deepEqual(anthropic.content, [{ type: 'tool_result', tool_use_id: 'toolu_1', content: '{"ok":true}' }])
-
-  const openai = toOpenAIMessages(ir, 'SYS')
-  assert.deepEqual(openai[1], { role: 'tool', tool_call_id: 'toolu_1', content: '{"ok":true}' })
 })
 
 test('coerceToIR: native Anthropic transcript → IR', () => {

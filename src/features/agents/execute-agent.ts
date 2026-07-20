@@ -36,6 +36,7 @@ import {
   type ToolResult,
 } from '@/lib/llm/model-runner'
 import { coerceToIR } from '@/lib/llm/ir'
+import { turnStopOutcome, turnEffortFor } from './turn-policy'
 import { retrieveAgentMemory, renderAgentMemories, bestAnswerMatch, markMemoriesUsed, saveAgentMemory } from '@/lib/memory/agent-memory'
 import { findOrgIntelligenceAgentId } from '@/lib/intelligence/connection-scan'
 import { reflectAndRemember } from './reflection'
@@ -914,7 +915,7 @@ export async function runAgentExecution(
     let planEmitted = false
     // Why the run stopped early, if it did — drives the run.capped event and a
     // distinct (non-success) completion notification.
-    let cappedReason: 'per_run_token_cap' | 'monthly_budget' | 'max_turns' | null = null
+    let cappedReason: 'per_run_token_cap' | 'monthly_budget' | 'max_turns' | 'model_refusal' | 'model_incomplete' | null = null
 
     for (let turn = startTurn; turn < maxTurns; turn += 1) {
       // Cooperative cancellation: the cancel API flips a running execution's
@@ -928,7 +929,7 @@ export async function runAgentExecution(
         return await finalizeCancelled(live.status === 'cancelled')
       }
 
-      const turnResult = await runner.next(transcript, system, [...tools, ASK_USER_TOOL])
+      const turnResult = await runner.next(transcript, system, [...tools, ASK_USER_TOOL], turnEffortFor(turn, startTurn))
       usage.inputTokens += turnResult.usage.inputTokens
       usage.outputTokens += turnResult.usage.outputTokens
 
@@ -948,6 +949,18 @@ export async function runAgentExecution(
         finalText = turnResult.text || 'Run stopped: the workspace monthly token budget was reached.'
         cappedReason = 'monthly_budget'
         await recordEvent(execution.id, null, 'run.capped', { reason: 'monthly_budget', monthTotal, limit: monthlyLimit })
+        break
+      }
+
+      // A refusal or a truncated/paused turn is NOT a natural completion — it
+      // must not fall through to the "no tool calls → done" branch below,
+      // which would otherwise dress up a declined or cut-off reply as a
+      // normal finished run.
+      const stopOutcome = turnStopOutcome(turnResult)
+      if (stopOutcome.capped) {
+        finalText = stopOutcome.finalText
+        cappedReason = stopOutcome.capped
+        await recordEvent(execution.id, null, 'run.capped', { reason: stopOutcome.capped, stopReason: turnResult.stopReason })
         break
       }
 

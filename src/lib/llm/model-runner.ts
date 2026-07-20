@@ -29,10 +29,20 @@ export type ToolResult = {
   isError?: boolean
 }
 
+export type Effort = 'low' | 'medium' | 'high' | 'xhigh' | 'max'
+
+// Mirrors Anthropic's Message['stop_reason'] (minus null — finalMessage()
+// always resolves one of these). Callers use this to distinguish a turn that
+// naturally ended or asked for tools from one that was cut off mid-generation
+// (max_tokens, pause_turn) or declined by safety classifiers (refusal) — cases
+// that must NOT be treated as an ordinary completion.
+export type StopReason = 'end_turn' | 'max_tokens' | 'stop_sequence' | 'tool_use' | 'pause_turn' | 'refusal'
+
 export type ModelTurn = {
   text: string
   toolCalls: ToolCall[]
   usage: { inputTokens: number; outputTokens: number }
+  stopReason: StopReason
 }
 
 // The transcript is provider-native message JSON. It is persisted on the
@@ -43,7 +53,7 @@ export interface ModelRunner {
   start(input: string): unknown[]
   appendUserMessage(transcript: unknown[], content: string): void
   appendToolResults(transcript: unknown[], results: ToolResult[]): void
-  next(transcript: unknown[], system: string, tools: ToolDefinition[]): Promise<ModelTurn>
+  next(transcript: unknown[], system: string, tools: ToolDefinition[], effort?: Effort): Promise<ModelTurn>
 }
 
 const ADAPTIVE_THINKING_MODELS = /^claude-(opus-4-[678]|sonnet-(4-6|5)|fable-5|mythos-5)/
@@ -61,6 +71,19 @@ const LLM_TIMEOUT_MS = AGENT_MODEL_TURN_TIMEOUT_MS
 const parsedRetries = Number(process.env.LLM_MAX_RETRIES)
 const LLM_MAX_RETRIES = Number.isFinite(parsedRetries) && parsedRetries >= 0 ? parsedRetries : 2
 const STREAM_DEADLINE_MS = AGENT_MODEL_TURN_TIMEOUT_MS
+
+// One-shot structured/text calls (generateStructured, generateText) run
+// inside SYNCHRONOUS API routes bounded by a short serverless maxDuration
+// (120s for the chat routes) — nowhere near the 19-minute agent-loop-turn
+// budget above. The shared client's own `timeout` is scoped for the agent
+// loop, so without a tighter deadline here a hung call would run past the
+// platform's own timeout and get killed with no clean error. Bound it well
+// under 120s so a hang surfaces as a normal, catchable error instead. Read
+// per-call (not cached at module load) so it stays overridable in tests.
+function structuredCallDeadlineMs(): number {
+  const parsed = Number(process.env.LLM_STRUCTURED_CALL_DEADLINE_MS)
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 100_000
+}
 
 const CACHE_CONTROL = { type: 'ephemeral' as const }
 
@@ -95,7 +118,7 @@ function withRollingCache(messages: Anthropic.MessageParam[]): Anthropic.Message
 interface Provider {
   readonly kind: ProviderKind
   readonly model: string
-  next(ir: IRMessage[], system: string, tools: ToolDefinition[]): Promise<ModelTurn>
+  next(ir: IRMessage[], system: string, tools: ToolDefinition[], effort?: Effort): Promise<ModelTurn>
 }
 
 // Anthropic-wire provider. Serves BOTH Claude (api.anthropic.com) and Qwen
@@ -107,7 +130,12 @@ class AnthropicProvider implements Provider {
 
   constructor(readonly model: string, private readonly client: Anthropic) {}
 
-  async next(ir: IRMessage[], system: string, tools: ToolDefinition[]): Promise<ModelTurn> {
+  async next(ir: IRMessage[], system: string, tools: ToolDefinition[], effort?: Effort): Promise<ModelTurn> {
+    // Effort is only meaningful on the same current-generation family that gets
+    // adaptive thinking (Haiku and Qwen don't support it) — gate on the model,
+    // not on whether the caller happened to pass one, so a caller can't
+    // accidentally break a non-adaptive model by requesting an effort level.
+    const isAdaptive = ADAPTIVE_THINKING_MODELS.test(this.model)
     const stream = this.client.messages.stream({
       model: this.model,
       max_tokens: 32000,
@@ -115,7 +143,8 @@ class AnthropicProvider implements Provider {
       // system together (they precede messages in the cache prefix), so they
       // bill at ~0.1x on every repeat turn instead of full price each turn.
       system: [{ type: 'text', text: system, cache_control: CACHE_CONTROL }],
-      ...(ADAPTIVE_THINKING_MODELS.test(this.model) ? { thinking: { type: 'adaptive' as const } } : {}),
+      ...(isAdaptive ? { thinking: { type: 'adaptive' as const } } : {}),
+      ...(isAdaptive && effort ? { output_config: { effort } } : {}),
       ...(tools.length
         ? {
             tools: tools.map((tool) => ({
@@ -152,6 +181,7 @@ class AnthropicProvider implements Provider {
           (message.usage.cache_read_input_tokens || 0),
         outputTokens: message.usage.output_tokens,
       },
+      stopReason: (message.stop_reason ?? 'end_turn') as StopReason,
     }
   }
 }
@@ -192,13 +222,13 @@ class AgentRunner implements ModelRunner {
     )
   }
 
-  async next(transcript: unknown[], system: string, tools: ToolDefinition[]): Promise<ModelTurn> {
+  async next(transcript: unknown[], system: string, tools: ToolDefinition[], effort?: Effort): Promise<ModelTurn> {
     const ir = transcript as IRMessage[]
     let lastError: unknown
     for (let i = 0; i < this.chain.length; i += 1) {
       const provider = this.chain[i]
       try {
-        return await provider.next(ir, system, tools)
+        return await provider.next(ir, system, tools, effort)
       } catch (error) {
         lastError = error
         // Only fall back on availability failures, and only if a fallback exists.
@@ -427,13 +457,23 @@ export function strictifySchema(schema: Record<string, unknown>): Record<string,
  * speak it). `output_config` json_schema constrains the reply to the schema.
  */
 async function anthropicWireStructured(opts: StructuredOpts, client: Anthropic, model: string): Promise<string> {
-  const response = await client.messages.create({
+  // Streamed (not .create()) so the call is bounded by an explicit end-to-end
+  // deadline the same way the agent-loop path is — a non-streaming call's
+  // `timeout` only bounds time-to-first-byte, not the full response body.
+  const stream = client.messages.stream({
     model,
     max_tokens: opts.maxTokens ?? 4096,
     system: opts.system,
     messages: [{ role: 'user', content: opts.user }],
-    output_config: { format: { type: 'json_schema', schema: strictifySchema(opts.schema) } },
-  })
+    output_config: {
+      format: { type: 'json_schema', schema: strictifySchema(opts.schema) },
+      // Gated on model support (same family that gets adaptive thinking) —
+      // these are short, single-shot completions, not deep agentic work, so
+      // tune down from the implicit "high" default rather than leaving it unset.
+      ...(ADAPTIVE_THINKING_MODELS.test(model) ? { effort: 'medium' as const } : {}),
+    },
+  }, { signal: AbortSignal.timeout(structuredCallDeadlineMs()) })
+  const response = await stream.finalMessage()
   return response.content
     .filter((block): block is Anthropic.TextBlock => block.type === 'text')
     .map((block) => block.text)

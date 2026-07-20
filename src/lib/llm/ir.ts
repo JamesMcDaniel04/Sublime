@@ -4,10 +4,11 @@
  * The agent transcript is persisted (and replayed on resume) in THIS canonical
  * shape rather than a provider's native message JSON. That buys three things:
  *
- *   1. In-loop provider fallback — a turn that fails on Anthropic can be retried
- *      on OpenAI (and vice-versa) using the exact same transcript.
- *   2. Cross-provider durability — a run started on one provider can be resumed
- *      on another after a routing change or an outage.
+ *   1. In-loop provider fallback — a turn that fails on one Anthropic-wire
+ *      endpoint (Claude) can be retried on another (Qwen) using the exact same
+ *      transcript.
+ *   2. Cross-provider durability — a run started on one endpoint can be
+ *      resumed on another after a routing change or an outage.
  *   3. A stable persisted format independent of any SDK's message schema.
  *
  * Lossless same-provider replay: each assistant message keeps the ORIGINAL
@@ -16,9 +17,13 @@
  * When translating to a DIFFERENT provider, `raw` is ignored and the message is
  * rebuilt from the neutral fields — which correctly DROPS thinking blocks, the
  * same rule Anthropic itself applies when a prompt crosses models.
+ *
+ * `'openai'` remains a valid `raw.provider` tag (not a live translation
+ * target) purely so `coerceToIR` can still resume executions persisted while
+ * an OpenAI provider was in use — see the "Backward-compatible coercion"
+ * section below.
  */
 import type Anthropic from '@anthropic-ai/sdk'
-import type OpenAI from 'openai'
 
 export type ProviderKind = 'anthropic' | 'openai'
 
@@ -98,38 +103,6 @@ export function irFromAnthropic(message: Anthropic.Message): IRAssistantMessage 
     .filter((b): b is Anthropic.ToolUseBlock => b.type === 'tool_use')
     .map((b) => ({ id: b.id, name: b.name, input: (b.input || {}) as Record<string, unknown> }))
   return { role: 'assistant', text, toolCalls, raw: { provider: 'anthropic', content: message.content } }
-}
-
-// ── OpenAI translation ───────────────────────────────────────────────────────
-export function toOpenAIMessages(ir: IRMessage[], system: string): OpenAI.ChatCompletionMessageParam[] {
-  const out: OpenAI.ChatCompletionMessageParam[] = [{ role: 'system', content: system }]
-  for (const m of ir) {
-    if (m.role === 'user') {
-      out.push({ role: 'user', content: m.content })
-    } else if (m.role === 'tool') {
-      for (const r of m.results) out.push({ role: 'tool', tool_call_id: r.toolCallId, content: r.content })
-    } else if (m.raw?.provider === 'openai') {
-      out.push(m.raw.content as OpenAI.ChatCompletionMessageParam)
-    } else {
-      const msg: OpenAI.ChatCompletionAssistantMessageParam = { role: 'assistant', content: m.text || null }
-      if (m.toolCalls.length) {
-        msg.tool_calls = m.toolCalls.map((tc) => ({
-          id: tc.id,
-          type: 'function' as const,
-          function: { name: tc.name, arguments: JSON.stringify(tc.input) },
-        }))
-      }
-      out.push(msg)
-    }
-  }
-  return out
-}
-
-export function irFromOpenAI(message: OpenAI.ChatCompletionMessage): IRAssistantMessage {
-  const toolCalls = (message.tool_calls || [])
-    .filter((c): c is OpenAI.ChatCompletionMessageToolCall & { type: 'function' } => c.type === 'function')
-    .map((c) => ({ id: c.id, name: c.function.name, input: safeJson(c.function.arguments) }))
-  return { role: 'assistant', text: (message.content || '').trim(), toolCalls, raw: { provider: 'openai', content: message } }
 }
 
 // ── Backward-compatible coercion ─────────────────────────────────────────────

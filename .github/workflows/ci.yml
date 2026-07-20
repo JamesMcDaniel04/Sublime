@@ -43,6 +43,30 @@ jobs:
       - run: npm test
       - run: npm run build
 
+  # Live LLM-as-judge quality checks (src/lib/eval) — the same fixtures the
+  # `check` job replays deterministically (offline, always on), run for real
+  # against a configured model to catch QUALITY regressions the scripted
+  # replay can't see (checkTrajectory only asserts structure: which tools
+  # ran, substrings in the final text). Requires a real ANTHROPIC_API_KEY
+  # secret; skips entirely without one (e.g. forked PRs), same as running
+  # locally with no key. continue-on-error because judge verdicts aren't
+  # fully deterministic — a red run here is a nudge to look, not a merge
+  # blocker the way `check`'s structural tests are.
+  eval:
+    runs-on: ubuntu-latest
+    if: ${{ secrets.ANTHROPIC_API_KEY != '' }}
+    continue-on-error: true
+    env:
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - run: npm run eval
+
   # Prove the migration history applies cleanly from zero and that
   # schema.prisma matches the migrations exactly (no drift) — the guard that
   # ends hand-applied production SQL.
