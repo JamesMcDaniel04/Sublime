@@ -59,6 +59,7 @@ model Organization {
   userEvents                UserEvent[]
   userPatterns              UserPattern[]
   userSuggestions           UserSuggestion[]
+  persona                   OrganizationPersona?
 
   @@map("organizations")
 }
@@ -954,6 +955,27 @@ model ActivityBackfill {
 
   @@unique([organizationId, source, connectionRef])
   @@map("activity_backfills")
+}
+
+/// Durable per-organization persona (org-persona-pipeline spec 2026-07-20).
+/// departmentWeights are deterministic and always present; narrative and
+/// confidence stay NULL until real usage signal exists (a scan profile or
+/// activity events). Postgres is the source of truth; a graph projection
+/// mirrors it when NEO4J_* + VOYAGE_API_KEY are configured.
+model OrganizationPersona {
+  id                String   @id @default(cuid())
+  organizationId    String   @unique @db.Uuid
+  departmentWeights Json     @default("{}")
+  narrative         String?
+  confidence        Float?
+  signalsSummary    Json     @default("{}")
+  computedAt        DateTime @db.Timestamptz(6)
+  createdAt         DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt         DateTime @updatedAt @db.Timestamptz(6)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@map("organization_personas")
 }
 
 /// Atomic idempotency ledger for activity→flow dispatch: one row per
