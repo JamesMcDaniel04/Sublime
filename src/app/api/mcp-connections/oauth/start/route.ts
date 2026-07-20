@@ -17,6 +17,7 @@ import { NextResponse } from 'next/server'
 import { withAuthenticatedApi } from '@/lib/server/api-handler'
 import { encryptSecret } from '@/lib/crypto/secrets'
 import { prisma } from '@/lib/prisma'
+import { assertPublicUrl, SsrfError } from '@/lib/net/ssrf'
 import {
   buildAuthorizeUrl,
   discoverAuthServer,
@@ -58,13 +59,19 @@ export const GET = withAuthenticatedApi(async (request, auth) => {
     )
   }
 
-  // Validate the URL up front so a bad value can't blow up discovery.
+  // SSRF guard: re-checked here (not just at connection-save time) so a host
+  // that now resolves to a private/internal address is still blocked, and so
+  // the new-connection path (which never went through the save-time guard)
+  // can't be used to probe or POST to internal infrastructure.
   try {
-    void new URL(effectiveServerUrl)
-  } catch {
-    return NextResponse.redirect(
-      new URL('/connections?error=oauth_params', request.nextUrl.origin),
-    )
+    await assertPublicUrl(effectiveServerUrl)
+  } catch (error) {
+    if (error instanceof SsrfError) {
+      return NextResponse.redirect(
+        new URL('/connections?error=oauth_params', request.nextUrl.origin),
+      )
+    }
+    throw error
   }
 
   const redirectUri = `${request.nextUrl.origin}/api/mcp-connections/oauth/callback`
@@ -74,6 +81,9 @@ export const GET = withAuthenticatedApi(async (request, auth) => {
     if (!meta.registration_endpoint) {
       throw new Error('OAuth server does not advertise a registration_endpoint')
     }
+    // The discovery response is attacker-influenced for a malicious/compromised
+    // MCP server — validate the endpoint it hands back before POSTing to it.
+    await assertPublicUrl(meta.registration_endpoint)
 
     const { client_id, client_secret } = await registerClient(
       meta.registration_endpoint,
