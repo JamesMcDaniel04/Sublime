@@ -20,7 +20,27 @@ const AgentConfigForm = dynamic(() => import('./agent-config-form').then((m) => 
   ),
 })
 import { AssistantPanel } from './assistant-panel'
-import { TemplatesExplorer } from '@/components/templates/templates-explorer'
+// Kept out of the Agents tab's initial bundle/fetches — the Templates
+// library carries its own AI-search UI and four data fetches. Loading it
+// eagerly meant /agents always paid for both surfaces at once, even for
+// someone who never switches tabs. Now it loads (and starts fetching) only
+// when `view` actually flips to 'templates'.
+const TemplatesExplorer = dynamic(
+  () => import('@/components/templates/templates-explorer').then((m) => m.TemplatesExplorer),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="mx-auto max-w-6xl space-y-6 p-6">
+        <Skeleton className="h-11 w-full rounded-md" />
+        <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3">
+          <Skeleton className="h-56 rounded-xl" />
+          <Skeleton className="h-56 rounded-xl" />
+          <Skeleton className="h-56 rounded-xl" />
+        </div>
+      </div>
+    ),
+  },
+)
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'

@@ -567,7 +567,6 @@ export function Sidebar() {
             >
               <Search className="h-3.5 w-3.5" />
               <span className="flex-1 text-left">Search</span>
-              <kbd className="rounded border border-border bg-background px-1.5 py-0.5 text-[10px] text-muted-foreground">⌘K</kbd>
             </button>
             <NotificationBell buttonClassName="border-border bg-muted text-foreground hover:bg-secondary" />
             <RailTooltip label="Collapse sidebar" shortcut="⌘B">
