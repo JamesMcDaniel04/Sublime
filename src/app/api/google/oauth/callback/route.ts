@@ -3,6 +3,7 @@ import { prisma } from '@/lib/prisma'
 import { GOOGLE_SERVICE_SCOPES, exchangeCode, fetchAccountEmail, verifyState } from '@/lib/google/oauth'
 import { upsertGoogleConnection } from '@/lib/google/store'
 import { scanConnection, shouldScanNangoConnection } from '@/lib/intelligence/connection-scan'
+import { triggerAutoBackfills } from '@/lib/activity/auto-backfill'
 import { capabilityForProviderConfigKey } from '@/lib/nango/delivery'
 import { fromNangoProviderKey } from '@/lib/connectors/registry'
 import { apiLogger } from '@/lib/logger'
@@ -36,7 +37,7 @@ export async function GET(request: NextRequest): Promise<Response> {
       select: { status: true },
     })
 
-    await upsertGoogleConnection({
+    const { id: googleConnectionId } = await upsertGoogleConnection({
       organizationId: state.organizationId,
       userId: state.userId,
       service: state.service,
@@ -44,6 +45,20 @@ export async function GET(request: NextRequest): Promise<Response> {
       scopes: tokens.scope ? tokens.scope.split(' ') : [...GOOGLE_SERVICE_SCOPES[state.service]],
       refreshToken: tokens.refreshToken,
     })
+
+    // Services with a registered ActivitySource (calendar) start their
+    // historical backfill the moment the grant lands — the same on-connect
+    // learning leg the Nango status route fires for github. No-op for
+    // services without an adapter (gmail is send-only by scope policy).
+    const runBackfill = () =>
+      triggerAutoBackfills(state.organizationId, [
+        { connectionId: googleConnectionId, providerConfigKey: state.service },
+      ]).catch(() => undefined)
+    try {
+      after(runBackfill)
+    } catch {
+      void runBackfill()
+    }
 
     if (shouldScanNangoConnection(previous ?? undefined, true)) {
       const capability = capabilityForProviderConfigKey(state.service)
@@ -68,7 +83,7 @@ export async function GET(request: NextRequest): Promise<Response> {
         }
       }
     }
-    return redirect('?connected=gmail')
+    return redirect(`?connected=${encodeURIComponent(state.service)}`)
   } catch (error) {
     apiLogger.error('google-oauth: callback failed', {
       error: error instanceof Error ? error.message : String(error),

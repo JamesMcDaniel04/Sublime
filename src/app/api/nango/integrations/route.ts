@@ -26,12 +26,15 @@ type IntegrationChip = {
 const CACHE_KEY = 'nango:integrations'
 const CACHE_TTL_MS = 10 * 60 * 1000
 
-/** Gmail connects natively (Google blocks Nango's flow). When configured, the
- *  native tile REPLACES any Nango Gmail tile so there is exactly one. */
+/** Google services connect natively (Google blocks Nango's flow). When
+ *  configured, native tiles REPLACE any Nango equivalents so there is exactly
+ *  one tile per service. Calendar's tile powers meeting-history learning
+ *  (the google_calendar ActivitySource). */
 function withNativeGoogle(integrations: IntegrationChip[]): IntegrationChip[] {
   if (!googleOAuthConfigured()) return integrations
-  const withoutNangoGmail = integrations.filter(
-    (integration) => capabilityForProviderConfigKey(integration.id) !== 'gmail',
+  const withoutNangoGoogle = integrations.filter(
+    (integration) => capabilityForProviderConfigKey(integration.id) !== 'gmail'
+      && !integration.id.toLowerCase().includes('calendar'),
   )
   return [
     {
@@ -41,7 +44,13 @@ function withNativeGoogle(integrations: IntegrationChip[]): IntegrationChip[] {
       capability: 'gmail' as DeliveryCapability,
       native: true,
     },
-    ...withoutNangoGmail,
+    {
+      id: 'google-calendar',
+      provider: 'google-calendar',
+      name: 'Google Calendar',
+      native: true,
+    },
+    ...withoutNangoGoogle,
   ]
 }
 

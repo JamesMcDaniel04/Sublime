@@ -2,10 +2,12 @@
 import type { ActivitySource } from './types'
 import { slackActivitySource } from './sources/slack'
 import { githubActivitySource } from './sources/github'
+import { googleCalendarActivitySource } from './sources/google-calendar'
 
 const SOURCES: Record<string, ActivitySource> = {
   [slackActivitySource.source]: slackActivitySource,
   [githubActivitySource.source]: githubActivitySource,
+  [googleCalendarActivitySource.source]: googleCalendarActivitySource,
 }
 
 export function getActivitySource(source: string): ActivitySource | null {

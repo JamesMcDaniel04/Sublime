@@ -21,6 +21,13 @@ export const GOOGLE_SERVICE_SCOPES = {
     'https://www.googleapis.com/auth/gmail.send',
     'https://www.googleapis.com/auth/userinfo.email',
   ],
+  // calendar.readonly is a "sensitive" scope (same verification class as
+  // gmail.send — no CASA assessment). Read access powers the Calendar
+  // ActivitySource: historical meetings feed the org's usage-pattern ledger.
+  'google-calendar': [
+    'https://www.googleapis.com/auth/calendar.readonly',
+    'https://www.googleapis.com/auth/userinfo.email',
+  ],
 } as const
 
 export type GoogleOAuthService = keyof typeof GOOGLE_SERVICE_SCOPES

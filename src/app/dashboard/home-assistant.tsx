@@ -21,6 +21,7 @@ import {
 import { Button } from '@/components/ui/button'
 import { Markdown } from '@/components/ui/markdown'
 import { notifyAgentsChanged } from '@/components/layout/sidebar'
+import { LearningProgressCard } from '@/components/intelligence/learning-progress-card'
 import { useAuth } from '@/hooks/use-auth'
 import { cn } from '@/lib/utils'
 
@@ -589,7 +590,10 @@ export function HomeAssistant() {
             <div className="mt-2">
               <TypedHeadline phrases={HEADLINE_CTAS} />
             </div>
-            <div className="mt-6">{composer}</div>
+            <div className="mt-6">
+              <LearningProgressCard />
+              {composer}
+            </div>
             <div className="mt-4 flex flex-wrap justify-center gap-2">
               {PRESETS.map((preset) => (
                 <button
