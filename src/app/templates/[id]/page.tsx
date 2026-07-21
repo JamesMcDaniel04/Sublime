@@ -124,9 +124,19 @@ export default function TemplateDetails() {
     getCachedJson<any>('/api/integrations/available', 30_000)
       .then((data) => setConnected(connectedSlugSet(data.tools || [])))
       .catch(() => setConnected(new Set()))
+    getCachedJson<any>('/api/flows/tool-catalog', 30_000)
+      .then((data) => setCatalog(Array.isArray(data.connections) ? data.connections : []))
+      .catch(() => setCatalog([]))
   }, [])
 
   const missing = template ? missingIntegrations(template.requiredIntegrations ?? [], connected) : []
+
+  // Providers where the workspace has SEVERAL satisfying connections — the
+  // only case where "which account?" is a real question. Single-account
+  // providers bind deterministically server-side with no UI.
+  const ambiguousProviders = (template?.requiredIntegrations ?? [])
+    .map((provider) => ({ provider, matches: catalog.filter((c) => bindSlug(c.name) === bindSlug(provider)) }))
+    .filter((entry) => entry.matches.length > 1)
 
   // Every template — seed or community — deploys through the trusted
   // server-side provision route: instructions, schedule, and connection
@@ -144,6 +154,7 @@ export default function TemplateDetails() {
           // 1-click: a flow deploy publishes + activates in the same call
           // (server degrades to DRAFT if the graph fails validation).
           activate: targetKind === 'flow',
+          ...(Object.keys(accountChoices).length ? { connectionOverrides: accountChoices } : {}),
         }),
       })
       const data = await response.json().catch(() => ({}))
@@ -158,6 +169,7 @@ export default function TemplateDetails() {
       }
       // An OK response missing its id must still surface — falling through
       // silently cleared the spinner and stranded the user on this page.
+      if (data.deliveryWarning) toast.info(data.deliveryWarning, { duration: 12000 })
       if (targetKind === 'flow' && data.flowId) {
         toast.success(data.activated ? 'Flow deployed and active.' : 'Flow created as a draft — review and publish it.')
         router.push(`/flows/${data.flowId}`)
@@ -215,6 +227,30 @@ export default function TemplateDetails() {
               <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
                 Connect {missing.join(', ')} to deploy this template — once connected, it deploys in one click with everything pre-configured.{' '}
                 <Link href="/integrations" className="font-semibold underline underline-offset-2">Open integrations</Link>
+              </div>
+            )}
+
+            {ambiguousProviders.length > 0 && (
+              <div className="rounded-lg border bg-card px-4 py-3 text-sm shadow-1">
+                <p className="font-medium">Choose which account to use</p>
+                <div className="mt-2 flex flex-wrap gap-4">
+                  {ambiguousProviders.map(({ provider, matches }) => (
+                    <label key={provider} className="flex items-center gap-2 text-sm text-muted-foreground">
+                      <span className="capitalize">{provider}:</span>
+                      <select
+                        className="rounded-md border bg-background px-2 py-1 text-sm"
+                        value={accountChoices[bindSlug(provider)] ?? matches[0].id}
+                        onChange={(event) =>
+                          setAccountChoices((prev) => ({ ...prev, [bindSlug(provider)]: event.target.value }))
+                        }
+                      >
+                        {matches.map((match) => (
+                          <option key={match.id} value={match.id}>{match.name} ({match.id})</option>
+                        ))}
+                      </select>
+                    </label>
+                  ))}
+                </div>
               </div>
             )}
 
