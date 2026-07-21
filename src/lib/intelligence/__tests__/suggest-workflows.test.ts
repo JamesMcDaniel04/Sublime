@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { meetsSuggestionGate, parseSuggestions, buildSynthesisPrompt, FLOW_TARGET_MARKER_PREFIX } from '../suggest-workflows'
+import { MIN_USAGE_EVENTS_FOR_SUGGESTIONS, meetsSuggestionGate, meetsUsageEvidenceGate, parseSuggestions, buildSynthesisPrompt, FLOW_TARGET_MARKER_PREFIX } from '../suggest-workflows'
 
 test('meetsSuggestionGate: below 3 total connections is not met', () => {
   assert.equal(meetsSuggestionGate({ nango: 0, mcp: 0 }), false)
@@ -16,6 +16,13 @@ test('meetsSuggestionGate: exactly 3 total (any split) is met', () => {
 
 test('meetsSuggestionGate: more than 3 total is met', () => {
   assert.equal(meetsSuggestionGate({ nango: 4, mcp: 2 }), true)
+})
+
+test('meetsUsageEvidenceGate: no recommendations until real usage is captured', () => {
+  assert.equal(meetsUsageEvidenceGate(0), false)
+  assert.equal(meetsUsageEvidenceGate(MIN_USAGE_EVENTS_FOR_SUGGESTIONS - 1), false)
+  assert.equal(meetsUsageEvidenceGate(MIN_USAGE_EVENTS_FOR_SUGGESTIONS), true)
+  assert.equal(meetsUsageEvidenceGate(MIN_USAGE_EVENTS_FOR_SUGGESTIONS + 100), true)
 })
 
 test('parseSuggestions: parses well-formed JSON', () => {

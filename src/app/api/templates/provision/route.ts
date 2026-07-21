@@ -14,7 +14,7 @@ import type { AgentSchedule } from '@/lib/scheduling/due'
 import type { FlowGraph } from '@/lib/flows/graph'
 import { withTemplateOutputStandard } from '@/lib/templates/output-standard'
 import { assertAgentCapacity, assertFlowCapacity, assertSpecialistAreaCapacity } from '@/lib/billing/enforce'
-import { departmentsForTools } from '@/lib/templates/departments'
+import { DEPARTMENTS, departmentsForTools, type Department } from '@/lib/templates/departments'
 
 const bodySchema = z
   .object({
@@ -137,7 +137,7 @@ type DbTemplateRecipe = {
   templateId: string
   name: string
   description: string
-  departments: string[]
+  departments: Department[]
   requiredIntegrations: string[]
   kind: 'agent' | 'flow'
   spec: MaterializeSpec
@@ -176,7 +176,7 @@ async function loadDbTemplateRecipe(templateId: string, organizationId: string):
     templateId: row.id,
     name: row.name,
     description: row.description || '',
-    departments: strings(config.departments),
+    departments: strings(config.departments).filter((d): d is Department => (DEPARTMENTS as readonly string[]).includes(d)),
     requiredIntegrations: strings(config.requiredIntegrations),
     kind: config.kind === 'flow' ? 'flow' : 'agent',
     schedule,

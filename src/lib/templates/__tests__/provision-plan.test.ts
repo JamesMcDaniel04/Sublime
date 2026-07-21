@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { resolveGraphToolConnections, rewriteGraphAgentRefs } from '../provision-plan'
+import { missingRequiredProviders, resolveGraphToolConnections, rewriteGraphAgentRefs } from '../provision-plan'
 import type { FlowGraph } from '@/lib/flows/graph'
 
 const g: FlowGraph = {
@@ -29,13 +29,39 @@ test('template tool placeholders prefer Nango and adopt its discovered tool name
     nodes: [{ id: 'sf', type: 'tool', data: { connectionId: 'template:salesforce', toolName: 'salesforce_create_record', args: '{}' } }],
     edges: [],
   }
-  const out = resolveGraphToolConnections(graph, [
+  const { graph: out, bindings } = resolveGraphToolConnections(graph, [
     { id: 'cmcpsfrow', name: 'Salesforce', tools: [{ name: 'create_record', description: '' }] },
     { id: 'nango:salesforce', name: 'Salesforce', tools: [{ name: 'salesforce_create_record', description: '' }] },
   ])
   const node = out.nodes[0] as any
   assert.equal(node.data.connectionId, 'nango:salesforce')
   assert.equal(node.data.toolName, 'salesforce_create_record')
+  assert.deepEqual(bindings, [{ provider: 'salesforce', connectionId: 'nango:salesforce', connectionName: 'Salesforce' }])
+})
+
+test('binding is deterministic across same-plane duplicates and honors overrides', () => {
+  const graph: FlowGraph = {
+    nodes: [{ id: 'sf', type: 'tool', data: { connectionId: 'template:salesforce', toolName: 'create_record', args: '{}' } }],
+    edges: [],
+  }
+  const catalog = [
+    { id: 'nango:salesforce-b', name: 'Salesforce', tools: [{ name: 'create_record', description: '' }] },
+    { id: 'nango:salesforce-a', name: 'Salesforce', tools: [{ name: 'create_record', description: '' }] },
+  ]
+  // Deterministic default: stable by id, regardless of catalog order.
+  const first = resolveGraphToolConnections(graph, catalog)
+  const second = resolveGraphToolConnections(graph, [...catalog].reverse())
+  assert.equal((first.graph.nodes[0] as any).data.connectionId, 'nango:salesforce-a')
+  assert.equal((second.graph.nodes[0] as any).data.connectionId, 'nango:salesforce-a')
+  // Explicit override pins the other account.
+  const overridden = resolveGraphToolConnections(graph, catalog, { salesforce: 'nango:salesforce-b' })
+  assert.equal((overridden.graph.nodes[0] as any).data.connectionId, 'nango:salesforce-b')
+})
+
+test('missingRequiredProviders matches the binding pass (present vs absent)', () => {
+  const catalog = [{ id: 'nango:salesforce', name: 'Salesforce', tools: [{ name: 'create_record', description: '' }] }]
+  assert.deepEqual(missingRequiredProviders(['salesforce', 'hubspot'], catalog), ['hubspot'])
+  assert.deepEqual(missingRequiredProviders(['salesforce'], catalog), [])
 })
 
 test('template tool placeholders fail clearly when the integration is disconnected', () => {
@@ -44,4 +70,5 @@ test('template tool placeholders fail clearly when the integration is disconnect
     edges: [],
   }
   assert.throws(() => resolveGraphToolConnections(graph, []), /Connect salesforce/)
+  assert.deepEqual(missingRequiredProviders(['salesforce'], []), ['salesforce'])
 })
