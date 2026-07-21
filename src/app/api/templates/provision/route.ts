@@ -4,10 +4,10 @@ import { DEFAULT_AGENT_MODEL } from '@/lib/llm/model-runner'
 import { ApiError, withAuthenticatedApi } from '@/lib/server/api-handler'
 import { deliveryForSeed, getSeedByKey, instructionsForSeed, type SeedTemplate, type TemplateAgentSpec } from '@/lib/templates/catalogue'
 import { missingRequiredProviders, resolveGraphToolConnections, rewriteGraphAgentRefs } from '@/lib/templates/provision-plan'
+import { validateSlackDeliveryChannel } from '@/lib/templates/validate-delivery'
 import { loadFlowToolCatalog } from '@/lib/flows/tool-catalog'
 import { normalizeFlowTrigger, triggerFromGraph } from '@/lib/flows/trigger'
-import { validateFlowGraph, validationErrorMessage } from '@/lib/flows/validate'
-import { agentReadScope } from '@/lib/server/visibility'
+import { activateFlow } from '@/lib/flows/activate'
 import { syncAgentConnectors } from '@/lib/connectors/agent-connectors'
 import { recordUserEvent } from '@/lib/behavior/record-event'
 import type { AgentSchedule } from '@/lib/scheduling/due'
@@ -204,31 +204,6 @@ async function loadDbTemplateRecipe(templateId: string, organizationId: string):
   }
 }
 
-/**
- * Validate + publish a just-provisioned flow graph so it is live immediately
- * (status ACTIVE + publishedGraph + version row — the exact contract the
- * editor's publish route establishes; the cron dispatcher only fires flows
- * that hold both). Returns whether activation succeeded; a validation failure
- * degrades to DRAFT rather than failing the deploy.
- */
-async function activationPlan(
-  graph: FlowGraph,
-  organizationId: string,
-  userId: string,
-  toolCatalog: Awaited<ReturnType<typeof loadFlowToolCatalog>>,
-): Promise<{ ok: true } | { ok: false; reason: string }> {
-  const agents = await prisma.agentTask.findMany({
-    where: { organizationId, status: 'ACTIVE', ...agentReadScope(userId) },
-    select: { id: true, description: true },
-    take: 500,
-  })
-  const validation = validateFlowGraph(graph, {
-    agents: agents.map((agent) => ({ id: agent.id, title: agent.description })),
-    toolCatalog,
-  })
-  return validation.ok ? { ok: true } : { ok: false, reason: validationErrorMessage(validation) }
-}
-
 // Provisions a template (built-in seed or community/DB row) into real,
 // org-scoped rows. The recipe is always re-read server-side — a client-
 // supplied graph is never trusted. Missing REQUIRED integrations fail up
@@ -349,13 +324,12 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
     const { graph, bindings } = resolveGraphToolConnections(withAgents, toolCatalog, connectionOverrides)
     const trigger = templateTrigger ? normalizeFlowTrigger(templateTrigger) : triggerFromGraph(graph)
 
-    // 1-click activation: only a graph that passes the SAME validation the
-    // editor's publish route runs goes live; anything else lands as DRAFT
-    // with the reason surfaced to the caller.
-    const activation = activate
-      ? await activationPlan(graph, organizationId, userId, toolCatalog)
-      : { ok: false as const, reason: 'not requested' }
-    const activated = activate && activation.ok
+    // Delivery-target sanity: a deploy that would post to a non-existent
+    // channel gets a warning (recorded + returned), never a silent failure
+    // days later. Best-effort — validation unavailability never blocks.
+    const deliveryCheck = delivery?.kind === 'slack' && slackChannel
+      ? await validateSlackDeliveryChannel(organizationId, slackChannel)
+      : { ok: true as const }
 
     const graphJson = jsonValue(graph)
     const triggerJson = jsonValue(trigger)
@@ -363,33 +337,31 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
       data: {
         name,
         description,
-        status: activated ? 'ACTIVE' : 'DRAFT',
+        status: 'DRAFT',
         visibility: 'private',
         trigger: triggerJson,
         graph: graphJson,
-        ...(activated ? { publishedGraph: graphJson } : {}),
         metadata: jsonValue({
           seededFrom: seedKey ?? null,
           provisionedFromTemplateId: templateId ?? null,
           provisionedAs: 'flow',
           resolvedConnections: bindings,
           ...(delivery ? { delivery: { kind: delivery.kind, destination: delivery.kind === 'slack' ? slackChannel : emailTo } } : {}),
+          ...(deliveryCheck.warning ? { deliveryWarning: deliveryCheck.warning } : {}),
         }),
         organizationId,
         userId,
       },
-      select: { id: true, version: true },
+      select: { id: true },
     })
-    if (activated) {
-      // Mirror the publish route's version contract so later editor publishes
-      // continue the version sequence cleanly.
-      await prisma.flowVersion.create({
-        data: {
-          flowId: flow.id, organizationId, version: flow.version,
-          graph: graphJson, trigger: triggerJson, publishedBy: userId,
-        },
-      }).catch(() => undefined)
-    }
+
+    // 1-click activation: only a graph that passes the SAME validation the
+    // editor's publish route runs goes live; anything else stays DRAFT with
+    // the reason surfaced to the caller.
+    const activation = activate
+      ? await activateFlow(flow.id, organizationId, userId)
+      : { activated: false as const, reason: 'not requested' }
+    const activated = activation.activated
 
     // Project connector bindings for each materialized agent. Best-effort and
     // post-create, mirroring the agents route's own sync call.
@@ -403,7 +375,8 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
       kind: 'flow' as const,
       flowId: flow.id,
       activated,
-      ...(activate && !activation.ok ? { activationError: activation.reason } : {}),
+      ...(activate && !activation.activated ? { activationError: activation.reason } : {}),
+      ...(deliveryCheck.warning ? { deliveryWarning: deliveryCheck.warning } : {}),
     }
   } catch (error) {
     // Best-effort cleanup: a ref/materialization mismatch (rewriteGraphAgentRefs

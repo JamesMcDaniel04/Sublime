@@ -24,8 +24,25 @@ export const GET = withAuthenticatedApi(async (_request, auth) => {
   }
 })
 
+// 1-click adoption: approving a suggested draft flow can publish + activate
+// it in the same action (same validate→publish contract as the editor). A
+// failing graph stays DRAFT and the reason rides back to the dialog.
+async function activateAcceptedFlow(
+  flowId: string,
+  organizationId: string,
+  userId: string,
+): Promise<{ activated: boolean; reason?: string }> {
+  const { activateFlow } = await import('@/lib/flows/activate')
+  return activateFlow(flowId, organizationId, userId).catch((error) => ({
+    activated: false,
+    reason: error instanceof Error ? error.message : 'activation failed',
+  }))
+}
+
 export const POST = withAuthenticatedApi(async (request, auth) => {
-  const { id, action } = z.object({ id: z.string().min(1), action: z.enum(['accept', 'dismiss']) }).parse(await request.json())
+  const { id, action, activate } = z
+    .object({ id: z.string().min(1), action: z.enum(['accept', 'dismiss']), activate: z.boolean().default(false) })
+    .parse(await request.json())
   const suggestion = await prisma.userSuggestion.findFirst({
     where: { id, organizationId: auth.organizationId, userId: auth.dbUser.id, status: 'open' },
   })
@@ -35,6 +52,10 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
     where: { id: suggestion.id, organizationId: auth.organizationId },
     data: { status: action === 'accept' ? 'accepted' : 'dismissed' },
   })
+
+  const activation = action === 'accept' && activate && suggestion.kind === 'new_flow' && suggestion.flowId
+    ? await activateAcceptedFlow(suggestion.flowId, auth.organizationId, auth.dbUser.id)
+    : null
 
   // Accepting an enhancement must make it VISIBLE on its target. Agent
   // targets already got an AgentMemory suggestion at synthesis time; flow
@@ -86,5 +107,8 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
     resourceType: 'suggestion', resourceId: suggestion.id,
     context: { suggestionKind: suggestion.kind },
   })
-  return { success: true }
+  return {
+    success: true,
+    ...(activation ? { activated: activation.activated, ...(activation.reason ? { activationError: activation.reason } : {}) } : {}),
+  }
 })

@@ -32,7 +32,15 @@ type Props = {
   onActioned?: (action: 'accept' | 'dismiss') => void
 }
 
-export function SuggestionApprovalDialog({ open, onClose, onActioned }: Props) {
+/** Where an approved suggestion lands the user: the thing that changed. */
+function acceptedDestination(s: OpenUserSuggestion): string | null {
+  if (s.flowId) return `/flows/${s.flowId}`
+  if (s.targetType === 'flow' && s.targetId) return `/flows/${s.targetId}`
+  if (s.targetType === 'agent' && s.targetId) return `/agents?agent=${s.targetId}`
+  return null
+}
+
+export function SuggestionApprovalDialog({ open, onClose, onActioned }: Readonly<Props>) {
   const router = useRouter()
   const [suggestion, setSuggestion] = useState<OpenUserSuggestion | null>(null)
   const [loading, setLoading] = useState(false)
@@ -57,27 +65,30 @@ export function SuggestionApprovalDialog({ open, onClose, onActioned }: Props) {
     return () => { cancelled = true }
   }, [open])
 
-  const act = async (action: 'accept' | 'dismiss') => {
+  const act = async (action: 'accept' | 'dismiss', activate = false) => {
     if (!suggestion || busy) return
     setBusy(true)
     try {
       const response = await fetch('/api/intelligence/user-suggestions', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id: suggestion.id, action }),
+        body: JSON.stringify({ id: suggestion.id, action, activate }),
       })
+      const data = await response.json().catch(() => ({}))
       if (!response.ok) throw new Error('request failed')
-      const accepted = action === 'accept'
-      const { flowId, targetType, targetId } = suggestion
       onActioned?.(action)
       onClose()
+      if (action !== 'accept') return
+      if (activate) {
+        if (data.activated) toast.success('Approved — the flow is live.')
+        else toast.info('Approved as a draft — it needs a quick review before it can go live.')
+      }
       // Approving always lands the user ON the thing that changed: the draft
       // flow, the enhanced flow, or the enhanced agent's config (where the
       // suggestion banner now shows it).
-      if (accepted && flowId) router.push(`/flows/${flowId}`)
-      else if (accepted && targetType === 'flow' && targetId) router.push(`/flows/${targetId}`)
-      else if (accepted && targetType === 'agent' && targetId) router.push(`/agents?agent=${targetId}`)
-      else if (accepted) toast.success('Suggestion saved.')
+      const destination = acceptedDestination(suggestion)
+      if (destination) router.push(destination)
+      else toast.success('Suggestion saved.')
     } catch {
       toast.error('Could not update the suggestion. Try again.')
     } finally {
@@ -115,9 +126,20 @@ export function SuggestionApprovalDialog({ open, onClose, onActioned }: Props) {
               <Button variant="ghost" disabled={busy} onClick={() => void act('dismiss')}>
                 Deny
               </Button>
-              <Button loading={busy} onClick={() => void act('accept')}>
-                {suggestion.kind === 'new_flow' ? 'Approve & review draft' : 'Approve'}
-              </Button>
+              {suggestion.kind === 'new_flow' && suggestion.flowId ? (
+                <>
+                  <Button variant="outline" disabled={busy} onClick={() => void act('accept')}>
+                    Approve & review draft
+                  </Button>
+                  <Button loading={busy} onClick={() => void act('accept', true)}>
+                    Approve & activate
+                  </Button>
+                </>
+              ) : (
+                <Button loading={busy} onClick={() => void act('accept')}>
+                  Approve
+                </Button>
+              )}
             </div>
           </div>
         )}

@@ -47,6 +47,11 @@ type Template = {
 
 type ProvisionKind = 'agent' | 'flow'
 
+type CatalogConnection = { id: string; name: string }
+
+/** Same normalization the server's binding pass uses (provision-plan.ts). */
+const bindSlug = (value: string) => value.toLowerCase().replace(/[^a-z0-9]+/g, '')
+
 const MANUAL_SCHEDULE = { type: 'manual', time: '', cron: '', timezone: 'UTC', isActive: false }
 
 function templateSchedule(template: Template) {
@@ -95,6 +100,9 @@ export default function TemplateDetails() {
   const [reloadKey, setReloadKey] = useState(0)
   const [deploying, setDeploying] = useState<ProvisionKind | null>(null)
   const [connected, setConnected] = useState<Set<string>>(new Set())
+  const [catalog, setCatalog] = useState<CatalogConnection[]>([])
+  // Multi-account workspaces: provider slug → pinned catalog connection id.
+  const [accountChoices, setAccountChoices] = useState<Record<string, string>>({})
 
   useEffect(() => {
     setLoading(true)
