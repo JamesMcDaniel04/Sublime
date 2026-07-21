@@ -53,6 +53,29 @@ const DISTILLATION_JSON_SCHEMA = {
   required: ['people', 'accounts', 'decisions', 'commitments'],
 }
 
+/** Pure: parse + validate the model's JSON output; null on any mismatch. */
+export function parseDistillation(raw: string): NoteDistillation | null {
+  try {
+    const parsed = JSON.parse(raw) as Partial<NoteDistillation>
+    const strings = (value: unknown): string[] =>
+      Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : []
+    const commitments = Array.isArray(parsed.commitments)
+      ? parsed.commitments.filter(
+          (c): c is { text: string; action: string } =>
+            Boolean(c) && typeof c === 'object' && typeof (c as { text?: unknown }).text === 'string' && typeof (c as { action?: unknown }).action === 'string',
+        )
+      : []
+    return {
+      people: strings(parsed.people),
+      accounts: strings(parsed.accounts),
+      decisions: strings(parsed.decisions),
+      commitments,
+    }
+  } catch {
+    return null
+  }
+}
+
 /** Pure: normalized action key for grouping ("Send Follow-Up Email!" → "send follow-up email"). */
 export function commitmentActionKey(action: string): string {
   return action.toLowerCase().replace(/[^a-z0-9]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 60)
@@ -87,8 +110,8 @@ async function distillOne(organizationId: string, note: GranolaNote, deps: Deps)
       'You distill one meeting-note summary into structured facts for a private knowledge base. Extract only what the text states: people named, customer/company accounts discussed, decisions made, and COMMITMENTS — concrete things the note-taker or team said they would do. Normalize each commitment to a short action phrase. Never invent items.',
     user: [`Meeting: ${note.title}`, '', note.summary.slice(0, SUMMARY_CHAR_CAP)].join('\n'),
   })
-  const extraction = raw as NoteDistillation
-  if (!extraction || !Array.isArray(extraction.commitments)) return false
+  const extraction = parseDistillation(raw)
+  if (!extraction) return false
 
   // Owner attribution: the note owner's email → workspace user, when present.
   const owner = note.ownerRef.includes('@')
