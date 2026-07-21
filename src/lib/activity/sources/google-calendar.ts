@@ -88,7 +88,7 @@ async function resolveConnection(ctx: SourceContext): Promise<{ connectionId: st
 export function makeGoogleCalendarActivitySource(proxyOverride?: NangoProxy): ActivitySource {
   return {
     source: GOOGLE_CALENDAR_SOURCE,
-    capabilities: { backfill: true, webhooks: false, incrementalSync: false },
+    capabilities: { backfill: true, webhooks: false, incrementalSync: true },
     async *backfill(ctx: SourceContext, window: BackfillWindow, cursor?: string): AsyncIterable<BackfillBatch> {
       const connection = await resolveConnection(ctx)
       if (!connection) return
@@ -137,8 +137,47 @@ export function makeGoogleCalendarActivitySource(proxyOverride?: NangoProxy): Ac
     async handleEvent() {
       return []
     },
-    async incrementalSync() {
-      return []
+    // Daily freshness leg: meetings held since the last observed event, up to
+    // two pages. Dedupe keys make overlap with prior runs a no-op.
+    async incrementalSync(ctx: SourceContext, since: Date): Promise<NormalizedActivity[]> {
+      const connection = await resolveConnection(ctx)
+      if (!connection) return []
+      const proxy = proxyOverride
+        ?? googleProxy({ organizationId: ctx.organizationId, connectionId: connection.connectionId })
+      const now = new Date()
+      const events: NormalizedActivity[] = []
+      let pageToken: string | undefined
+      let pages = 0
+      try {
+        do {
+          const response = await proxy({
+            method: 'GET',
+            endpoint: '/calendar/v3/calendars/primary/events',
+            connectionId: connection.connectionId,
+            providerConfigKey: 'google-calendar',
+            params: {
+              maxResults: PAGE_SIZE,
+              singleEvents: 'true',
+              timeMin: since.toISOString(),
+              timeMax: now.toISOString(),
+              ...(pageToken ? { pageToken } : {}),
+            },
+          })
+          const data = response.data as { items?: unknown[]; nextPageToken?: unknown }
+          const items = Array.isArray(data.items) ? (data.items as CalendarEvent[]) : []
+          for (const item of items) {
+            const event = googleCalendarActivity(item)
+            if (event) events.push(event)
+          }
+          pageToken = typeof data.nextPageToken === 'string' ? data.nextPageToken : undefined
+          pages += 1
+        } while (pageToken && pages < 2)
+      } catch (error) {
+        apiLogger.warn('google-calendar incremental sync failed', {
+          error: error instanceof Error ? error.message : String(error),
+        })
+      }
+      return events
     },
   }
 }

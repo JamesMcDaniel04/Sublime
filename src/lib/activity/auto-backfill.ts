@@ -17,7 +17,7 @@ export const AUTO_BACKFILL_WINDOW: BackfillWindow = '90d'
 /** Sources safe to auto-backfill from a Nango connection id. google_calendar
  *  rides here too: its mirror row's connectionId is the GoogleOAuthConnection
  *  id, which is exactly what its adapter keys on. */
-const NANGO_BACKFILL_SOURCES = new Set(['github', 'google_calendar'])
+const NANGO_BACKFILL_SOURCES = new Set(['github', 'google_calendar', 'hubspot'])
 
 export function autoBackfillSource(providerConfigKey: string): string | null {
   const slug = canonicalIntegrationSlug(providerConfigKey)

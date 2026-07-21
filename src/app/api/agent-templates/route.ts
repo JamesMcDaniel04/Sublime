@@ -4,6 +4,7 @@ import { ApiError, withAuthenticatedApi } from '@/lib/server/api-handler'
 import { selectVisibleTemplates } from '@/lib/intelligence/template-visibility'
 import { SEED_CATALOGUE, serializeSeed } from '@/lib/templates/catalogue'
 import { sortByPersonaFit } from '@/lib/templates/relevance'
+import { loadTemplateAdoptionScores, sortByAdoption } from '@/lib/templates/adoption'
 
 const templateSchema = z.object({
   name: z.string().min(1),
@@ -107,11 +108,22 @@ export const GET = withAuthenticatedApi(async (request, auth) => {
   // Persona-fit seed ordering: server pre-orders the Starter catalogue by the
   // org's persona department weights; the client's stable sortByReadiness
   // keeps readiness primary and this order as the within-group tiebreak.
-  const personaRow = await prisma.organizationPersona
-    .findUnique({ where: { organizationId: auth.organizationId }, select: { departmentWeights: true } })
-    .catch(() => null)
+  const [personaRow, adoptionScores] = await Promise.all([
+    prisma.organizationPersona
+      .findUnique({ where: { organizationId: auth.organizationId }, select: { departmentWeights: true } })
+      .catch(() => null),
+    loadTemplateAdoptionScores(),
+  ])
   const personaWeights = (personaRow?.departmentWeights ?? null) as Record<string, number> | null
-  const templates = selectVisibleTemplates(serialized, sortByPersonaFit(builtIns, personaWeights))
+  // Ordering (all stable sorts, last-applied wins): adoption first so
+  // templates that produced SURVIVING automation break ties inside the
+  // persona-fit groups; the client's readiness sort stays the primary key.
+  const rankedBuiltIns = sortByPersonaFit(
+    sortByAdoption(builtIns, (t) => (t.seedKey ? `seed:${t.seedKey}` : null), adoptionScores),
+    personaWeights,
+  )
+  const rankedStored = sortByAdoption(serialized, (t) => `db:${t.id}`, adoptionScores)
+  const templates = selectVisibleTemplates(rankedStored, rankedBuiltIns)
   const limit = Number(request.nextUrl.searchParams.get('limit'))
   return { success: true, templates: limit > 0 ? templates.slice(0, limit) : templates }
 })

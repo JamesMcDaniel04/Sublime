@@ -88,7 +88,7 @@ async function resolveConnection(ctx: SourceContext): Promise<{ connectionId: st
 export function makeGithubActivitySource(proxyOverride?: NangoProxy): ActivitySource {
   return {
     source: 'github',
-    capabilities: { backfill: true, webhooks: false, incrementalSync: false },
+    capabilities: { backfill: true, webhooks: false, incrementalSync: true },
     async *backfill(ctx: SourceContext, window: BackfillWindow, cursor?: string): AsyncIterable<BackfillBatch> {
       const connection = await resolveConnection(ctx)
       if (!connection) return
@@ -149,8 +149,48 @@ export function makeGithubActivitySource(proxyOverride?: NangoProxy): ActivitySo
     async handleEvent() {
       return []
     },
-    async incrementalSync() {
-      return []
+    // Daily freshness leg: one bounded page of issues+PRs and commits per
+    // recently-pushed repo since the last observed event. The ledger's
+    // dedupeKey makes overlap with prior backfills/syncs a no-op.
+    async incrementalSync(ctx: SourceContext, since: Date): Promise<NormalizedActivity[]> {
+      const connection = await resolveConnection(ctx)
+      if (!connection) return []
+      const proxy = proxyOverride ?? defaultProxy()
+      const call = (endpoint: string, params: Record<string, string | number>) =>
+        proxy({ method: 'GET', endpoint, connectionId: connection.connectionId, providerConfigKey: connection.providerConfigKey, params })
+      const events: NormalizedActivity[] = []
+      try {
+        const response = await call('/user/repos', { sort: 'pushed', per_page: MAX_REPOS })
+        const repos = (Array.isArray(response.data) ? response.data : [])
+          .map((repo) => (repo as { full_name?: unknown }).full_name)
+          .filter((name): name is string => typeof name === 'string')
+          .slice(0, MAX_REPOS)
+        for (const repo of repos) {
+          for (const phase of ['issues', 'commits'] as const) {
+            try {
+              const endpoint = phase === 'issues' ? `/repos/${repo}/issues` : `/repos/${repo}/commits`
+              const params: Record<string, string | number> = phase === 'issues'
+                ? { state: 'all', per_page: PAGE_SIZE, since: since.toISOString() }
+                : { per_page: PAGE_SIZE, since: since.toISOString() }
+              const page = await call(endpoint, params)
+              const items = Array.isArray(page.data) ? (page.data as Record<string, unknown>[]) : []
+              for (const item of items) {
+                const event = phase === 'issues' ? githubIssueActivity(repo, item) : githubCommitActivity(repo, item)
+                if (event) events.push(event)
+              }
+            } catch (error) {
+              apiLogger.warn('github incremental sync: page fetch failed, skipping phase', {
+                repo, phase, error: error instanceof Error ? error.message : String(error),
+              })
+            }
+          }
+        }
+      } catch (error) {
+        apiLogger.warn('github incremental sync failed', {
+          error: error instanceof Error ? error.message : String(error),
+        })
+      }
+      return events
     },
   }
 }

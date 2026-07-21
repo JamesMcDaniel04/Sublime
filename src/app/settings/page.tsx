@@ -16,6 +16,8 @@ import { toast } from 'sonner'
 import { resizeImageToDataUrl } from '@/lib/client/resize-image'
 import { BILLING_PLAN_CATALOG } from '@/lib/billing/catalog'
 import { LearningsPanel } from './learnings-panel'
+import { BehaviorPatternsPanel } from './behavior-patterns-panel'
+import { IntelligenceHealthCard } from './intelligence-health-card'
 
 type Profile = { name: string; email: string; imageUrl: string | null; role: string }
 
@@ -386,6 +388,8 @@ export default function SettingsPage() {
         </Card>
         <KnowledgeRetentionCard isAdmin={profile?.role === 'ADMIN'} plan={orgPlan} />
         <LearningsPanel />
+        <BehaviorPatternsPanel />
+        {profile?.role === 'ADMIN' && <IntelligenceHealthCard />}
         {profile?.role === 'ADMIN' && <PlatformServicesCard />}
         {profile?.role === 'ADMIN' && (
           <Card className="mt-6 max-w-2xl border-destructive/30">

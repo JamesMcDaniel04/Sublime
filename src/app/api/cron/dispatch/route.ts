@@ -420,6 +420,17 @@ export async function GET(request: Request) {
         .catch(() => undefined)
     }
 
+    // Activity freshness leg: once a day (06:00 UTC window), incremental-sync
+    // sources with no live event path (github, calendar, hubspot) so the
+    // ledger — and the usage-evidence gate, persona, and patterns downstream —
+    // keeps tracking reality after the one-shot connect backfill. Bounded and
+    // fire-and-forget: never extends or fails the tick.
+    if (now.getUTCHours() === 6 && now.getUTCMinutes() < 15) {
+      void import('@/lib/activity/incremental-sync')
+        .then(({ sweepIncrementalSync }) => sweepIncrementalSync())
+        .catch(() => undefined)
+    }
+
     // Revisit orgs that observed activity in the last day. Inference is
     // best-effort background work and must not extend or fail the cron tick.
     const dayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000)
