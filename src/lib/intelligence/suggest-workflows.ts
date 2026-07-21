@@ -59,6 +59,34 @@ export async function countActiveConnections(organizationId: string): Promise<Co
   return { nango, mcp }
 }
 
+/** Recommendations must be grounded in OBSERVED usage, not just in which
+ *  connectors exist: the org needs at least this many recorded usage events
+ *  (in-app actions/tool calls + ingested tool activity) in the recent window
+ *  before any suggestion synthesis runs. */
+export const MIN_USAGE_EVENTS_FOR_SUGGESTIONS = 10
+export const USAGE_EVIDENCE_WINDOW_DAYS = 30
+
+/** The kinds of in-app events that constitute real usage (creations and
+ *  accept/dismiss clicks are platform interactions, not work being done). */
+const USAGE_EVENT_KINDS = ['tool_call', 'agent_run_manual', 'flow_run_manual', 'copilot_prompt', 'assistant_prompt'] as const
+
+/** Pure: enough observed usage to ground recommendations in. */
+export function meetsUsageEvidenceGate(usageEventCount: number): boolean {
+  return usageEventCount >= MIN_USAGE_EVENTS_FOR_SUGGESTIONS
+}
+
+/** Recorded usage signal in the evidence window: the in-app behavior ledger
+ *  (agent/flow runs, tool calls, prompts) plus the ingested activity ledger
+ *  from connected tools. */
+export async function countRecentUsageEvents(organizationId: string, now = new Date()): Promise<number> {
+  const since = new Date(now.getTime() - USAGE_EVIDENCE_WINDOW_DAYS * 24 * 60 * 60 * 1000)
+  const [userEvents, activityEvents] = await Promise.all([
+    prisma.userEvent.count({ where: { organizationId, occurredAt: { gte: since }, kind: { in: [...USAGE_EVENT_KINDS] } } }),
+    prisma.activityEvent.count({ where: { organizationId, occurredAt: { gte: since } } }),
+  ])
+  return userEvents + activityEvents
+}
+
 type NewSuggestion = { title: string; description: string; flowPrompt: string }
 type Improvement = { targetType: 'flow' | 'agent'; targetId: string; title: string; rationale: string }
 
@@ -303,7 +331,7 @@ async function releaseSynthesisSlot(organizationId: string, previous: Date | nul
 }
 
 export type SynthesisResult =
-  | { skipped: 'below-gate' | 'throttled' | 'no-profiles' | 'error' }
+  | { skipped: 'below-gate' | 'no-usage-evidence' | 'throttled' | 'no-profiles' | 'error' }
   | { synthesized: true; newFlows: number; improvements: number; discarded: number }
 
 /** Injectable seams for testing — default to the real implementations. */
@@ -328,6 +356,13 @@ export async function synthesizeWorkflowSuggestions(organizationId: string, over
     // day's cooldown slot for nothing.
     const counts = await countActiveConnections(organizationId)
     if (!meetsSuggestionGate(counts)) return { skipped: 'below-gate' }
+
+    // Usage-evidence gate: connections alone (even scanned ones) are not
+    // observed behavior. No recommendation of any kind until real usage has
+    // been captured.
+    if (!meetsUsageEvidenceGate(await countRecentUsageEvents(organizationId, now))) {
+      return { skipped: 'no-usage-evidence' }
+    }
 
     const agentId = await orgIntelligenceAgentId(organizationId)
     const memories = await prisma.agentMemory.findMany({

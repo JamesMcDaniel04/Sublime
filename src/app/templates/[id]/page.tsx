@@ -120,92 +120,45 @@ export default function TemplateDetails() {
 
   const missing = template ? missingIntegrations(template.requiredIntegrations ?? [], connected) : []
 
-  const createLegacyAgent = async (): Promise<string> => {
-    if (!template) throw new Error('Template is not loaded.')
-    const response = await fetch('/api/agents', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        title: template.name,
-        description: template.description,
-        instructions: template.instructions,
-        integrations: template.integrations,
-        specialistArea: template.departments?.[0] || 'general',
-        skills: template.skills || [],
-        model: template.model,
-        icon: template.icon || '',
-        allowSubagents: template.allowSubagents === true,
-        subagentIds: template.subagentIds ?? [],
-        goal: template.goal ?? '',
-        autoAnswerFromMemory: template.autoAnswerFromMemory !== false,
-        alwaysStrategize: template.alwaysStrategize === true,
-        maxTurns: template.maxTurns ?? 16,
-        outputFields: template.outputFields ?? [],
-        schedule: templateSchedule(template),
-      }),
-    })
-    const data = await response.json().catch(() => ({}))
-    if (!response.ok || !data.agent?.id) throw new Error(data.error || 'Could not create the agent.')
-    return data.agent.id as string
-  }
-
+  // Every template — seed or community — deploys through the trusted
+  // server-side provision route: instructions, schedule, and connection
+  // bindings are resolved there, never assembled client-side.
   const connect = async (targetKind: ProvisionKind) => {
     if (!template || deploying) return
     setDeploying(targetKind)
-    let createdAgentId: string | null = null
     try {
-      if (template.seed) {
-        const response = await fetch('/api/templates/provision', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ seedKey: template.seedKey, targetKind }),
-        })
-        const data = await response.json().catch(() => ({}))
-        if (!response.ok) throw new Error(data.error || `Could not connect this template to a ${targetKind}.`)
-        // An OK response missing its id must still surface — falling through
-        // silently cleared the spinner and stranded the user on this page.
-        if (targetKind === 'flow' && data.flowId) router.push(`/flows/${data.flowId}`)
-        else if (targetKind === 'agent' && data.agentId) router.push(`/agents?agent=${data.agentId}`)
-        else throw new Error(`Provisioning finished but returned no ${targetKind} — please try again.`)
-        return
-      }
-
-      // Community templates do not have a trusted server-side graph. Create
-      // their agent first, then wrap it in the same trigger -> agent graph when
-      // the user selects the Flow path.
-      const agentId = await createLegacyAgent()
-      createdAgentId = agentId
-      if (targetKind === 'agent') {
-        router.push(`/agents?agent=${agentId}`)
-        return
-      }
-      const trigger = template.trigger ?? { type: 'manual' }
-      const response = await fetch('/api/flows', {
+      const response = await fetch('/api/templates/provision', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          name: template.name,
-          description: template.description,
-          status: 'DRAFT',
-          trigger,
-          graph: {
-            nodes: [
-              { id: 'trigger', type: 'trigger', data: { trigger } },
-              { id: 'run-agent', type: 'agent', data: { agentId, label: template.name, input: '{{trigger.input}}' } },
-            ],
-            edges: [{ id: 'trigger-run-agent', source: 'trigger', target: 'run-agent' }],
-          },
+          ...(template.seed ? { seedKey: template.seedKey } : { templateId: template.id }),
+          targetKind,
+          // 1-click: a flow deploy publishes + activates in the same call
+          // (server degrades to DRAFT if the graph fails validation).
+          activate: targetKind === 'flow',
         }),
       })
       const data = await response.json().catch(() => ({}))
-      if (!response.ok || !data.flow?.id) throw new Error(data.error || 'Could not create the flow.')
-      router.push(`/flows/${data.flow.id}`)
-    } catch (error) {
-      if (targetKind === 'flow' && createdAgentId) {
-        await fetch('/api/agents', {
-          method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: createdAgentId }),
-        }).catch(() => undefined)
+      if (!response.ok) {
+        if (data.code === 'MISSING_INTEGRATIONS') {
+          toast.error(data.error || 'Connect the required integrations first.', {
+            action: { label: 'Open integrations', onClick: () => router.push('/integrations') },
+          })
+          return
+        }
+        throw new Error(data.error || `Could not connect this template to a ${targetKind}.`)
       }
+      // An OK response missing its id must still surface — falling through
+      // silently cleared the spinner and stranded the user on this page.
+      if (targetKind === 'flow' && data.flowId) {
+        toast.success(data.activated ? 'Flow deployed and active.' : 'Flow created as a draft — review and publish it.')
+        router.push(`/flows/${data.flowId}`)
+      } else if (targetKind === 'agent' && data.agentId) {
+        router.push(`/agents?agent=${data.agentId}`)
+      } else {
+        throw new Error(`Provisioning finished but returned no ${targetKind} — please try again.`)
+      }
+    } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Could not connect this template.')
     } finally {
       setDeploying(null)
@@ -241,10 +194,10 @@ export default function TemplateDetails() {
                 <p className="mt-2 max-w-3xl text-muted-foreground">{template.description}</p>
               </div>
               <div className="flex w-full shrink-0 flex-col gap-2 sm:w-auto sm:flex-row">
-                <Button variant="outline" onClick={() => connect('agent')} loading={deploying === 'agent'} disabled={Boolean(deploying)}>
+                <Button variant="outline" onClick={() => connect('agent')} loading={deploying === 'agent'} disabled={Boolean(deploying) || missing.length > 0}>
                   <Bot className="mr-1.5 h-4 w-4" />Connect to agent
                 </Button>
-                <Button onClick={() => connect('flow')} loading={deploying === 'flow'} disabled={Boolean(deploying)}>
+                <Button onClick={() => connect('flow')} loading={deploying === 'flow'} disabled={Boolean(deploying) || missing.length > 0}>
                   <Workflow className="mr-1.5 h-4 w-4" />Connect to flow
                 </Button>
               </div>
@@ -252,7 +205,7 @@ export default function TemplateDetails() {
 
             {missing.length > 0 && (
               <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-                This template will be created now, but {missing.join(', ')} still {missing.length === 1 ? 'needs' : 'need'} to be connected before every step can run.{' '}
+                Connect {missing.join(', ')} to deploy this template — once connected, it deploys in one click with everything pre-configured.{' '}
                 <Link href="/integrations" className="font-semibold underline underline-offset-2">Open integrations</Link>
               </div>
             )}

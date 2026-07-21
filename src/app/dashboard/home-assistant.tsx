@@ -51,17 +51,6 @@ type ChatMessage = {
 
 type SessionSummary = { id: string; title: string; updatedAt: string; messageCount: number }
 
-type UserSuggestion = {
-  id: string
-  kind: 'new_flow' | 'enhancement'
-  title: string
-  description: string
-  flowId: string | null
-  targetType: string | null
-  targetId: string | null
-  evidence: string[]
-}
-
 /** Compact relative time for the history list, e.g. "just now", "2h", "3d". */
 function relativeTime(iso: string): string {
   const then = new Date(iso).getTime()
@@ -220,8 +209,6 @@ export function HomeAssistant() {
   const [attachment, setAttachment] = useState<Attachment | null>(null)
   const [uploading, setUploading] = useState(false)
   const [runningId, setRunningId] = useState<string | null>(null)
-  const [suggestion, setSuggestion] = useState<UserSuggestion | null>(null)
-  const [suggestionBusy, setSuggestionBusy] = useState(false)
   const [outputStyle, setOutputStyle] = useState<OutputStyleKey | null>(null)
   // Computed after mount so the server-rendered HTML never disagrees with the
   // visitor's local clock.
@@ -247,47 +234,8 @@ export function HomeAssistant() {
     void loadSessions()
   }, [loadSessions])
 
-  // At most one open evidence-backed suggestion exists per user; show it quietly.
-  useEffect(() => {
-    let cancelled = false
-    void (async () => {
-      try {
-        const response = await fetch('/api/intelligence/user-suggestions', { cache: 'no-store' })
-        const data = await response.json().catch(() => ({}))
-        if (!cancelled && data?.suggestion) setSuggestion(data.suggestion as UserSuggestion)
-      } catch {
-        /* the card simply doesn't render */
-      }
-    })()
-    return () => { cancelled = true }
-  }, [])
-
-  const actOnSuggestion = async (action: 'accept' | 'dismiss') => {
-    if (!suggestion || suggestionBusy) return
-    setSuggestionBusy(true)
-    try {
-      const response = await fetch('/api/intelligence/user-suggestions', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id: suggestion.id, action }),
-      })
-      if (!response.ok) throw new Error('request failed')
-      const accepted = action === 'accept'
-      const { flowId, targetType, targetId } = suggestion
-      setSuggestion(null)
-      // Accepting always lands the user ON the thing that changed: the draft
-      // flow, the enhanced flow, or the enhanced agent's config (where the
-      // suggestion banner now shows it).
-      if (accepted && flowId) router.push(`/flows/${flowId}`)
-      else if (accepted && targetType === 'flow' && targetId) router.push(`/flows/${targetId}`)
-      else if (accepted && targetType === 'agent' && targetId) router.push(`/agents?agent=${targetId}`)
-      else if (accepted) toast.success('Suggestion saved.')
-    } catch {
-      toast.error('Could not update the suggestion. Try again.')
-    } finally {
-      setSuggestionBusy(false)
-    }
-  }
+  // Suggestions surface through the notification bell (approve/deny dialog),
+  // not as an inline card here — see SuggestionApprovalDialog.
 
   // Close the history dropdown on an outside click.
   useEffect(() => {
@@ -469,31 +417,6 @@ export function HomeAssistant() {
 
   const composer = (
     <div className="w-full">
-      {suggestion && (
-        <div className="mb-3 rounded-2xl border border-indigo-100 bg-indigo-50/60 p-3 text-sm shadow-1">
-          <p className="text-xs font-medium uppercase tracking-wide text-indigo-500">Noticed a routine</p>
-          <p className="mt-1 font-medium text-foreground">{suggestion.title}</p>
-          <p className="mt-0.5 text-muted-foreground">{suggestion.description}</p>
-          {suggestion.evidence.length > 0 && (
-            <details className="mt-2">
-              <summary className="cursor-pointer text-xs text-indigo-600 hover:text-indigo-800">Why this exists</summary>
-              <ul className="mt-1 list-disc space-y-0.5 pl-4 text-xs text-muted-foreground">
-                {suggestion.evidence.map((line) => (
-                  <li key={line}>{line}</li>
-                ))}
-              </ul>
-            </details>
-          )}
-          <div className="mt-2.5 flex items-center gap-2">
-            <Button size="sm" disabled={suggestionBusy} onClick={() => void actOnSuggestion('accept')}>
-              {suggestion.kind === 'new_flow' ? 'Review draft' : 'Accept'}
-            </Button>
-            <Button size="sm" variant="ghost" disabled={suggestionBusy} onClick={() => void actOnSuggestion('dismiss')}>
-              Dismiss
-            </Button>
-          </div>
-        </div>
-      )}
       {attachment && (
         <div className="mb-2 inline-flex items-center gap-2 rounded-full border bg-card px-3 py-1.5 text-sm text-muted-foreground shadow-1">
           <FileText className="h-3.5 w-3.5 text-indigo-500" />

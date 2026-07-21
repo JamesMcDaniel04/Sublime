@@ -9,6 +9,7 @@ import { getSnapshot } from '@/lib/client/snapshot'
 import { notificationHref } from '@/lib/notifications/notification-href'
 import { cn } from '@/lib/utils'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { SuggestionApprovalDialog } from '@/components/intelligence/suggestion-approval-dialog'
 import { toast } from 'sonner'
 
 type NotificationItem = {
@@ -55,6 +56,8 @@ export function NotificationBell({ buttonClassName }: { buttonClassName?: string
   const [detail, setDetail] = useState<NotificationDetail | null>(null)
   const [detailLoading, setDetailLoading] = useState(false)
   const [detailError, setDetailError] = useState<string | null>(null)
+  // The intelligence.user-suggestion notification whose approve/deny dialog is open.
+  const [suggestionNotification, setSuggestionNotification] = useState<NotificationItem | null>(null)
   // Jam invites already seen this session — null until the first snapshot so
   // invites that predate opening the app surface only in the bell, not as a
   // burst of stale toasts.
@@ -264,6 +267,10 @@ export function NotificationBell({ buttonClassName }: { buttonClassName?: string
                   <div key={n.id} className={cn('flex w-full items-start border-b hover:bg-muted', !n.readAt && 'bg-indigo-50/40')}>
                     {n.type === 'intelligence.scan' ? (
                       <button type="button" onClick={() => openDetail(n)} className={rowClass}>{content}</button>
+                    ) : n.type === 'intelligence.user-suggestion' ? (
+                      /* A suggestion expands into its approve/deny dialog —
+                         never a bare navigation. */
+                      <button type="button" onClick={() => { setOpen(false); setSuggestionNotification(n) }} className={rowClass}>{content}</button>
                     ) : (
                       /* Client-side route (no full-page reload); a button keeps
                          Enter/Space keyboard activation like the old link. */
@@ -295,6 +302,15 @@ export function NotificationBell({ buttonClassName }: { buttonClassName?: string
           </div>
         </>
       )}
+      <SuggestionApprovalDialog
+        open={Boolean(suggestionNotification)}
+        onClose={() => setSuggestionNotification(null)}
+        onActioned={() => {
+          // The suggestion was approved or denied — its notification row is
+          // now stale; clear it so the bell doesn't advertise handled work.
+          if (suggestionNotification) void dismiss(suggestionNotification)
+        }}
+      />
       <Dialog open={Boolean(detail)} onOpenChange={(next) => { if (!next) setDetail(null) }}>
         <DialogContent>
           <DialogHeader>

@@ -18,7 +18,7 @@ import { generateFlowGraph } from '@/lib/flows/copilot-generate'
 import { listEligiblePatterns, type EligiblePattern } from '@/lib/behavior/eligibility'
 import { loadCapabilityCatalog } from '@/lib/behavior/infer-user-patterns'
 import { suggestionOutcomeLabel } from '@/lib/behavior/outcome-weights'
-import { loadExistingFlows, loadExistingAgents } from './suggest-workflows'
+import { countActiveConnections, loadExistingFlows, loadExistingAgents, meetsSuggestionGate } from './suggest-workflows'
 
 export const USER_SYNTHESIS_COOLDOWN_DAYS = 7
 
@@ -159,7 +159,7 @@ export function renderPatternEvidence(patterns: EligiblePattern[]): string[] {
 export { suggestionOutcomeLabel, ADOPTION_WINDOW_MS, type SuggestionFeedbackRow } from '@/lib/behavior/outcome-weights'
 
 export type UserSynthesisResult =
-  | { skipped: 'pending-suggestion' | 'no-eligible-patterns' | 'budget-exceeded' | 'throttled' | 'no-suggestion' | 'generation-failed' | 'error' }
+  | { skipped: 'below-gate' | 'pending-suggestion' | 'no-eligible-patterns' | 'budget-exceeded' | 'throttled' | 'no-suggestion' | 'generation-failed' | 'error' }
   | { created: true; suggestionId: string; kind: 'new_flow' | 'enhancement' }
 
 export type UserSynthesisOverrides = {
@@ -177,6 +177,11 @@ export async function synthesizeUserSuggestions(
   const generateGraph = overrides.generateGraph ?? generateFlowGraph
   const now = overrides.now ? overrides.now() : new Date()
   try {
+    // Connection gate (same bar as the org pipeline): the platform must not
+    // recommend anything until the workspace has connected enough tools for
+    // suggestions to be grounded in real cross-tool usage.
+    if (!meetsSuggestionGate(await countActiveConnections(organizationId))) return { skipped: 'below-gate' }
+
     // Quietness guard 1: one un-actioned suggestion at a time.
     const open = await prisma.userSuggestion.findFirst({ where: { organizationId, userId, status: 'open' }, select: { id: true } })
     if (open) return { skipped: 'pending-suggestion' }
@@ -303,7 +308,9 @@ export async function synthesizeUserSuggestions(
             flowId: flow.id, sourcePatternSlugs: candidate.sourcePatternSlugs, evidence,
           },
         })
-        await notify({ organizationId, type: 'intelligence.user-suggestion', title: 'Sublime noticed a routine', body: candidate.title, link: '/dashboard' })
+        // User-scoped 'action' notification: the bell badges it, web push fires,
+        // and opening it shows the approve/deny detail dialog.
+        await notify({ organizationId, userId, type: 'intelligence.user-suggestion', level: 'action', title: 'Sublime noticed a routine', body: candidate.title, link: '/dashboard' })
         return { created: true, suggestionId: suggestion.id, kind: 'new_flow' }
       }
 
@@ -326,7 +333,7 @@ export async function synthesizeUserSuggestions(
       if (candidate.targetType === 'agent' && candidate.targetId) {
         await saveAgentMemory({ organizationId, agentId: candidate.targetId, kind: 'suggestion', title: candidate.title, content: candidate.description })
       }
-      await notify({ organizationId, type: 'intelligence.user-suggestion', title: 'Sublime noticed a routine', body: candidate.title, link: '/dashboard' })
+      await notify({ organizationId, userId, type: 'intelligence.user-suggestion', level: 'action', title: 'Sublime noticed a routine', body: candidate.title, link: '/dashboard' })
       return { created: true, suggestionId: suggestion.id, kind: 'enhancement' }
     } catch (error) {
       await releaseClaim(userId, previous)

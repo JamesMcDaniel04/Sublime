@@ -5,20 +5,52 @@ export const TEMPLATE_CONNECTION_PREFIX = 'template:'
 
 const slug = (value: string) => value.toLowerCase().replace(/[^a-z0-9]+/g, '')
 
+/** One template-placeholder → real-connection decision, recorded on the
+ *  provisioned flow's metadata so the binding is auditable and re-runnable. */
+export type ResolvedBinding = { provider: string; connectionId: string; connectionName: string }
+
 /**
- * Bind catalogue-only tool placeholders to this workspace's real connection.
- * Nango is preferred; native/MCP are compatibility fallbacks.
+ * The catalog connections that can satisfy `provider`, deterministically
+ * ordered: Nango first (broadest tool coverage), then stable by id so two
+ * provisions of the same template in the same workspace always bind the same
+ * connection even when an org has several accounts for one provider.
  */
-export function resolveGraphToolConnections(graph: FlowGraph, catalog: FlowToolCatalogConnection[]): FlowGraph {
+function candidatesFor(provider: string, catalog: FlowToolCatalogConnection[]): FlowToolCatalogConnection[] {
+  const rank = (id: string) => (id.startsWith('nango:') ? 0 : 1)
+  return catalog
+    .filter((connection) => slug(connection.name) === slug(provider))
+    .sort((a, b) => rank(a.id) - rank(b.id) || a.id.localeCompare(b.id))
+}
+
+/**
+ * Required providers with no satisfying connection in the workspace catalog.
+ * Uses the SAME matching as resolveGraphToolConnections, so a pre-flight pass
+ * on this list guarantees the later binding pass cannot fail on a missing
+ * provider — the 409 happens before any rows are created, never a 500 after.
+ */
+export function missingRequiredProviders(required: string[], catalog: FlowToolCatalogConnection[]): string[] {
+  return required.filter((provider) => candidatesFor(provider, catalog).length === 0)
+}
+
+/**
+ * Bind catalogue-only tool placeholders to this workspace's real connections.
+ * Selection is deterministic (see candidatesFor); `overrides` lets a caller pin
+ * a specific connection id per provider slug (multi-account workspaces).
+ * Returns the bound graph plus the binding decisions that were made.
+ */
+export function resolveGraphToolConnections(
+  graph: FlowGraph,
+  catalog: FlowToolCatalogConnection[],
+  overrides: Record<string, string> = {},
+): { graph: FlowGraph; bindings: ResolvedBinding[] } {
   const clone: FlowGraph = JSON.parse(JSON.stringify(graph))
+  const bindings: ResolvedBinding[] = []
   for (const node of clone.nodes) {
     if (node.type !== 'tool' || !node.data.connectionId.startsWith(TEMPLATE_CONNECTION_PREFIX)) continue
     const provider = node.data.connectionId.slice(TEMPLATE_CONNECTION_PREFIX.length)
-    const matches = catalog.filter((connection) => slug(connection.name) === slug(provider))
-    const connection = matches.sort((a, b) => {
-      const rank = (id: string) => id.startsWith('nango:') ? 0 : 1
-      return rank(a.id) - rank(b.id)
-    })[0]
+    const candidates = candidatesFor(provider, catalog)
+    const overrideId = overrides[slug(provider)]
+    const connection = (overrideId && candidates.find((c) => c.id === overrideId)) || candidates[0]
     if (!connection) throw new Error(`Connect ${provider} before using this template`)
 
     const requested = slug(node.data.toolName)
@@ -27,8 +59,9 @@ export function resolveGraphToolConnections(graph: FlowGraph, catalog: FlowToolC
     if (!tool) throw new Error(`${connection.name} does not provide the required ${node.data.toolName} action`)
     node.data.connectionId = connection.id
     node.data.toolName = tool.name
+    bindings.push({ provider, connectionId: connection.id, connectionName: connection.name })
   }
-  return clone
+  return { graph: clone, bindings }
 }
 
 /**
