@@ -53,6 +53,20 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
     },
   })
 
+  // On-connect learning leg (same as the OAuth connectors): start the notes
+  // backfill the moment a working key lands. Fire-and-forget; the checkpoint
+  // contract makes a re-save resume, not duplicate.
+  void import('@/lib/activity/backfill')
+    .then(({ startActivityBackfill }) =>
+      startActivityBackfill({
+        organizationId: auth.organizationId,
+        source: 'granola',
+        connectionRef: 'granola',
+        window: '90d',
+      }),
+    )
+    .catch(() => undefined)
+
   return { success: true, ...(await granolaState(auth.organizationId)) }
 })
 

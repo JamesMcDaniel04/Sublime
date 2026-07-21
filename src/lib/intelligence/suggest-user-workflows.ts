@@ -251,6 +251,7 @@ export async function synthesizeUserSuggestions(
         'You may connect an observed pattern to an unused capability of a connected tool (listed below) — but the suggestion must still be justified by, and cite, observed pattern slugs. Never suggest from the capability list alone.',
         'peer_practice patterns describe org-shared automations that ALREADY EXIST: prefer suggesting the user adopt or adapt that existing flow (kind "enhancement" targeting it, or "new_flow" for a personal variant) over inventing something new. Never mention who owns it.',
         'archetype_gap patterns are anonymized platform-wide aggregates ("N other organizations with your tools automate X"). Suggest conservatively from them and never imply knowledge of any specific organization.',
+        'commitment patterns come from the user\'s own meeting notes: they repeatedly committed to the same follow-through after a recurring meeting. Suggest a flow that automates that follow-through (draft the email/update/task), triggered after the meeting — reference the meeting series by name but never quote note contents.',
         'Feedback outcomes are what ACTUALLY happened: "accepted-and-adopted" is the strongest positive signal; "accepted-but-never-published" and "accepted-then-deleted" mean the idea sounded good but was not worth acting on — treat those nearly as negatively as dismissed.',
       ].join(' ')
       const userPrompt = [

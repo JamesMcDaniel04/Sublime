@@ -15,6 +15,7 @@ import { mineUserPatternCandidates, mineIntentClusters, type PatternCandidate } 
 import { mineToolCorrelations, mineCapabilityGaps } from './mine-correlations'
 import { minePeerPractices, groupProvidersByExecution, type PeerPracticeInputs } from './mine-peer-practices'
 import { mineArchetypeGaps, type ArchetypeInputs } from './mine-archetypes'
+import { mineCommitments, type CommitmentRow } from './mine-commitments'
 import { writeUserInference } from './user-insights'
 
 const WINDOW_DAYS = 90
@@ -175,6 +176,38 @@ export async function loadCapabilityCatalog(organizationId: string, userId: stri
   }
 }
 
+/** The user's distilled commitment events (see knowledge/notes-distill.ts),
+ *  matched by owner email. Best-effort — [] on any failure. */
+async function loadCommitmentRows(
+  db: typeof systemPrisma,
+  organizationId: string,
+  userId: string,
+  since: Date,
+): Promise<CommitmentRow[]> {
+  try {
+    const user = await db.user.findUnique({ where: { id: userId }, select: { email: true } })
+    if (!user?.email) return []
+    const events = await db.activityEvent.findMany({
+      where: {
+        organizationId,
+        source: 'granola',
+        action: 'made_commitment',
+        actorRef: { equals: user.email, mode: 'insensitive' },
+        occurredAt: { gte: since },
+      },
+      select: { id: true, businessContext: true, occurredAt: true },
+      take: 500,
+    })
+    return events.flatMap((event) => {
+      const context = event.businessContext as { series?: unknown; commitmentAction?: unknown } | null
+      if (typeof context?.series !== 'string' || typeof context?.commitmentAction !== 'string') return []
+      return [{ id: event.id, series: context.series, action: context.commitmentAction, occurredAt: event.occurredAt }]
+    })
+  } catch {
+    return []
+  }
+}
+
 export async function inferUserBehaviorPatterns(
   organizationId: string,
   userId: string,
@@ -228,6 +261,13 @@ export async function inferUserBehaviorPatterns(
     const loadArchetypes = overrides.loadArchetypeInputs ?? ((org: string, at: Date) => loadPlatformArchetypeInputs(db, org, at))
     const archetypeInputs = await loadArchetypes(organizationId, now)
     if (archetypeInputs) candidates = [...candidates, ...mineArchetypeGaps(events, archetypeInputs)]
+
+    // Notes intelligence (commitment miner): the user's distilled
+    // made_commitment rows from Granola meeting notes, matched by their
+    // email (notes are attributed by owner email, not user id). Best-effort:
+    // no email match or a failed load just means no commitment candidates.
+    const commitmentRows = await loadCommitmentRows(db, organizationId, userId, since)
+    if (commitmentRows.length > 0) candidates = [...candidates, ...mineCommitments(commitmentRows)]
 
     // Intent clustering over assistant prompts (needs message text by reference).
     const embed = overrides.embed ?? (embeddingsConfigured() ? (texts: string[]) => embedTexts(texts, { inputType: 'document' }) : null)

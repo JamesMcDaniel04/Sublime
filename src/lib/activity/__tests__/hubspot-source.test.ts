@@ -35,6 +35,9 @@ test('ownerless deals fall back to unknown; id-less or dateless deals are droppe
 
 test('sweep covers exactly the incremental sources with no live event path', () => {
   // Slack must stay out (webhooks already ingest live events — a sync would
-  // double-route them); the three webhook-less sources must all be in.
-  assert.deepEqual([...sweepSources()].sort((a, b) => a.localeCompare(b)), ['github', 'google_calendar', 'hubspot'])
+  // double-route them); the webhook-less sources must all be in.
+  assert.deepEqual(
+    [...sweepSources()].sort((a, b) => a.localeCompare(b)),
+    ['github', 'google_calendar', 'granola', 'hubspot'],
+  )
 })

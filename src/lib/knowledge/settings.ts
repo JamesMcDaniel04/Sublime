@@ -35,12 +35,12 @@ export function knowledgeCaptureSettings(value: unknown): KnowledgeCaptureSettin
   }
 }
 
-export type KnowledgeSourceType = 'upload' | 'agent_run' | 'flow_run' | 'connection_profile' | 'activity_sync' | 'manual'
+export type KnowledgeSourceType = 'upload' | 'agent_run' | 'flow_run' | 'connection_profile' | 'activity_sync' | 'meeting_note' | 'manual'
 
 export function shouldCaptureKnowledge(settings: KnowledgeCaptureSettings, sourceType: KnowledgeSourceType): boolean {
   if (!settings.captureEnabled || settings.zeroDataRetention) return false
   if (sourceType === 'agent_run') return settings.captureAgentRuns
   if (sourceType === 'flow_run') return settings.captureFlowRuns
-  if (sourceType === 'connection_profile' || sourceType === 'activity_sync') return settings.captureConnectedData
+  if (sourceType === 'connection_profile' || sourceType === 'activity_sync' || sourceType === 'meeting_note') return settings.captureConnectedData
   return true
 }

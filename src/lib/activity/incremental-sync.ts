@@ -39,36 +39,46 @@ export function sweepSources(): string[] {
 export async function runIncrementalSync(organizationId: string, db = systemPrisma): Promise<IncrementalSyncStats> {
   const stats: IncrementalSyncStats = { organizationId, sources: {} }
   const bySource = new Map(listActivitySources().map((source) => [source.source, source]))
+  const wanted = new Set(sweepSources())
+
+  const syncOne = async (sourceName: string, connectionRef: string) => {
+    const source = bySource.get(sourceName)
+    if (!source) return
+    const latest = await db.activityEvent.findFirst({
+      where: { organizationId, source: sourceName },
+      orderBy: { occurredAt: 'desc' },
+      select: { occurredAt: true },
+    })
+    const since = latest
+      ? new Date(latest.occurredAt.getTime() - OVERLAP_MS)
+      : new Date(Date.now() - FIRST_RUN_WINDOW_MS)
+    const events = await source.incrementalSync({ organizationId, connectionRef }, since)
+    const created = await ingestActivity(organizationId, 'sync', events)
+    const entry = stats.sources[sourceName] ?? { connections: 0, ingested: 0 }
+    entry.connections += 1
+    entry.ingested += created.length
+    stats.sources[sourceName] = entry
+  }
+
   try {
     const connections = await db.nangoConnection.findMany({
       where: { organizationId, status: 'connected' },
       select: { connectionId: true, providerConfigKey: true },
     })
-    const wanted = new Set(sweepSources())
     for (const connection of connections) {
       const sourceName = canonicalIntegrationSlug(connection.providerConfigKey)
       if (!wanted.has(sourceName)) continue
-      const source = bySource.get(sourceName)
-      if (!source) continue
+      await syncOne(sourceName, connection.connectionId)
+    }
 
-      const latest = await db.activityEvent.findFirst({
-        where: { organizationId, source: sourceName },
-        orderBy: { occurredAt: 'desc' },
-        select: { occurredAt: true },
+    // Granola authenticates via a per-org API key (IntegrationSecret), not a
+    // Nango connection — enumerate it separately with its constant ref.
+    if (wanted.has('granola')) {
+      const granolaSecret = await db.integrationSecret.findFirst({
+        where: { organizationId, provider: 'granola', isActive: true },
+        select: { id: true },
       })
-      const since = latest
-        ? new Date(latest.occurredAt.getTime() - OVERLAP_MS)
-        : new Date(Date.now() - FIRST_RUN_WINDOW_MS)
-
-      const events = await source.incrementalSync(
-        { organizationId, connectionRef: connection.connectionId },
-        since,
-      )
-      const created = await ingestActivity(organizationId, 'sync', events)
-      const entry = stats.sources[sourceName] ?? { connections: 0, ingested: 0 }
-      entry.connections += 1
-      entry.ingested += created.length
-      stats.sources[sourceName] = entry
+      if (granolaSecret) await syncOne('granola', 'granola')
     }
     if (Object.keys(stats.sources).length > 0) {
       apiLogger.info('activity.incremental-sync', stats as unknown as Record<string, unknown>)
@@ -83,16 +93,29 @@ export async function runIncrementalSync(organizationId: string, db = systemPris
 
 /** All orgs holding at least one sweep-eligible connection, capped. */
 export async function sweepIncrementalSync(db = systemPrisma): Promise<void> {
-  const rows = await db.nangoConnection.findMany({
-    where: { status: 'connected' },
-    select: { organizationId: true, providerConfigKey: true },
-    take: 2_000,
-  })
+  const [rows, granolaRows] = await Promise.all([
+    db.nangoConnection.findMany({
+      where: { status: 'connected' },
+      select: { organizationId: true, providerConfigKey: true },
+      take: 2_000,
+    }),
+    db.integrationSecret.findMany({
+      where: { provider: 'granola', isActive: true },
+      select: { organizationId: true },
+      take: 500,
+    }),
+  ])
   const wanted = new Set(sweepSources())
   const orgs = new Set<string>()
   for (const row of rows) {
     if (wanted.has(canonicalIntegrationSlug(row.providerConfigKey))) orgs.add(row.organizationId)
     if (orgs.size >= MAX_ORGS_PER_SWEEP) break
+  }
+  if (wanted.has('granola')) {
+    for (const row of granolaRows) {
+      if (orgs.size >= MAX_ORGS_PER_SWEEP) break
+      orgs.add(row.organizationId)
+    }
   }
   for (const organizationId of orgs) {
     await runIncrementalSync(organizationId, db)

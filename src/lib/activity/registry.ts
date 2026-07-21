@@ -4,12 +4,14 @@ import { slackActivitySource } from './sources/slack'
 import { githubActivitySource } from './sources/github'
 import { googleCalendarActivitySource } from './sources/google-calendar'
 import { hubspotActivitySource } from './sources/hubspot'
+import { granolaActivitySource } from './sources/granola'
 
 const SOURCES: Record<string, ActivitySource> = {
   [slackActivitySource.source]: slackActivitySource,
   [githubActivitySource.source]: githubActivitySource,
   [googleCalendarActivitySource.source]: googleCalendarActivitySource,
   [hubspotActivitySource.source]: hubspotActivitySource,
+  [granolaActivitySource.source]: granolaActivitySource,
 }
 
 export function getActivitySource(source: string): ActivitySource | null {

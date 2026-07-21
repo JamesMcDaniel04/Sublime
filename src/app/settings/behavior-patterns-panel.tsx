@@ -27,6 +27,7 @@ const KIND_LABELS: Record<string, string> = {
   capability_gap: 'Unused capability',
   peer_practice: 'Teammate practice',
   archetype_gap: 'Common elsewhere',
+  commitment: 'Meeting commitment',
 }
 
 // Rendered on /settings under the org-level learnings panel: the PER-USER

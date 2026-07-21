@@ -50,6 +50,7 @@ const SLUG_KIND_PREFIXES: Array<[string, string]> = [
   ['gap:', 'capability_gap'],
   ['peer:', 'peer_practice'],
   ['archetype:', 'archetype_gap'],
+  ['commit:', 'commitment'],
 ]
 
 export function patternKindOfSlug(slug: string): string | null {
