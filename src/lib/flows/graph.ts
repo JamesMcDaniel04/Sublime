@@ -151,9 +151,24 @@ const httpNode = z.object({
     label: z.string().optional(),
     note: z.string().optional(),
     connectionId: z.string().optional(),
+    // Generic auth (n8n-style generic credentials): basic / bearer / custom
+    // header / query param. Values may use {{tokens}}; secret fields are
+    // redacted in persisted run rows. An explicit Authorization header or a
+    // connection token always wins over this option.
+    auth: z.object({
+      type: z.enum(['basic', 'bearer', 'header', 'query']),
+      username: z.string().optional(),
+      password: z.string().optional(),
+      token: z.string().optional(),
+      name: z.string().optional(),
+      value: z.string().optional(),
+    }).optional(),
     method: z.enum(['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS']).default('POST'),
     url: z.string(),
     query: z.string().optional(),
+    // How array query values serialize: tag=a&tag=b (repeat, default),
+    // tag[]=a, tag[0]=a, or tag=a,b.
+    queryArrayFormat: z.enum(['repeat', 'brackets', 'indices', 'comma']).optional(),
     headers: z.string().optional(),
     body: z.string().optional(),
     cookie: z.string().optional(),
@@ -179,6 +194,12 @@ const httpNode = z.object({
       cursorPath: z.string().optional(),
       nextUrlPath: z.string().optional(),
       maxPages: z.number().int().min(1).max(1000).optional(),
+      // Pause between page requests (rate-limit friendliness), and an explicit
+      // complete-condition: stop when the value at this dotted response path
+      // is truthy (e.g. `meta.isLastPage`) — checked before mode-specific
+      // continuation.
+      intervalMs: z.number().int().min(0).max(60000).optional(),
+      stopPath: z.string().optional(),
     }).optional(),
     batch: z.object({ size: z.number().int().min(1).max(1000), delayMs: z.number().int().min(0).max(60000).optional() }).optional(),
     disabled: z.boolean().optional(),

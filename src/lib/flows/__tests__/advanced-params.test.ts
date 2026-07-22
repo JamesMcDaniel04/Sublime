@@ -6,7 +6,7 @@ import type { FlowNode } from '../graph'
 test('each node type declares its advanced keys', () => {
   assert.deepEqual(advancedParamKeys('agent'), ['includeUpstream', 'onError', 'retries', 'timeoutMs', 'disabled', 'mockOutput'])
   assert.deepEqual(advancedParamKeys('tool'), ['excludeFromContext', 'onError', 'retries', 'timeoutMs', 'disabled', 'mockOutput'])
-  assert.deepEqual(advancedParamKeys('http'), ['excludeFromContext', 'bodyMode', 'responseType', 'failOnHttpError', 'onError', 'retries', 'retryDelayMs', 'timeoutMs', 'followRedirects', 'maxRedirects', 'disabled', 'mockOutput'])
+  assert.deepEqual(advancedParamKeys('http'), ['excludeFromContext', 'bodyMode', 'responseType', 'failOnHttpError', 'onError', 'retries', 'retryDelayMs', 'timeoutMs', 'followRedirects', 'maxRedirects', 'queryArrayFormat', 'disabled', 'mockOutput'])
   assert.deepEqual(advancedParamKeys('loop'), ['concurrency'])
   assert.deepEqual(advancedParamKeys('trigger'), [])
 })

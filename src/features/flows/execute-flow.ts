@@ -23,7 +23,7 @@ import { resolveResumeState } from './resume-scan'
 import { buildRouterPrompt, routerBranchSchema, parseRouterChoice } from '@/lib/flows/router'
 import { generateStructured, generateText } from '@/lib/llm/model-runner'
 import { flowActionRetries, flowActionTimeoutMs, runWithRetries, shouldRetryAfterTimeout } from './action-reliability'
-import { prepareHttpRequest, responseOutput, redactHttpStepInput, withBearerAuthorization } from './http'
+import { performHttpRequest, prepareHttpRequest, redactHttpStepInput, withBearerAuthorization } from './http'
 import { resolveHttpConnectionToken } from './http-auth'
 import { shouldPersistInterpreterStep } from './run-step-persistence'
 import { prepareToolArgs } from './tool-args'
@@ -698,50 +698,14 @@ export async function runFlowExecution(
           controller.abort()
         }, request.timeoutMs)
         try {
-          const fetchPage = async (initialUrl: string) => {
-            let url = initialUrl
-            for (let redirects = 0;; redirects += 1) {
-              await assertPublicUrl(url) // SSRF guard every page, attempt, and redirect hop
-              const response = await fetch(url, { ...request.init, signal: controller.signal })
-              if (response.status >= 300 && response.status < 400 && response.headers.get('location')) {
-                if (!request.followRedirects) throw new Error(`HTTP ${response.status}: redirect blocked (enable Follow redirects to allow it).`)
-                if (redirects >= request.maxRedirects) throw new Error(`HTTP redirect limit (${request.maxRedirects}) exceeded.`)
-                url = new URL(response.headers.get('location')!, url).toString()
-                continue
-              }
-              const nextOutput = await responseOutput(response, request.responseType, HTTP_MAX_RESPONSE_CHARS)
-              const retryCodes = Array.isArray(node.config.retryStatusCodes) ? node.config.retryStatusCodes.map(Number) : []
-              if (retryCodes.includes(nextOutput.status)) throw new Error(`HTTP ${nextOutput.status}: configured for retry.`)
-              if (request.failOnHttpError && !nextOutput.ok) throw new Error(`HTTP ${nextOutput.status}: ${nextOutput.bodyText.slice(0, 200)}`)
-              return nextOutput
-            }
-          }
-          const pagination = node.config.pagination && typeof node.config.pagination === 'object' ? node.config.pagination as Record<string, unknown> : null
-          if (!pagination || pagination.mode === 'off' || !pagination.mode) return fetchPage(request.url)
-          const pages: unknown[] = []
-          const maxPages = Math.max(1, Math.min(1000, Number(pagination.maxPages ?? 100)))
-          let pageUrl = request.url
-          let cursor: unknown
-          const atPath = (value: unknown, path: unknown) => String(path ?? '').split('.').filter(Boolean).reduce<unknown>((current, key) => current && typeof current === 'object' ? (current as Record<string, unknown>)[key] : undefined, value)
-          for (let page = Number(pagination.startPage ?? 1); pages.length < maxPages; page += 1) {
-            const url = new URL(pageUrl)
-            if (pagination.mode === 'page') url.searchParams.set(String(pagination.pageParam ?? 'page'), String(page))
-            if (pagination.mode === 'cursor' && cursor != null) url.searchParams.set(String(pagination.cursorParam ?? 'cursor'), String(cursor))
-            const pageOutput = await fetchPage(url.toString())
-            pages.push(pageOutput.body)
-            if (pagination.mode === 'page') {
-              if (pageOutput.body == null || (Array.isArray(pageOutput.body) && pageOutput.body.length === 0)) break
-            } else if (pagination.mode === 'cursor') {
-              const next = atPath(pageOutput.body, pagination.cursorPath ?? 'nextCursor')
-              if (next == null || next === '' || next === cursor) break
-              cursor = next
-            } else {
-              const next = atPath(pageOutput.body, pagination.nextUrlPath ?? 'next')
-              if (typeof next !== 'string' || !next) break
-              pageUrl = new URL(next, pageUrl).toString()
-            }
-          }
-          return { ok: true, pages, pageCount: pages.length }
+          // The whole request sequence (redirects, pagination, batch throttle)
+          // lives in performHttpRequest so it's unit-testable; this wrapper
+          // supplies the real fetch, SSRF guard, and per-attempt abort signal.
+          return await performHttpRequest(request, node.config, {
+            assertUrlAllowed: assertPublicUrl,
+            signal: controller.signal,
+            maxResponseChars: HTTP_MAX_RESPONSE_CHARS,
+          })
         } catch (error) {
           if (timedOut) throw new Error(`HTTP request timed out after ${request.timeoutMs}ms`)
           throw error

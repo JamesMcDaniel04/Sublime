@@ -77,6 +77,105 @@ test('prepareHttpRequest rejects invalid JSON bodies when JSON mode is explicit'
   )
 })
 
+test('queryArrayFormat controls how array params serialize', () => {
+  const base = { method: 'GET', url: 'https://api.example.com/items', query: { tag: ['a', 'b'], one: 1 } }
+  assert.equal(
+    prepareHttpRequest(base).url,
+    'https://api.example.com/items?tag=a&tag=b&one=1',
+  )
+  assert.equal(
+    prepareHttpRequest({ ...base, queryArrayFormat: 'brackets' }).url,
+    `https://api.example.com/items?${encodeURIComponent('tag[]')}=a&${encodeURIComponent('tag[]')}=b&one=1`,
+  )
+  assert.equal(
+    prepareHttpRequest({ ...base, queryArrayFormat: 'indices' }).url,
+    `https://api.example.com/items?${encodeURIComponent('tag[0]')}=a&${encodeURIComponent('tag[1]')}=b&one=1`,
+  )
+  assert.equal(
+    prepareHttpRequest({ ...base, queryArrayFormat: 'comma' }).url,
+    `https://api.example.com/items?tag=${encodeURIComponent('a,b')}&one=1`,
+  )
+})
+
+test('auth type basic sets a Basic Authorization header', () => {
+  const request = prepareHttpRequest({
+    method: 'GET',
+    url: 'https://api.example.com',
+    auth: { type: 'basic', username: 'user', password: 'pa:ss' },
+  })
+  const headers = request.init.headers as Record<string, string>
+  assert.equal(headers.authorization, `Basic ${Buffer.from('user:pa:ss').toString('base64')}`)
+})
+
+test('auth type bearer sets a Bearer Authorization header', () => {
+  const request = prepareHttpRequest({
+    method: 'GET',
+    url: 'https://api.example.com',
+    auth: { type: 'bearer', token: 'tok-9' },
+  })
+  assert.equal((request.init.headers as Record<string, string>).authorization, 'Bearer tok-9')
+})
+
+test('an explicit Authorization header wins over the auth option', () => {
+  const request = prepareHttpRequest({
+    method: 'GET',
+    url: 'https://api.example.com',
+    headers: { Authorization: 'Bearer mine' },
+    auth: { type: 'basic', username: 'user', password: 'pass' },
+  })
+  const headers = request.init.headers as Record<string, string>
+  assert.equal(headers.Authorization, 'Bearer mine')
+  assert.equal(headers.authorization, undefined)
+})
+
+test('auth type header sets a custom header without clobbering an explicit one', () => {
+  const request = prepareHttpRequest({
+    method: 'GET',
+    url: 'https://api.example.com',
+    auth: { type: 'header', name: 'X-Api-Key', value: 'secret-1' },
+  })
+  assert.equal((request.init.headers as Record<string, string>)['X-Api-Key'], 'secret-1')
+
+  const explicit = prepareHttpRequest({
+    method: 'GET',
+    url: 'https://api.example.com',
+    headers: { 'x-api-key': 'mine' },
+    auth: { type: 'header', name: 'X-Api-Key', value: 'secret-1' },
+  })
+  const headers = explicit.init.headers as Record<string, string>
+  assert.equal(headers['x-api-key'], 'mine')
+  assert.equal(headers['X-Api-Key'], undefined)
+})
+
+test('auth type query appends a query parameter', () => {
+  const request = prepareHttpRequest({
+    method: 'GET',
+    url: 'https://api.example.com/things?a=1',
+    auth: { type: 'query', name: 'api_key', value: 'secret-2' },
+  })
+  assert.equal(request.url, 'https://api.example.com/things?a=1&api_key=secret-2')
+})
+
+test('redactHttpStepInput redacts auth option secrets but keeps its shape', () => {
+  const redacted = redactHttpStepInput({
+    url: 'https://api.example.com',
+    auth: { type: 'basic', username: 'user', password: 'pass' },
+  })
+  assert.deepEqual(redacted.auth, { type: 'basic', username: 'user', password: 'redacted' })
+
+  const query = redactHttpStepInput({
+    url: 'https://api.example.com',
+    auth: { type: 'query', name: 'api_key', value: 'secret' },
+  })
+  assert.deepEqual(query.auth, { type: 'query', name: 'api_key', value: 'redacted' })
+
+  const bearer = redactHttpStepInput({
+    url: 'https://api.example.com',
+    auth: { type: 'bearer', token: 'tok' },
+  })
+  assert.deepEqual(bearer.auth, { type: 'bearer', token: 'redacted' })
+})
+
 test('withBearerAuthorization injects a bearer token when no auth header is set', () => {
   const headers = { 'content-type': 'application/json' }
   const next = withBearerAuthorization(headers, 'tok-123')

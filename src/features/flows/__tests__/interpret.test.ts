@@ -394,6 +394,24 @@ test('http steps preserve structured query, headers, and body values', async () 
   })
 })
 
+test('http steps forward the auth option with templates resolved', async () => {
+  const graph: FlowGraph = {
+    nodes: [
+      { id: 'trigger', type: 'trigger', data: {} },
+      { id: 'h1', type: 'http', data: { method: 'GET', url: 'https://example.com', auth: { type: 'header', name: 'X-Api-Key', value: '{{trigger.input.key}}' } } },
+    ],
+    edges: [{ id: 'e0', source: 'trigger', target: 'h1' }],
+  }
+  const calls: Record<string, unknown>[] = []
+  const runAction: RunActionFn = async (node) => {
+    calls.push(node.config)
+    return { output: { ok: true } }
+  }
+  const result = await interpretFlow(graph, { key: 'k-123' }, { runAgent: async () => ({ output: 'unused' }), runAction })
+  assert.equal(result.status, 'succeeded')
+  assert.deepEqual(calls[0].auth, { type: 'header', name: 'X-Api-Key', value: 'k-123' })
+})
+
 test('http steps forward the cookie field with templates resolved', async () => {
   const graph: FlowGraph = {
     nodes: [

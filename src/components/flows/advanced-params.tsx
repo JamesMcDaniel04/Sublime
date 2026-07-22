@@ -135,6 +135,20 @@ export function AdvancedParamsSection({
       const active = data[key] === true
       return <select className={controlClass} value={active ? 'true' : 'false'} onChange={(event) => patch({ [key]: event.target.value === 'true' || undefined })}><option value="false">{key === 'disabled' ? 'Enabled' : 'Block redirects'}</option><option value="true">{key === 'disabled' ? 'Disabled' : 'Follow redirects safely'}</option></select>
     }
+    if (key === 'queryArrayFormat') {
+      return (
+        <select
+          className={controlClass}
+          value={(data.queryArrayFormat as string | undefined) ?? 'repeat'}
+          onChange={(event) => patch({ queryArrayFormat: event.target.value === 'repeat' ? undefined : event.target.value })}
+        >
+          <option value="repeat">Repeat key (tag=a&amp;tag=b)</option>
+          <option value="brackets">Brackets (tag[]=a)</option>
+          <option value="indices">Indices (tag[0]=a)</option>
+          <option value="comma">Comma separated (tag=a,b)</option>
+        </select>
+      )
+    }
     if (key === 'mockOutput') {
       return <textarea rows={3} className={cn(controlClass, 'h-auto min-h-20 py-2 font-mono text-xs')} value={data.mockOutput === undefined ? '' : JSON.stringify(data.mockOutput, null, 2)} placeholder="No mock output" onChange={(event) => { try { patch({ mockOutput: event.target.value.trim() ? JSON.parse(event.target.value) : undefined }) } catch { /* keep last valid value until JSON is valid */ } }} />
     }
@@ -169,6 +183,7 @@ export function AdvancedParamsSection({
     retryDelayMs: 'Retry delay (ms)',
     followRedirects: 'Redirects',
     maxRedirects: 'Maximum redirects',
+    queryArrayFormat: 'Array query params',
   }
 
   return (

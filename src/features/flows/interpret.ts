@@ -714,11 +714,14 @@ export async function interpretFlow(graph: FlowGraph, input: unknown, opts: Opts
             }
           : {
               ...(node.data.connectionId ? { connectionId: node.data.connectionId } : {}),
+              ...(node.data.auth ? { auth: resolveTemplateValue(node.data.auth, ctx) } : {}),
               method: node.data.method,
               url: resolveTemplate(node.data.url, ctx),
               query: resolveConfigValue(node.data.query, ctx),
+              ...(node.data.queryArrayFormat ? { queryArrayFormat: node.data.queryArrayFormat } : {}),
               headers: resolveConfigValue(node.data.headers, ctx),
               body: resolveConfigValue(node.data.body, ctx),
+              ...(node.data.cookie !== undefined ? { cookie: resolveTemplate(node.data.cookie, ctx) } : {}),
               bodyMode: node.data.bodyMode,
               responseType: node.data.responseType,
               failOnHttpError: node.data.failOnHttpError,

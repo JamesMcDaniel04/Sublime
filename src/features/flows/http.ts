@@ -4,6 +4,8 @@ export type FlowHttpConfig = {
   url?: unknown
   query?: unknown
   headers?: unknown
+  auth?: unknown
+  queryArrayFormat?: unknown
   body?: unknown
   bodyMode?: unknown
   responseType?: unknown
@@ -60,20 +62,79 @@ function headersFrom(value: unknown): Record<string, string> {
   )
 }
 
-function queryUrl(url: string, query: unknown): string {
+export type QueryArrayFormat = 'repeat' | 'brackets' | 'indices' | 'comma'
+
+function queryArrayFormatFrom(value: unknown): QueryArrayFormat {
+  return value === 'brackets' || value === 'indices' || value === 'comma' ? value : 'repeat'
+}
+
+function queryUrl(url: string, query: unknown, arrayFormat: QueryArrayFormat = 'repeat'): string {
   const params = parseObjectInput(query, 'Query params')
   if (!Object.keys(params).length) return url
   const next = new URL(url)
   for (const [key, value] of Object.entries(params)) {
     if (!key.trim() || value == null || value === '') continue
     if (Array.isArray(value)) {
-      for (const item of value) {
-        if (item != null && item !== '') next.searchParams.append(key, String(item))
+      const items = value.filter((item) => item != null && item !== '')
+      if (arrayFormat === 'comma') {
+        if (items.length) next.searchParams.set(key, items.map(String).join(','))
+        continue
       }
+      items.forEach((item, index) => {
+        const name = arrayFormat === 'brackets' ? `${key}[]` : arrayFormat === 'indices' ? `${key}[${index}]` : key
+        next.searchParams.append(name, String(item))
+      })
       continue
     }
     next.searchParams.set(key, String(value))
   }
+  return next.toString()
+}
+
+// ── Generic auth option (n8n-style "generic credentials") ───────────────────
+// Explicit user-supplied headers/params always win over the auth option, the
+// same precedence connection-token injection follows.
+
+type HttpAuthOption = {
+  type: 'basic' | 'bearer' | 'header' | 'query'
+  username?: string
+  password?: string
+  token?: string
+  name?: string
+  value?: string
+}
+
+function parseAuthOption(value: unknown): HttpAuthOption | undefined {
+  if (!isRecord(value)) return undefined
+  const type = String(value.type ?? '')
+  if (type !== 'basic' && type !== 'bearer' && type !== 'header' && type !== 'query') return undefined
+  return value as HttpAuthOption
+}
+
+function applyAuthHeaders(headers: Record<string, string>, auth: HttpAuthOption | undefined): Record<string, string> {
+  if (!auth) return headers
+  if (auth.type === 'basic') {
+    const credential = Buffer.from(`${auth.username ?? ''}:${auth.password ?? ''}`).toString('base64')
+    return withAuthorizationValue(headers, `Basic ${credential}`)
+  }
+  if (auth.type === 'bearer') return withAuthorizationValue(headers, `Bearer ${auth.token ?? ''}`)
+  if (auth.type === 'header') {
+    const name = (auth.name ?? '').trim()
+    const value = auth.value ?? ''
+    if (!name || !value) return headers
+    if (Object.keys(headers).some((key) => key.trim().toLowerCase() === name.toLowerCase())) return headers
+    return { ...headers, [name]: value }
+  }
+  return headers
+}
+
+function applyAuthQuery(url: string, auth: HttpAuthOption | undefined): string {
+  if (!auth || auth.type !== 'query') return url
+  const name = (auth.name ?? '').trim()
+  if (!name || !auth.value) return url
+  const next = new URL(url)
+  if (next.searchParams.has(name)) return url
+  next.searchParams.append(name, auth.value)
   return next.toString()
 }
 
@@ -108,8 +169,9 @@ function textBody(body: unknown): string | undefined {
 
 export function prepareHttpRequest(config: FlowHttpConfig): { url: string; init: RequestInit; timeoutMs: number; failOnHttpError: boolean; responseType: 'auto' | 'json' | 'text' | 'binary'; followRedirects: boolean; maxRedirects: number } {
   const method = String(config.method || 'POST').toUpperCase()
-  const url = queryUrl(String(config.url || ''), config.query)
-  const headers = headersFrom(config.headers)
+  const auth = parseAuthOption(config.auth)
+  const url = applyAuthQuery(queryUrl(String(config.url || ''), config.query, queryArrayFormatFrom(config.queryArrayFormat)), auth)
+  const headers = applyAuthHeaders(headersFrom(config.headers), auth)
   // The Cookie field is a convenience for the common single-header case; an
   // explicit Cookie among `headers` always wins.
   if (typeof config.cookie === 'string' && config.cookie.trim() !== '' && !Object.keys(headers).some((key) => key.toLowerCase() === 'cookie')) {
@@ -155,6 +217,117 @@ export function prepareHttpRequest(config: FlowHttpConfig): { url: string; init:
   }
 }
 
+export type PreparedHttpRequest = ReturnType<typeof prepareHttpRequest>
+
+export type FlowHttpPaginatedOutput = { ok: true; pages: unknown[]; pageCount: number }
+
+/**
+ * Request-sequence policy: options that shape the fetch loop rather than a
+ * single request — retry-on-status, pagination, and batch throttling. Values
+ * arrive untyped from the interpreted node config.
+ */
+export type HttpRequestPolicy = {
+  retryStatusCodes?: unknown
+  pagination?: unknown
+  batch?: unknown
+}
+
+export type HttpRequestDeps = {
+  fetchImpl?: typeof fetch
+  /** SSRF guard, re-run on every page, retry attempt, and redirect hop. */
+  assertUrlAllowed?: (url: string) => Promise<void>
+  sleep?: (ms: number) => Promise<void>
+  signal?: AbortSignal
+  maxResponseChars?: number
+}
+
+const defaultSleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms))
+
+const atPath = (value: unknown, path: unknown) =>
+  String(path ?? '')
+    .split('.')
+    .filter(Boolean)
+    .reduce<unknown>((current, key) => (current && typeof current === 'object' ? (current as Record<string, unknown>)[key] : undefined), value)
+
+/**
+ * Execute one attempt of an http step: the redirect loop, optional pagination
+ * (page / cursor / nextUrl with interval, stop-path, and batch throttling),
+ * and response-envelope construction. Pure over its deps so the whole request
+ * sequence is unit-testable; the executor supplies the real fetch, SSRF guard,
+ * and abort signal, and wraps this in the retry/timeout machinery.
+ */
+export async function performHttpRequest(
+  request: PreparedHttpRequest,
+  policy: HttpRequestPolicy,
+  deps: HttpRequestDeps = {},
+): Promise<FlowHttpOutput | FlowHttpPaginatedOutput> {
+  const fetchImpl = deps.fetchImpl ?? fetch
+  const sleep = deps.sleep ?? defaultSleep
+  let requestCount = 0
+  const batch = policy.batch && typeof policy.batch === 'object' ? (policy.batch as Record<string, unknown>) : null
+  const batchSize = batch ? Math.max(1, Math.min(1000, Number(batch.size ?? 0) || 0)) : 0
+  // Pause between requests: at batch boundaries (every `size` requests) and/or
+  // every `intervalMs`. Applied before a request, never before the first —
+  // so a sequence that ends exactly on a boundary doesn't pause pointlessly.
+  const throttle = async (intervalMs: number) => {
+    if (requestCount === 0) return
+    if (batch && batchSize > 0 && requestCount % batchSize === 0) {
+      const delayMs = Math.max(0, Math.min(60000, Number(batch.delayMs ?? 0) || 0))
+      if (delayMs > 0) await sleep(delayMs)
+    }
+    if (intervalMs > 0) await sleep(intervalMs)
+  }
+  const fetchPage = async (initialUrl: string) => {
+    let url = initialUrl
+    for (let redirects = 0; ; redirects += 1) {
+      await deps.assertUrlAllowed?.(url)
+      requestCount += 1
+      const response = await fetchImpl(url, { ...request.init, ...(deps.signal ? { signal: deps.signal } : {}) })
+      if (response.status >= 300 && response.status < 400 && response.headers.get('location')) {
+        if (!request.followRedirects) throw new Error(`HTTP ${response.status}: redirect blocked (enable Follow redirects to allow it).`)
+        if (redirects >= request.maxRedirects) throw new Error(`HTTP redirect limit (${request.maxRedirects}) exceeded.`)
+        url = new URL(response.headers.get('location')!, url).toString()
+        continue
+      }
+      const nextOutput = await responseOutput(response, request.responseType, deps.maxResponseChars ?? 50_000)
+      const retryCodes = Array.isArray(policy.retryStatusCodes) ? policy.retryStatusCodes.map(Number) : []
+      if (retryCodes.includes(nextOutput.status)) throw new Error(`HTTP ${nextOutput.status}: configured for retry.`)
+      if (request.failOnHttpError && !nextOutput.ok) throw new Error(`HTTP ${nextOutput.status}: ${nextOutput.bodyText.slice(0, 200)}`)
+      return nextOutput
+    }
+  }
+  const pagination = policy.pagination && typeof policy.pagination === 'object' ? (policy.pagination as Record<string, unknown>) : null
+  if (!pagination || pagination.mode === 'off' || !pagination.mode) return fetchPage(request.url)
+  const pages: unknown[] = []
+  const maxPages = Math.max(1, Math.min(1000, Number(pagination.maxPages ?? 100)))
+  const intervalMs = Math.max(0, Math.min(60000, Number(pagination.intervalMs ?? 0) || 0))
+  let pageUrl = request.url
+  let cursor: unknown
+  for (let page = Number(pagination.startPage ?? 1); pages.length < maxPages; page += 1) {
+    await throttle(intervalMs)
+    const url = new URL(pageUrl)
+    if (pagination.mode === 'page') url.searchParams.set(String(pagination.pageParam ?? 'page'), String(page))
+    if (pagination.mode === 'cursor' && cursor != null) url.searchParams.set(String(pagination.cursorParam ?? 'cursor'), String(cursor))
+    const pageOutput = await fetchPage(url.toString())
+    pages.push(pageOutput.body)
+    // Explicit complete-condition: a truthy value at stopPath means this page
+    // is the last one, regardless of mode-specific continuation state.
+    if (typeof pagination.stopPath === 'string' && pagination.stopPath.trim() && Boolean(atPath(pageOutput.body, pagination.stopPath))) break
+    if (pagination.mode === 'page') {
+      if (pageOutput.body == null || (Array.isArray(pageOutput.body) && pageOutput.body.length === 0)) break
+    } else if (pagination.mode === 'cursor') {
+      const next = atPath(pageOutput.body, pagination.cursorPath ?? 'nextCursor')
+      if (next == null || next === '' || next === cursor) break
+      cursor = next
+    } else {
+      const next = atPath(pageOutput.body, pagination.nextUrlPath ?? 'next')
+      if (typeof next !== 'string' || !next) break
+      pageUrl = new URL(next, pageUrl).toString()
+    }
+  }
+  return { ok: true, pages, pageCount: pages.length }
+}
+
 // ── Connection auth: pure header helpers ────────────────────────────────────
 // Injection happens server-side at fetch time only; the token never enters the
 // graph JSON or persisted step rows. Redaction covers the user-supplied case.
@@ -175,9 +348,14 @@ const hasAuthHeader = (headers: Record<string, string>) =>
  * injected one.
  */
 export function withBearerAuthorization(headers: Record<string, string>, token: string): Record<string, string> {
+  return withAuthorizationValue(headers, `Bearer ${token}`)
+}
+
+/** Same precedence as withBearerAuthorization for any Authorization scheme. */
+function withAuthorizationValue(headers: Record<string, string>, value: string): Record<string, string> {
   if (hasAuthHeader(headers)) return headers
   const rest = Object.entries(headers).filter(([key]) => !AUTH_HEADER_RE.test(key.trim()))
-  return { ...Object.fromEntries(rest), authorization: `Bearer ${token}` }
+  return { ...Object.fromEntries(rest), authorization: value }
 }
 
 /**
@@ -206,10 +384,27 @@ export function redactAuthHeaders(headers: unknown): unknown {
   return headers
 }
 
-/** An http step's config as safe to persist: auth header values redacted. */
+// The auth option's secret-bearing fields; username / header name stay visible.
+const AUTH_SECRET_KEYS = new Set(['password', 'token', 'value'])
+
+/**
+ * An http step's config as safe to persist: auth header values and the auth
+ * option's secrets (password/token/value) redacted, shape preserved.
+ */
 export function redactHttpStepInput(config: Record<string, unknown>): Record<string, unknown> {
-  if (config.headers === undefined || config.headers === null) return config
-  return { ...config, headers: redactAuthHeaders(config.headers) }
+  let next = config
+  if (config.headers !== undefined && config.headers !== null) {
+    next = { ...next, headers: redactAuthHeaders(config.headers) }
+  }
+  if (isRecord(config.auth)) {
+    next = {
+      ...next,
+      auth: Object.fromEntries(
+        Object.entries(config.auth).map(([key, value]) => [key, AUTH_SECRET_KEYS.has(key) && value != null && value !== '' ? 'redacted' : value]),
+      ),
+    }
+  }
+  return next
 }
 
 function shouldParseJson(contentType: string, responseType: 'auto' | 'json' | 'text', text: string) {
