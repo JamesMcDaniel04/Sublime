@@ -50,7 +50,7 @@ export function OAuthIntegrationsGrid() {
   // connected grid instead of an all-disconnected default.
   const { data: integrationsData, loading: loadingIntegrations, error: integrationsError, refresh: refreshIntegrations } =
     useCachedJson<{ integrations?: Integration[] }>('/api/nango/integrations', { persist: true })
-  const { data: statusData, loading: loadingStatus, error: statusError, refresh: refreshStatus } =
+  const { data: statusData, loading: loadingStatus, error: statusError, refresh: refreshStatus, mutate: mutateStatus } =
     useCachedJson<{ connections?: Record<string, Connection> }>('/api/nango/status', { persist: true })
   const { data: profileData } = useCachedJson<{ profile?: { role: string } }>('/api/settings/profile')
   const isAdmin = profileData?.profile?.role === 'ADMIN'
@@ -96,10 +96,18 @@ export function OAuthIntegrationsGrid() {
     finally { setRescanningId(null) }
   }
 
+  const refreshLiveStatus = useCallback(async () => {
+    const response = await fetch('/api/nango/status?refresh=1', { cache: 'no-store' })
+    const data = await response.json().catch(() => ({}))
+    if (!response.ok) throw new Error(data.error || 'Could not refresh connection status.')
+    mutateStatus(data)
+    return data as { connections?: Record<string, Connection> }
+  }, [mutateStatus])
+
   const refreshAll = useCallback(() => {
     void refreshIntegrations()
-    void refreshStatus()
-  }, [refreshIntegrations, refreshStatus])
+    void refreshLiveStatus().catch((error) => toast.error(error instanceof Error ? error.message : 'Could not refresh connection status.'))
+  }, [refreshIntegrations, refreshLiveStatus])
 
   useEffect(() => {
     return () => {
@@ -123,10 +131,10 @@ export function OAuthIntegrationsGrid() {
   const confirmConnected = useCallback(async (integrationId: string) => {
     for (const delayMs of [0, 1000, 2000, 4000, 8000]) {
       if (delayMs) await new Promise((resolve) => setTimeout(resolve, delayMs))
-      const status = await refreshStatus()
+      const status = await refreshLiveStatus().catch(() => refreshStatus())
       if (status?.connections?.[integrationId]?.connected) return
     }
-  }, [refreshStatus])
+  }, [refreshLiveStatus, refreshStatus])
 
   // Native OAuth returns via a full-page redirect with ?connected=<id>. The
   // page component swaps the param out of the URL right after mount, so
@@ -201,13 +209,13 @@ export function OAuthIntegrationsGrid() {
             throw new Error(data.error || 'Unable to disconnect account')
           }
         }
-        await refreshStatus()
+        await refreshLiveStatus()
         return
       }
       const response = await fetch(`/api/nango/connections/${encodeURIComponent(integration.id)}`, { method: 'DELETE' })
       const data = await response.json()
       if (!response.ok) throw new Error(data.error || 'Unable to disconnect account')
-      await refreshStatus()
+      await refreshLiveStatus()
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Unable to disconnect account')
     } finally {

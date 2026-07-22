@@ -42,10 +42,12 @@ if (TEST_DB) {
   // need a request body or a live external call (see report for skips).
   const cases: Array<{ name: string; run: () => Promise<Response> }> = [
     { name: 'GET /api/agent-templates', run: async () => (await import('../agent-templates/route')).GET(req('/api/agent-templates')) },
+    { name: 'GET /api/bootstrap', run: async () => (await import('../bootstrap/route')).GET(req('/api/bootstrap')) },
     { name: 'GET /api/snapshot', run: async () => (await import('../snapshot/route')).GET(req('/api/snapshot')) },
     { name: 'GET /api/system/capabilities', run: async () => (await import('../system/capabilities/route')).GET(req('/api/system/capabilities')) },
     { name: 'GET /api/flows', run: async () => (await import('../flows/route')).GET(req('/api/flows')) },
     { name: 'GET /api/agents', run: async () => (await import('../agents/route')).GET(req('/api/agents')) },
+    { name: 'GET /api/agents/activity', run: async () => (await import('../agents/activity/route')).GET(req(`/api/agents/activity?agentId=${agentId}`)) },
     { name: 'GET /api/assistant/chat', run: async () => (await import('../assistant/chat/route')).GET(req('/api/assistant/chat')) },
     { name: 'GET /api/assistant/chat/sessions', run: async () => (await import('../assistant/chat/sessions/route')).GET(req('/api/assistant/chat/sessions')) },
     { name: 'GET /api/audit/export', run: async () => (await import('../audit/export/route')).GET(req('/api/audit/export')) },
@@ -57,11 +59,9 @@ if (TEST_DB) {
     { name: 'GET /api/intelligence/learnings', run: async () => (await import('../intelligence/learnings/route')).GET(req('/api/intelligence/learnings')) },
     { name: 'GET /api/mcp-connections', run: async () => (await import('../mcp-connections/route')).GET(req('/api/mcp-connections')) },
     { name: 'GET /api/mcp-connections/oauth/start', run: async () => (await import('../mcp-connections/oauth/start/route')).GET(req('/api/mcp-connections/oauth/start')) },
-    // nango/integrations, nango/status: skipped — no NANGO_SECRET_KEY in the
-    // test env, so both deliberately throw a 503 ApiError (NANGO_UNAVAILABLE)
-    // before any network call. Correct behavior, but 503 >= 500 trips this
-    // suite's strict <500 threshold; this is the "needs an external service"
-    // skip category, not a guard/logic bug.
+    { name: 'GET /api/nango/status', run: async () => (await import('../nango/status/route')).GET(req('/api/nango/status')) },
+    // nango/integrations is skipped below: a catalogue cache miss needs a live
+    // Nango credential, while status is now a fast mirror-only read.
     { name: 'GET /api/organizations', run: async () => (await import('../organizations/route')).GET(req('/api/organizations')) },
     { name: 'GET /api/organizations/members', run: async () => (await import('../organizations/members/route')).GET(req('/api/organizations/members')) },
     { name: 'GET /api/push/key', run: async () => (await import('../push/key/route')).GET(req('/api/push/key')) },
@@ -116,7 +116,6 @@ if (TEST_DB) {
   // exact blind spot behind the 2026-07-10 tenant-guard incident).
   const skipped: Array<{ route: string; reason: string }> = [
     { route: 'nango/integrations', reason: 'needs NANGO_SECRET_KEY — throws 503 before any network call' },
-    { route: 'nango/status', reason: 'needs NANGO_SECRET_KEY — throws 503 before any network call' },
     { route: 'granola/notes/[id]', reason: 'needs a Granola key — throws 503 before any network call' },
     { route: 'google/oauth/start', reason: '302 to Google consent — covered in google-oauth-routes.test.ts' },
   ]

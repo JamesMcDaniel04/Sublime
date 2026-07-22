@@ -152,6 +152,13 @@ export function prefetchCachedJson(urls: string[]): void {
   for (const url of urls) void getCachedJson(url).catch(() => undefined)
 }
 
+/** Seed a URL from the authenticated bootstrap response without another HTTP
+ * request. Persistence remains opt-in and is always tagged with cacheScope. */
+export function seedCachedJson<T>(url: string, data: T, options?: { persist?: boolean }): void {
+  if (options?.persist) persistentUrls.add(url)
+  write(url, data)
+}
+
 /** Isolate authenticated cache entries when the active browser user changes. */
 export function scopeCachedJson(userId: string | null): void {
   if (cacheScope === userId) return
@@ -258,4 +265,5 @@ export function useCachedJson<T = unknown>(url: string | null, options?: { persi
 /** Drop a URL's cached entry so the next mount/refresh refetches from the server. */
 export function invalidateCachedJson(url: string): void {
   mem.delete(url)
+  if (persistentUrls.has(url)) writePersisted()
 }

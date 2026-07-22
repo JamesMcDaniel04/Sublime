@@ -158,6 +158,8 @@ model AgentTask {
   memories            AgentMemory[]
 
   @@index([organizationId, status])
+  @@index([organizationId, userId, status, updatedAt])
+  @@index([organizationId, visibility, status, updatedAt])
   @@index([userId])
   @@map("agent_tasks")
 }
@@ -345,6 +347,7 @@ model AgentExecution {
 
   @@unique([organizationId, idempotencyKey])
   @@index([organizationId, startedAt])
+  @@index([organizationId, userId, agentTaskId, startedAt])
   @@index([agentTaskId])
   @@map("agent_executions")
 }
@@ -379,6 +382,7 @@ model Notification {
 
   @@index([organizationId, createdAt])
   @@index([organizationId, userId, readAt])
+  @@index([organizationId, userId, createdAt])
   @@map("notifications")
 }
 
@@ -554,6 +558,7 @@ model NangoConnection {
   @@unique([organizationId, connectionId])
   @@index([organizationId, providerConfigKey])
   @@index([organizationId, userId, status])
+  @@index([organizationId, userId, updatedAt])
   @@map("nango_connections")
 }
 

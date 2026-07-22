@@ -147,19 +147,25 @@ export function Sidebar() {
     scopeCachedJson(userId ?? null)
     scopeSnapshot(userId ?? null)
     if (!userId) return
-    const timer = window.setTimeout(() => {
+    const warmSecondaryData = () => {
       prefetchCachedJson([
         '/api/agent-templates',
         '/api/skills',
-        '/api/agents',
         '/api/flows',
         '/api/integrations/available',
         '/api/nango/integrations',
-        '/api/nango/status',
         '/api/mcp-connections',
       ])
-    }, 250)
-    return () => window.clearTimeout(timer)
+    }
+    // Bootstrap owns first-paint data. Warm secondary destinations only when
+    // the browser is idle so they cannot contend with login or the shell model.
+    const idleWindow = window as Window & { requestIdleCallback?: Window['requestIdleCallback']; cancelIdleCallback?: Window['cancelIdleCallback'] }
+    if (typeof idleWindow.requestIdleCallback === 'function') {
+      const idleId = idleWindow.requestIdleCallback(warmSecondaryData, { timeout: 2_000 })
+      return () => idleWindow.cancelIdleCallback?.(idleId)
+    }
+    const timer = globalThis.setTimeout(warmSecondaryData, 1_000)
+    return () => globalThis.clearTimeout(timer)
   }, [userId])
 
   const load = useCallback(async (force = false) => {

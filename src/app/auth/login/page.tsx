@@ -12,6 +12,7 @@ import { toast } from 'sonner'
 import { safeReturnToPath } from '@/lib/auth/redirect'
 import { createClient } from '@/lib/supabase/client'
 import { GoogleSignInButton } from '@/components/auth/google-signin-button'
+import { primeBootstrap } from '@/lib/client/snapshot'
 
 export default function LoginPage() {
   const [email, setEmail] = useState('')
@@ -24,6 +25,16 @@ export default function LoginPage() {
   const { signIn, user, loading: authLoading } = useSupabase()
   const router = useRouter()
   const returnTo = typeof window === 'undefined' ? '/dashboard' : safeReturnToPath(new URLSearchParams(window.location.search).get('return_to'))
+
+  const finishLogin = async (userId: string) => {
+    // Persist the scoped shell model before the intentional hard navigation.
+    // A short ceiling keeps a degraded backend from trapping the login form.
+    await Promise.race([
+      primeBootstrap(userId),
+      new Promise((resolve) => window.setTimeout(resolve, 3_500)),
+    ]).catch(() => undefined)
+    window.location.href = returnTo
+  }
 
   // Handle Supabase email verification redirected to wrong URL
   useEffect(() => {
@@ -50,10 +61,10 @@ export default function LoginPage() {
     }
     
     // Redirect if already authenticated
-    if (!authLoading && user) {
+    if (!authLoading && user && !loading && !mfa) {
       router.push('/dashboard')
     }
-  }, [user, authLoading, router])
+  }, [user, authLoading, loading, mfa, router])
 
   const handleEmailLogin = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -78,8 +89,8 @@ export default function LoginPage() {
           setMfa({ factorId: factor.id, challengeId: challenge.data.id })
           return
         }
-        // Force page refresh after successful login to ensure auth state is properly updated
-        window.location.href = returnTo
+        // Force page refresh after successful login to ensure auth state is properly updated.
+        await finishLogin(data.user.id)
       }
     } catch (err: any) {
       const errorMessage = err.message || 'An unexpected error occurred'
@@ -97,7 +108,8 @@ export default function LoginPage() {
     const { error } = await createClient().auth.mfa.verify({ factorId: mfa.factorId, challengeId: mfa.challengeId, code: mfaCode })
     setLoading(false)
     if (error) { setError('Invalid or expired verification code.'); return }
-    window.location.href = returnTo
+    if (user?.id) await finishLogin(user.id)
+    else window.location.href = returnTo
   }
 
   // Show loading spinner while checking auth state

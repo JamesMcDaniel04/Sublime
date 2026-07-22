@@ -25,17 +25,34 @@ type AuthenticatedHandler = (
 
 export function withAuthenticatedApi(handler: AuthenticatedHandler) {
   return async (request: NextRequest): Promise<Response> => {
+    const startedAt = performance.now()
+    let authFinishedAt = startedAt
+    const withTiming = (response: Response): Response => {
+      const finishedAt = performance.now()
+      try {
+        response.headers.set(
+          'Server-Timing',
+          `auth;dur=${Math.max(0, authFinishedAt - startedAt).toFixed(1)}, handler;dur=${Math.max(0, finishedAt - authFinishedAt).toFixed(1)}, total;dur=${Math.max(0, finishedAt - startedAt).toFixed(1)}`,
+        )
+      } catch {
+        // A handler may return a response with an immutable header guard. The
+        // request must still succeed; timing is diagnostic, never functional.
+      }
+      return response
+    }
     try {
       const auth = await requireAuthContext()
+      authFinishedAt = performance.now()
       const result = await handler(request, auth)
 
-      return result instanceof Response ? result : NextResponse.json(result)
+      return withTiming(result instanceof Response ? result : NextResponse.json(result))
     } catch (error) {
+      if (authFinishedAt === startedAt) authFinishedAt = performance.now()
       if (error instanceof AuthContextError) {
-        return NextResponse.json(
+        return withTiming(NextResponse.json(
           { success: false, error: error.message, code: error.code },
           { status: error.status },
-        )
+        ))
       }
 
       if (error instanceof ApiError) {
@@ -51,27 +68,27 @@ export function withAuthenticatedApi(handler: AuthenticatedHandler) {
           })
           captureError(error.cause ?? error, { path: request.nextUrl.pathname, code: error.code })
         }
-        return NextResponse.json(
+        return withTiming(NextResponse.json(
           { success: false, error: error.message, code: error.code },
           { status: error.status },
-        )
+        ))
       }
 
       if (error instanceof ZodError) {
-        return NextResponse.json(
+        return withTiming(NextResponse.json(
           { success: false, error: 'Invalid request', code: 'VALIDATION_ERROR', issues: error.issues },
           { status: 400 },
-        )
+        ))
       }
 
       // A malformed/empty JSON body throws SyntaxError from request.json()
       // before any handler logic runs — that's the caller's error (400), not
       // an internal failure, and must not page Sentry.
       if (error instanceof SyntaxError) {
-        return NextResponse.json(
+        return withTiming(NextResponse.json(
           { success: false, error: 'Request body must be valid JSON', code: 'INVALID_JSON' },
           { status: 400 },
-        )
+        ))
       }
 
       apiLogger.error('API request failed', {
@@ -80,10 +97,10 @@ export function withAuthenticatedApi(handler: AuthenticatedHandler) {
       })
       captureError(error, { path: request.nextUrl.pathname })
 
-      return NextResponse.json(
+      return withTiming(NextResponse.json(
         { success: false, error: 'Internal server error', code: 'INTERNAL_ERROR' },
         { status: 500 },
-      )
+      ))
     }
   }
 }

@@ -37,13 +37,18 @@ export function SupabaseProvider({ children }: { children: React.ReactNode }) {
     const timeout = new Promise<never>((_resolve, reject) => {
       timeoutId = setTimeout(() => reject(new Error('Authentication check timed out')), 8_000)
     })
+    // getSession is local-storage backed, so authenticated chrome can start
+    // hydrating immediately. getUser still verifies with Supabase in the
+    // background; protected pages were also verified by server middleware.
+    void supabase.auth.getSession().then(({ data }) => {
+      if (!active) return
+      setUser(data.session?.user ?? null)
+      setLoading(false)
+    }).catch(() => undefined)
     void Promise.race([supabase.auth.getUser(), timeout])
       .then(({ data }) => { if (active) setUser(data.user) })
       .catch(() => { if (active) setUser(null) })
-      .finally(() => {
-        if (timeoutId) clearTimeout(timeoutId)
-        if (active) setLoading(false)
-      })
+      .finally(() => { if (timeoutId) clearTimeout(timeoutId) })
     const { data } = supabase.auth.onAuthStateChange((_event, session) => {
       setUser(session?.user ?? null)
       setLoading(false)

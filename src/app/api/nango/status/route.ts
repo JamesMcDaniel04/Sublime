@@ -10,54 +10,15 @@ import { capabilityForProviderConfigKey, capabilitiesToPurgeOnDisconnect, type D
 import { triggerAutoBackfills } from '@/lib/activity/auto-backfill'
 import { fromNangoProviderKey } from '@/lib/connectors/registry'
 import { apiLogger } from '@/lib/logger'
+import type { AuthContext } from '@/lib/server/auth'
+import { GOOGLE_NATIVE_PROVIDER, mirroredConnectionStatus, type ConnectionStatus } from '@/lib/server/nango-status'
 
 export const runtime = 'nodejs'
 
-type ConnectionStatus = {
-  connected: boolean
-  connectionIds: string[]
-  provider: string
-  error?: string
-  lastSync?: string
-  /** True when the entry is a native Google OAuth connection (not Nango). */
-  native?: boolean
-}
-
-/** Marker written by src/lib/google/store.ts on mirror rows. */
-const GOOGLE_NATIVE_PROVIDER = 'google-native'
-
-async function mirroredConnectionStatus(organizationId: string, userId: string): Promise<Record<string, ConnectionStatus>> {
-  const rows = await prisma.nangoConnection.findMany({
-    where: { organizationId, userId },
-    select: {
-      connectionId: true,
-      providerConfigKey: true,
-      provider: true,
-      status: true,
-      lastError: true,
-      updatedAt: true,
-    },
-  })
-  const connections: Record<string, ConnectionStatus> = {}
-  for (const row of rows) {
-    const existing = connections[row.providerConfigKey]
-    const connected = row.status === 'connected'
-    connections[row.providerConfigKey] = {
-      connected: existing ? existing.connected || connected : connected,
-      connectionIds: [...(existing?.connectionIds ?? []), row.connectionId],
-      provider: row.provider || row.providerConfigKey,
-      error: existing?.error ?? row.lastError ?? undefined,
-      lastSync: row.updatedAt.toISOString(),
-      native: (existing?.native ?? false) || row.provider === GOOGLE_NATIVE_PROVIDER,
-    }
-  }
-  return connections
-}
-
-// Lists the organization's Nango connections (live from Nango) and mirrors
-// them into the per-org nango_connections table. Nango owns the credentials;
-// we only persist connection ids and health.
-export const GET = withAuthenticatedApi(async (_request, auth) => {
+// Explicit reconciliation path. Normal reads below are mirror-only; OAuth
+// confirmation and the user's Refresh action call this path with ?refresh=1.
+// Nango owns the credentials; we persist only connection ids and health.
+async function reconcileNangoConnectionStatus(auth: AuthContext) {
   // Without Nango there is nothing to reconcile against the cloud — the
   // mirror (which includes native Google rows) IS the status.
   if (!nangoConfigured()) {
@@ -99,9 +60,10 @@ export const GET = withAuthenticatedApi(async (_request, auth) => {
 
   const connections: Record<string, ConnectionStatus> = {}
   const seen: string[] = []
+  const upserts: Prisma.PrismaPromise<unknown>[] = []
 
-  // This route re-mirrors every Nango connection on every integrations page
-  // load — only fire a scan on a genuine new-or-error→connected transition,
+  // Reconciliation may revisit every Nango connection; only fire a scan on a
+  // genuine new-or-error→connected transition,
   // so a repeat page view doesn't re-scan an already-known-connected
   // connection. Keyed on the pre-update status (not mere row presence) so a
   // connection first mirrored while erroring/pending still scans once it
@@ -141,7 +103,7 @@ export const GET = withAuthenticatedApi(async (_request, auth) => {
       },
     } satisfies Prisma.InputJsonObject
 
-    await prisma.nangoConnection.upsert({
+    upserts.push(prisma.nangoConnection.upsert({
       where: {
         organizationId_connectionId: {
           organizationId: auth.organizationId,
@@ -166,12 +128,15 @@ export const GET = withAuthenticatedApi(async (_request, auth) => {
         lastError: error ?? null,
         metadata,
       },
-    })
+    }))
 
     if (shouldScanNangoConnection(previousByConnectionId.get(connection.connection_id), connected)) {
       newlyConnected.push({ connectionId: connection.connection_id, providerConfigKey: key, userId: auth.dbUser.id })
     }
   }
+
+  // One transaction instead of one awaited database round-trip per account.
+  if (upserts.length > 0) await prisma.$transaction(upserts)
 
   // Purge-on-disconnect (Task 5, Fix B2): a connection that vanished from
   // Nango without going through the explicit DELETE route below (removed
@@ -257,5 +222,22 @@ export const GET = withAuthenticatedApi(async (_request, auth) => {
     }
   }
 
-  return { success: true, connections, nativeGoogle: googleOAuthConfigured() }
+  return { success: true, connections, nativeGoogle: googleOAuthConfigured(), refreshed: true }
+}
+
+/**
+ * Fast status read: the request path never waits on Nango. The mirror is also
+ * the runtime's source of truth, so this is both faster and internally
+ * consistent. Live reconciliation is opt-in via ?refresh=1.
+ */
+export const GET = withAuthenticatedApi(async (request, auth) => {
+  if (request.nextUrl.searchParams.get('refresh') === '1') {
+    return reconcileNangoConnectionStatus(auth)
+  }
+  return {
+    success: true,
+    connections: await mirroredConnectionStatus(auth.organizationId, auth.dbUser.id),
+    nativeGoogle: googleOAuthConfigured(),
+    mirrored: true,
+  }
 })

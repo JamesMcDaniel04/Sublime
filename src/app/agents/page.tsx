@@ -49,7 +49,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { AGENTS_CHANGED_EVENT, notifyAgentsChanged } from '@/components/layout/sidebar'
 import { useAuth } from '@/hooks/use-auth'
-import { getSnapshot, peekSnapshot, SnapshotError } from '@/lib/client/snapshot'
+import { getSnapshot, peekSnapshot, SnapshotError, subscribeSnapshot } from '@/lib/client/snapshot'
 import { getCachedJson } from '@/lib/client/use-cached-json'
 import { cn } from '@/lib/utils'
 
@@ -115,6 +115,8 @@ function AgentHQ() {
   const [agents, setAgents] = useState<Agent[]>(() => initialSnapshot?.agents || [])
   const [activities, setActivities] = useState<Activity[]>(() => initialSnapshot?.activities || [])
   const [loading, setLoading] = useState(() => !initialSnapshot)
+  const [activityLoadingId, setActivityLoadingId] = useState<string | null>(null)
+  const activityLoadedIdsRef = useRef(new Set<string>())
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null)
   const [configureOpen, setConfigureOpen] = useState(false)
   const [focusRunId, setFocusRunId] = useState<string | null>(null)
@@ -138,6 +140,10 @@ function AgentHQ() {
     return saved ? clampAssistantWidth(saved) : ASSISTANT_WIDTH_DEFAULT
   })
   const assistantWidthRef = useRef(assistantWidth)
+  useEffect(() => subscribeSnapshot((snapshot) => {
+    setAgents(snapshot.agents || [])
+    setLoading(false)
+  }), [])
   // Count for the Templates toggle badge. Cheap: the sidebar already warms
   // /api/agent-templates in the shared client cache. Re-read on view switches
   // so templates created or deleted inside the library update the badge.
@@ -193,7 +199,6 @@ function AgentHQ() {
     try {
       const snapshot = await getSnapshot(force ? 0 : undefined)
       setAgents(snapshot.agents || [])
-      setActivities(snapshot.activities || [])
       setAuthError(null)
       setAuthStatus(null)
     } catch (error) {
@@ -202,6 +207,23 @@ function AgentHQ() {
       setAuthError(error instanceof Error ? error.message : `Couldn't load agents (HTTP ${status}).`)
     } finally {
       setLoading(false)
+    }
+  }, [])
+
+  const loadActivities = useCallback(async (agentId: string, force = false) => {
+    setActivityLoadingId(agentId)
+    try {
+      const url = `/api/agents/activity?agentId=${encodeURIComponent(agentId)}&limit=30`
+      const data = await getCachedJson<{ activities?: Activity[] }>(url, force ? 0 : 8_000)
+      setActivities((current) => [
+        ...current.filter((activity) => activity.agentTaskId !== agentId),
+        ...(data.activities || []),
+      ])
+      activityLoadedIdsRef.current.add(agentId)
+    } catch {
+      // Keep the last-known activity on transient poll failures.
+    } finally {
+      setActivityLoadingId((current) => current === agentId ? null : current)
     }
   }, [])
 
@@ -218,15 +240,16 @@ function AgentHQ() {
       }
     }
     void load(true)
-  }, [load])
+    if (selectedAgentId && selectedAgentId !== NEW_AGENT) void loadActivities(selectedAgentId, true)
+  }, [load, loadActivities, selectedAgentId])
 
   useEffect(() => {
     load().catch(() => setLoading(false))
-    // Poll only while the tab is visible — a hidden tab generating 2 API calls
-    // every 10s per user is pure load for nothing. Refresh on return instead.
+    // The broad shell model changes slowly; selected-agent runs have their own
+    // focused 10-second refresh below.
     const interval = window.setInterval(() => {
       if (!document.hidden) load().catch(() => undefined)
-    }, 10000)
+    }, 30000)
     const onVisible = () => {
       if (!document.hidden) load().catch(() => undefined)
     }
@@ -239,6 +262,22 @@ function AgentHQ() {
       window.removeEventListener(AGENTS_CHANGED_EVENT, onChanged)
     }
   }, [load])
+
+  useEffect(() => {
+    if (!selectedAgentId || selectedAgentId === NEW_AGENT) return
+    void loadActivities(selectedAgentId)
+    const interval = window.setInterval(() => {
+      if (!document.hidden) void loadActivities(selectedAgentId, true)
+    }, 10000)
+    const onVisible = () => {
+      if (!document.hidden) void loadActivities(selectedAgentId, true)
+    }
+    document.addEventListener('visibilitychange', onVisible)
+    return () => {
+      window.clearInterval(interval)
+      document.removeEventListener('visibilitychange', onVisible)
+    }
+  }, [loadActivities, selectedAgentId])
 
   // Land on the most recently updated agent unless a deep link already chose.
   useEffect(() => {
@@ -284,7 +323,10 @@ function AgentHQ() {
       .then((response) => response.json())
       .then((data) => {
         const execution = data.items?.[0]?.execution
-        if (execution) openRun(execution)
+        if (execution) {
+          setActivities((current) => current.some((item) => item.id === execution.id) ? current : [execution, ...current])
+          openRun(execution)
+        }
       })
       .catch(() => undefined)
       .finally(() => router.replace('/agents'))
@@ -815,7 +857,14 @@ function AgentHQ() {
             </div>
           )}
 
-          {!loading && !showSetup && selectedAgent && (
+          {!loading && !showSetup && selectedAgent && activityLoadingId === selectedAgent.id && !activityLoadedIdsRef.current.has(selectedAgent.id) && (
+            <div className="space-y-3 p-4">
+              <Skeleton className="h-20 rounded-xl" />
+              <Skeleton className="h-20 rounded-xl" />
+            </div>
+          )}
+
+          {!loading && !showSetup && selectedAgent && (activityLoadingId !== selectedAgent.id || activityLoadedIdsRef.current.has(selectedAgent.id)) && (
             <AgentActivityPane
               agent={selectedAgent}
               activities={agentActivities}
