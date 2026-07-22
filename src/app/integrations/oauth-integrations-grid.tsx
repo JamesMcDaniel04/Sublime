@@ -45,11 +45,13 @@ const INTEGRATIONS_PAGE_SIZE = 9
 export function OAuthIntegrationsGrid() {
   // Cached (stale-while-revalidate): the integration catalog is static (also
   // server-cached), connections revalidate in the background. A revisit paints
-  // the last-seen grid instantly instead of the loading skeleton.
+  // the last-seen grid instantly instead of the loading skeleton. Both persist
+  // (scoped, per-tab) so the OAuth full-page redirect returns to the last-seen
+  // connected grid instead of an all-disconnected default.
   const { data: integrationsData, loading: loadingIntegrations, error: integrationsError, refresh: refreshIntegrations } =
-    useCachedJson<{ integrations?: Integration[] }>('/api/nango/integrations')
+    useCachedJson<{ integrations?: Integration[] }>('/api/nango/integrations', { persist: true })
   const { data: statusData, loading: loadingStatus, error: statusError, refresh: refreshStatus } =
-    useCachedJson<{ connections?: Record<string, Connection> }>('/api/nango/status')
+    useCachedJson<{ connections?: Record<string, Connection> }>('/api/nango/status', { persist: true })
   const { data: profileData } = useCachedJson<{ profile?: { role: string } }>('/api/settings/profile')
   const isAdmin = profileData?.profile?.role === 'ADMIN'
   const integrations = useMemo(() => integrationsData?.integrations ?? [], [integrationsData])
@@ -63,6 +65,10 @@ export function OAuthIntegrationsGrid() {
   const [recommendations, setRecommendations] = useState<IntegrationMatch[] | null>(null)
   const { isLearningEnabled, setLearningEnabled } = useScanExclusions()
   const connectUIRef = useRef<ConnectUI | null>(null)
+  // The integration whose OAuth redirect just returned (?connected=<id>):
+  // its tile shows "Confirming…" until a fresh status confirms it, instead of
+  // flashing back to "Not connected".
+  const [confirmingId, setConfirmingId] = useState<string | null>(null)
 
   const toggleLearning = async (integration: Integration, enabled: boolean) => {
     if (!integration.capability) return
@@ -121,6 +127,17 @@ export function OAuthIntegrationsGrid() {
       if (status?.connections?.[integrationId]?.connected) return
     }
   }, [refreshStatus])
+
+  // Native OAuth returns via a full-page redirect with ?connected=<id>. The
+  // page component swaps the param out of the URL right after mount, so
+  // capture it here (child effects run first) and poll status until the new
+  // connection is confirmed.
+  useEffect(() => {
+    const connectedId = new URLSearchParams(window.location.search).get('connected')
+    if (!connectedId) return
+    setConfirmingId(connectedId)
+    void confirmConnected(connectedId).finally(() => setConfirmingId(null))
+  }, [confirmConnected])
 
   const connect = async (integration: Integration) => {
     // Native Google OAuth: full-page redirect to our own consent flow —
@@ -235,11 +252,15 @@ export function OAuthIntegrationsGrid() {
                     <IntegrationLogo src={integration.logo} slug={integration.provider} name={integration.name} />
                     {integration.name}
                   </span>
-                  {connection?.connected ? (
-                    <Badge variant="good"><CheckCircle2 className="mr-1 h-3 w-3" />Connected</Badge>
-                  ) : (
-                    <Badge variant="secondary">Not connected</Badge>
-                  )}
+                  {(() => {
+                    if (connection?.connected) return <Badge variant="good"><CheckCircle2 className="mr-1 h-3 w-3" />Connected</Badge>
+                    // Just returned from this integration's OAuth consent —
+                    // don't flash "Not connected" while status catches up.
+                    if (confirmingId === integration.id) return <Badge variant="secondary"><RefreshCw className="mr-1 h-3 w-3 animate-spin" />Confirming…</Badge>
+                    // No status data yet (first visit, cold cache): unknown, not disconnected.
+                    if (!statusData && loadingStatus) return <Badge variant="secondary">Checking…</Badge>
+                    return <Badge variant="secondary">Not connected</Badge>
+                  })()}
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-3">
@@ -249,7 +270,7 @@ export function OAuthIntegrationsGrid() {
                 {connection?.error && <p className="text-sm text-red-600">{connection.error}</p>}
                 {connection?.connected
                   ? <Button className="w-full" variant="outline" onClick={() => disconnect(integration)} loading={busy === integration.id}>Disconnect</Button>
-                  : <Button className="w-full" onClick={() => connect(integration)} loading={busy === integration.id}>
+                  : <Button className="w-full" onClick={() => connect(integration)} loading={busy === integration.id || confirmingId === integration.id}>
                       Connect
                     </Button>}
                 {connection?.connected && integration.capability && (

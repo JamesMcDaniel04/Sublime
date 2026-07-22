@@ -16,6 +16,13 @@ import { useCallback, useEffect, useState } from 'react'
  * Authenticated workspace responses deliberately are not persisted to
  * localStorage, preventing one signed-in user from seeing another user's
  * last-seen data on a shared browser. Endpoints stay `no-store` on the wire.
+ *
+ * Exception — opt-in `persist: true` URLs: those entries also mirror into
+ * sessionStorage tagged with the signed-in scope. This survives a full-page
+ * navigation within the SAME tab (the OAuth redirect that otherwise repaints
+ * the integrations page as all-disconnected) while keeping the shared-browser
+ * posture: entries hydrate only when the settling sign-in scope matches the
+ * tag, and the blob is purged on sign-out or when a different user signs in.
  */
 
 type Entry = { data: unknown; ts: number }
@@ -23,9 +30,80 @@ const mem = new Map<string, Entry>()
 const inflight = new Map<string, Promise<unknown>>()
 let cacheScope: string | null = null
 
+// ── Opt-in scoped sessionStorage persistence ────────────────────────────────
+
+const STORAGE_KEY = 'cached-json:v1'
+const PERSIST_MAX_AGE_MS = 24 * 60 * 60 * 1000
+const persistentUrls = new Set<string>()
+const hydrationListeners = new Set<() => void>()
+
+type PersistedBlob = { scope: string; entries: Record<string, Entry> }
+
+/** SSR-safe storage access; null when unavailable (server, sandboxed tab). */
+function storage(): Storage | null {
+  try {
+    return typeof window === 'undefined' ? null : window.sessionStorage
+  } catch {
+    return null
+  }
+}
+
+function readPersisted(): PersistedBlob | null {
+  try {
+    const raw = storage()?.getItem(STORAGE_KEY)
+    if (!raw) return null
+    const parsed = JSON.parse(raw) as PersistedBlob
+    return parsed && typeof parsed.scope === 'string' && parsed.entries && typeof parsed.entries === 'object' ? parsed : null
+  } catch {
+    return null
+  }
+}
+
+function purgePersisted(): void {
+  try {
+    storage()?.removeItem(STORAGE_KEY)
+  } catch {
+    /* storage unavailable — nothing persisted */
+  }
+}
+
+function writePersisted(): void {
+  if (!cacheScope) return
+  const entries: Record<string, Entry> = {}
+  for (const url of persistentUrls) {
+    const entry = mem.get(url)
+    if (entry) entries[url] = entry
+  }
+  try {
+    storage()?.setItem(STORAGE_KEY, JSON.stringify({ scope: cacheScope, entries }))
+  } catch {
+    /* quota/unavailable — persistence is best-effort */
+  }
+}
+
+/** Load scope-matching persisted entries into memory; purge foreign ones. */
+function hydratePersisted(): void {
+  const blob = readPersisted()
+  if (!blob) return
+  if (blob.scope !== cacheScope) {
+    purgePersisted()
+    return
+  }
+  let hydrated = false
+  for (const [url, entry] of Object.entries(blob.entries)) {
+    if (Date.now() - entry.ts > PERSIST_MAX_AGE_MS) continue
+    if (!mem.has(url)) {
+      mem.set(url, entry)
+      hydrated = true
+    }
+  }
+  if (hydrated) for (const listener of hydrationListeners) listener()
+}
+
 function write(url: string, data: unknown): void {
   const entry: Entry = { data, ts: Date.now() }
   mem.set(url, entry)
+  if (persistentUrls.has(url)) writePersisted()
 }
 
 export class CachedJsonError extends Error {
@@ -80,13 +158,49 @@ export function scopeCachedJson(userId: string | null): void {
   cacheScope = userId
   mem.clear()
   inflight.clear()
+  // Sign-out purges the persisted snapshot; a settling sign-in hydrates it
+  // when (and only when) the stored scope matches the user signing in.
+  if (userId === null) purgePersisted()
+  else hydratePersisted()
 }
 
-export function useCachedJson<T = unknown>(url: string | null) {
+/**
+ * Test seam: simulate a hard page load — module memory resets while
+ * sessionStorage survives. Never used in production code paths.
+ */
+export function __testResetForReload(): void {
+  cacheScope = null
+  mem.clear()
+  inflight.clear()
+  persistentUrls.clear()
+  hydrationListeners.clear()
+}
+
+export function useCachedJson<T = unknown>(url: string | null, options?: { persist?: boolean }) {
+  const persist = options?.persist === true
+  if (url && persist) persistentUrls.add(url)
   // Lazy init reads only the in-memory cache (empty on the server → SSR-safe).
   const [data, setData] = useState<T | undefined>(() => (url ? (mem.get(url)?.data as T | undefined) : undefined))
   const [error, setError] = useState<unknown>(null)
   const [loading, setLoading] = useState(() => (url ? !mem.has(url) : false))
+
+  // Hard page load ordering: this hook mounts before the sidebar settles the
+  // sign-in scope. When hydration then loads persisted entries, repaint from
+  // the snapshot instead of waiting for the in-flight revalidation.
+  useEffect(() => {
+    if (!url || !persist) return
+    const onHydrated = () => {
+      const entry = mem.get(url)
+      if (entry) {
+        setData(entry.data as T)
+        setLoading(false)
+      }
+    }
+    hydrationListeners.add(onHydrated)
+    return () => {
+      hydrationListeners.delete(onHydrated)
+    }
+  }, [url, persist])
 
   const refresh = useCallback(async (): Promise<T | undefined> => {
     if (!url) return undefined
