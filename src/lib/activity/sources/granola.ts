@@ -26,6 +26,13 @@ export const GRANOLA_CONNECTION_REF = 'granola'
 
 const CALL_TIMEOUT_MS = 30_000
 const SYNC_MAX_PAGES = 2
+// Backfill bounds: a runaway or misbehaving pagination cursor must not walk
+// forever. The ledger's dedupeKey means a re-run resumes cheaply, so a hard
+// per-run page cap is safe.
+const BACKFILL_MAX_PAGES = 40
+const MAX_FETCH_RETRIES = 3
+const RETRY_BASE_MS = 500
+const MAX_RETRY_DELAY_MS = 10_000
 
 export type GranolaNote = {
   id: string
@@ -119,6 +126,33 @@ export type GranolaFetchPage = (
   params: { createdAfter?: string; cursor?: string },
 ) => Promise<NotesPage>
 
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
+const backoffMs = (attempt: number) => Math.min(RETRY_BASE_MS * 2 ** attempt, MAX_RETRY_DELAY_MS)
+
+/** Parsed Retry-After: seconds form only (the delta-seconds Granola sends). */
+function retryAfterMs(header: string | null): number | null {
+  if (!header) return null
+  const seconds = Number(header)
+  return Number.isFinite(seconds) && seconds >= 0 ? Math.min(seconds * 1000, MAX_RETRY_DELAY_MS) : null
+}
+
+/** Normalize one notes-list response body across the field spellings the
+ *  public API might use (notes/data/results, next_cursor/cursor). */
+function parseNotesBody(body: Record<string, unknown>): NotesPage {
+  const firstArray = [body.notes, body.data, body.results].find((value): value is unknown[] => Array.isArray(value)) ?? []
+  const cursorValue = [body.next_cursor, body.cursor].find((value): value is string => typeof value === 'string')
+  return {
+    notes: firstArray.map((row) => parseGranolaNote(row)).filter((note): note is GranolaNote => note !== null),
+    nextCursor: cursorValue,
+  }
+}
+
+/**
+ * GET one notes page with bounded retry. Rate limits (429) and transient
+ * upstream errors (5xx / network) back off (honoring Retry-After) and retry;
+ * auth and other client errors (401/403/4xx) fail fast — retrying a bad key is
+ * futile and just burns the window. Returns { notes: [] } when no key exists.
+ */
 async function fetchNotesPage(
   organizationId: string,
   params: { createdAfter?: string; cursor?: string },
@@ -129,18 +163,41 @@ async function fetchNotesPage(
   if (params.createdAfter) search.set('created_after', params.createdAfter)
   if (params.cursor) search.set('cursor', params.cursor)
   const qs = search.toString()
-  const response = await fetch(`${GRANOLA_BASE_URL}/notes${qs ? `?${qs}` : ''}`, {
-    headers: { Authorization: `Bearer ${key.apiKey}`, Accept: 'application/json' },
-    signal: AbortSignal.timeout(CALL_TIMEOUT_MS),
-  })
-  if (!response.ok) throw new Error(`Granola API error ${response.status}`)
-  const body = (await response.json()) as Record<string, unknown>
-  const rows = Array.isArray(body.notes) ? body.notes : Array.isArray(body.data) ? body.data : Array.isArray(body.results) ? body.results : []
-  const nextCursor =
-    typeof body.next_cursor === 'string' ? body.next_cursor : typeof body.cursor === 'string' ? body.cursor : undefined
+  const url = `${GRANOLA_BASE_URL}/notes${qs ? `?${qs}` : ''}`
+
+  let lastError = new Error('Granola API request failed')
+  for (let attempt = 0; attempt <= MAX_FETCH_RETRIES; attempt += 1) {
+    const result = await attemptNotesFetch(url, key.apiKey)
+    if (result.ok) return result.page
+    lastError = result.error
+    if (!result.retryable || attempt >= MAX_FETCH_RETRIES) throw lastError
+    await sleep(result.delayMs ?? backoffMs(attempt))
+  }
+  throw lastError
+}
+
+type FetchAttempt =
+  | { ok: true; page: NotesPage }
+  | { ok: false; retryable: boolean; error: Error; delayMs?: number }
+
+async function attemptNotesFetch(url: string, apiKey: string): Promise<FetchAttempt> {
+  let response: Response
+  try {
+    response = await fetch(url, {
+      headers: { Authorization: `Bearer ${apiKey}`, Accept: 'application/json' },
+      signal: AbortSignal.timeout(CALL_TIMEOUT_MS),
+    })
+  } catch (error) {
+    // Network/timeout — transient, worth a bounded retry.
+    return { ok: false, retryable: true, error: error instanceof Error ? error : new Error(String(error)) }
+  }
+  if (response.ok) return { ok: true, page: parseNotesBody((await response.json()) as Record<string, unknown>) }
+  // 429 / 5xx are retryable; everything else (esp. 401/403) is terminal.
   return {
-    notes: rows.map((row) => parseGranolaNote(row)).filter((note): note is GranolaNote => note !== null),
-    nextCursor,
+    ok: false,
+    retryable: response.status === 429 || response.status >= 500,
+    error: new Error(`Granola API error ${response.status}`),
+    delayMs: retryAfterMs(response.headers.get('retry-after')) ?? undefined,
   }
 }
 
@@ -165,6 +222,7 @@ export function makeGranolaActivitySource(fetchPageOverride?: GranolaFetchPage):
     async *backfill(ctx: SourceContext, window: BackfillWindow, cursor?: string): AsyncIterable<BackfillBatch> {
       const since = windowStart(window, new Date())
       let pageCursor = cursor
+      let pages = 0
       do {
         let page: NotesPage
         try {
@@ -180,11 +238,16 @@ export function makeGranolaActivitySource(fetchPageOverride?: GranolaFetchPage):
           return
         }
         distill(ctx.organizationId, page.notes)
-        pageCursor = page.nextCursor
-        yield {
-          events: page.notes.map((note) => granolaNoteActivity(note)),
-          ...(pageCursor ? { nextCursor: pageCursor } : {}),
-        }
+        pages += 1
+        // Cursor-loop guard: a bad API echoing the same cursor would otherwise
+        // page forever. Dropping it ends the run cleanly.
+        const nextCursor = page.nextCursor === pageCursor ? undefined : page.nextCursor
+        // Always hand the cursor back on the batch (so the backfill runner
+        // checkpoints it); the per-run page cap only stops THIS run's loop, and
+        // a future run resumes from the checkpoint (dedupeKey makes overlap a
+        // no-op).
+        yield { events: page.notes.map((note) => granolaNoteActivity(note)), ...(nextCursor ? { nextCursor } : {}) }
+        pageCursor = pages >= BACKFILL_MAX_PAGES ? undefined : nextCursor
       } while (pageCursor)
     },
     async handleEvent() {
@@ -202,7 +265,8 @@ export function makeGranolaActivitySource(fetchPageOverride?: GranolaFetchPage):
           })
           distill(ctx.organizationId, page.notes)
           for (const note of page.notes) events.push(granolaNoteActivity(note))
-          pageCursor = page.nextCursor
+          // Cursor-loop guard, matching backfill: a repeated cursor ends the run.
+          pageCursor = page.nextCursor === pageCursor ? undefined : page.nextCursor
           pages += 1
         } while (pageCursor && pages < SYNC_MAX_PAGES)
       } catch (error) {

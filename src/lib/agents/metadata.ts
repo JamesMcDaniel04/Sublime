@@ -27,6 +27,13 @@ export type AgentMetadata = {
   requireApproval?: boolean
   allowSubagents?: boolean
   subagentIds?: string[]
+  /** Lets this agent invoke saved flows as tools (the flow analog of subagents).
+   *  Needed when an agent's instructions require deterministic multi-step tool
+   *  work — HTTP/API calls, structured writes — that belongs in a flow graph. */
+  allowFlows?: boolean
+  /** Restrict which flows it may call. Empty/omitted while allowFlows is on =
+   *  any of the org's active flows the owner can run. */
+  flowIds?: string[]
   /** When true, a question closely matching a past answer is auto-answered from memory. */
   autoAnswerFromMemory?: boolean
   /** When true, every run starts with an explicit numbered plan before any tool call. */

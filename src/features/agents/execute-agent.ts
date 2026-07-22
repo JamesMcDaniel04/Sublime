@@ -236,7 +236,13 @@ export async function selectDiscoveredTools(
   }
 }
 
-async function loadTools(organizationId: string, providers: string[], ownerUserId?: string | null, query?: string) {
+async function loadTools(
+  organizationId: string,
+  providers: string[],
+  ownerUserId?: string | null,
+  query?: string,
+  flowOptions?: { allowFlows?: boolean; flowIds?: string[] },
+) {
   // Every plane contributes to one list; the cap/priority policy is applied once
   // at the end (capDiscoveredTools) so write tools aren't crowded out. Plane
   // discovery/binding lives in ./tool-planes, shared with the flow tool catalog
@@ -277,11 +283,18 @@ async function loadTools(organizationId: string, providers: string[], ownerUserI
   }
 
   // ---- Flow tool plane (agent -> flow) -------------------------------------
-  // Org-opted flows (metadata.agentCallable) appear as `flow_<slug>` tools whose
-  // input schema is the flow's input node and whose result is its output node.
+  // Flows appear as `flow_<slug>` tools whose input schema is the flow's input
+  // node and whose result is its output node. Two authorization modes:
+  //  - explicit per-agent selection (allowFlows + flowIds) — the flow analog of
+  //    subagents; naming a flow authorizes it directly;
+  //  - the org-wide agentCallable flag, honored when allowFlows is on with no
+  //    explicit list (empty = any agent-callable flow).
   // Only when an acting user is known (dispatch runs as that user).
-  if (ownerUserId) {
-    for (const group of await loadFlowPlaneGroups(organizationId, ownerUserId)) pushGroup(group)
+  if (ownerUserId && flowOptions?.allowFlows) {
+    const flowGroups = await loadFlowPlaneGroups(organizationId, ownerUserId, {
+      ...(flowOptions.flowIds?.length ? { flowIds: flowOptions.flowIds, explicit: true } : {}),
+    })
+    for (const group of flowGroups) pushGroup(group)
   }
 
   // Select which tools to expose: over the cap, rank by relevance to the
@@ -606,7 +619,10 @@ export async function runAgentExecution(
     const providers = await resolveAgentConnectorKeys(agent.id, agentMetadata)
     const skillIds = Array.isArray(agentMetadata.skills) ? agentMetadata.skills.map(String) : []
     const toolQuery = [agent.objective, data.input].filter(Boolean).join('\n')
-    const { tools, bindings } = await loadTools(organizationId, providers, userId, toolQuery)
+    const { tools, bindings } = await loadTools(organizationId, providers, userId, toolQuery, {
+      allowFlows: agentMetadata.allowFlows === true,
+      flowIds: Array.isArray(agentMetadata.flowIds) ? agentMetadata.flowIds.map(String) : [],
+    })
     // Cross-tool ledger (behavior spec §2): providers this run actually
     // touched, deduped to one tool_call event per (execution, provider).
     const touchedTools = new Map<string, Set<string>>()

@@ -2,6 +2,7 @@ import { z } from 'zod'
 import { prisma } from '@/lib/prisma'
 import { ApiError, withAuthenticatedApi } from '@/lib/server/api-handler'
 import { agentReadScope, agentWriteScope } from '@/lib/server/visibility'
+import { updateAgentMemory } from '@/lib/memory/agent-memory'
 
 export const runtime = 'nodejs'
 
@@ -76,6 +77,34 @@ export const PATCH = withAuthenticatedApi(async (request, auth) => {
     data: { status },
   })
   if (updated.count !== 1) throw new ApiError('Memory not found', 404, 'NOT_FOUND')
+  return { success: true }
+})
+
+// PUT — edit a saved memory's content/question/title (e.g. correct an account
+// name given to a blocked run, before it auto-answers future runs). Re-embeds
+// so the auto-answer match reflects the edit. At least one field required.
+export const PUT = withAuthenticatedApi(async (request, auth) => {
+  const agentId = await requireAgent(request, auth)
+  const body = z
+    .object({
+      id: z.string().min(1),
+      title: z.string().trim().max(200).optional(),
+      content: z.string().trim().min(1).max(4000).optional(),
+      question: z.string().trim().max(2000).optional(),
+    })
+    .parse(await request.json())
+  if (body.title === undefined && body.content === undefined && body.question === undefined) {
+    throw new ApiError('Provide at least one field to edit', 400, 'NO_FIELDS')
+  }
+  const ok = await updateAgentMemory({
+    organizationId: auth.organizationId,
+    agentId,
+    id: body.id,
+    ...(body.title !== undefined ? { title: body.title } : {}),
+    ...(body.content !== undefined ? { content: body.content } : {}),
+    ...(body.question !== undefined ? { question: body.question } : {}),
+  })
+  if (!ok) throw new ApiError('Memory not found', 404, 'NOT_FOUND')
   return { success: true }
 })
 

@@ -8,17 +8,26 @@
 import { prisma } from '@/lib/prisma'
 import { loadOutcomeKindWeights, KIND_SUPPRESS_WEIGHT } from './outcome-weights'
 
-export const MIN_OCCURRENCES = 3
-export const MIN_SPAN_DAYS = 7
-export const LEARNING_PERIOD_DAYS = 7
+/** Env override for a learning-window constant: a non-negative integer, else
+ *  the default. Lets a new deployment or demo dial the 7-day windows down
+ *  (e.g. to 0/1) without a code change — the gate stays the single choke
+ *  point, it just reads a tunable threshold. Floors keep values sane. */
+function tunable(envVar: string, fallback: number, floor = 0): number {
+  const parsed = Number(process.env[envVar])
+  return Number.isFinite(parsed) && parsed >= floor ? Math.floor(parsed) : fallback
+}
+
+export const MIN_OCCURRENCES = tunable('BEHAVIOR_MIN_OCCURRENCES', 3, 1)
+export const MIN_SPAN_DAYS = tunable('BEHAVIOR_MIN_SPAN_DAYS', 7)
+export const LEARNING_PERIOD_DAYS = tunable('BEHAVIOR_LEARNING_PERIOD_DAYS', 7)
 /** A routine not observed in this long is no longer a routine — without this
  *  bound, a pattern from months ago would ground suggestions forever. */
-export const MAX_STALE_DAYS = 30
+export const MAX_STALE_DAYS = tunable('BEHAVIOR_MAX_STALE_DAYS', 30, 1)
 
 const DAY_MS = 24 * 60 * 60 * 1000
 
 /** tool_correlation needs more support than the generic gate: 5 sessions. */
-export const MIN_CORRELATION_OCCURRENCES = 5
+export const MIN_CORRELATION_OCCURRENCES = tunable('BEHAVIOR_MIN_CORRELATION_OCCURRENCES', 5, 1)
 
 export type GateablePattern = {
   occurrenceCount: number

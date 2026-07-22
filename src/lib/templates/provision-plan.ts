@@ -65,6 +65,21 @@ export function resolveGraphToolConnections(
 }
 
 /**
+ * A flow graph needs true flow mechanics — and so cannot be faithfully
+ * collapsed into a single agent — when it has an HTTP node (deterministic
+ * mid-flow API/data passing) or more than one tool step (multi-step
+ * orchestration). Single-delivery flows still collapse cleanly to an agent.
+ */
+export function graphNeedsBackingFlow(graph: FlowGraph): boolean {
+  let toolNodes = 0
+  for (const node of graph.nodes) {
+    if (node.type === 'http') return true
+    if (node.type === 'tool') toolNodes += 1
+  }
+  return toolNodes >= 2
+}
+
+/**
  * Return a deep copy of `graph` with every agent node's placeholder `agentId`
  * (a TemplateAgentSpec.ref) replaced by the materialized AgentTask id from
  * `refToId`. Throws when a ref has no mapping — a real AgentTask id is

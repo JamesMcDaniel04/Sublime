@@ -3,7 +3,7 @@ import { prisma, systemPrisma } from '@/lib/prisma'
 import { DEFAULT_AGENT_MODEL } from '@/lib/llm/model-runner'
 import { ApiError, withAuthenticatedApi } from '@/lib/server/api-handler'
 import { deliveryForSeed, getSeedByKey, instructionsForSeed, type SeedTemplate, type TemplateAgentSpec } from '@/lib/templates/catalogue'
-import { missingRequiredProviders, resolveGraphToolConnections, rewriteGraphAgentRefs } from '@/lib/templates/provision-plan'
+import { graphNeedsBackingFlow, missingRequiredProviders, resolveGraphToolConnections, rewriteGraphAgentRefs } from '@/lib/templates/provision-plan'
 import { validateSlackDeliveryChannel } from '@/lib/templates/validate-delivery'
 import { loadFlowToolCatalog } from '@/lib/flows/tool-catalog'
 import { normalizeFlowTrigger, triggerFromGraph } from '@/lib/flows/trigger'
@@ -245,149 +245,200 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
       context: { seedKey: seedKey ?? null, templateId: templateId ?? null, targetKind: desiredKind, ...extra },
     })
 
-  if (desiredKind === 'agent') {
-    const spec = seed ? combinedAgentSpec(seed) : dbRecipe!.spec
-    const departments = seed ? seed.departments : dbRecipe!.departments
-    const specialistArea = departments?.[0] || departmentsForTools(spec.integrations)[0]
-    const agentId = await materializeAgent(
-      spec,
-      organizationId,
-      userId,
-      schedule,
-      specialistArea,
-    )
-    await syncAgentConnectors(agentId, organizationId, userId, spec.integrations)
-    recordTemplateUsed('agent', agentId)
-    return { success: true, kind: 'agent' as const, agentId }
+  const templateName = seed ? seed.name : dbRecipe!.name
+  const templateDescription = seed ? seed.description : dbRecipe!.description
+
+  // Provision the template as a flow — reused by the direct 'flow' path AND by
+  // the agent path when the recipe needs true flow mechanics (see below).
+  const provisionAsFlow = async (activateFlowNow: boolean) => {
+    const specs: TemplateAgentSpec[] = seed && seed.kind === 'flow'
+      ? seed.agents ?? []
+      : [{ ref: 'template-agent', ...(seed ? combinedAgentSpec(seed) : dbRecipe!.spec) }]
+    const refToId: Record<string, string> = {}
+    const created: Array<{ id: string; integrations: string[] }> = []
+    try {
+      await assertFlowCapacity(organizationId)
+      const departments = seed ? seed.departments : dbRecipe!.departments
+      const firstSpec = specs[0]
+      const specialistArea = departments?.[0] || departmentsForTools(firstSpec?.integrations ?? [])[0]
+      await assertSpecialistAreaCapacity(organizationId, specialistArea)
+      for (const spec of specs) {
+        const id = await materializeAgent({ ...spec, requiredIntegrations }, organizationId, userId, MANUAL_SCHEDULE, specialistArea)
+        refToId[spec.ref] = id
+        created.push({ id, integrations: spec.integrations })
+      }
+
+      const templateTrigger = seed ? seed.trigger : dbRecipe!.trigger
+      const delivery = seed ? deliveryForSeed(seed) : null
+      // Deploy-time destination: the caller's override wins over the seed's
+      // department default, and the choice is recorded on the flow's metadata.
+      const slackChannel = deliveryOverride?.channel?.trim() || (delivery?.kind === 'slack' ? delivery.destination : '')
+      const emailTo = deliveryOverride?.email || '{{trigger.input.requesterEmail}}'
+      const baseGraph: FlowGraph = seed && seed.kind === 'flow' && seed.flowGraph
+        ? seed.flowGraph
+        : {
+            nodes: [
+              { id: 'trigger', type: 'trigger', data: { trigger: templateTrigger ?? { type: 'manual' } } },
+              {
+                id: 'run-agent',
+                type: 'agent',
+                data: {
+                  agentId: 'template-agent',
+                  label: templateName,
+                  input: '{{trigger.input}}',
+                },
+              },
+              ...(delivery
+                ? [delivery.kind === 'slack'
+                    ? {
+                        id: 'deliver-output', type: 'tool' as const,
+                        data: { label: `Deliver to ${slackChannel}`, connectionId: 'native:slack', toolName: 'post_message', args: JSON.stringify({ channel: slackChannel, text: '{{step.run-agent.output}}' }) },
+                      }
+                    : {
+                        id: 'deliver-output', type: 'tool' as const,
+                        data: { label: 'Email finished artifact', connectionId: 'nango:gmail', toolName: 'gmail_send_email', args: JSON.stringify({ to: emailTo, subject: `${templateName} — completed`, body: '{{step.run-agent.output}}' }) },
+                      }]
+                : []),
+            ],
+            edges: [
+              { id: 'trigger-run-agent', source: 'trigger', target: 'run-agent' },
+              ...(delivery ? [{ id: 'run-agent-deliver-output', source: 'run-agent', target: 'deliver-output' }] : []),
+            ],
+          }
+      const withAgents = rewriteGraphAgentRefs(baseGraph, refToId)
+      const { graph, bindings } = resolveGraphToolConnections(withAgents, toolCatalog, connectionOverrides)
+      const trigger = templateTrigger ? normalizeFlowTrigger(templateTrigger) : triggerFromGraph(graph)
+
+      // Delivery-target sanity: a deploy that would post to a non-existent
+      // channel gets a warning (recorded + returned), never a silent failure
+      // days later. Best-effort — validation unavailability never blocks.
+      const deliveryCheck = delivery?.kind === 'slack' && slackChannel
+        ? await validateSlackDeliveryChannel(organizationId, slackChannel)
+        : { ok: true as const }
+
+      const graphJson = jsonValue(graph)
+      const triggerJson = jsonValue(trigger)
+      const flow = await prisma.flow.create({
+        data: {
+          name: templateName,
+          description: templateDescription,
+          status: 'DRAFT',
+          visibility: 'private',
+          trigger: triggerJson,
+          graph: graphJson,
+          metadata: jsonValue({
+            seededFrom: seedKey ?? null,
+            provisionedFromTemplateId: templateId ?? null,
+            provisionedAs: 'flow',
+            resolvedConnections: bindings,
+            ...(delivery ? { delivery: { kind: delivery.kind, destination: delivery.kind === 'slack' ? slackChannel : emailTo } } : {}),
+            ...(deliveryCheck.warning ? { deliveryWarning: deliveryCheck.warning } : {}),
+          }),
+          organizationId,
+          userId,
+        },
+        select: { id: true },
+      })
+
+      // 1-click activation: only a graph that passes the SAME validation the
+      // editor's publish route runs goes live; anything else stays DRAFT with
+      // the reason surfaced to the caller.
+      const activation = activateFlowNow
+        ? await activateFlow(flow.id, organizationId, userId)
+        : { activated: false as const, reason: 'not requested' }
+
+      // Project connector bindings for each materialized agent. Best-effort and
+      // post-create, mirroring the agents route's own sync call.
+      await Promise.all(
+        created.map((a) => syncAgentConnectors(a.id, organizationId, userId, a.integrations).catch(() => undefined)),
+      )
+      return {
+        flowId: flow.id,
+        activated: activation.activated,
+        activationError: activation.activated ? undefined : activation.reason,
+        deliveryWarning: deliveryCheck.warning,
+      }
+    } catch (error) {
+      // Best-effort cleanup: a ref/materialization mismatch or a failed flow
+      // create shouldn't leave orphaned agent rows behind. Not transactional —
+      // harmless CUSTOM agents scoped to the caller's own org if it fails.
+      if (created.length) {
+        await prisma.agentTask
+          .updateMany({ where: { id: { in: created.map((a) => a.id) }, organizationId }, data: { status: 'DELETED' } })
+          .catch(() => undefined)
+      }
+      throw error
+    }
   }
 
-  // targetKind === 'flow': preserve an authored orchestration graph when one
-  // exists. Agent recipes become trigger -> agent flows, retaining the same
-  // instructions, connected tools, and recommended schedule.
-  const name = seed ? seed.name : dbRecipe!.name
-  const description = seed ? seed.description : dbRecipe!.description
-  const specs: TemplateAgentSpec[] = seed && seed.kind === 'flow'
-    ? seed.agents ?? []
-    : [{ ref: 'template-agent', ...(seed ? combinedAgentSpec(seed) : dbRecipe!.spec) }]
-  const refToId: Record<string, string> = {}
-  const created: Array<{ id: string; integrations: string[] }> = []
+  // A flow-kind template whose graph needs true flow mechanics — an HTTP node,
+  // or more than one tool step — cannot be faithfully collapsed into a single
+  // agent (the deterministic multi-step work would be lost, and the run gets
+  // blocked on structure an agent can't reproduce). When such a recipe is asked
+  // for as an AGENT, back it with a real flow and hand the user an orchestrator
+  // agent wired to call that flow (the flow analog of a subagent pipeline).
+  const backingGraph = seed?.kind === 'flow' ? seed.flowGraph : undefined
+  const needsBackingFlow = desiredKind === 'agent' && backingGraph != null && graphNeedsBackingFlow(backingGraph)
+
   try {
-    await assertFlowCapacity(organizationId)
-    const departments = seed ? seed.departments : dbRecipe!.departments
-    const firstSpec = specs[0]
-    const specialistArea = departments?.[0] || departmentsForTools(firstSpec?.integrations ?? [])[0]
-    await assertSpecialistAreaCapacity(organizationId, specialistArea)
-    for (const spec of specs) {
-      const id = await materializeAgent({ ...spec, requiredIntegrations }, organizationId, userId, MANUAL_SCHEDULE, specialistArea)
-      refToId[spec.ref] = id
-      created.push({ id, integrations: spec.integrations })
+    if (desiredKind === 'agent' && !needsBackingFlow) {
+      const spec = seed ? combinedAgentSpec(seed) : dbRecipe!.spec
+      const departments = seed ? seed.departments : dbRecipe!.departments
+      const specialistArea = departments?.[0] || departmentsForTools(spec.integrations)[0]
+      const agentId = await materializeAgent(spec, organizationId, userId, schedule, specialistArea)
+      await syncAgentConnectors(agentId, organizationId, userId, spec.integrations)
+      recordTemplateUsed('agent', agentId)
+      return { success: true, kind: 'agent' as const, agentId }
     }
 
-    const templateTrigger = seed ? seed.trigger : dbRecipe!.trigger
-    const delivery = seed ? deliveryForSeed(seed) : null
-    // Deploy-time destination: the caller's override wins over the seed's
-    // department default, and the choice is recorded on the flow's metadata.
-    const slackChannel = deliveryOverride?.channel?.trim() || (delivery?.kind === 'slack' ? delivery.destination : '')
-    const emailTo = deliveryOverride?.email || '{{trigger.input.requesterEmail}}'
-    const baseGraph: FlowGraph = seed && seed.kind === 'flow' && seed.flowGraph
-      ? seed.flowGraph
-      : {
-          nodes: [
-            { id: 'trigger', type: 'trigger', data: { trigger: templateTrigger ?? { type: 'manual' } } },
-            {
-              id: 'run-agent',
-              type: 'agent',
-              data: {
-                agentId: 'template-agent',
-                label: name,
-                input: '{{trigger.input}}',
-              },
-            },
-            ...(delivery
-              ? [delivery.kind === 'slack'
-                  ? {
-                      id: 'deliver-output', type: 'tool' as const,
-                      data: { label: `Deliver to ${slackChannel}`, connectionId: 'native:slack', toolName: 'post_message', args: JSON.stringify({ channel: slackChannel, text: '{{step.run-agent.output}}' }) },
-                    }
-                  : {
-                      id: 'deliver-output', type: 'tool' as const,
-                      data: { label: 'Email finished artifact', connectionId: 'nango:gmail', toolName: 'gmail_send_email', args: JSON.stringify({ to: emailTo, subject: `${name} — completed`, body: '{{step.run-agent.output}}' }) },
-                    }]
-              : []),
-          ],
-          edges: [
-            { id: 'trigger-run-agent', source: 'trigger', target: 'run-agent' },
-            ...(delivery ? [{ id: 'run-agent-deliver-output', source: 'run-agent', target: 'deliver-output' }] : []),
-          ],
-        }
-    const withAgents = rewriteGraphAgentRefs(baseGraph, refToId)
-    const { graph, bindings } = resolveGraphToolConnections(withAgents, toolCatalog, connectionOverrides)
-    const trigger = templateTrigger ? normalizeFlowTrigger(templateTrigger) : triggerFromGraph(graph)
-
-    // Delivery-target sanity: a deploy that would post to a non-existent
-    // channel gets a warning (recorded + returned), never a silent failure
-    // days later. Best-effort — validation unavailability never blocks.
-    const deliveryCheck = delivery?.kind === 'slack' && slackChannel
-      ? await validateSlackDeliveryChannel(organizationId, slackChannel)
-      : { ok: true as const }
-
-    const graphJson = jsonValue(graph)
-    const triggerJson = jsonValue(trigger)
-    const flow = await prisma.flow.create({
-      data: {
-        name,
-        description,
-        status: 'DRAFT',
-        visibility: 'private',
-        trigger: triggerJson,
-        graph: graphJson,
-        metadata: jsonValue({
-          seededFrom: seedKey ?? null,
-          provisionedFromTemplateId: templateId ?? null,
-          provisionedAs: 'flow',
-          resolvedConnections: bindings,
-          ...(delivery ? { delivery: { kind: delivery.kind, destination: delivery.kind === 'slack' ? slackChannel : emailTo } } : {}),
-          ...(deliveryCheck.warning ? { deliveryWarning: deliveryCheck.warning } : {}),
-        }),
+    if (needsBackingFlow) {
+      // Build the deterministic flow first (activated so the agent can call it),
+      // then a thin orchestrator agent whose one tool IS that flow.
+      const flowResult = await provisionAsFlow(true)
+      const departments = seed ? seed.departments : dbRecipe!.departments
+      const specialistArea = departments?.[0] || departmentsForTools(seed ? seed.requiredIntegrations : dbRecipe!.requiredIntegrations)[0]
+      const orchestratorInstructions = [
+        `You accomplish this task by running the "${templateName}" flow, which performs the required multi-step work (API/HTTP calls and structured writes) deterministically.`,
+        templateDescription ? `\nWhat it does: ${templateDescription}` : '',
+        '\nWhen asked to run, call the flow tool with the needed input and return its result. Do not attempt to reproduce the flow\'s steps yourself.',
+      ].join('')
+      const agentId = await materializeAgent(
+        {
+          title: templateName,
+          description: templateDescription,
+          instructions: orchestratorInstructions,
+          integrations: [],
+          requiredIntegrations,
+          extraMetadata: { allowFlows: true, flowIds: [flowResult.flowId] },
+        },
         organizationId,
         userId,
-      },
-      select: { id: true },
-    })
+        schedule,
+        specialistArea,
+      )
+      recordTemplateUsed('agent', agentId, { backedByFlowId: flowResult.flowId })
+      return {
+        success: true,
+        kind: 'agent' as const,
+        agentId,
+        backedByFlowId: flowResult.flowId,
+        ...(flowResult.activationError ? { activationError: flowResult.activationError } : {}),
+        ...(flowResult.deliveryWarning ? { deliveryWarning: flowResult.deliveryWarning } : {}),
+      }
+    }
 
-    // 1-click activation: only a graph that passes the SAME validation the
-    // editor's publish route runs goes live; anything else stays DRAFT with
-    // the reason surfaced to the caller.
-    const activation = activate
-      ? await activateFlow(flow.id, organizationId, userId)
-      : { activated: false as const, reason: 'not requested' }
-    const activated = activation.activated
-
-    // Project connector bindings for each materialized agent. Best-effort and
-    // post-create, mirroring the agents route's own sync call.
-    await Promise.all(
-      created.map((a) => syncAgentConnectors(a.id, organizationId, userId, a.integrations).catch(() => undefined)),
-    )
-    recordTemplateUsed('flow', flow.id, { activated })
-
+    // desiredKind === 'flow'
+    const flowResult = await provisionAsFlow(activate)
+    recordTemplateUsed('flow', flowResult.flowId, { activated: flowResult.activated })
     return {
       success: true,
       kind: 'flow' as const,
-      flowId: flow.id,
-      activated,
-      ...(activate && !activation.activated ? { activationError: activation.reason } : {}),
-      ...(deliveryCheck.warning ? { deliveryWarning: deliveryCheck.warning } : {}),
+      flowId: flowResult.flowId,
+      activated: flowResult.activated,
+      ...(activate && flowResult.activationError ? { activationError: flowResult.activationError } : {}),
+      ...(flowResult.deliveryWarning ? { deliveryWarning: flowResult.deliveryWarning } : {}),
     }
   } catch (error) {
-    // Best-effort cleanup: a ref/materialization mismatch (rewriteGraphAgentRefs
-    // throwing) or a failed flow create shouldn't leave orphaned agent rows
-    // behind. Not transactional — if this cleanup itself fails, the orphans
-    // are harmless CUSTOM agents scoped to the caller's own org.
-    if (created.length) {
-      await prisma.agentTask
-        .updateMany({ where: { id: { in: created.map((a) => a.id) }, organizationId }, data: { status: 'DELETED' } })
-        .catch(() => undefined)
-    }
     if (error instanceof ApiError) throw error
     throw new ApiError('Failed to provision template', 500, 'PROVISION_FAILED', error)
   }

@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { granolaNoteActivity, meetingSeriesKey, parseGranolaNote } from '../sources/granola'
+import { granolaNoteActivity, makeGranolaActivitySource, meetingSeriesKey, parseGranolaNote } from '../sources/granola'
 import { mineCommitments } from '@/lib/behavior/mine-commitments'
 import { commitmentActionKey } from '@/lib/knowledge/notes-distill'
 import { patternKindOfSlug } from '@/lib/behavior/outcome-weights'
@@ -67,4 +67,30 @@ test('commitment slugs resolve to their kind for outcome learning', () => {
 test('commitmentActionKey normalizes punctuation and case', () => {
   assert.equal(commitmentActionKey('Send Follow-Up Email!'), 'send follow up email')
   assert.equal(commitmentActionKey('  update   CRM  '), 'update crm')
+})
+
+async function collectBackfill(source: ReturnType<typeof makeGranolaActivitySource>) {
+  const batches = []
+  for await (const batch of source.backfill({ organizationId: 'org', connectionRef: 'granola' }, 'all')) {
+    batches.push(batch)
+  }
+  return batches
+}
+
+test('backfill cursor-loop guard: a repeated cursor terminates the run', async () => {
+  // A misbehaving API that echoes the same cursor forever must not page endlessly.
+  const source = makeGranolaActivitySource(async () => ({ notes: [], nextCursor: 'stuck' }))
+  const batches = await collectBackfill(source)
+  assert.equal(batches.length, 2, 'advances once, then the guard stops the loop')
+  assert.equal(batches[1].nextCursor, undefined)
+})
+
+test('backfill page cap bounds a single run and checkpoints for the next', async () => {
+  // Unique cursor every page (loop guard never triggers) — the hard page cap
+  // is what stops the run, handing the cursor back so a future run resumes.
+  let n = 0
+  const source = makeGranolaActivitySource(async () => { n += 1; return { notes: [], nextCursor: `cursor-${n}` } })
+  const batches = await collectBackfill(source)
+  assert.equal(batches.length, 40, 'BACKFILL_MAX_PAGES caps the run')
+  assert.ok(batches[39].nextCursor, 'the final batch carries a cursor so the backfill resumes later')
 })

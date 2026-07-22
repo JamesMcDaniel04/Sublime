@@ -210,6 +210,57 @@ export async function saveAgentMemory(params: {
 }
 
 /**
+ * Edit a saved memory's user-facing fields and KEEP ITS EMBEDDING IN SYNC.
+ * The auto-answer match runs on the embedding of `question ?? content`
+ * (mirrored from saveAgentMemory), so editing either must re-embed — otherwise
+ * the row would answer future questions from its stale, pre-edit vector.
+ * Scoped to (org, agent, id); returns false when the row doesn't match.
+ */
+export async function updateAgentMemory(params: {
+  organizationId: string
+  agentId: string
+  id: string
+  title?: string
+  content?: string
+  question?: string
+}): Promise<boolean> {
+  const existing = await prisma.agentMemory.findFirst({
+    where: { id: params.id, organizationId: params.organizationId, agentId: params.agentId },
+    select: { kind: true, content: true, question: true },
+  })
+  if (!existing) return false
+
+  const nextContent = params.content ?? existing.content
+  const nextQuestion = params.question ?? existing.question ?? undefined
+  const embedText = existing.kind === 'user_answer' ? nextQuestion ?? nextContent : `${params.title ?? ''}\n${nextContent}`
+  const embedding = await tryEmbed(embedText)
+
+  await prisma.agentMemory.update({
+    where: { id: params.id, organizationId: params.organizationId },
+    data: {
+      ...(params.title !== undefined ? { title: params.title.slice(0, 200) } : {}),
+      ...(params.content !== undefined ? { content: params.content } : {}),
+      ...(params.question !== undefined ? { question: params.question } : {}),
+      ...(embedding ? { embedding } : {}),
+    },
+  })
+  // Keep the pgvector column aligned with the JSON embedding (same write shape
+  // saveAgentMemory uses); a failed re-embed leaves the prior vector rather
+  // than silently zeroing auto-answer for this row.
+  if (embedding) {
+    const vectorLiteral = toSqlVector(embedding)
+    await prisma.$transaction(async (tx) => {
+      await tx.$executeRawUnsafe('SET LOCAL search_path = public, extensions')
+      await tx.$executeRaw`
+        UPDATE "agent_memories" SET "embeddingVec" = ${vectorLiteral}::vector(1024)
+        WHERE "id" = ${params.id} AND "organizationId" = ${params.organizationId}::uuid
+      `
+    }).catch((error) => apiLogger.warn('updateAgentMemory: vector sync failed', { error: error instanceof Error ? error.message : String(error) }))
+  }
+  return true
+}
+
+/**
  * Pure eligibility predicate factored out of retrieveAgentMemory's two query
  * paths (pgvector + keyword fallback). The calling agent's own rows are
  * eligible regardless of kind (pre-existing behavior: an agent's own

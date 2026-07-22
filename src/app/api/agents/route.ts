@@ -68,6 +68,11 @@ const agentSchema = z.object({
   allowSubagents: z.boolean().optional(),
   // Restrict which agents it may run. Empty/omitted = any visible agent.
   subagentIds: z.array(z.string()).optional(),
+  // Lets this agent invoke saved flows as tools (deterministic multi-step work,
+  // e.g. HTTP/API enrichment, that belongs in a flow graph).
+  allowFlows: z.boolean().optional(),
+  // Restrict which flows it may call. Empty/omitted while allowFlows is on = any active flow.
+  flowIds: z.array(z.string()).optional(),
   // The outcome this agent ultimately serves — steers every run + self-evaluation.
   goal: z.string().max(2000).nullable().optional(),
   // When true, a question closely matching a past answer is auto-answered from memory.
@@ -133,6 +138,8 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
         icon: data.icon || '',
         allowSubagents: data.allowSubagents === true,
         subagentIds: data.subagentIds ?? [],
+        allowFlows: data.allowFlows === true,
+        flowIds: data.flowIds ?? [],
         autoAnswerFromMemory: data.autoAnswerFromMemory !== false,
         requireApproval: data.requireApproval === true,
         alwaysStrategize: data.alwaysStrategize === true,
@@ -193,6 +200,8 @@ export const PUT = withAuthenticatedApi(async (request, auth) => {
         ...(body.icon !== undefined && { icon: body.icon }),
         ...(body.allowSubagents !== undefined && { allowSubagents: body.allowSubagents }),
         ...(body.subagentIds !== undefined && { subagentIds: body.subagentIds }),
+        ...(body.allowFlows !== undefined && { allowFlows: body.allowFlows }),
+        ...(body.flowIds !== undefined && { flowIds: body.flowIds }),
         ...(body.autoAnswerFromMemory !== undefined && { autoAnswerFromMemory: body.autoAnswerFromMemory }),
         ...(body.requireApproval !== undefined && { requireApproval: body.requireApproval }),
         ...(body.alwaysStrategize !== undefined && { alwaysStrategize: body.alwaysStrategize }),

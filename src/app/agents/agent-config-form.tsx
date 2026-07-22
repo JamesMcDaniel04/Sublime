@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { ChevronDown, Copy, Download, Loader2, Play, RotateCcw, ScrollText, Trash2, Webhook, X } from 'lucide-react'
+import { ChevronDown, Copy, Download, Loader2, Pencil, Play, RotateCcw, ScrollText, Trash2, Webhook, X } from 'lucide-react'
 import { toast } from 'sonner'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -97,6 +97,10 @@ export type AgentDraft = {
   allowSubagents?: boolean
   /** Restrict which agents it may run. Empty = any of the user's agents. */
   subagentIds?: string[]
+  /** Lets this agent invoke saved flows as tools (deterministic multi-step work). */
+  allowFlows?: boolean
+  /** Restrict which flows it may call. Empty = any of the user's active flows. */
+  flowIds?: string[]
   /** The outcome this agent ultimately serves — steers every run + self-evaluation. */
   goal: string
   /** When true, a question closely matching a past answer is auto-answered from memory. */
@@ -156,6 +160,8 @@ const emptyDraft: AgentDraft = {
   visibility: 'private',
   allowSubagents: false,
   subagentIds: [],
+  allowFlows: false,
+  flowIds: [],
   goal: '',
   autoAnswerFromMemory: true,
   requireApproval: false,
@@ -353,6 +359,11 @@ export function AgentConfigForm({
   const [memories, setMemories] = useState<AgentMemory[]>([])
   const [memoriesLoading, setMemoriesLoading] = useState(false)
   const [memoriesError, setMemoriesError] = useState('')
+  // Inline edit of a saved memory (e.g. correct an account name given to a
+  // blocked run before it auto-answers future runs).
+  const [editingMemoryId, setEditingMemoryId] = useState<string | null>(null)
+  const [memoryEdit, setMemoryEdit] = useState<{ content: string; question: string }>({ content: '', question: '' })
+  const [savingMemory, setSavingMemory] = useState(false)
   const [webhook, setWebhook] = useState<AgentWebhook | null>(null)
   const [webhookBusy, setWebhookBusy] = useState(false)
   // Auto-open "More settings" when any advanced option is configured — an
@@ -362,12 +373,15 @@ export function AgentConfigForm({
     (draft.maxTurns ?? 16) !== 16 ||
     (draft.outputFields?.length ?? 0) > 0 ||
     draft.allowSubagents === true ||
+    draft.allowFlows === true ||
     draft.schedule.isActive ||
     webhook != null
   const moreOpen = moreSettingsOpen ?? advancedInUse
   const [dismissingSuggestionId, setDismissingSuggestionId] = useState<string | null>(null)
   // Other agents in the workspace, offered as run_agent targets.
   const [orgAgents, setOrgAgents] = useState<{ id: string; title: string }[]>([])
+  // Active (published) flows this agent can be wired to call as tools.
+  const [orgFlows, setOrgFlows] = useState<{ id: string; name: string }[]>([])
 
   useEffect(() => {
     if (!active) return
@@ -375,6 +389,15 @@ export function AgentConfigForm({
       .then((res) => res.json())
       .then((data) => {
         if (data.success) setOrgAgents((data.agents as { id: string; title: string }[]).map((a) => ({ id: a.id, title: a.title })))
+      })
+      .catch(() => {})
+    fetch('/api/flows', { cache: 'no-store' })
+      .then((res) => res.json())
+      .then((data) => {
+        // Only ACTIVE (published) flows are callable at runtime, so only those
+        // are offered as agent tools.
+        const flows = Array.isArray(data.flows) ? data.flows : []
+        setOrgFlows(flows.filter((f: any) => String(f.status).toLowerCase() === 'active').map((f: any) => ({ id: f.id, name: f.name })))
       })
       .catch(() => {})
   }, [active])
@@ -418,6 +441,34 @@ export function AgentConfigForm({
     } catch {
       setMemories(previous)
       toast.error('Could not remove memory.')
+    }
+  }
+
+  const startEditMemory = (memory: AgentMemory) => {
+    setEditingMemoryId(memory.id)
+    setMemoryEdit({ content: memory.content, question: memory.question ?? '' })
+  }
+
+  const saveMemoryEdit = async (memory: AgentMemory) => {
+    if (!editingAgent?.id) return
+    const content = memoryEdit.content.trim()
+    if (!content) { toast.error('Saved information cannot be empty.'); return }
+    const question = memoryEdit.question.trim()
+    setSavingMemory(true)
+    try {
+      const response = await fetch(`/api/agents/${editingAgent.id}/memories`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: memory.id, content, ...(memory.question !== null ? { question } : {}) }),
+      })
+      if (!response.ok) throw new Error()
+      setMemories((prev) => prev.map((m) => (m.id === memory.id ? { ...m, content, question: memory.question !== null ? question : m.question } : m)))
+      setEditingMemoryId(null)
+      toast.success('Saved information updated.')
+    } catch {
+      toast.error('Could not update the saved information.')
+    } finally {
+      setSavingMemory(false)
     }
   }
 
@@ -540,6 +591,8 @@ export function AgentConfigForm({
       visibility: normalizeShareValue(source.visibility),
       allowSubagents: source.allowSubagents === true,
       subagentIds: Array.isArray(source.subagentIds) ? source.subagentIds : [],
+      allowFlows: source.allowFlows === true,
+      flowIds: Array.isArray(source.flowIds) ? source.flowIds : [],
       goal: source.goal || '',
       autoAnswerFromMemory: source.autoAnswerFromMemory !== false,
       requireApproval: source.requireApproval === true,
@@ -1152,6 +1205,62 @@ export function AgentConfigForm({
         })()}
       </div>
 
+      {/* ── Call flows ──────────────────────────────────────────────── */}
+      <div className="rounded-lg border p-3">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <Label>Call flows</Label>
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              Let this agent run your saved flows as tools. Use this when the work needs deterministic multi-step steps — HTTP/API calls, structured writes — that belong in a flow.
+            </p>
+          </div>
+          <Switch
+            checked={draft.allowFlows === true}
+            onCheckedChange={(on) => setDraft({ ...draft, allowFlows: on })}
+          />
+        </div>
+
+        {draft.allowFlows === true && (() => {
+          const selected = draft.flowIds ?? []
+          const allSelected = selected.length === 0
+          const toggleFlow = (id: string) => {
+            const next = selected.includes(id) ? selected.filter((x) => x !== id) : [...selected, id]
+            setDraft({ ...draft, flowIds: next })
+          }
+          return (
+            <div className="mt-3 border-t pt-3">
+              <p className="mb-2 text-xs font-medium text-muted-foreground">Which flows can it call?</p>
+              <label className="flex cursor-pointer items-center gap-2 rounded-md px-1 py-1 text-sm hover:bg-muted">
+                <input
+                  type="checkbox"
+                  className="h-3.5 w-3.5 accent-indigo-600"
+                  checked={allSelected}
+                  onChange={() => setDraft({ ...draft, flowIds: [] })}
+                />
+                <span className="font-medium">All flows</span>
+                <span className="text-xs text-muted-foreground">({orgFlows.length} available)</span>
+              </label>
+              {orgFlows.length > 0 && (
+                <div className="mt-1 max-h-40 space-y-0.5 overflow-y-auto rounded-md border p-1">
+                  {orgFlows.map((flow) => (
+                    <label key={flow.id} className="flex cursor-pointer items-center gap-2 rounded px-1.5 py-1 text-sm hover:bg-muted">
+                      <input
+                        type="checkbox"
+                        className="h-3.5 w-3.5 accent-indigo-600"
+                        checked={allSelected || selected.includes(flow.id)}
+                        onChange={() => toggleFlow(flow.id)}
+                      />
+                      <span className="truncate">{flow.name}</span>
+                    </label>
+                  ))}
+                </div>
+              )}
+              {orgFlows.length === 0 && <p className="px-1 text-xs text-muted-foreground">No published flows yet — publish a flow to call it from an agent.</p>}
+            </div>
+          )
+        })()}
+      </div>
+
       {/* ── Schedule ─────────────────────────────────────────────────── */}
       <div className="space-y-3 rounded-lg border p-3">
         <div className="flex items-center justify-between">
@@ -1405,20 +1514,61 @@ export function AgentConfigForm({
                       </Badge>
                       <span className="truncate font-semibold text-muted-foreground" title={memory.title}>{memory.title}</span>
                     </div>
-                    {memory.question && <p className="italic text-muted-foreground">{memory.question}</p>}
-                    <p className="line-clamp-2 text-muted-foreground">{memory.content}</p>
-                    {memory.lastUsedAt && (
-                      <p className="mt-0.5 text-xs text-muted-foreground">Last used {new Date(memory.lastUsedAt).toLocaleDateString()}</p>
+                    {editingMemoryId === memory.id ? (
+                      <div className="mt-1 space-y-1.5">
+                        {memory.question !== null && (
+                          <input
+                            className="w-full rounded-md border bg-background px-2 py-1 text-sm italic"
+                            value={memoryEdit.question}
+                            placeholder="What was asked (optional)"
+                            onChange={(e) => setMemoryEdit((prev) => ({ ...prev, question: e.target.value }))}
+                          />
+                        )}
+                        <textarea
+                          className="w-full rounded-md border bg-background px-2 py-1 text-sm"
+                          rows={2}
+                          value={memoryEdit.content}
+                          onChange={(e) => setMemoryEdit((prev) => ({ ...prev, content: e.target.value }))}
+                        />
+                        <div className="flex items-center gap-2">
+                          <Button size="sm" loading={savingMemory} onClick={() => void saveMemoryEdit(memory)}>Save</Button>
+                          <Button size="sm" variant="ghost" disabled={savingMemory} onClick={() => setEditingMemoryId(null)}>Cancel</Button>
+                        </div>
+                      </div>
+                    ) : (
+                      <>
+                        {memory.question && <p className="italic text-muted-foreground">{memory.question}</p>}
+                        <p className="line-clamp-2 text-muted-foreground">{memory.content}</p>
+                        {memory.lastUsedAt && (
+                          <p className="mt-0.5 text-xs text-muted-foreground">Last used {new Date(memory.lastUsedAt).toLocaleDateString()}</p>
+                        )}
+                      </>
                     )}
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => deleteMemory(memory.id)}
-                    className="shrink-0 text-muted-foreground opacity-0 transition-opacity hover:text-red-600 group-hover:opacity-100"
-                    aria-label={`Remove memory ${memory.title}`}
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </button>
+                  {editingMemoryId !== memory.id && (
+                    <div className="flex shrink-0 items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
+                      {/* Only saved answers (user_answer) are editable — learnings
+                          and suggestions are system-derived. */}
+                      {memory.kind === 'user_answer' && (
+                        <button
+                          type="button"
+                          onClick={() => startEditMemory(memory)}
+                          className="text-muted-foreground hover:text-indigo-600"
+                          aria-label={`Edit saved information ${memory.title}`}
+                        >
+                          <Pencil className="h-4 w-4" />
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => deleteMemory(memory.id)}
+                        className="text-muted-foreground hover:text-red-600"
+                        aria-label={`Remove memory ${memory.title}`}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                    </div>
+                  )}
                 </li>
               ))}
             </ul>

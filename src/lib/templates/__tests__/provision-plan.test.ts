@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { missingRequiredProviders, resolveGraphToolConnections, rewriteGraphAgentRefs } from '../provision-plan'
+import { graphNeedsBackingFlow, missingRequiredProviders, resolveGraphToolConnections, rewriteGraphAgentRefs } from '../provision-plan'
 import type { FlowGraph } from '@/lib/flows/graph'
 
 const g: FlowGraph = {
@@ -22,6 +22,30 @@ test('rewrites matching agent refs, leaves other nodes untouched, does not mutat
 
 test('throws on an unresolved agent ref', () => {
   assert.throws(() => rewriteGraphAgentRefs(g, {}), /unresolved agent/i)
+})
+
+test('graphNeedsBackingFlow: http node or multiple tool steps need a real flow', () => {
+  // trigger -> agent -> single delivery tool: collapses cleanly to an agent.
+  assert.equal(graphNeedsBackingFlow(g), false)
+  // trigger -> agent only: no tools, no backing flow.
+  assert.equal(graphNeedsBackingFlow({ nodes: g.nodes.slice(0, 2), edges: [] }), false)
+  // an http (enrichment) node → needs a flow, even alone.
+  assert.equal(graphNeedsBackingFlow({
+    nodes: [
+      { id: 'trigger', type: 'trigger', data: { trigger: { type: 'manual' } } },
+      { id: 'h', type: 'http', data: { connectionId: 'http:default', method: 'GET', url: 'https://api.example.com', headers: {}, body: '' } },
+    ] as FlowGraph['nodes'],
+    edges: [],
+  }), true)
+  // two tool steps (enrich write + notify) → multi-step orchestration.
+  assert.equal(graphNeedsBackingFlow({
+    nodes: [
+      { id: 'trigger', type: 'trigger', data: { trigger: { type: 'manual' } } },
+      { id: 't1', type: 'tool', data: { connectionId: 'template:salesforce', toolName: 'create_record', args: '{}' } },
+      { id: 't2', type: 'tool', data: { connectionId: 'native:slack', toolName: 'post_message', args: '{}' } },
+    ] as FlowGraph['nodes'],
+    edges: [],
+  }), true)
 })
 
 test('template tool placeholders prefer Nango and adopt its discovered tool name', () => {

@@ -202,7 +202,9 @@ if (TEST_DB) {
       } as never)
 
     const createRes = await (await import('../agents/route')).POST(
-      post('/api/agents', { title: 'QA Capture Agent', instructions: 'Run the QA Echo Child flow, then report done.' }),
+      // allowFlows opts this agent into the flow tool-plane; empty flowIds =
+      // any agent-callable flow (the QA Echo Child above).
+      post('/api/agents', { title: 'QA Capture Agent', instructions: 'Run the QA Echo Child flow, then report done.', allowFlows: true }),
     )
     assert.equal(createRes.status, 200)
     const agentId = (await createRes.json()).agent.id

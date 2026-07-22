@@ -77,6 +77,8 @@ type SerializedAgentExtras = {
   goal?: string | null
   allowSubagents?: boolean
   subagentIds?: string[]
+  allowFlows?: boolean
+  flowIds?: string[]
   autoAnswerFromMemory?: boolean
   requireApproval?: boolean
   alwaysStrategize?: boolean
@@ -465,6 +467,8 @@ function AgentHQ() {
           goal: source.goal ?? null,
           allowSubagents: source.allowSubagents,
           subagentIds: source.subagentIds,
+          allowFlows: source.allowFlows,
+          flowIds: source.flowIds,
           autoAnswerFromMemory: source.autoAnswerFromMemory,
           requireApproval: source.requireApproval,
           alwaysStrategize: source.alwaysStrategize,

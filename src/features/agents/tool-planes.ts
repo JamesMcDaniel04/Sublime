@@ -372,16 +372,21 @@ export async function loadNangoPlaneGroups(
 // ── Flow tool plane (workflows-as-tools) ──────────────────────────────────────
 
 /**
- * Agent-callable flows as a tool plane. Each org-opted flow (metadata.agentCallable)
- * becomes one ToolPlaneGroup whose inputSchema is the flow's input-node params and
- * whose client dispatches the flow and returns its output-node object. Dispatch is
- * a DYNAMIC import to break the execute-flow -> tool-planes cycle. Only surfaces
- * when a userId is available (dispatch runs as that user).
+ * Flows as a tool plane. Each qualifying flow becomes one ToolPlaneGroup whose
+ * inputSchema is the flow's input-node params and whose client dispatches the
+ * flow and returns its output-node object. Dispatch is a DYNAMIC import to
+ * break the execute-flow -> tool-planes cycle. Only surfaces when a userId is
+ * available (dispatch runs as that user).
+ *
+ * Authorization: by default only org-opted flows (metadata.agentCallable) are
+ * exposed. `options.explicit` (set when an agent names specific flowIds) treats
+ * the named flows as authorized directly — the per-agent selection IS the
+ * opt-in, so the flow need not also carry the org-wide flag.
  */
 export async function loadFlowPlaneGroups(
   organizationId: string,
   userId: string,
-  options: { flowIds?: string[] } = {},
+  options: { flowIds?: string[]; explicit?: boolean } = {},
 ): Promise<ToolPlaneGroup[]> {
   const flows = await prisma.flow.findMany({
     where: {
@@ -398,7 +403,7 @@ export async function loadFlowPlaneGroups(
   // short, stable flow-id suffix (the first flow keeps the clean slug).
   const usedSlugs = new Set<string>()
   for (const flow of flows) {
-    if (!isAgentCallableFlow(flow.metadata)) continue
+    if (!options.explicit && !isAgentCallableFlow(flow.metadata)) continue
     const parsed = flowGraphSchema.safeParse(flow.publishedGraph ?? flow.graph)
     if (!parsed.success) continue
     const params = inputParamsFromGraph(parsed.data)

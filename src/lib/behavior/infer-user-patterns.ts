@@ -20,7 +20,12 @@ import { writeUserInference } from './user-insights'
 
 const WINDOW_DAYS = 90
 const MAX_EVENTS = 500
-const MIN_EVENTS = 10
+// Minimum in-app events before mining runs. Env-overridable (floor 1) so a new
+// deployment/demo can lower the bar; see eligibility.ts for the same pattern.
+const MIN_EVENTS = (() => {
+  const parsed = Number(process.env.BEHAVIOR_MIN_EVENTS)
+  return Number.isFinite(parsed) && parsed >= 1 ? Math.floor(parsed) : 10
+})()
 
 export type InferOverrides = {
   db?: typeof systemPrisma
