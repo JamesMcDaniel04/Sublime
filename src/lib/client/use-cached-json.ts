@@ -46,18 +46,26 @@ async function fetchJson(url: string): Promise<unknown> {
 export async function getCachedJson<T = unknown>(url: string, maxAgeMs = 60_000): Promise<T> {
   const cached = mem.get(url)
   if (cached && Date.now() - cached.ts <= maxAgeMs) return cached.data as T
-  const requestScope = cacheScope
-  let pending = inflight.get(url)
-  if (!pending) {
-    pending = fetchJson(url)
-    inflight.set(url, pending)
-  }
-  try {
-    const result = await pending
-    if (cacheScope === requestScope) write(url, result)
-    return result as T
-  } finally {
-    inflight.delete(url)
+  // Same mid-flight scope-change handling as useCachedJson.refresh: a
+  // response that raced a sign-in transition is dropped and refetched so
+  // callers never receive (or cache) another scope's data.
+  for (;;) {
+    const requestScope = cacheScope
+    let pending = inflight.get(url)
+    if (!pending) {
+      pending = fetchJson(url)
+      inflight.set(url, pending)
+    }
+    let result: unknown
+    try {
+      result = await pending
+    } finally {
+      if (inflight.get(url) === pending) inflight.delete(url)
+    }
+    if (cacheScope === requestScope) {
+      write(url, result)
+      return result as T
+    }
   }
 }
 
@@ -80,25 +88,38 @@ export function useCachedJson<T = unknown>(url: string | null) {
   const [error, setError] = useState<unknown>(null)
   const [loading, setLoading] = useState(() => (url ? !mem.has(url) : false))
 
-  const refresh = useCallback(async () => {
-    if (!url) return
-    const requestScope = cacheScope
-    let pending = inflight.get(url)
-    if (!pending) {
-      pending = fetchJson(url)
-      inflight.set(url, pending)
-    }
+  const refresh = useCallback(async (): Promise<T | undefined> => {
+    if (!url) return undefined
+    // The scope guard prevents painting a response fetched under a previous
+    // signed-in user. But sign-in *settling* during a hard page load changes
+    // the scope while the very first fetch is in flight — in that case the
+    // right move is to refetch under the new scope, not to strand the hook
+    // with `loading: false` and no data (which paints empty states).
     try {
-      const result = await pending
-      if (cacheScope === requestScope) {
-        write(url, result)
-        setData(result as T)
-        setError(null)
+      for (;;) {
+        const requestScope = cacheScope
+        let pending = inflight.get(url)
+        if (!pending) {
+          pending = fetchJson(url)
+          inflight.set(url, pending)
+        }
+        let result: unknown
+        try {
+          result = await pending
+        } finally {
+          if (inflight.get(url) === pending) inflight.delete(url)
+        }
+        if (cacheScope === requestScope) {
+          write(url, result)
+          setData(result as T)
+          setError(null)
+          return result as T
+        }
       }
     } catch (caught) {
       setError(caught)
+      return undefined
     } finally {
-      inflight.delete(url)
       setLoading(false)
     }
   }, [url])

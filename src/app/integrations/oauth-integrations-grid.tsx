@@ -110,6 +110,18 @@ export function OAuthIntegrationsGrid() {
       : integrations
   const { pageItems, pageCount, page: currentPage } = paginate(visibleIntegrations, page, INTEGRATIONS_PAGE_SIZE)
 
+  // Nango's connection listing is eventually consistent: right after the
+  // Connect UI reports success, /api/nango/status often does not include the
+  // new connection yet. Poll with backoff until the badge can actually flip
+  // instead of leaving the user to hammer the manual refresh button.
+  const confirmConnected = useCallback(async (integrationId: string) => {
+    for (const delayMs of [0, 1000, 2000, 4000, 8000]) {
+      if (delayMs) await new Promise((resolve) => setTimeout(resolve, delayMs))
+      const status = await refreshStatus()
+      if (status?.connections?.[integrationId]?.connected) return
+    }
+  }, [refreshStatus])
+
   const connect = async (integration: Integration) => {
     // Native Google OAuth: full-page redirect to our own consent flow —
     // Google blocks Nango's, and a popup would lose the session on return.
@@ -129,7 +141,7 @@ export function OAuthIntegrationsGrid() {
             toast.success(`${integration.name} connected`)
             connectUIRef.current = null
             setBusy(null)
-            void refreshStatus()
+            void confirmConnected(integration.id)
           } else if (event.type === 'close') {
             connectUIRef.current = null
             setBusy(null)
