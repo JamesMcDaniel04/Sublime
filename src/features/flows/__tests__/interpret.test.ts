@@ -394,6 +394,24 @@ test('http steps preserve structured query, headers, and body values', async () 
   })
 })
 
+test('http steps forward the cookie field with templates resolved', async () => {
+  const graph: FlowGraph = {
+    nodes: [
+      { id: 'trigger', type: 'trigger', data: {} },
+      { id: 'h1', type: 'http', data: { method: 'GET', url: 'https://example.com/me', cookie: 'session={{trigger.input.session}}' } },
+    ],
+    edges: [{ id: 'e0', source: 'trigger', target: 'h1' }],
+  }
+  const calls: Record<string, unknown>[] = []
+  const runAction: RunActionFn = async (node) => {
+    calls.push(node.config)
+    return { output: { ok: true } }
+  }
+  const result = await interpretFlow(graph, { session: 'abc' }, { runAgent: async () => ({ output: 'unused' }), runAction })
+  assert.equal(result.status, 'succeeded')
+  assert.equal(calls[0].cookie, 'session=abc')
+})
+
 test('tool args preserve object values from loop items', async () => {
   const graph: FlowGraph = {
     nodes: [
