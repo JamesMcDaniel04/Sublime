@@ -46,7 +46,10 @@ export function isGoogleNativeProvider(provider: string | null | undefined): boo
 }
 
 function baseUrlFor(endpoint: string): string {
-  return endpoint.startsWith('/gmail/') ? 'https://gmail.googleapis.com' : 'https://www.googleapis.com'
+  if (endpoint.startsWith('/gmail/')) return 'https://gmail.googleapis.com'
+  // Sheets v4 lives on its own host; Drive (incl. /upload) and Calendar ride www.
+  if (endpoint.startsWith('/v4/spreadsheets')) return 'https://sheets.googleapis.com'
+  return 'https://www.googleapis.com'
 }
 
 function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
@@ -79,14 +82,17 @@ async function accessTokenFor(ref: GoogleConnectionRef, force: boolean): Promise
 async function execute(args: NangoProxyArgs, accessToken: string): Promise<Response> {
   const url = new URL(baseUrlFor(args.endpoint) + args.endpoint)
   for (const [key, value] of Object.entries(args.params ?? {})) url.searchParams.set(key, String(value))
+  // String data is a raw body (media uploads) — JSON.stringify would wrap it
+  // in quotes and corrupt the file. Objects remain JSON.
+  const raw = typeof args.data === 'string'
   return withTimeout(
     hooks.fetchImpl(url.toString(), {
       method: args.method,
       headers: {
         Authorization: `Bearer ${accessToken}`,
-        ...(args.data !== undefined ? { 'Content-Type': 'application/json' } : {}),
+        ...(args.data !== undefined ? { 'Content-Type': raw ? args.contentType ?? 'text/plain' : 'application/json' } : {}),
       },
-      ...(args.data !== undefined ? { body: JSON.stringify(args.data) } : {}),
+      ...(args.data !== undefined ? { body: raw ? (args.data as string) : JSON.stringify(args.data) } : {}),
     }),
     PROXY_TIMEOUT_MS,
     `Google proxy ${args.method} ${args.endpoint}`,

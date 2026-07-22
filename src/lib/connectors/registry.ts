@@ -105,6 +105,36 @@ export const BUILTIN_CONNECTORS: ConnectorDescriptor[] = [
     available: () => true,
   },
   {
+    key: 'sheets',
+    label: 'Google Sheets',
+    slug: 'googlesheets',
+    kind: 'nango',
+    isWrite: true,
+    providerId: 'nango:sheets',
+    matches: has('sheet'),
+    available: () => true,
+  },
+  {
+    key: 'drive',
+    label: 'Google Drive',
+    slug: 'googledrive',
+    kind: 'nango',
+    isWrite: true,
+    providerId: 'nango:drive',
+    matches: has('drive'),
+    available: () => true,
+  },
+  {
+    key: 'calendar',
+    label: 'Google Calendar',
+    slug: 'googlecalendar',
+    kind: 'nango',
+    isWrite: true,
+    providerId: 'nango:calendar',
+    matches: has('calendar'),
+    available: () => true,
+  },
+  {
     key: 'salesforce',
     label: 'Salesforce',
     slug: 'salesforce',
@@ -213,6 +243,10 @@ const titleCase = (s: string) => s.replace(/[-_]+/g, ' ').replace(/\b\w/g, (c) =
 export function fromNangoProviderKey(providerConfigKey: string): { key: string; label: string; slug: string } {
   const k = providerConfigKey.toLowerCase()
   if (k.includes('slack')) return { key: 'slack', label: 'Slack', slug: 'slack' }
+  // Google services before the broad 'mail' match — order matters.
+  if (k.includes('sheet')) return { key: 'sheets', label: 'Google Sheets', slug: 'googlesheets' }
+  if (k.includes('drive')) return { key: 'drive', label: 'Google Drive', slug: 'googledrive' }
+  if (k.includes('calendar')) return { key: 'calendar', label: 'Google Calendar', slug: 'googlecalendar' }
   if (k.includes('mail') || k.includes('gmail')) return { key: 'gmail', label: 'Gmail', slug: 'gmail' }
   if (k.includes('salesforce')) return { key: 'salesforce', label: 'Salesforce', slug: 'salesforce' }
   if (k.includes('github')) return { key: 'github', label: 'GitHub', slug: 'github' }

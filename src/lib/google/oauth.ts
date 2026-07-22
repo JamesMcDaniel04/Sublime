@@ -21,11 +21,28 @@ export const GOOGLE_SERVICE_SCOPES = {
     'https://www.googleapis.com/auth/gmail.send',
     'https://www.googleapis.com/auth/userinfo.email',
   ],
-  // calendar.readonly is a "sensitive" scope (same verification class as
-  // gmail.send — no CASA assessment). Read access powers the Calendar
-  // ActivitySource: historical meetings feed the org's usage-pattern ledger.
+  // calendar.readonly powers the Calendar ActivitySource (historical meetings
+  // feed the org's usage-pattern ledger); calendar.events adds event
+  // read/write for the calendar delivery tools. Both are "sensitive" scopes
+  // (same verification class as gmail.send — no CASA assessment). Existing
+  // connections must reconnect to grant the added events scope.
   'google-calendar': [
     'https://www.googleapis.com/auth/calendar.readonly',
+    'https://www.googleapis.com/auth/calendar.events',
+    'https://www.googleapis.com/auth/userinfo.email',
+  ],
+  // spreadsheets is a "sensitive" scope: full read/write of sheet contents,
+  // no CASA assessment.
+  'google-sheets': [
+    'https://www.googleapis.com/auth/spreadsheets',
+    'https://www.googleapis.com/auth/userinfo.email',
+  ],
+  // drive.file is per-file access (files this app creates or the user picks)
+  // and is NON-sensitive. The broad drive/drive.readonly scopes are
+  // "restricted" — they trigger the annual CASA assessment; do not add them
+  // without that review budgeted.
+  'google-drive': [
+    'https://www.googleapis.com/auth/drive.file',
     'https://www.googleapis.com/auth/userinfo.email',
   ],
 } as const

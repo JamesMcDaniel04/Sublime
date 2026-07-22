@@ -59,9 +59,18 @@ if (TEST_DB) {
     assert.equal(body.connections?.['google-mail']?.native, true)
   })
 
+  test('start route accepts every registered Google service', async () => {
+    const { GET } = await import('../google/oauth/start/route')
+    for (const service of ['google-calendar', 'google-sheets', 'google-drive']) {
+      const response = await GET(new NextRequest(new URL(`http://test/api/google/oauth/start?service=${service}`)))
+      assert.equal(response.status, 307, service)
+      assert.ok((response.headers.get('location') ?? '').startsWith('https://accounts.google.com/'), service)
+    }
+  })
+
   test('start route rejects unknown services', async () => {
     const { GET } = await import('../google/oauth/start/route')
-    const response = await GET(new NextRequest(new URL('http://test/api/google/oauth/start?service=google-drive')))
+    const response = await GET(new NextRequest(new URL('http://test/api/google/oauth/start?service=google-docs')))
     assert.equal(response.status, 400)
   })
 

@@ -96,6 +96,93 @@ test('monday_create_item passes user input as GraphQL variables, not in the quer
   assert.equal(data.variables.itemName, 'evil") { boards { id } }')
 })
 
+// ── Native Google delivery tools (sheets / drive / calendar) ────────────────
+
+test('sheets tools proxy the Sheets values endpoints with encoded ranges', async () => {
+  const google = { connectionId: 'g1', providerConfigKey: 'google-sheets', scope: 'org' as const }
+  const get = recordingProxy()
+  await DELIVERY_TOOLS.find((t) => t.name === 'sheets_get_values')!.run(google, { spreadsheet_id: 'S1', range: 'Sheet1!A1:B2' }, get.proxy)
+  assert.equal(get.calls[0].method, 'GET')
+  assert.equal(get.calls[0].endpoint, `/v4/spreadsheets/S1/values/${encodeURIComponent('Sheet1!A1:B2')}`)
+
+  const update = recordingProxy()
+  await DELIVERY_TOOLS.find((t) => t.name === 'sheets_update_values')!.run(google, { spreadsheet_id: 'S1', range: 'A1', values: [['x']] }, update.proxy)
+  assert.equal(update.calls[0].method, 'PUT')
+  assert.equal(update.calls[0].endpoint, '/v4/spreadsheets/S1/values/A1')
+  assert.equal(update.calls[0].params?.valueInputOption, 'USER_ENTERED')
+  assert.deepEqual(update.calls[0].data, { values: [['x']] })
+
+  const append = recordingProxy()
+  await DELIVERY_TOOLS.find((t) => t.name === 'sheets_append_rows')!.run(google, { spreadsheet_id: 'S1', range: 'A1', values: [['x', 'y']] }, append.proxy)
+  assert.equal(append.calls[0].method, 'POST')
+  assert.equal(append.calls[0].endpoint, '/v4/spreadsheets/S1/values/A1:append')
+  assert.equal(append.calls[0].params?.insertDataOption, 'INSERT_ROWS')
+})
+
+test('calendar tools proxy the Calendar v3 events endpoints', async () => {
+  const google = { connectionId: 'g1', providerConfigKey: 'google-calendar', scope: 'org' as const }
+  const list = recordingProxy()
+  await DELIVERY_TOOLS.find((t) => t.name === 'calendar_list_events')!.run(google, { time_min: '2026-07-01T00:00:00Z', max_results: 10 }, list.proxy)
+  assert.equal(list.calls[0].method, 'GET')
+  assert.equal(list.calls[0].endpoint, '/calendar/v3/calendars/primary/events')
+  assert.equal(list.calls[0].params?.timeMin, '2026-07-01T00:00:00Z')
+  assert.equal(list.calls[0].params?.singleEvents, 'true')
+
+  const create = recordingProxy()
+  await DELIVERY_TOOLS.find((t) => t.name === 'calendar_create_event')!.run(
+    google,
+    { summary: 'Standup', start: '2026-07-23T09:00:00Z', end: '2026-07-23T09:15:00Z', attendees: ['a@b.com'] },
+    create.proxy,
+  )
+  assert.equal(create.calls[0].method, 'POST')
+  assert.equal(create.calls[0].endpoint, '/calendar/v3/calendars/primary/events')
+  const event = create.calls[0].data as { summary: string; start: { dateTime: string }; attendees: Array<{ email: string }> }
+  assert.equal(event.summary, 'Standup')
+  assert.equal(event.start.dateTime, '2026-07-23T09:00:00Z')
+  assert.deepEqual(event.attendees, [{ email: 'a@b.com' }])
+})
+
+test('drive tools list, download, and upload via the Drive v3 endpoints', async () => {
+  const google = { connectionId: 'g1', providerConfigKey: 'google-drive', scope: 'org' as const }
+  const list = recordingProxy()
+  await DELIVERY_TOOLS.find((t) => t.name === 'drive_list_files')!.run(google, { query: "name contains 'report'" }, list.proxy)
+  assert.equal(list.calls[0].method, 'GET')
+  assert.equal(list.calls[0].endpoint, '/drive/v3/files')
+  assert.equal(list.calls[0].params?.q, "name contains 'report'")
+
+  const download = recordingProxy()
+  await DELIVERY_TOOLS.find((t) => t.name === 'drive_download_file')!.run(google, { file_id: 'f1' }, download.proxy)
+  assert.equal(download.calls[0].endpoint, '/drive/v3/files/f1')
+  assert.equal(download.calls[0].params?.alt, 'media')
+
+  // Upload is two calls: metadata create, then media upload of the raw content.
+  const uploads: NangoProxyArgs[] = []
+  const uploadProxy = async (args: NangoProxyArgs) => {
+    uploads.push(args)
+    return { data: { id: 'f-new' } }
+  }
+  await DELIVERY_TOOLS.find((t) => t.name === 'drive_upload_file')!.run(
+    google,
+    { name: 'notes.txt', content: 'hello world', mime_type: 'text/plain', folder_id: 'dir1' },
+    uploadProxy,
+  )
+  assert.equal(uploads[0].method, 'POST')
+  assert.equal(uploads[0].endpoint, '/drive/v3/files')
+  assert.deepEqual(uploads[0].data, { name: 'notes.txt', mimeType: 'text/plain', parents: ['dir1'] })
+  assert.equal(uploads[1].method, 'PATCH')
+  assert.equal(uploads[1].endpoint, '/upload/drive/v3/files/f-new')
+  assert.equal(uploads[1].params?.uploadType, 'media')
+  assert.equal(uploads[1].data, 'hello world')
+  assert.equal(uploads[1].contentType, 'text/plain')
+})
+
+test('deliverySpecByName finds a capability tool by name for multi-tool capabilities', async () => {
+  const { deliverySpecByName } = await import('../delivery')
+  assert.equal(deliverySpecByName('sheets', 'sheets_append_rows')?.name, 'sheets_append_rows')
+  assert.equal(deliverySpecByName('sheets', 'drive_list_files'), undefined)
+  assert.equal(deliverySpecByName('gmail', 'gmail_send_email')?.name, 'gmail_send_email')
+})
+
 // ── capabilityForProviderConfigKey ──────────────────────────────────────────
 
 test('capabilityForProviderConfigKey: maps a known providerConfigKey to its capability', () => {
@@ -112,6 +199,9 @@ test('capabilityForProviderConfigKey: maps a known providerConfigKey to its capa
   assert.equal(capabilityForProviderConfigKey('intercom-fhmb'), 'intercom')
   assert.equal(capabilityForProviderConfigKey('monday'), 'monday')
   assert.equal(capabilityForProviderConfigKey('perplexity'), 'perplexity')
+  assert.equal(capabilityForProviderConfigKey('google-sheets'), 'sheets')
+  assert.equal(capabilityForProviderConfigKey('google-drive'), 'drive')
+  assert.equal(capabilityForProviderConfigKey('google-calendar'), 'calendar')
 })
 
 test('capabilityForProviderConfigKey: unknown providerConfigKey has no capability', () => {

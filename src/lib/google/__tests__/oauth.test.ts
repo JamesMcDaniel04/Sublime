@@ -30,6 +30,32 @@ test('gmail scope set covers send and userinfo.email, and stays clear of restric
   assert.ok(!scopes.some((s) => /gmail\.(readonly|modify|compose|insert|metadata|settings)|mail\.google\.com/.test(s)))
 })
 
+test('sheets scope set covers spreadsheets and userinfo.email only', () => {
+  const scopes: readonly string[] = GOOGLE_SERVICE_SCOPES['google-sheets']
+  assert.ok(scopes.includes('https://www.googleapis.com/auth/spreadsheets'))
+  assert.ok(scopes.includes('https://www.googleapis.com/auth/userinfo.email'))
+  // Drive scopes on the Sheets service would silently widen the grant.
+  assert.ok(!scopes.some((s) => s.includes('/auth/drive')))
+})
+
+test('drive scope set uses per-file drive.file and stays clear of restricted scopes', () => {
+  const scopes: readonly string[] = GOOGLE_SERVICE_SCOPES['google-drive']
+  assert.ok(scopes.includes('https://www.googleapis.com/auth/drive.file'))
+  assert.ok(scopes.includes('https://www.googleapis.com/auth/userinfo.email'))
+  // Broad Drive scopes (drive, drive.readonly, drive.metadata…) are
+  // "restricted" — they trigger Google's annual CASA assessment.
+  assert.ok(!scopes.some((s) => /\/auth\/drive(\.readonly|\.metadata|\.appdata|\.scripts)?$/.test(s)))
+})
+
+test('calendar scope set covers event read/write plus the readonly ActivitySource scope', () => {
+  const scopes: readonly string[] = GOOGLE_SERVICE_SCOPES['google-calendar']
+  assert.ok(scopes.includes('https://www.googleapis.com/auth/calendar.readonly'))
+  assert.ok(scopes.includes('https://www.googleapis.com/auth/calendar.events'))
+  // Full calendar scope (incl. calendar list mutation, ACLs) is broader than
+  // any shipped feature needs.
+  assert.ok(!scopes.includes('https://www.googleapis.com/auth/calendar'))
+})
+
 test('auth url strips stray whitespace from env values', () => {
   // A trailing newline pasted into the deployment env encodes as %0A in the
   // redirect_uri, which Google rejects with a secure-response-handling

@@ -27,6 +27,11 @@ export interface DeliveryConnection {
 export const DELIVERY_PROVIDERS = {
   slack: ['slack'],
   gmail: ['google-mail', 'gmail'],
+  // Native-Google-only capabilities: the provider config key is the native
+  // OAuth service name (the mirror NangoConnection row's providerConfigKey).
+  sheets: ['google-sheets'],
+  drive: ['google-drive'],
+  calendar: ['google-calendar'],
   salesforce: ['salesforce', 'salesforce-sandbox'],
   asana: ['asana'],
   clickup: ['clickup'],
@@ -107,6 +112,8 @@ export interface NangoProxyArgs {
   providerConfigKey: string
   data?: unknown
   params?: Record<string, string | number>
+  /** Media type for raw string `data` (native Google uploads); ignored by Nango. */
+  contentType?: string
 }
 
 export type NangoProxy = (args: NangoProxyArgs) => Promise<{ data: unknown }>
@@ -307,6 +314,168 @@ export async function perplexitySearch(
   return response.data
 }
 
+// ── Google Sheets / Drive / Calendar (native-Google-only capabilities) ───────
+
+export async function sheetsGetValues(
+  connection: DeliveryConnection,
+  args: { spreadsheetId: string; range: string },
+  proxy: NangoProxy = defaultProxy(),
+): Promise<unknown> {
+  const response = await proxy({
+    method: 'GET',
+    endpoint: `/v4/spreadsheets/${encodeURIComponent(args.spreadsheetId)}/values/${encodeURIComponent(args.range)}`,
+    connectionId: connection.connectionId,
+    providerConfigKey: connection.providerConfigKey,
+  })
+  return response.data
+}
+
+export async function sheetsUpdateValues(
+  connection: DeliveryConnection,
+  args: { spreadsheetId: string; range: string; values: unknown[][] },
+  proxy: NangoProxy = defaultProxy(),
+): Promise<unknown> {
+  const response = await proxy({
+    method: 'PUT',
+    endpoint: `/v4/spreadsheets/${encodeURIComponent(args.spreadsheetId)}/values/${encodeURIComponent(args.range)}`,
+    connectionId: connection.connectionId,
+    providerConfigKey: connection.providerConfigKey,
+    params: { valueInputOption: 'USER_ENTERED' },
+    data: { values: args.values },
+  })
+  return response.data
+}
+
+export async function sheetsAppendRows(
+  connection: DeliveryConnection,
+  args: { spreadsheetId: string; range: string; values: unknown[][] },
+  proxy: NangoProxy = defaultProxy(),
+): Promise<unknown> {
+  const response = await proxy({
+    method: 'POST',
+    endpoint: `/v4/spreadsheets/${encodeURIComponent(args.spreadsheetId)}/values/${encodeURIComponent(args.range)}:append`,
+    connectionId: connection.connectionId,
+    providerConfigKey: connection.providerConfigKey,
+    params: { valueInputOption: 'USER_ENTERED', insertDataOption: 'INSERT_ROWS' },
+    data: { values: args.values },
+  })
+  return response.data
+}
+
+export async function calendarListEvents(
+  connection: DeliveryConnection,
+  args: { calendarId?: string; timeMin?: string; timeMax?: string; query?: string; maxResults?: number },
+  proxy: NangoProxy = defaultProxy(),
+): Promise<unknown> {
+  const response = await proxy({
+    method: 'GET',
+    endpoint: `/calendar/v3/calendars/${encodeURIComponent(args.calendarId || 'primary')}/events`,
+    connectionId: connection.connectionId,
+    providerConfigKey: connection.providerConfigKey,
+    params: {
+      // Expand recurring events into instances, ordered by start — the shape
+      // agents expect when answering "what's on the calendar".
+      singleEvents: 'true',
+      orderBy: 'startTime',
+      maxResults: Math.max(1, Math.min(250, Number(args.maxResults ?? 50))),
+      ...(args.timeMin ? { timeMin: args.timeMin } : {}),
+      ...(args.timeMax ? { timeMax: args.timeMax } : {}),
+      ...(args.query ? { q: args.query } : {}),
+    },
+  })
+  return response.data
+}
+
+/** All-day when dates are YYYY-MM-DD; timed otherwise (RFC3339 datetimes). */
+function calendarEventTime(value: string): { date: string } | { dateTime: string } {
+  return /^\d{4}-\d{2}-\d{2}$/.test(value) ? { date: value } : { dateTime: value }
+}
+
+export async function calendarCreateEvent(
+  connection: DeliveryConnection,
+  args: { calendarId?: string; summary: string; description?: string; location?: string; start: string; end: string; attendees?: string[] },
+  proxy: NangoProxy = defaultProxy(),
+): Promise<unknown> {
+  const response = await proxy({
+    method: 'POST',
+    endpoint: `/calendar/v3/calendars/${encodeURIComponent(args.calendarId || 'primary')}/events`,
+    connectionId: connection.connectionId,
+    providerConfigKey: connection.providerConfigKey,
+    data: {
+      summary: args.summary,
+      ...(args.description ? { description: args.description } : {}),
+      ...(args.location ? { location: args.location } : {}),
+      start: calendarEventTime(args.start),
+      end: calendarEventTime(args.end),
+      ...(args.attendees?.length ? { attendees: args.attendees.map((email) => ({ email })) } : {}),
+    },
+  })
+  return response.data
+}
+
+export async function driveListFiles(
+  connection: DeliveryConnection,
+  args: { query?: string; maxResults?: number },
+  proxy: NangoProxy = defaultProxy(),
+): Promise<unknown> {
+  const response = await proxy({
+    method: 'GET',
+    endpoint: '/drive/v3/files',
+    connectionId: connection.connectionId,
+    providerConfigKey: connection.providerConfigKey,
+    params: {
+      pageSize: Math.max(1, Math.min(100, Number(args.maxResults ?? 25))),
+      fields: 'files(id,name,mimeType,modifiedTime,size,webViewLink)',
+      ...(args.query ? { q: args.query } : {}),
+    },
+  })
+  return response.data
+}
+
+export async function driveDownloadFile(
+  connection: DeliveryConnection,
+  args: { fileId: string },
+  proxy: NangoProxy = defaultProxy(),
+): Promise<unknown> {
+  const response = await proxy({
+    method: 'GET',
+    endpoint: `/drive/v3/files/${encodeURIComponent(args.fileId)}`,
+    connectionId: connection.connectionId,
+    providerConfigKey: connection.providerConfigKey,
+    params: { alt: 'media' },
+  })
+  return response.data
+}
+
+export async function driveUploadFile(
+  connection: DeliveryConnection,
+  args: { name: string; content: string; mimeType?: string; folderId?: string },
+  proxy: NangoProxy = defaultProxy(),
+): Promise<unknown> {
+  // Two-step create: metadata first (name/parents can't ride a media upload),
+  // then the raw content as a media PATCH. The drive.file scope covers both.
+  const mimeType = args.mimeType || 'text/plain'
+  const created = await proxy({
+    method: 'POST',
+    endpoint: '/drive/v3/files',
+    connectionId: connection.connectionId,
+    providerConfigKey: connection.providerConfigKey,
+    data: { name: args.name, mimeType, ...(args.folderId ? { parents: [args.folderId] } : {}) },
+  })
+  const fileId = (created.data as { id?: string })?.id
+  if (!fileId) throw new Error('Drive file create returned no id.')
+  await proxy({
+    method: 'PATCH',
+    endpoint: `/upload/drive/v3/files/${encodeURIComponent(fileId)}`,
+    connectionId: connection.connectionId,
+    providerConfigKey: connection.providerConfigKey,
+    params: { uploadType: 'media' },
+    data: args.content,
+    contentType: mimeType,
+  })
+  return created.data
+}
+
 // ── Tool descriptors for the agent runtime ───────────────────────────────────
 
 export interface DeliveryToolSpec {
@@ -350,6 +519,180 @@ export const DELIVERY_TOOLS: DeliveryToolSpec[] = [
       gmailSendEmail(
         connection,
         { to: String(args.to), subject: String(args.subject), body: String(args.body) },
+        proxy,
+      ),
+  },
+  {
+    capability: 'sheets',
+    name: 'sheets_get_values',
+    description: 'Read a cell range from a Google Sheet (A1 notation).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        spreadsheet_id: { type: 'string', description: 'The spreadsheet id (from its URL).' },
+        range: { type: 'string', description: 'A1-notation range, e.g. Sheet1!A1:D50.' },
+      },
+      required: ['spreadsheet_id', 'range'],
+    },
+    run: (connection, args, proxy) =>
+      sheetsGetValues(connection, { spreadsheetId: String(args.spreadsheet_id), range: String(args.range) }, proxy),
+  },
+  {
+    capability: 'sheets',
+    name: 'sheets_update_values',
+    description: 'Overwrite a cell range in a Google Sheet with new values.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        spreadsheet_id: { type: 'string', description: 'The spreadsheet id (from its URL).' },
+        range: { type: 'string', description: 'A1-notation range to write, e.g. Sheet1!A2:C2.' },
+        values: { type: 'array', items: { type: 'array' }, description: 'Rows of cell values.' },
+      },
+      required: ['spreadsheet_id', 'range', 'values'],
+    },
+    run: (connection, args, proxy) =>
+      sheetsUpdateValues(
+        connection,
+        { spreadsheetId: String(args.spreadsheet_id), range: String(args.range), values: (args.values as unknown[][]) ?? [] },
+        proxy,
+      ),
+  },
+  {
+    capability: 'sheets',
+    name: 'sheets_append_rows',
+    description: 'Append rows after the last data row of a Google Sheet range.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        spreadsheet_id: { type: 'string', description: 'The spreadsheet id (from its URL).' },
+        range: { type: 'string', description: 'A1-notation table range to append to, e.g. Sheet1!A:C.' },
+        values: { type: 'array', items: { type: 'array' }, description: 'Rows of cell values to append.' },
+      },
+      required: ['spreadsheet_id', 'range', 'values'],
+    },
+    run: (connection, args, proxy) =>
+      sheetsAppendRows(
+        connection,
+        { spreadsheetId: String(args.spreadsheet_id), range: String(args.range), values: (args.values as unknown[][]) ?? [] },
+        proxy,
+      ),
+  },
+  {
+    capability: 'calendar',
+    name: 'calendar_list_events',
+    description: 'List events from the connected Google Calendar (recurring events expanded, ordered by start).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        calendar_id: { type: 'string', description: 'Calendar id; defaults to the primary calendar.' },
+        time_min: { type: 'string', description: 'RFC3339 lower bound, e.g. 2026-07-22T00:00:00Z.' },
+        time_max: { type: 'string', description: 'RFC3339 upper bound.' },
+        query: { type: 'string', description: 'Free-text search over event fields.' },
+        max_results: { type: 'number', description: 'Max events to return (default 50, cap 250).' },
+      },
+    },
+    run: (connection, args, proxy) =>
+      calendarListEvents(
+        connection,
+        {
+          ...(args.calendar_id ? { calendarId: String(args.calendar_id) } : {}),
+          ...(args.time_min ? { timeMin: String(args.time_min) } : {}),
+          ...(args.time_max ? { timeMax: String(args.time_max) } : {}),
+          ...(args.query ? { query: String(args.query) } : {}),
+          ...(args.max_results !== undefined ? { maxResults: Number(args.max_results) } : {}),
+        },
+        proxy,
+      ),
+  },
+  {
+    capability: 'calendar',
+    name: 'calendar_create_event',
+    description: 'Create an event on the connected Google Calendar.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        calendar_id: { type: 'string', description: 'Calendar id; defaults to the primary calendar.' },
+        summary: { type: 'string', description: 'Event title.' },
+        description: { type: 'string', description: 'Optional event description.' },
+        location: { type: 'string', description: 'Optional location.' },
+        start: { type: 'string', description: 'Start: RFC3339 datetime, or YYYY-MM-DD for an all-day event.' },
+        end: { type: 'string', description: 'End: RFC3339 datetime, or YYYY-MM-DD for an all-day event.' },
+        attendees: { type: 'array', items: { type: 'string' }, description: 'Attendee email addresses.' },
+      },
+      required: ['summary', 'start', 'end'],
+    },
+    run: (connection, args, proxy) =>
+      calendarCreateEvent(
+        connection,
+        {
+          summary: String(args.summary),
+          start: String(args.start),
+          end: String(args.end),
+          ...(args.calendar_id ? { calendarId: String(args.calendar_id) } : {}),
+          ...(args.description ? { description: String(args.description) } : {}),
+          ...(args.location ? { location: String(args.location) } : {}),
+          ...(Array.isArray(args.attendees) ? { attendees: args.attendees.map(String) } : {}),
+        },
+        proxy,
+      ),
+  },
+  {
+    capability: 'drive',
+    name: 'drive_list_files',
+    description: 'List Google Drive files this workspace can access (files it created or was granted).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        query: { type: 'string', description: "Drive query, e.g. name contains 'report' or mimeType='application/pdf'." },
+        max_results: { type: 'number', description: 'Max files to return (default 25, cap 100).' },
+      },
+    },
+    run: (connection, args, proxy) =>
+      driveListFiles(
+        connection,
+        {
+          ...(args.query ? { query: String(args.query) } : {}),
+          ...(args.max_results !== undefined ? { maxResults: Number(args.max_results) } : {}),
+        },
+        proxy,
+      ),
+  },
+  {
+    capability: 'drive',
+    name: 'drive_download_file',
+    description: 'Download the content of a Google Drive file by id.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        file_id: { type: 'string', description: 'The Drive file id.' },
+      },
+      required: ['file_id'],
+    },
+    run: (connection, args, proxy) => driveDownloadFile(connection, { fileId: String(args.file_id) }, proxy),
+  },
+  {
+    capability: 'drive',
+    name: 'drive_upload_file',
+    description: 'Create a file in Google Drive with the given text content.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        name: { type: 'string', description: 'File name, e.g. notes.txt.' },
+        content: { type: 'string', description: 'File content (text).' },
+        mime_type: { type: 'string', description: 'MIME type; defaults to text/plain.' },
+        folder_id: { type: 'string', description: 'Optional parent folder id.' },
+      },
+      required: ['name', 'content'],
+    },
+    run: (connection, args, proxy) =>
+      driveUploadFile(
+        connection,
+        {
+          name: String(args.name),
+          content: String(args.content),
+          ...(args.mime_type ? { mimeType: String(args.mime_type) } : {}),
+          ...(args.folder_id ? { folderId: String(args.folder_id) } : {}),
+        },
         proxy,
       ),
   },
@@ -495,5 +838,14 @@ export const DELIVERY_TOOLS: DeliveryToolSpec[] = [
     run: (connection, args, proxy) => perplexitySearch(connection, { query: String(args.query) }, proxy),
   },
 ]
+
+/**
+ * The spec for a named tool on a capability. Capabilities may expose several
+ * tools (sheets/drive/calendar do) — callers must dispatch by name, never by
+ * "the capability's spec".
+ */
+export function deliverySpecByName(capability: DeliveryCapability, name: string): DeliveryToolSpec | undefined {
+  return DELIVERY_TOOLS.find((tool) => tool.capability === capability && tool.name === name)
+}
 
 export { nangoConfigured }

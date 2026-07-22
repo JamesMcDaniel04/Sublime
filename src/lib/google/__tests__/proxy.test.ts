@@ -33,6 +33,50 @@ test('maps gmail endpoints to gmail.googleapis.com and sends bearer', async () =
   assert.equal((calls[0].init.headers as Record<string, string>).Authorization, 'Bearer at-1')
 })
 
+test('maps sheets endpoints to sheets.googleapis.com; drive/calendar stay on www', async () => {
+  const urls: string[] = []
+  __testHooks.set({
+    loadConnection: async () => RECORD,
+    refresh: async () => ({ accessToken: 'at-1', expiresIn: 3600 }),
+    fetchImpl: async (url) => {
+      urls.push(String(url))
+      return new Response(JSON.stringify({ ok: true }), { status: 200, headers: { 'Content-Type': 'application/json' } })
+    },
+  })
+  const proxy = googleProxy(CONN)
+  await proxy({ method: 'GET', endpoint: '/v4/spreadsheets/S1/values/A1', connectionId: 'c1', providerConfigKey: 'google-sheets' })
+  await proxy({ method: 'GET', endpoint: '/drive/v3/files', connectionId: 'c1', providerConfigKey: 'google-drive' })
+  await proxy({ method: 'GET', endpoint: '/calendar/v3/calendars/primary/events', connectionId: 'c1', providerConfigKey: 'google-calendar' })
+  assert.equal(urls[0], 'https://sheets.googleapis.com/v4/spreadsheets/S1/values/A1')
+  assert.equal(urls[1], 'https://www.googleapis.com/drive/v3/files')
+  assert.equal(urls[2], 'https://www.googleapis.com/calendar/v3/calendars/primary/events')
+})
+
+test('string data uploads as a raw body with the declared content type', async () => {
+  const calls: Array<{ init: RequestInit }> = []
+  __testHooks.set({
+    loadConnection: async () => RECORD,
+    refresh: async () => ({ accessToken: 'at-1', expiresIn: 3600 }),
+    fetchImpl: async (_url, init) => {
+      calls.push({ init: init ?? {} })
+      return new Response(JSON.stringify({ ok: true }), { status: 200, headers: { 'Content-Type': 'application/json' } })
+    },
+  })
+  const proxy = googleProxy(CONN)
+  await proxy({
+    method: 'PATCH',
+    endpoint: '/upload/drive/v3/files/f1',
+    connectionId: 'c1',
+    providerConfigKey: 'google-drive',
+    params: { uploadType: 'media' },
+    data: 'plain file body',
+    contentType: 'text/plain',
+  })
+  // Raw string body: not JSON.stringify'd (no added quotes), correct media type.
+  assert.equal(calls[0].init.body, 'plain file body')
+  assert.equal((calls[0].init.headers as Record<string, string>)['Content-Type'], 'text/plain')
+})
+
 test('retries exactly once on 401 with a forced refresh', async () => {
   let refreshes = 0
   let attempts = 0

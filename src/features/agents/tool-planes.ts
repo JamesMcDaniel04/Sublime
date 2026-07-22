@@ -20,7 +20,7 @@
 import { prisma } from '@/lib/prisma'
 import { apiLogger } from '@/lib/logger'
 import { cacheGet, cacheSet } from '@/lib/cache'
-import { DELIVERY_TOOLS, nangoConfigured, resolveDeliveryConnection, type DeliveryCapability } from '@/lib/nango/delivery'
+import { DELIVERY_TOOLS, deliverySpecByName, nangoConfigured, resolveDeliveryConnection, type DeliveryCapability } from '@/lib/nango/delivery'
 import { googleOAuthConfigured } from '@/lib/google/oauth'
 import { isGoogleNativeProvider, proxyForConnection } from '@/lib/google/proxy'
 import { listActionTools, runNangoAction } from '@/lib/nango/actions'
@@ -543,15 +543,18 @@ export async function resolveFlowToolExecutor(params: {
   // nango — outbound delivery as the acting user (write plane). Native Google
   // connections ride the same plane, so gate on either transport.
   if (!nangoConfigured() && !googleOAuthConfigured()) throw new Error('Delivery integrations are not configured for this workspace.')
-  const spec = DELIVERY_TOOLS.find((tool) => tool.capability === (ref as DeliveryCapability))
-  if (!spec) throw new Error(`Unknown delivery capability "${ref}" — pick another in the step config.`)
-  const connection = await resolveDeliveryConnection(organizationId, spec.capability, userId)
-  if (!connection) throw new Error(`No connected ${spec.capability} account is available — connect one in Integrations.`)
+  const capability = ref as DeliveryCapability
+  if (!DELIVERY_TOOLS.some((tool) => tool.capability === capability)) throw new Error(`Unknown delivery capability "${ref}" — pick another in the step config.`)
+  const connection = await resolveDeliveryConnection(organizationId, capability, userId)
+  if (!connection) throw new Error(`No connected ${capability} account is available — connect one in Integrations.`)
   return {
-    provider: `nango:${spec.capability}`,
+    provider: `nango:${capability}`,
     isWrite: true,
     execute: (name, args) => {
-      if (name !== spec.name) throw new Error(`Tool "${name}" is not available on this connection.`)
+      // Capabilities may expose several tools (sheets/drive/calendar) —
+      // dispatch by tool name within the capability.
+      const spec = deliverySpecByName(capability, name)
+      if (!spec) throw new Error(`Tool "${name}" is not available on this connection.`)
       return spec.run(connection, args, proxyForConnection(connection))
     },
   }
