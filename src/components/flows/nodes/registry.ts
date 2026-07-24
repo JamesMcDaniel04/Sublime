@@ -14,6 +14,13 @@ import { errorShieldModule } from './error-shield-body'
 import { repeatUntilModule } from './repeat-until-body'
 import { inputModule } from './input-body'
 import { outputModule } from './output-body'
+import { triggerModule } from './trigger-body'
+import { agentModule } from './agent-body'
+import { httpModule } from './http-body'
+import { toolModule } from './tool-body'
+import { variableModule } from './variable-body'
+import { dataModule } from './data-body'
+import { humanReviewModule } from './human-review-body'
 
 /**
  * Every node type's authoring surface, keyed by type.
@@ -42,4 +49,11 @@ export const NODE_BODIES: Partial<Record<FlowNode['type'], NodeBodyModule>> = {
   repeatUntil: repeatUntilModule,
   input: inputModule,
   output: outputModule,
+  trigger: triggerModule,
+  agent: agentModule,
+  http: httpModule,
+  tool: toolModule,
+  variable: variableModule,
+  data: dataModule,
+  humanReview: humanReviewModule,
 }
