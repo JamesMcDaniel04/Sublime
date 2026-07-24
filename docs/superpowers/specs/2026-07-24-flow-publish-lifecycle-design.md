@@ -438,6 +438,37 @@ control.
 
 ---
 
+## 6. Flows-list "Delete" becomes "Disable"
+
+(Amendment, requested after initial approval.) The ⋯ menu on a flow card in
+`src/app/flows/page.tsx` currently offers Duplicate and a permanent Delete.
+Permanently destroying a flow — and its version history — from a list-page
+menu is too much power for that surface.
+
+- For a flow whose status is not `disabled`, the destructive item becomes
+  **Disable**: unpublish (triggers stop, agents lose the tool) **and** set
+  `status = DISABLED`. The card stays in the list with its existing `disabled`
+  badge styling (`STATUS_STYLE.disabled` already exists); data and version
+  history are kept.
+- For a flow already `disabled`, the item is **Delete** with the existing
+  permanent-delete dialog. Permanent deletion is therefore two clicks apart
+  from a live flow, never one.
+- Re-enabling is publishing: open the flow and press Publish. No separate
+  restore endpoint (YAGNI — publish already validates and activates).
+- The editor's ⋯ menu keeps its permanent "Delete flow" item unchanged.
+
+Wire protocol: a fourth mode on the lifecycle route,
+`POST /api/flows/[id]/publish` with `{ disable: true }` — implemented as
+`unpublishFlow(..., { disable: true })`, which sets `status = DISABLED` instead
+of `DRAFT`. Same owner scope as the other modes. Disabling a never-published
+draft is allowed (it just sets the status); *un*publishing one remains an error.
+
+The suggested-flows rail partitions on `status === 'draft'`, so a disabled
+suggestion drops out of the rail into the main grid — acceptable, since
+disabling it was an explicit user action.
+
+---
+
 ## Testing
 
 Unit and integration tests, following the existing `node:test` layout under
