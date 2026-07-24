@@ -388,6 +388,25 @@ export function redactAuthHeaders(headers: unknown): unknown {
 const AUTH_SECRET_KEYS = new Set(['password', 'token', 'value'])
 
 /**
+ * Redact the secret-bearing fields of an http node's `auth` option, preserving
+ * shape (type / username / header name stay visible so the step is still
+ * recognisable and rebuildable).
+ *
+ * SINGLE SOURCE OF TRUTH: every sink that persists or emits an http node's
+ * config must call this — persisted run rows (redactHttpStepInput) AND flow
+ * export (lib/export/portable's sanitizeNode). Those two previously carried
+ * independent field lists and drifted: `auth` was added to the run-row path and
+ * missed on the export path, leaking bearer tokens into all five export
+ * targets. Adding a new secret field here now covers both.
+ */
+export function redactHttpAuthOption(auth: unknown): unknown {
+  if (!isRecord(auth)) return auth
+  return Object.fromEntries(
+    Object.entries(auth).map(([key, value]) => [key, AUTH_SECRET_KEYS.has(key) && value != null && value !== '' ? 'redacted' : value]),
+  )
+}
+
+/**
  * An http step's config as safe to persist: auth header values and the auth
  * option's secrets (password/token/value) redacted, shape preserved.
  */
@@ -397,12 +416,7 @@ export function redactHttpStepInput(config: Record<string, unknown>): Record<str
     next = { ...next, headers: redactAuthHeaders(config.headers) }
   }
   if (isRecord(config.auth)) {
-    next = {
-      ...next,
-      auth: Object.fromEntries(
-        Object.entries(config.auth).map(([key, value]) => [key, AUTH_SECRET_KEYS.has(key) && value != null && value !== '' ? 'redacted' : value]),
-      ),
-    }
+    next = { ...next, auth: redactHttpAuthOption(config.auth) }
   }
   return next
 }

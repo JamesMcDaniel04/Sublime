@@ -3,6 +3,8 @@ import assert from 'node:assert/strict'
 import { toPortableFlow, toPortableAgent, PORTABLE_AGENT_FORMAT, PORTABLE_FORMAT } from '../portable'
 import { toAgentInstructions, toInstructions } from '../instructions'
 import { toN8nWorkflow } from '../n8n'
+import { toWorkatoRecipe } from '../workato'
+import { toPowerAutomateFlow } from '../power-automate'
 import type { FlowGraph } from '@/lib/flows/graph'
 
 const AT = '2026-07-15T00:00:00.000Z'
@@ -74,6 +76,41 @@ test('NEVER exports a credential hidden in the URL, query, body or tool args', (
   // …while the steps stay rebuildable.
   assert.equal(everywhere.includes('page=2'), true, 'non-credential query params survive')
   assert.equal(everywhere.includes('leads'), true, 'the real body payload survives')
+})
+
+test('NEVER exports the generic auth option inline on an HTTP step', () => {
+  // Regression: the generic `auth` option stores the credential INLINE in the
+  // graph (password/token/value). It was added to the persisted-run-row
+  // redactor and missed here, so every export target shipped the plaintext
+  // token while the export's own `requirements` claimed credentials were
+  // stripped. Both paths now share redactHttpAuthOption.
+  const inlineAuth: FlowGraph = {
+    nodes: [
+      { id: 'trigger', type: 'trigger', data: {} },
+      { id: 'bear', type: 'http', data: { label: 'Bearer', method: 'GET', url: 'https://api/x', auth: { type: 'bearer', token: 'BEARER_SECRET' } } },
+      { id: 'basic', type: 'http', data: { label: 'Basic', method: 'GET', url: 'https://api/y', auth: { type: 'basic', username: 'joe', password: 'PASSWORD_SECRET' } } },
+      { id: 'hdr', type: 'http', data: { label: 'Header key', method: 'GET', url: 'https://api/z', auth: { type: 'header', name: 'X-Api-Key', value: 'HEADER_SECRET' } } },
+      { id: 'qry', type: 'http', data: { label: 'Query key', method: 'GET', url: 'https://api/w', auth: { type: 'query', name: 'api_key', value: 'QUERY_AUTH_SECRET' } } },
+    ],
+    edges: [{ id: 'e0', source: 'trigger', target: 'bear' }],
+  }
+  const doc = toPortableFlow({ ...flow, graph: inlineAuth }, agents, AT)
+  // Every target converts the same portable doc — assert on all five so a
+  // future per-target path can't reintroduce the leak.
+  const everywhere = [
+    JSON.stringify(doc),
+    JSON.stringify(toN8nWorkflow(doc)),
+    JSON.stringify(toWorkatoRecipe(doc)),
+    JSON.stringify(toPowerAutomateFlow(doc)),
+    toInstructions(doc),
+  ].join('\n')
+  for (const secret of ['BEARER_SECRET', 'PASSWORD_SECRET', 'HEADER_SECRET', 'QUERY_AUTH_SECRET']) {
+    assert.equal(everywhere.includes(secret), false, `leaked ${secret}`)
+  }
+  // …while the step stays rebuildable: scheme, username and key NAMES are not
+  // secrets, and the importer needs them to know what to re-enter.
+  assert.equal(everywhere.includes('joe'), true, 'basic-auth username survives')
+  assert.equal(everywhere.includes('X-Api-Key'), true, 'custom header name survives')
 })
 
 test('secrets stay out of the n8n and instructions targets too', () => {

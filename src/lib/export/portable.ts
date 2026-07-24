@@ -15,7 +15,7 @@
  * The result is deliberately plain JSON with a version, so an importer (ours or
  * an LLM) can read it without knowing our internals.
  */
-import { redactAuthHeaders } from '@/features/flows/http'
+import { redactAuthHeaders, redactHttpAuthOption } from '@/features/flows/http'
 import { REDACTED, redactDeep, redactUrl } from './redact'
 import type { FlowGraph, FlowNode } from '@/lib/flows/graph'
 
@@ -117,6 +117,9 @@ function sanitizeNode(node: FlowNode): FlowNode {
     // `redactAuthHeaders` is the same helper that keeps tokens out of persisted
     // run rows; redactDeep additionally catches api-key-style custom headers.
     if (data.headers !== undefined) data.headers = redactDeep(redactAuthHeaders(data.headers))
+    // The generic auth option holds the credential inline (password/token/value)
+    // — shares its field list with the run-row redactor so the two can't drift.
+    if (data.auth !== undefined) data.auth = redactHttpAuthOption(data.auth)
     if (typeof data.url === 'string') data.url = redactUrl(data.url)
     if (data.query !== undefined) data.query = redactDeep(data.query)
     if (data.body !== undefined) data.body = redactDeep(data.body)
