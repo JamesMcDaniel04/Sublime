@@ -6,22 +6,18 @@ import { AnimatePresence, motion } from 'motion/react'
 import {
   Bot,
   Braces,
-  CalendarDays,
   Check,
   CircleStop,
   Clock,
   ClipboardCopy,
   Code2,
   Copy,
-  FileText,
   Filter,
   GitBranch,
   Globe,
-  Hash,
   Link2,
   LogIn,
   LogOut,
-  Mail,
   MessageSquare,
   MoreHorizontal,
   PanelRight,
@@ -36,9 +32,7 @@ import {
   SlidersHorizontal,
   Sparkles,
   Split,
-  ToggleLeft,
   Trash2,
-  Type,
   UserCheck,
   Variable,
   Webhook,
@@ -60,6 +54,20 @@ import { KNOWN_SIGNALS, triggerInputFieldsFromTrigger } from '@/lib/flows/trigge
 import { SLACK_EVENT_KINDS, type SlackEventKind } from '@/lib/slack/payload'
 import { nextOccurrence, type AgentSchedule } from '@/lib/scheduling/due'
 import { Button } from '@/components/ui/button'
+import {
+  INPUT_TYPES,
+  controlClass,
+  inputTypeForField,
+  isRecord,
+  labelClass,
+  parseKeyValueRows,
+  serializeKeyValueRows,
+  stopEvent,
+  tokenControlBase,
+  tokenControlClass,
+  uniqueFieldName,
+} from './nodes/field-primitives'
+import type { Agent, InputKind, KeyValueRow, TokenEditorWiring } from './nodes/types'
 import { TriggerFilterEditor } from './trigger-filter-editor'
 import type { ToolCatalog } from './tool-catalog-type'
 import { ToolArgsEditor } from './tool-args-editor'
@@ -80,7 +88,6 @@ import {
 
 export type StepStatus = 'queued' | 'running' | 'succeeded' | 'failed' | 'waiting' | 'skipped' | 'stopped' | 'resumed'
 
-type Agent = { id: string; title: string }
 // The full trigger shape the card edits inline (the old drawer's TriggerData):
 // full trigger configuration inline without dropping fields on mutation.
 type TriggerData = {
@@ -116,8 +123,6 @@ const FREQUENCIES = [
   { value: 'cron', label: 'Cron expression' },
   { value: 'once', label: 'Once' },
 ] as const
-type KeyValueRow = { key: string; value: string }
-type InputKind = 'text' | 'yesno' | 'file' | 'email' | 'number' | 'date'
 
 // Trigger cards show their subtype's icon (webhook/schedule/signal), matching
 // the picker, so e.g. a webhook trigger reads distinctly from the HTTP action.
@@ -203,80 +208,8 @@ const STATUS_DOT: Record<StepStatus, string> = {
   resumed: 'bg-muted-foreground/40',
 }
 
-const INPUT_TYPES: {
-  id: InputKind
-  label: string
-  description: string
-  name: string
-  fieldType: OutputField['type']
-  icon: typeof Type
-  tone: string
-}[] = [
-  { id: 'text', label: 'Text', description: 'Please enter your input', name: 'text', fieldType: 'string', icon: Type, tone: 'bg-purple-500 text-white' },
-  { id: 'yesno', label: 'Yes / No', description: 'Choose yes or no.', name: 'yesNo', fieldType: 'boolean', icon: ToggleLeft, tone: 'bg-foreground text-background' },
-  { id: 'file', label: 'File', description: 'Upload or provide file data.', name: 'file', fieldType: 'object', icon: FileText, tone: 'bg-foreground text-background' },
-  { id: 'email', label: 'Email', description: 'Enter an email address.', name: 'email', fieldType: 'string', icon: Mail, tone: 'bg-green-600 text-white' },
-  { id: 'number', label: 'Number', description: 'Enter a number.', name: 'number', fieldType: 'number', icon: Hash, tone: 'bg-orange-500 text-white' },
-  { id: 'date', label: 'Date', description: 'Enter a date.', name: 'date', fieldType: 'string', icon: CalendarDays, tone: 'bg-rose-500 text-white' },
-]
-
-const controlClass =
-  'h-10 rounded-md border border-border bg-background px-3 text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground hover:border-muted-foreground/50 focus:border-blue-500 focus:ring-2 focus:ring-blue-100'
-// TokenTextEditor overrides that restyle the drawer-flavored defaults to match
-// the card's denser slate inputs. No border color here — `invalid` red borders
-// (appended after this string) must win in tailwind-merge order.
-const tokenControlBase =
-  'min-h-10 rounded-md bg-background px-3 py-2 text-sm text-foreground transition-colors empty:before:text-muted-foreground hover:border-muted-foreground/50 focus:border-blue-500 focus:ring-2 focus:ring-blue-100'
-const tokenControlClass = `${tokenControlBase} border-border`
-const labelClass = 'text-[11px] font-semibold uppercase tracking-wide text-muted-foreground'
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value && typeof value === 'object' && !Array.isArray(value))
-}
-
 function triggerData(node: Extract<FlowNode, { type: 'trigger' }>): TriggerData {
   return isRecord(node.data.trigger) ? (node.data.trigger as TriggerData) : { type: 'manual' }
-}
-
-function inputTypeForField(field: OutputField) {
-  const text = `${field.name} ${field.description ?? ''}`.toLowerCase()
-  if (field.type === 'boolean') return INPUT_TYPES.find((type) => type.id === 'yesno')!
-  if (field.type === 'number') return INPUT_TYPES.find((type) => type.id === 'number')!
-  if (text.includes('email')) return INPUT_TYPES.find((type) => type.id === 'email')!
-  if (text.includes('date')) return INPUT_TYPES.find((type) => type.id === 'date')!
-  if (field.type === 'object' || field.type === 'array' || text.includes('file')) return INPUT_TYPES.find((type) => type.id === 'file')!
-  return INPUT_TYPES.find((type) => type.id === 'text')!
-}
-
-function uniqueFieldName(base: string, fields: OutputField[]): string {
-  const names = new Set(fields.map((field) => field.name))
-  if (!names.has(base)) return base
-  let index = 2
-  while (names.has(`${base}${index}`)) index += 1
-  return `${base}${index}`
-}
-
-function parseKeyValueRows(value?: string): KeyValueRow[] {
-  if (!value?.trim()) return [{ key: '', value: '' }]
-  try {
-    const parsed = JSON.parse(value)
-    if (isRecord(parsed)) {
-      const rows = Object.entries(parsed).map(([key, raw]) => ({
-        key,
-        value: typeof raw === 'string' ? raw : JSON.stringify(raw),
-      }))
-      return rows.length ? rows : [{ key: '', value: '' }]
-    }
-  } catch {
-    return [{ key: '', value }]
-  }
-  return [{ key: '', value }]
-}
-
-function serializeKeyValueRows(rows: KeyValueRow[]): string {
-  const entries = rows.filter((row) => row.key.trim()).map((row) => [row.key.trim(), row.value] as const)
-  if (!entries.length) return ''
-  return JSON.stringify(Object.fromEntries(entries), null, 2)
 }
 
 function defaultAgentInput(value?: string): boolean {
@@ -308,10 +241,6 @@ function selectedTool(connectionId: string, toolName: string, toolCatalog: ToolC
   const connection = toolCatalog.find((entry) => entry.id === connectionId)
   const tool = connection?.tools.find((entry) => entry.name === toolName)
   return { connection, tool }
-}
-
-function stopEvent(event: React.MouseEvent | React.FocusEvent) {
-  event.stopPropagation()
 }
 
 /** The one affordance a collapsed card may keep showing (MS parity). */
@@ -352,14 +281,6 @@ const DEFAULT_EDITOR_KEYS: Partial<Record<FlowNode['type'], string>> = {
 // Chip editors still render when the caller omitted labelCtx: chips fall back
 // to generic step labels instead of crashing.
 const EMPTY_LABEL_CTX: TokenLabelContext = { stepLabels: {} }
-
-type TokenEditorWiring = {
-  labelCtx: TokenLabelContext
-  registerEditor: (key: string) => (handle: TokenTextEditorHandle | null) => void
-  focusEditor: (key: string) => () => void
-  blockActive: () => void
-  unblockActive: () => void
-}
 
 export function StepCard({
   node,
