@@ -44,7 +44,8 @@ import type { ToolCatalog } from '@/components/flows/tool-catalog-type'
 import { CopilotPanel, type CopilotRequest } from '@/components/flows/copilot-panel'
 import { RunPanel, type FlowRunDetail } from '@/components/flows/run-panel'
 import { CheckerPanel } from '@/components/flows/checker-panel'
-import { NodeDetailView } from '@/components/flows/ndv/node-detail-view'
+import { NodeDetailView, type NodeTestState } from '@/components/flows/ndv/node-detail-view'
+import { downstreamWriteActions, resolveNodeTestInput, topoSortByGraph } from '@/lib/flows/node-test-input'
 import { ResizablePanel } from '@/components/flows/resizable-panel'
 import { TestPanel } from '@/components/flows/test-panel'
 import { VersionsPanel } from '@/components/flows/versions-panel'
@@ -832,12 +833,108 @@ function FlowBuilder() {
     () => (ndvNodeId ? graph.nodes.find((node) => node.id === ndvNodeId) ?? null : null),
     [ndvNodeId, graph],
   )
-  // This node's output from the selected run, for the NDV's output pane.
+  // Per-user pinned outputs — dev-time fixtures single-node tests resolve
+  // input from. Loaded once per flow; mutated optimistically on pin/unpin.
+  const [pins, setPins] = useState<Record<string, unknown>>({})
+  useEffect(() => {
+    let cancelled = false
+    fetch(`/api/flows/${id}/pins`)
+      .then((response) => (response.ok ? response.json() : null))
+      .then((body) => {
+        if (cancelled || !body?.pins) return
+        setPins(Object.fromEntries(body.pins.map((pin: { nodeId: string; output: unknown }) => [pin.nodeId, pin.output])))
+      })
+      .catch(() => {})
+    return () => { cancelled = true }
+  }, [id])
+  const [nodeTestState, setNodeTestState] = useState<NodeTestState>({ status: 'idle' })
+  // Reset per node — a failure banner from one step must not haunt another.
+  useEffect(() => { setNodeTestState({ status: 'idle' }) }, [ndvNodeId])
+  const [nodeTestOutput, setNodeTestOutput] = useState<Record<string, unknown>>({})
+  // This node's output for the NDV's output pane: a pin wins (it is what a
+  // test will actually use), then a fresh node-test result, then the selected
+  // run's step output.
   const ndvLastOutput = useMemo(() => {
     if (!ndvNodeId) return undefined
+    if (ndvNodeId in pins) return pins[ndvNodeId]
+    if (ndvNodeId in nodeTestOutput) return nodeTestOutput[ndvNodeId]
     const step = selectedRun?.steps?.find((entry) => entry.nodeId === ndvNodeId)
     return step?.output === undefined || step.output === null ? undefined : parseFlowValue(step.output)
-  }, [ndvNodeId, selectedRun])
+  }, [ndvNodeId, pins, nodeTestOutput, selectedRun])
+  // Upstream outputs by node id — what resolveNodeTestInput falls back to when
+  // nothing is pinned. Node-test results count: testing A then B chains.
+  const ndvLastOutputs = useMemo(() => {
+    const outputs: Record<string, unknown> = {}
+    for (const step of selectedRun?.steps ?? []) {
+      if (step.output !== undefined && step.output !== null) outputs[step.nodeId] = parseFlowValue(step.output)
+    }
+    return { ...outputs, ...nodeTestOutput }
+  }, [selectedRun, nodeTestOutput])
+  const ndvResolved = useMemo(() => {
+    if (!ndvNodeId) return null
+    return resolveNodeTestInput({ nodeId: ndvNodeId, graph, pins, lastOutputs: ndvLastOutputs })
+  }, [ndvNodeId, graph, pins, ndvLastOutputs])
+  const ndvDownstreamWrites = useMemo(
+    () => (ndvNodeId ? downstreamWriteActions({ nodeId: ndvNodeId, graph }) : []),
+    [ndvNodeId, graph],
+  )
+
+  /** POST one node to /test-node; returns its output or throws with the run error. */
+  const postTestNode = useCallback(async (nodeId: string, mockOutputs: Record<string, unknown>) => {
+    const response = await fetch(`/api/flows/${id}/test-node`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ nodeId, input: testInput.trim() ? parseFlowInput(testInput) : {}, mockOutputs }),
+    })
+    const body = await response.json().catch(() => ({}))
+    if (!response.ok) throw new Error(body.error || 'Step test failed.')
+    if (body.run?.status === 'failed') throw new Error(body.run?.error || 'Step test failed.')
+    return body.run?.output as unknown
+  }, [id, testInput])
+
+  // Test exactly the open node. Missing ancestors are materialised first, in
+  // dependency order, through the SAME single-node route — never a full run,
+  // so nothing outside the ancestor set ever executes. The NDV has already
+  // confirmed with the user when any of them perform writes.
+  const testNode = useCallback(async () => {
+    if (!ndvNodeId || !ndvResolved) return
+    setNodeTestState({ status: 'running' })
+    try {
+      const accumulated = { ...ndvResolved.mockOutputs }
+      for (const ref of topoSortByGraph(ndvResolved.missing, graph)) {
+        accumulated[ref.id] = await postTestNode(ref.id, accumulated)
+      }
+      const output = await postTestNode(ndvNodeId, accumulated)
+      setNodeTestOutput((previous) => ({ ...previous, ...accumulated, [ndvNodeId]: output }))
+      setNodeTestState({ status: 'succeeded' })
+    } catch (error) {
+      setNodeTestState({ status: 'failed', error: error instanceof Error ? error.message : 'Step test failed.' })
+    }
+  }, [ndvNodeId, ndvResolved, graph, postTestNode])
+
+  const pinNode = useCallback(async () => {
+    if (!ndvNodeId || ndvLastOutput === undefined) return
+    setPins((previous) => ({ ...previous, [ndvNodeId]: ndvLastOutput }))
+    await fetch(`/api/flows/${id}/pins`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ nodeId: ndvNodeId, output: ndvLastOutput }),
+    }).catch(() => {})
+  }, [id, ndvNodeId, ndvLastOutput])
+
+  const unpinNode = useCallback(async () => {
+    if (!ndvNodeId) return
+    setPins((previous) => {
+      const next = { ...previous }
+      delete next[ndvNodeId]
+      return next
+    })
+    await fetch(`/api/flows/${id}/pins`, {
+      method: 'DELETE',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ nodeId: ndvNodeId }),
+    }).catch(() => {})
+  }, [id, ndvNodeId])
   // `?node=<id>` keeps the open NDV in the URL — a builder link can point at a
   // specific step, and a refresh mid-configuration doesn't dump you back to
   // the bare canvas. replaceState, not router.push: opening/closing an overlay
@@ -1186,6 +1283,13 @@ function FlowBuilder() {
       setRunning(false)
     }
   }, [id, save, pollRuns, testInput, validation, inputFields, viewingVersion])
+
+  // Today's startNodeId behaviour, newly explicit: this node AND downstream.
+  const runFromHere = useCallback(() => {
+    if (!ndvNodeId || !ndvResolved) return
+    setNdvNodeId(null)
+    void run({ startNodeId: ndvNodeId, mockOutputsText: JSON.stringify(ndvResolved.mockOutputs) })
+  }, [ndvNodeId, ndvResolved, run])
 
   const fixWithCopilot = useCallback(async () => {
     if (viewingVersion) {
@@ -1932,8 +2036,6 @@ function FlowBuilder() {
               value={testInput}
               onChange={setTestInput}
               onRun={run}
-              selectedNodeId={selectedId && selectedId !== 'trigger' ? selectedId : undefined}
-              selectedNodeLabel={selectedId && selectedId !== 'trigger' ? labelForNode(selectedId) : undefined}
               running={running}
               steps={(selectedRun?.steps ?? []).map((s) => ({ nodeId: s.nodeId, status: s.status }))}
               labelForNode={labelForNode}
@@ -2020,6 +2122,14 @@ function FlowBuilder() {
           labelCtx={labelCtx}
           variableNames={upstreamVariables.map((variable) => variable.name)}
           lastOutput={ndvLastOutput}
+          pinned={ndvNodeId ? ndvNodeId in pins : false}
+          onPin={pinNode}
+          onUnpin={unpinNode}
+          onTestStep={() => void testNode()}
+          onRunFromHere={runFromHere}
+          testState={nodeTestState}
+          riskyMissing={ndvResolved?.riskyMissing ?? []}
+          downstreamWrites={ndvDownstreamWrites}
           onChange={(node) => setGraph((g) => updateNode(g, node))}
           onChangeType={(type) => commitGraph(changeNodeType(graph, ndvNode.id, type))}
           onRefreshAgents={refreshAgents}

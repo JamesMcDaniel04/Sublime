@@ -13,11 +13,14 @@ export function OutputPane({
   pinned,
   onPin,
   onUnpin,
+  error,
 }: {
   lastOutput: unknown
   pinned: boolean
   onPin?: () => void
   onUnpin?: () => void
+  /** The last node test's failure — shown above the (stale) output. */
+  error?: string
 }) {
   const hasOutput = lastOutput !== undefined && lastOutput !== null
   return (
@@ -30,6 +33,11 @@ export function OutputPane({
           </span>
         )}
       </div>
+      {error && (
+        <p className="break-words border-b border-red-200 bg-red-50 px-4 py-2.5 font-mono text-[11px] leading-relaxed text-red-700 dark:border-red-900/40 dark:bg-red-950/30 dark:text-red-300">
+          {error}
+        </p>
+      )}
       {hasOutput ? (
         <>
           <pre className="min-h-0 flex-1 overflow-auto p-4 font-mono text-xs leading-relaxed">

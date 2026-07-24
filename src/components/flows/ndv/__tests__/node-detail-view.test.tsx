@@ -8,7 +8,7 @@ import '@/test-support/jsdom-env'
 import { test, afterEach } from 'node:test'
 import assert from 'node:assert/strict'
 import React from 'react'
-import { render, cleanup } from '@testing-library/react'
+import { render, cleanup, act } from '@testing-library/react'
 import { NodeDetailView } from '../node-detail-view'
 import { InputPane } from '../input-pane'
 import { OutputPane } from '../output-pane'
@@ -96,6 +96,74 @@ test('output pane offers Pin on fresh output and Unpin on pinned output', () => 
   const pinned = render(<OutputPane lastOutput={{ ok: true }} pinned onUnpin={() => { unpinnedCall++ }} />)
   pinned.getByRole('button', { name: /unpin/i }).click()
   assert.equal(unpinnedCall, 1)
+})
+
+// ── Test step ─────────────────────────────────────────────────────────────────
+
+test('Test step is disabled for a container node with the reason shown', () => {
+  const loop = { id: 'l1', type: 'loop', data: { over: '{{trigger.input.items}}', body: [] } } as unknown as FlowNode
+  const { getByRole, getByTitle } = render(<NodeDetailView node={loop} {...baseProps} onTestStep={() => {}} />)
+  const button = getByRole('button', { name: /test step/i }) as HTMLButtonElement
+  assert.equal(button.disabled, true)
+  getByTitle(/steps inside it individually/i)
+})
+
+test('testing a node with unresolved risky ancestors asks before running them', () => {
+  let ran = false
+  const { getByRole, getByText } = render(
+    <NodeDetailView
+      node={NODES[0]}
+      {...baseProps}
+      riskyMissing={[{ id: 'a', label: 'Delete records', risk: 'destructive' }]}
+      onTestStep={() => { ran = true }}
+    />,
+  )
+  act(() => { getByRole('button', { name: /test step/i }).click() })
+  // Must NOT run yet — it names the write action and waits.
+  assert.equal(ran, false)
+  getByText(/Delete records/)
+})
+
+test('testing a node with no missing ancestors runs immediately', () => {
+  let ran = false
+  const { getByRole } = render(<NodeDetailView node={NODES[0]} {...baseProps} onTestStep={() => { ran = true }} />)
+  getByRole('button', { name: /test step/i }).click()
+  assert.equal(ran, true)
+})
+
+test('a failed node test surfaces the error in the output pane', () => {
+  const { getByText } = render(
+    <NodeDetailView node={NODES[0]} {...baseProps} testState={{ status: 'failed', error: '401 Unauthorized' }} />,
+  )
+  getByText(/401 Unauthorized/)
+})
+
+// ── Run from here ─────────────────────────────────────────────────────────────
+
+test('Run from here names the downstream write actions before running', () => {
+  let ran = false
+  const { getByRole, getByText } = render(
+    <NodeDetailView
+      node={NODES[0]}
+      {...baseProps}
+      downstreamWrites={[{ id: 'c', label: 'Send email', risk: 'write' }]}
+      onRunFromHere={() => { ran = true }}
+    />,
+  )
+  act(() => { getByRole('button', { name: /run from here/i }).click() })
+  assert.equal(ran, false, 'must confirm before firing downstream writes')
+  getByText(/Send email/)
+})
+
+test('Run from here with no downstream writes runs immediately', () => {
+  // Nothing to warn about — a confirm here would be noise that teaches users
+  // to click through warnings.
+  let ran = false
+  const { getByRole } = render(
+    <NodeDetailView node={NODES[0]} {...baseProps} downstreamWrites={[]} onRunFromHere={() => { ran = true }} />,
+  )
+  getByRole('button', { name: /run from here/i }).click()
+  assert.equal(ran, true)
 })
 
 test('input pane leaves are draggable and carry the braced token', () => {
