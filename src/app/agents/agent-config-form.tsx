@@ -394,10 +394,10 @@ export function AgentConfigForm({
     fetch('/api/flows', { cache: 'no-store' })
       .then((res) => res.json())
       .then((data) => {
-        // Only ACTIVE (published) flows are callable at runtime, so only those
-        // are offered as agent tools.
+        // Published flows are what loadFlowPlaneGroups offers at runtime —
+        // filter on the same serialized predicate so picker and runtime agree.
         const flows = Array.isArray(data.flows) ? data.flows : []
-        setOrgFlows(flows.filter((f: any) => String(f.status).toLowerCase() === 'active').map((f: any) => ({ id: f.id, name: f.name })))
+        setOrgFlows(flows.filter((f: any) => f.published === true).map((f: any) => ({ id: f.id, name: f.name })))
       })
       .catch(() => {})
   }, [active])
