@@ -4,7 +4,7 @@ import { useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { toast } from 'sonner'
-import { Copy, MoreHorizontal, Plus, Sparkles, Trash2, Workflow, X } from 'lucide-react'
+import { CircleOff, Copy, MoreHorizontal, Plus, Sparkles, Trash2, Workflow, X } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -61,6 +61,7 @@ export default function FlowsPage() {
   const [dismissingId, setDismissingId] = useState<string | null>(null)
   const [duplicatingId, setDuplicatingId] = useState<string | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<FlowItem | null>(null)
+  const [disableTarget, setDisableTarget] = useState<FlowItem | null>(null)
 
   const suggestedFlows = useMemo(() => flows.filter((flow) => flow.suggested && flow.status === 'draft'), [flows])
   const otherFlows = useMemo(() => flows.filter((flow) => !(flow.suggested && flow.status === 'draft')), [flows])
@@ -132,6 +133,28 @@ export default function FlowsPage() {
       toast.error('Could not duplicate the flow.')
     } finally {
       setDuplicatingId(null)
+    }
+  }
+
+  /** Optimistic disable: flip the card to disabled immediately, restore + toast on failure. */
+  const disableFlow = async (flow: FlowItem) => {
+    const previous = data
+    mutate({ ...data, flows: flows.map((entry) => (entry.id === flow.id ? { ...entry, status: 'disabled' } : entry)) })
+    setDisableTarget(null)
+    try {
+      const response = await fetch(`/api/flows/${flow.id}/publish`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ disable: true }),
+      })
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({}))
+        throw new Error(body.error)
+      }
+      void refresh()
+    } catch (cause) {
+      if (previous) mutate(previous)
+      toast.error(cause instanceof Error && cause.message ? cause.message : 'Could not disable the flow.')
     }
   }
 
@@ -260,9 +283,18 @@ export default function FlowsPage() {
                               <DropdownMenuItem onSelect={() => void duplicateFlow(flow)}>
                                 <Copy /> Duplicate
                               </DropdownMenuItem>
-                              <DropdownMenuItem className="text-red-600 focus:text-red-600" onSelect={() => setDeleteTarget(flow)}>
-                                <Trash2 /> Delete
-                              </DropdownMenuItem>
+                              {/* A live flow is disabled first — permanent
+                                  delete is only offered once it's disabled,
+                                  so destroying a live flow is never 1 click. */}
+                              {flow.status === 'disabled' ? (
+                                <DropdownMenuItem className="text-red-600 focus:text-red-600" onSelect={() => setDeleteTarget(flow)}>
+                                  <Trash2 /> Delete
+                                </DropdownMenuItem>
+                              ) : (
+                                <DropdownMenuItem className="text-red-600 focus:text-red-600" onSelect={() => setDisableTarget(flow)}>
+                                  <CircleOff /> Disable
+                                </DropdownMenuItem>
+                              )}
                             </DropdownMenuContent>
                           </DropdownMenu>
                         </div>
@@ -312,6 +344,23 @@ export default function FlowsPage() {
           </div>
         </div>
       )}
+
+      <Dialog open={Boolean(disableTarget)} onOpenChange={(next) => { if (!next) setDisableTarget(null) }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Disable “{disableTarget?.name}”?</DialogTitle>
+            <DialogDescription>
+              Scheduled runs and webhook triggers stop firing, and agents can no longer call this flow. It stays here with its history — open it and publish to re-enable, or delete it permanently once disabled.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDisableTarget(null)}>Cancel</Button>
+            <Button variant="destructive" onClick={() => { if (disableTarget) void disableFlow(disableTarget) }}>
+              Disable flow
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={Boolean(deleteTarget)} onOpenChange={(next) => { if (!next) setDeleteTarget(null) }}>
         <DialogContent className="max-w-md">
