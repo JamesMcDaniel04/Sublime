@@ -92,6 +92,13 @@ type Opts = {
   webhookInput?: unknown
   /** Builder test mode: begin at this node, with upstream mock outputs in completed. */
   startNodeId?: string
+  /**
+   * Builder single-node test: execute ONLY this node. Upstream values come
+   * from `completed` (seeded by the caller from pins / the last run).
+   * Distinct from `startNodeId`, which begins here and continues downstream —
+   * this must never fire a downstream write action.
+   */
+  onlyNodeId?: string
   // Node-id → display-label map (as the builder derives it, agent titles
   // included). Threaded onto the context so `{{<Node label>.output...}}`
   // references resolve. When omitted, the interpreter derives labels from the
@@ -1162,17 +1169,41 @@ export async function interpretFlow(graph: FlowGraph, input: unknown, opts: Opts
     pushEdge(inEdges, target, dagEdge)
   }
 
-  const startId = (opts.startNodeId && byId.get(opts.startNodeId)?.id) || byId.get('trigger')?.id || graph.nodes[0]?.id
+  // Single-node mode guards. An unknown onlyNodeId must NOT fall through to
+  // the trigger — that would silently promote a one-node test into a full
+  // run. And a container's behaviour IS running its body, so isolating one is
+  // meaningless; its body steps are individually testable instead.
+  const ONLY_NODE_CONTAINERS = new Set(['loop', 'parallel', 'repeatUntil', 'errorShield'])
+  if (opts.onlyNodeId) {
+    const target = byId.get(opts.onlyNodeId)
+    if (!target) throw new Error('That step is no longer part of this flow — reopen it and try again.')
+    if (ONLY_NODE_CONTAINERS.has(target.type)) {
+      throw new Error('This step contains other steps — test the steps inside it individually.')
+    }
+  }
+  const startId =
+    (opts.onlyNodeId && byId.get(opts.onlyNodeId)?.id) ||
+    (opts.startNodeId && byId.get(opts.startNodeId)?.id) ||
+    byId.get('trigger')?.id ||
+    graph.nodes[0]?.id
   // Only nodes reachable from the entry participate — an orphan subgraph never
   // ran under the old walk and must not start running now.
   const reachable = new Set<string>()
   if (startId) {
-    const stack = [startId]
-    while (stack.length) {
-      const id = stack.pop()!
-      if (reachable.has(id)) continue
-      reachable.add(id)
-      for (const edge of outEdges.get(id) ?? []) stack.push(edge.target)
+    if (opts.onlyNodeId) {
+      // Single-node mode: the walk never leaves this node, so everything
+      // downstream is structurally unreachable rather than conditionally
+      // skipped. Retry, timeout, token resolution, budget caps, and audit all
+      // keep working unchanged.
+      reachable.add(startId)
+    } else {
+      const stack = [startId]
+      while (stack.length) {
+        const id = stack.pop()!
+        if (reachable.has(id)) continue
+        reachable.add(id)
+        for (const edge of outEdges.get(id) ?? []) stack.push(edge.target)
+      }
     }
   }
 
