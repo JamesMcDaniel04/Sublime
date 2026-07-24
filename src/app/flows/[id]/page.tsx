@@ -46,6 +46,7 @@ import { RunPanel, type FlowRunDetail } from '@/components/flows/run-panel'
 import { CheckerPanel } from '@/components/flows/checker-panel'
 import { NodeDetailView, type NodeTestState } from '@/components/flows/ndv/node-detail-view'
 import { downstreamWriteActions, resolveNodeTestInput, topoSortByGraph } from '@/lib/flows/node-test-input'
+import { buildPreviewContext } from '@/lib/flows/preview-context'
 import { ResizablePanel } from '@/components/flows/resizable-panel'
 import { TestPanel } from '@/components/flows/test-panel'
 import { VersionsPanel } from '@/components/flows/versions-panel'
@@ -857,6 +858,23 @@ function FlowBuilder() {
     }
     return { ...outputs, ...nodeTestOutput }
   }, [selectedRun, nodeTestOutput])
+  // Sample data for token previews — the same values the datatree offers, so
+  // what you can insert is exactly what you can preview.
+  //
+  // `variables` is deliberately absent: upstreamVariables carries DECLARED
+  // names and types, never values — a variable's value only exists mid-run. So
+  // `{{var.x}}` previews as "no sample data", which is the truth. Inventing a
+  // placeholder would render a fake value in the exact place the user is
+  // deciding whether their mapping is right.
+  const previewContext = useMemo(
+    () => buildPreviewContext({
+      lastOutputs: ndvLastOutputs,
+      triggerInput: testInput.trim() ? parseFlowInput(testInput) : storedRunInput(selectedRun?.input),
+      ...(loopContext ? { item: ndvLastOutputs.__item, loop: { index: 0, count: 1 } } : {}),
+    }),
+    [ndvLastOutputs, testInput, selectedRun, loopContext],
+  )
+
   const ndvResolved = useMemo(() => {
     if (!ndvNodeId) return null
     return resolveNodeTestInput({ nodeId: ndvNodeId, graph, pins, lastOutputs: ndvLastOutputs })
@@ -2154,6 +2172,7 @@ function FlowBuilder() {
           dataFields={dataFields}
           labelCtx={labelCtx}
           variableNames={upstreamVariables.map((variable) => variable.name)}
+          previewContext={previewContext}
           lastOutput={ndvLastOutput}
           pinned={ndvNodeId ? ndvNodeId in pins : false}
           onPin={pinNode}

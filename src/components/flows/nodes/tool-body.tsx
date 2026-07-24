@@ -23,6 +23,7 @@ function ToolBody({
   showErrors,
   dataFields,
   tokenWiring,
+  previewContext,
 }: {
   node: Extract<FlowNode, { type: 'tool' }>
   toolCatalog: ToolCatalog
@@ -30,6 +31,7 @@ function ToolBody({
   showErrors?: boolean
   dataFields: DataField[]
   tokenWiring: TokenEditorWiring
+  previewContext?: NodeBodyProps['previewContext']
 }) {
   const { connection, tool: liveTool } = selectedTool(node.data.connectionId, node.data.toolName, toolCatalog)
   const tool = liveTool ?? (node.data.actionInputSchema ? { name: node.data.toolName, description: node.data.actionDescription ?? '', inputSchema: node.data.actionInputSchema, outputSchema: node.data.actionOutputSchema, schemaHash: node.data.actionSchemaHash ?? '', risk: node.data.risk ?? 'read' as const } : undefined)
@@ -81,6 +83,7 @@ function ToolBody({
       )}
       {node.data.toolName && (
         <ToolArgsEditor
+          previewContext={previewContext}
           inputSchema={tool?.inputSchema}
           args={node.data.args}
           onChange={(nextArgs) => update({ ...node, data: { ...node.data, args: nextArgs } })}
@@ -96,8 +99,8 @@ function ToolBody({
 
 // MISSING_TOOL_CONNECTION + MISSING_TOOL in validate.ts.
 export const toolModule: NodeBodyModule = {
-  Body: ({ node, toolCatalog, update, showErrors, dataFields, tokenWiring }: NodeBodyProps) => (
-    <ToolBody node={node as Extract<FlowNode, { type: 'tool' }>} toolCatalog={toolCatalog} update={update} showErrors={showErrors} dataFields={dataFields ?? []} tokenWiring={tokenWiring} />
+  Body: ({ node, toolCatalog, update, showErrors, dataFields, tokenWiring, previewContext }: NodeBodyProps) => (
+    <ToolBody node={node as Extract<FlowNode, { type: 'tool' }>} toolCatalog={toolCatalog} update={update} showErrors={showErrors} dataFields={dataFields ?? []} tokenWiring={tokenWiring} previewContext={previewContext} />
   ),
   requiredFields: ['connectionId', 'toolName'],
 }

@@ -5,6 +5,7 @@ import { Play, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import type { FlowNode } from '@/lib/flows/graph'
 import type { NodeRef } from '@/lib/flows/node-test-input'
+import type { FlowContext } from '@/features/flows/context'
 import type { DataField } from '@/lib/flows/datatree'
 import type { TokenLabelContext } from '@/lib/flows/token-text'
 import type { ToolCatalog } from '../tool-catalog-type'
@@ -45,6 +46,7 @@ export function NodeDetailView({
   dataFields,
   labelCtx,
   variableNames,
+  previewContext,
   lastOutput,
   pinned = false,
   onPin,
@@ -67,6 +69,8 @@ export function NodeDetailView({
   dataFields: DataField[]
   labelCtx?: TokenLabelContext
   variableNames?: string[]
+  /** Sample data for token previews; absent until the flow has run once. */
+  previewContext?: FlowContext
   lastOutput: unknown
   pinned?: boolean
   onPin?: () => void
@@ -217,6 +221,7 @@ export function NodeDetailView({
               tokenWiring={tokenWiring}
               variableNames={variableNames}
               dataFields={dataFields}
+              previewContext={previewContext}
               onAddStep={onAddStep}
               onChangeType={onChangeType}
             />

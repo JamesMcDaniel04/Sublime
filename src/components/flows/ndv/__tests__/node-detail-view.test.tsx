@@ -12,6 +12,8 @@ import { render, cleanup, act } from '@testing-library/react'
 import { NodeDetailView } from '../node-detail-view'
 import { InputPane } from '../input-pane'
 import { OutputPane } from '../output-pane'
+import { FieldPreview } from '../../nodes/field-preview'
+import { buildPreviewContext } from '@/lib/flows/preview-context'
 import type { FlowNode } from '@/lib/flows/graph'
 
 afterEach(() => cleanup())
@@ -176,4 +178,48 @@ test('input pane leaves are draggable and carry the braced token', () => {
   // The draggable attribute lives on the row button wrapping the label.
   const leaf = getByText('account').closest('[draggable="true"]')
   assert.ok(leaf, 'leaf row is not draggable')
+})
+
+// ── Field preview ─────────────────────────────────────────────────────────────
+
+test('field preview shows the resolved value of a token field', () => {
+  const ctx = buildPreviewContext({ lastOutputs: {}, triggerInput: { account: 'Acme' } })
+  const { getByText } = render(<FieldPreview value="Alert: {{trigger.input.account}}" ctx={ctx} />)
+  getByText(/Alert: Acme/)
+})
+
+test('field preview renders NOTHING for a field with no tokens', () => {
+  // A plain value echoed under itself is pure noise.
+  const ctx = buildPreviewContext({ lastOutputs: {} })
+  const { container } = render(<FieldPreview value="#alerts" ctx={ctx} />)
+  assert.equal(container.textContent, '')
+})
+
+test('field preview names an unresolved token instead of showing blank', () => {
+  const ctx = buildPreviewContext({ lastOutputs: {} })
+  const { getByText } = render(<FieldPreview value="{{step.ghost.output.x}}" ctx={ctx} />)
+  getByText(/step\.ghost\.output\.x/)
+})
+
+test('field preview renders nothing without a context', () => {
+  // No sample data yet (fresh flow, never run) — say nothing rather than
+  // claiming every token is broken.
+  const { container } = render(<FieldPreview value="{{trigger.input.x}}" ctx={undefined} />)
+  assert.equal(container.textContent, '')
+})
+
+test('the NDV threads previewContext into a real body (http url)', () => {
+  // End-to-end for the wiring, not just the component: page -> NDV -> params
+  // pane -> registry body -> FieldPreview. A break anywhere in that chain
+  // silently means no previews in production.
+  const ctx = buildPreviewContext({ lastOutputs: { n0: { slug: 'widgets' } } })
+  const httpNode = { id: 'h', type: 'http', data: { method: 'GET', url: 'https://api/{{step.n0.output.slug}}' } } as FlowNode
+  const { getByText } = render(<NodeDetailView node={httpNode} {...baseProps} previewContext={ctx} />)
+  getByText(/https:\/\/api\/widgets/)
+})
+
+test('a body renders no preview when the flow has no sample data', () => {
+  const httpNode = { id: 'h', type: 'http', data: { method: 'GET', url: 'https://api/{{step.n0.output.slug}}' } } as FlowNode
+  const { queryByText } = render(<NodeDetailView node={httpNode} {...baseProps} />)
+  assert.equal(queryByText(/no sample data/i), null)
 })

@@ -4,6 +4,8 @@ import { useRef, useState } from 'react'
 import { Code2, ListTree } from 'lucide-react'
 import { DataTree } from '@/components/flows/data-tree'
 import type { DataField } from '@/lib/flows/datatree'
+import type { FlowContext } from '@/features/flows/context'
+import { FieldPreview } from './nodes/field-preview'
 import { TokenTextEditor, type TokenTextEditorHandle } from '@/components/flows/token-text-editor'
 import type { TokenLabelContext } from '@/lib/flows/token-text'
 
@@ -127,12 +129,15 @@ export function ToolArgsEditor({
   onChange,
   dataFields,
   labelCtx,
+  previewContext,
 }: {
   inputSchema: unknown
   args: string | undefined
   onChange: (nextArgs: string) => void
   dataFields: DataField[]
   labelCtx: TokenLabelContext
+  /** Sample data for the per-arg resolved-value preview. */
+  previewContext?: FlowContext
 }) {
   const fields = schemaFields(inputSchema)
   const [raw, setRaw] = useState(fields.length === 0)
@@ -284,6 +289,7 @@ export function ToolArgsEditor({
                 />
               )}
               {field.description && <p className="mt-0.5 text-[11px] text-muted-foreground">{field.description}</p>}
+              <FieldPreview value={values[field.name] ?? ''} ctx={previewContext} />
             </div>
           ))}
           <div>

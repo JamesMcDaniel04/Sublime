@@ -11,6 +11,7 @@ import type { ToolCatalog } from '../tool-catalog-type'
 import { InlineKeyValue } from './inline-key-value'
 import { controlClass, labelClass, tokenControlBase, tokenControlClass } from './field-primitives'
 import type { NodeBodyModule, NodeBodyProps, TokenEditorWiring } from './types'
+import { FieldPreview } from './field-preview'
 
 function HttpBody({
   node,
@@ -18,12 +19,14 @@ function HttpBody({
   update,
   tokenWiring,
   showErrors,
+  previewContext,
 }: {
   node: Extract<FlowNode, { type: 'http' }>
   toolCatalog: ToolCatalog
   update: (node: FlowNode) => void
   tokenWiring: TokenEditorWiring
   showErrors?: boolean
+  previewContext?: NodeBodyProps['previewContext']
 }) {
   const { labelCtx, registerEditor, focusEditor } = tokenWiring
   const urlInvalid = Boolean(showErrors && !node.data.url)
@@ -93,6 +96,7 @@ function HttpBody({
             placeholder="https://api.example.com/endpoint"
             ariaLabel="URI"
           />
+          <FieldPreview value={node.data.url} ctx={previewContext} />
         </div>
         <div className="grid gap-2">
           <label className={labelClass}>Method <span className="text-red-500">*</span></label>
@@ -193,6 +197,7 @@ function HttpBody({
           placeholder="Optional JSON or text body for POST, PUT, and PATCH requests."
           ariaLabel="Body"
         />
+        <FieldPreview value={node.data.body ?? ''} ctx={previewContext} />
       </div>
       <div className="grid gap-2">
         <label className={labelClass}>Cookie</label>
@@ -214,8 +219,8 @@ function HttpBody({
 
 // MISSING_HTTP_URL in validate.ts.
 export const httpModule: NodeBodyModule = {
-  Body: ({ node, toolCatalog, update, tokenWiring, showErrors }: NodeBodyProps) => (
-    <HttpBody node={node as Extract<FlowNode, { type: 'http' }>} toolCatalog={toolCatalog} update={update} tokenWiring={tokenWiring} showErrors={showErrors} />
+  Body: ({ node, toolCatalog, update, tokenWiring, showErrors, previewContext }: NodeBodyProps) => (
+    <HttpBody node={node as Extract<FlowNode, { type: 'http' }>} toolCatalog={toolCatalog} update={update} tokenWiring={tokenWiring} showErrors={showErrors} previewContext={previewContext} />
   ),
   defaultEditorKey: 'http.body',
   requiredFields: ['url'],
