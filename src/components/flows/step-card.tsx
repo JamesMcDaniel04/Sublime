@@ -68,6 +68,7 @@ import {
   uniqueFieldName,
 } from './nodes/field-primitives'
 import type { Agent, InputKind, KeyValueRow, TokenEditorWiring } from './nodes/types'
+import { NODE_BODIES } from './nodes/registry'
 import { TriggerFilterEditor } from './trigger-filter-editor'
 import type { ToolCatalog } from './tool-catalog-type'
 import { ToolArgsEditor } from './tool-args-editor'
@@ -822,6 +823,28 @@ function renderNodeBody({
   dataFields?: DataField[]
   onAddStep?: (type: EditableType, branchIndex?: number) => void
 }) {
+  // Registry first: types whose body has moved to nodes/<type>-body.tsx. The
+  // switch below shrinks to nothing as the remaining bodies move, at which
+  // point this whole function goes away.
+  const registered = NODE_BODIES[node.type]
+  if (registered) {
+    const { Body } = registered
+    return (
+      <Body
+        node={node}
+        flowId={flowId}
+        agents={agents}
+        toolCatalog={toolCatalog}
+        update={update}
+        onRefreshAgents={onRefreshAgents}
+        tokenWiring={tokenWiring}
+        showErrors={showErrors}
+        variableNames={variableNames}
+        dataFields={dataFields}
+        onAddStep={onAddStep}
+      />
+    )
+  }
   switch (node.type) {
     case 'trigger':
       return <TriggerBody node={node} update={update} flowId={flowId} />
@@ -829,10 +852,6 @@ function renderNodeBody({
       return <AgentBody node={node} agents={agents} update={update} onRefreshAgents={onRefreshAgents} tokenWiring={tokenWiring} showErrors={showErrors} />
     case 'http':
       return <HttpBody node={node} toolCatalog={toolCatalog} update={update} tokenWiring={tokenWiring} showErrors={showErrors} />
-    case 'respondWebhook':
-      return <RespondWebhookBody node={node} update={update} />
-    case 'wait':
-      return <WaitBody node={node} update={update} />
     case 'repeatUntil':
       return <RepeatUntilBody node={node} update={update} tokenWiring={tokenWiring} onAddStep={onAddStep} />
     case 'tool':
@@ -867,8 +886,6 @@ function renderNodeBody({
       )
     case 'switch':
       return <SwitchBody node={node} update={update} tokenWiring={tokenWiring} />
-    case 'stop':
-      return <StopBody node={node} update={update} />
     case 'variable':
       return <VariableBody node={node} update={update} tokenWiring={tokenWiring} variableNames={variableNames} showErrors={showErrors} />
     case 'data':
@@ -883,28 +900,10 @@ function renderNodeBody({
       return <p className="text-sm text-muted-foreground">Define the typed values callers may pass to this workflow.</p>
     case 'output':
       return <p className="text-sm text-muted-foreground">Define the values this workflow returns to callers.</p>
-    case 'subflow':
-      return <SubflowBody node={node} update={update} />
   }
 }
 
-function RespondWebhookBody({ node, update }: { node: Extract<FlowNode, { type: 'respondWebhook' }>; update: (node: FlowNode) => void }) {
-  return <div className="space-y-3">
-    <div className="grid grid-cols-2 gap-2">
-      <label className={labelClass}>Status code<input className={controlClass} type="number" min={100} max={599} value={node.data.statusCode} onChange={(event) => update({ ...node, data: { ...node.data, statusCode: Number(event.target.value) } })} /></label>
-      <label className={labelClass}>Body type<select className={controlClass} value={node.data.bodyMode} onChange={(event) => update({ ...node, data: { ...node.data, bodyMode: event.target.value as typeof node.data.bodyMode } })}><option value="json">JSON</option><option value="text">Text</option><option value="binary">Binary (base64)</option><option value="none">No body</option></select></label>
-    </div>
-    <label className={labelClass}>Headers (JSON)<textarea className={controlClass} rows={2} value={node.data.headers ?? ''} onChange={(event) => update({ ...node, data: { ...node.data, headers: event.target.value } })} placeholder={'{"x-result":"ok"}'} /></label>
-    {node.data.bodyMode !== 'none' && <label className={labelClass}>Response body<textarea className={controlClass} rows={4} value={node.data.body ?? ''} onChange={(event) => update({ ...node, data: { ...node.data, body: event.target.value } })} placeholder="{{step.previous.output}}" /></label>}
-  </div>
-}
 
-function WaitBody({ node, update }: { node: Extract<FlowNode, { type: 'wait' }>; update: (node: FlowNode) => void }) {
-  return <div className="grid grid-cols-2 gap-2">
-    <label className={labelClass}>Amount<input className={controlClass} type="number" min={0} value={node.data.amount} onChange={(event) => update({ ...node, data: { ...node.data, amount: Number(event.target.value) } })} /></label>
-    <label className={labelClass}>Unit<select className={controlClass} value={node.data.unit} onChange={(event) => update({ ...node, data: { ...node.data, unit: event.target.value as typeof node.data.unit } })}><option value="seconds">Seconds</option><option value="minutes">Minutes</option><option value="hours">Hours</option><option value="days">Days</option></select></label>
-  </div>
-}
 
 function RepeatUntilBody({ node, update, tokenWiring, onAddStep }: { node: Extract<FlowNode, { type: 'repeatUntil' }>; update: (node: FlowNode) => void; tokenWiring: TokenEditorWiring; onAddStep?: (type: EditableType) => void }) {
   return <div className="space-y-3">
@@ -914,9 +913,6 @@ function RepeatUntilBody({ node, update, tokenWiring, onAddStep }: { node: Extra
   </div>
 }
 
-function SubflowBody({ node, update }: { node: Extract<FlowNode, { type: 'subflow' }>; update: (node: FlowNode) => void }) {
-  return <div className="space-y-3"><label className={labelClass}>Workflow ID<input className={controlClass} value={node.data.flowId} onChange={(event) => update({ ...node, data: { ...node.data, flowId: event.target.value } })} /></label><label className={labelClass}>Inputs (JSON)<textarea className={controlClass} rows={4} value={node.data.input ?? ''} onChange={(event) => update({ ...node, data: { ...node.data, input: event.target.value } })} placeholder={'{"customer":"{{trigger.input.customer}}"}'} /></label></div>
-}
 
 function TriggerBody({
   node,
@@ -2342,19 +2338,6 @@ function RouterBody({
   )
 }
 
-function StopBody({ node, update }: { node: Extract<FlowNode, { type: 'stop' }>; update: (node: FlowNode) => void }) {
-  return (
-    <div className="grid gap-2">
-      <label className={labelClass}>Message</label>
-      <input
-        value={node.data.reason ?? ''}
-        onChange={(event) => update({ ...node, data: { ...node.data, reason: event.target.value } })}
-        className={controlClass}
-        placeholder="Optional reason shown when this flow stops"
-      />
-    </div>
-  )
-}
 
 function VariableBody({
   node,
