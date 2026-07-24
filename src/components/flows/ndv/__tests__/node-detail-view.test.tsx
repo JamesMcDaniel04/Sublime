@@ -11,6 +11,7 @@ import React from 'react'
 import { render, cleanup } from '@testing-library/react'
 import { NodeDetailView } from '../node-detail-view'
 import { InputPane } from '../input-pane'
+import { OutputPane } from '../output-pane'
 import type { FlowNode } from '@/lib/flows/graph'
 
 afterEach(() => cleanup())
@@ -64,6 +65,37 @@ test('input pane shows an empty state rather than nothing', () => {
   // A blank pane reads as broken; say WHY there is no data.
   const { getByText } = render(<InputPane dataFields={[]} onInsertToken={() => {}} />)
   getByText(/no upstream data/i)
+})
+
+// ── Output pane ───────────────────────────────────────────────────────────────
+
+test('output pane renders the last run output', () => {
+  const { getByText } = render(<OutputPane lastOutput={{ ok: true, id: 'msg_1' }} pinned={false} />)
+  getByText(/msg_1/)
+})
+
+test('output pane explains an absent output instead of rendering blank', () => {
+  const { getByText } = render(<OutputPane lastOutput={undefined} pinned={false} />)
+  getByText(/hasn't produced output/i)
+})
+
+test('output pane marks pinned data as pinned', () => {
+  // Pinned data is stale by construction — if the pane showed it identically
+  // to a fresh run, a user would debug against a fixture without knowing.
+  const { getByText } = render(<OutputPane lastOutput={{ ok: true }} pinned />)
+  getByText(/pinned/i)
+})
+
+test('output pane offers Pin on fresh output and Unpin on pinned output', () => {
+  let pinnedCall = 0
+  let unpinnedCall = 0
+  const fresh = render(<OutputPane lastOutput={{ ok: true }} pinned={false} onPin={() => { pinnedCall++ }} />)
+  fresh.getByRole('button', { name: /pin this output/i }).click()
+  assert.equal(pinnedCall, 1)
+  fresh.unmount()
+  const pinned = render(<OutputPane lastOutput={{ ok: true }} pinned onUnpin={() => { unpinnedCall++ }} />)
+  pinned.getByRole('button', { name: /unpin/i }).click()
+  assert.equal(unpinnedCall, 1)
 })
 
 test('input pane leaves are draggable and carry the braced token', () => {
