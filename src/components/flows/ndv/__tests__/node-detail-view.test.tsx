@@ -223,3 +223,26 @@ test('a body renders no preview when the flow has no sample data', () => {
   const { queryByText } = render(<NodeDetailView node={httpNode} {...baseProps} />)
   assert.equal(queryByText(/no sample data/i), null)
 })
+
+// ── Missing required fields ───────────────────────────────────────────────────
+
+test('params pane names the fields a step still needs', () => {
+  const bare = { id: 't', type: 'tool', data: { connectionId: '', toolName: '' } } as FlowNode
+  const { getByText } = render(<NodeDetailView node={bare} {...baseProps} />)
+  getByText(/still needed before this step can run/i)
+  getByText(/connectionId, toolName/)
+})
+
+test('params pane says nothing once required fields are filled', () => {
+  const filled = { id: 't', type: 'tool', data: { connectionId: 'c1', toolName: 'send' } } as FlowNode
+  const { queryByText } = render(<NodeDetailView node={filled} {...baseProps} />)
+  assert.equal(queryByText(/still needed/i), null)
+})
+
+test('a step with missing fields is still fully editable', () => {
+  // Advisory, never blocking: a half-finished step is normal while authoring.
+  const bare = { id: 'h', type: 'http', data: { method: 'GET', url: '' } } as FlowNode
+  const { getByRole } = render(<NodeDetailView node={bare} {...baseProps} />)
+  const uri = getByRole('textbox', { name: /uri/i }) as HTMLElement
+  assert.notEqual(uri.getAttribute('contenteditable'), 'false')
+})

@@ -3,6 +3,7 @@
 import { NODE_BODIES } from '../nodes/registry'
 import type { EditableType } from '../node-types'
 import type { NodeBodyProps } from '../nodes/types'
+import { MissingFields } from '../nodes/missing-fields'
 import { StepSettingsFooter } from './step-settings-footer'
 
 /**
@@ -17,6 +18,8 @@ export function ParamsPane({ onChangeType, ...props }: NodeBodyProps & { onChang
       <p className="sticky top-0 z-10 border-b border-border bg-card px-4 py-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
         Parameters
       </p>
+      {/* Reads before the fields it describes. */}
+      <MissingFields node={props.node} />
       <div className="p-4">
         <Body {...props} />
         {props.node.type !== 'trigger' && (
