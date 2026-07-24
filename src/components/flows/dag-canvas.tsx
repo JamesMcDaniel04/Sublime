@@ -49,7 +49,6 @@ import type { ToolCatalog } from './tool-catalog-type'
 import { autoLayout, containedNodeIds } from '@/lib/flows/auto-layout'
 import { connectNodes, disconnectEdge, moveNodeTo, type StepType } from '@/lib/flows/mutate'
 import { cn } from '@/lib/utils'
-import type { DataField } from '@/lib/flows/datatree'
 import type { FlowGraph, FlowNode } from '@/lib/flows/graph'
 import { edgeIndicator, flowToScreenPoint, type JamCursor } from '@/lib/flows/jam-presence'
 import { jamCursorColor, type JamPeer } from './use-flow-jam'
@@ -323,7 +322,7 @@ function NodeConfigPanel({
   labelOf,
   issuesByNode,
   readOnly,
-  cardProps,
+  onOpenNode,
   onClose,
   onChangeNode,
   onSelect,
@@ -336,7 +335,8 @@ function NodeConfigPanel({
   labelOf: (node: FlowNode) => string
   issuesByNode?: Record<string, NodeIssues>
   readOnly: boolean
-  cardProps: { agents: Agent[]; toolCatalog: ToolCatalog; dataFields: DataField[]; variableNames: string[] }
+  /** Open the Node Detail View — the drawer's cards are summaries now. */
+  onOpenNode?: (id: string) => void
   onClose: () => void
   onChangeNode: (node: FlowNode) => void
   /** Focus a different node in this panel (e.g. a container child card). */
@@ -360,7 +360,6 @@ function NodeConfigPanel({
       </div>
       <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-3">
         <StepCard
-          {...cardProps}
           node={node}
           title={title}
           issues={issuesByNode?.[node.id]}
@@ -368,7 +367,7 @@ function NodeConfigPanel({
           labelCtx={{} as never}
           onChange={readOnly ? () => {} : onChangeNode}
           onClick={() => {}}
-          onAddStep={!readOnly && node.type === 'errorShield' && onAddContainerStep ? (type, branchIndex) => onAddContainerStep(node.id, type, branchIndex) : undefined}
+          onOpen={!readOnly && onOpenNode ? () => onOpenNode(node.id) : undefined}
         />
         {isContainerNode(node) && (
           <div className="space-y-2 rounded-2xl border border-dashed border-border bg-card/70 p-3">
@@ -404,7 +403,6 @@ function NodeConfigPanel({
                   className={cn('rounded-xl transition-opacity', dragId === child.id && 'opacity-50')}
                 >
                   <StepCard
-                    {...cardProps}
                     node={child}
                     title={labelOf(child)}
                     issues={issuesByNode?.[child.id]}
@@ -413,6 +411,7 @@ function NodeConfigPanel({
                     draggable={!readOnly}
                     onChange={readOnly ? () => {} : onChangeNode}
                     onClick={() => onSelect?.(child.id)}
+                    onOpen={!readOnly && onOpenNode ? () => onOpenNode(child.id) : undefined}
                   />
                 </div>
               )
@@ -429,8 +428,6 @@ export function DagCanvas({
   graph,
   agents,
   toolCatalog,
-  dataFields = [],
-  variableNames = [],
   statusByNode,
   issuesByNode,
   highlightIds,
@@ -439,6 +436,7 @@ export function DagCanvas({
   readOnly = false,
   labelOf,
   onSelect,
+  onOpenNode,
   onChangeNode,
   onChangeGraph,
   onAddNode,
@@ -455,8 +453,6 @@ export function DagCanvas({
   graph: FlowGraph
   agents: Agent[]
   toolCatalog: ToolCatalog
-  dataFields?: DataField[]
-  variableNames?: string[]
   statusByNode?: Record<string, StepStatus>
   issuesByNode?: Record<string, NodeIssues>
   highlightIds?: string[]
@@ -466,6 +462,8 @@ export function DagCanvas({
   /** Display label for a node (the builder derives these via stepLabelsOf). */
   labelOf: (node: FlowNode) => string
   onSelect: (id: string | null) => void
+  /** Open the Node Detail View for a node — the drawer's cards are summaries now. */
+  onOpenNode?: (id: string) => void
   onChangeNode: (node: FlowNode) => void
   /** Structural change (wire added/removed, widget moved). */
   onChangeGraph: (graph: FlowGraph) => void
@@ -648,11 +646,6 @@ export function DagCanvas({
     [graph, readOnly, onChangeGraph],
   )
 
-  const cardProps = useMemo(
-    () => ({ agents, toolCatalog, dataFields, variableNames }),
-    [agents, toolCatalog, dataFields, variableNames],
-  )
-
   return (
     <div className="flex h-full w-full">
       <div
@@ -753,7 +746,7 @@ export function DagCanvas({
           labelOf={labelOf}
           issuesByNode={issuesByNode}
           readOnly={readOnly}
-          cardProps={cardProps}
+          onOpenNode={onOpenNode}
           onClose={() => onSelect(null)}
           onSelect={onSelect}
           onChangeNode={onChangeNode}

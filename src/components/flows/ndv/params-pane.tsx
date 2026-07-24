@@ -3,15 +3,14 @@
 import { NODE_BODIES } from '../nodes/registry'
 import type { EditableType } from '../node-types'
 import type { NodeBodyProps } from '../nodes/types'
+import { StepSettingsFooter } from './step-settings-footer'
 
 /**
  * The middle pane: the very same body module the canvas card used to render
- * inline. One implementation, two consumers — the whole point of the registry.
- *
- * `onChangeType` is held for the settings footer that moves here when the
- * canvas card goes summary-only (Task 9) — unused until then.
+ * inline, plus the step-type/notes footer that used to close the expanded
+ * card. One implementation, two consumers — the whole point of the registry.
  */
-export function ParamsPane({ onChangeType: _onChangeType, ...props }: NodeBodyProps & { onChangeType?: (type: EditableType) => void }) {
+export function ParamsPane({ onChangeType, ...props }: NodeBodyProps & { onChangeType?: (type: EditableType) => void }) {
   const { Body } = NODE_BODIES[props.node.type]
   return (
     <div className="flex h-full flex-col overflow-y-auto">
@@ -20,6 +19,9 @@ export function ParamsPane({ onChangeType: _onChangeType, ...props }: NodeBodyPr
       </p>
       <div className="p-4">
         <Body {...props} />
+        {props.node.type !== 'trigger' && (
+          <StepSettingsFooter node={props.node} update={props.update} onChangeType={onChangeType} tokenWiring={props.tokenWiring} />
+        )}
       </div>
     </div>
   )

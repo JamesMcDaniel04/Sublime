@@ -2,7 +2,8 @@
  * Characterization tests for the HTTP step's URL field, driven through the
  * REAL controlled loop the flow builder uses (value down, onChange ->
  * updateNode -> re-render). These pin that the URL editor accepts and retains
- * typed/blurred input in both the inline card and the drawer — the "won't
+ * typed/blurred input in the Node Detail View (which replaced the inline card
+ * as the config surface) — the "won't
  * accept URLs" report could not be reproduced here, so this locks the input
  * path as correct and gives the reducer refactor (WS-R6 Phase 2) a safety net.
  */
@@ -11,7 +12,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import React, { useState } from 'react'
 import { render, act, cleanup } from '@testing-library/react'
-import { StepCard } from '../step-card'
+import { NodeDetailView } from '../ndv/node-detail-view'
 import { updateNode } from '@/lib/flows/mutate'
 import type { FlowGraph, FlowNode } from '@/lib/flows/graph'
 
@@ -32,13 +33,15 @@ function CardHarness({ capture }: { capture: (n: FlowNode) => void }) {
   const [graph, setGraph] = useState<FlowGraph>({ nodes: [httpNode()], edges: [] } as FlowGraph)
   const node = graph.nodes.find((n) => n.id === 'h1') as FlowNode
   capture(node)
-  return React.createElement(StepCard, {
-    node, title: 'HTTP', selected: true, agents: [], toolCatalog: [], dataFields: [], labelCtx: {} as never,
-    onChange: (n: FlowNode) => setGraph((g) => updateNode(g, n)), onClick: () => {},
+  // The param body moved from the card into the Node Detail View — same body
+  // module, new host. The harness drives the same real controlled loop.
+  return React.createElement(NodeDetailView, {
+    node, agents: [], toolCatalog: [], dataFields: [], lastOutput: undefined,
+    onChange: (n: FlowNode) => setGraph((g) => updateNode(g, n)), onClose: () => {},
   })
 }
 
-test('inline card URL field accepts and retains a typed URL', () => {
+test('NDV URL field accepts and retains a typed URL', () => {
   let latest: FlowNode | null = null
   const { container } = render(React.createElement(CardHarness, { capture: (n) => { latest = n } }))
   const editor = container.querySelector('[aria-label="URI"]') as HTMLElement
@@ -50,7 +53,7 @@ test('inline card URL field accepts and retains a typed URL', () => {
   cleanup()
 })
 
-test('inline card URL survives a blur', () => {
+test('NDV URL survives a blur', () => {
   let latest: FlowNode | null = null
   const { container } = render(React.createElement(CardHarness, { capture: (n) => { latest = n } }))
   const editor = container.querySelector('[aria-label="URI"]') as HTMLElement

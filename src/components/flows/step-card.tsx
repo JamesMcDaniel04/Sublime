@@ -2,7 +2,6 @@
 
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
 import { createPortal } from 'react-dom'
-import { AnimatePresence, motion } from 'motion/react'
 import { Bot, Braces, Check, CircleStop, Clock, ClipboardCopy, Code2, Copy, Filter, GitBranch, Globe, LogIn, LogOut, MessageSquare, MoreHorizontal, PanelRight, Pencil, Plus, Radio, Repeat, Rows3, Settings2, ShieldAlert, SlidersHorizontal, Sparkles, Split, Trash2, UserCheck, Variable, Webhook, Workflow, Wrench, Zap } from 'lucide-react'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
@@ -10,15 +9,8 @@ import { jamCursorColor } from '@/lib/flows/jam-presence'
 import { type FlowNode } from '@/lib/flows/graph'
 import { humanizeTokens, type TokenLabelContext } from '@/lib/flows/token-text'
 import { triggerInputFieldsFromTrigger } from '@/lib/flows/trigger'
-import { controlClass, labelClass, stopEvent } from './nodes/field-primitives'
-import type { Agent, TokenEditorWiring } from './nodes/types'
-import { NODE_BODIES } from './nodes/registry'
+import { stopEvent } from './nodes/field-primitives'
 import { triggerData } from './nodes/trigger-body'
-import type { ToolCatalog } from './tool-catalog-type'
-import { NODE_TYPES, type EditableType } from './node-types'
-import { DataTree } from './data-tree'
-import { type TokenTextEditorHandle } from './token-text-editor'
-import type { DataField } from '@/lib/flows/datatree'
 import { TypewriterStatus } from '@/components/ui/typewriter-status'
 import {
   DropdownMenu,
@@ -136,18 +128,9 @@ function collapsedAffordance(node: FlowNode): React.ReactNode | null {
 
 // Sentinel for activeFieldRef: a non-token input (labels, field names, KV
 // keys, …) is focused, so datatree inserts must be a no-op — falling back to
-// the step's primary field would silently write to a field the user is not
-// editing.
-const NON_TOKEN_FOCUSED = 'non-token-focused'
-
-
-// Chip editors still render when the caller omitted labelCtx: chips fall back
-// to generic step labels instead of crashing.
-const EMPTY_LABEL_CTX: TokenLabelContext = { stepLabels: {} }
 
 export function StepCard({
   node,
-  flowId,
   index,
   title,
   subtitle,
@@ -155,26 +138,18 @@ export function StepCard({
   issues,
   selected,
   highlighted,
-  agents,
-  toolCatalog,
-  dataFields,
   labelCtx,
-  variableNames,
   onChange,
   onClick,
-  onRefreshAgents,
+  onOpen,
   onDuplicate,
   onDelete,
   draggable,
   onDragStartNode,
   onDragEndNode,
-  onChangeType,
-  onAddStep,
   jamEditors,
 }: {
   node: FlowNode
-  /** Needed by the trigger card's webhook panel to mint a trigger secret. */
-  flowId?: string
   index?: number
   title: string
   subtitle?: string
@@ -182,21 +157,17 @@ export function StepCard({
   issues?: { errors: number; warnings: number; items: { level: 'error' | 'warning'; message: string }[] }
   selected?: boolean
   highlighted?: boolean
-  agents: Agent[]
-  toolCatalog: ToolCatalog
-  dataFields?: DataField[]
   labelCtx?: TokenLabelContext
-  variableNames?: string[]
   onChange?: (node: FlowNode) => void
+  /** Single click / Space: select on the canvas. */
   onClick?: () => void
-  onRefreshAgents?: () => void
+  /** Double-click / Enter / "Open settings": open the Node Detail View. */
+  onOpen?: () => void
   onDuplicate?: () => void
   onDelete?: () => void
   draggable?: boolean
   onDragStartNode?: (id: string) => void
   onDragEndNode?: () => void
-  onChangeType?: (type: EditableType) => void
-  onAddStep?: (type: EditableType, branchIndex?: number) => void
   /** Flow Jam: teammates currently editing this node (presence). */
   jamEditors?: { userId: string; name: string }[]
 }) {
@@ -208,7 +179,6 @@ export function StepCard({
   const humanize = (value: string) => (labelCtx ? humanizeTokens(value, labelCtx) : value)
   const displayTitle = humanize(title)
   const displaySubtitle = subtitle ? humanize(subtitle) : undefined
-  const update = (updated: FlowNode) => onChange?.(updated)
   const [renaming, setRenaming] = useState(false)
   const [codeOpen, setCodeOpen] = useState(false)
   const isTrigger = node.type === 'trigger'
@@ -226,81 +196,16 @@ export function StepCard({
     if (event.target !== event.currentTarget) return
     if (event.key !== 'Enter' && event.key !== ' ') return
     event.preventDefault()
-    onClick?.()
+    // Enter opens the Node Detail View; Space only selects. Mirrors the mouse
+    // gestures (double-click opens, single click selects).
+    if (event.key === 'Enter') (onOpen ?? onClick)?.()
+    else onClick?.()
   }
-  // Chip-editor handles keyed by field, so a datatree click inserts a token
-  // chip at the caret of the last-focused editor.
-  const editorHandles = useRef<Map<string, TokenTextEditorHandle | null>>(new Map())
-  const editorRefCallbacks = useRef<Map<string, (handle: TokenTextEditorHandle | null) => void>>(new Map())
-  const activeFieldRef = useRef<string | null>(null)
-  const activeEditorElRef = useRef<HTMLElement | null>(null)
-  const tokenPopoverRef = useRef<HTMLDivElement | null>(null)
-  const [tokenPopover, setTokenPopover] = useState<{ top: number; left: number; width: number } | null>(null)
-  const registerEditor = (key: string) => {
-    let callback = editorRefCallbacks.current.get(key)
-    if (!callback) {
-      callback = (handle: TokenTextEditorHandle | null) => {
-        editorHandles.current.set(key, handle)
-      }
-      editorRefCallbacks.current.set(key, callback)
-    }
-    return callback
-  }
-  const focusEditor = (key: string) => () => {
-    activeFieldRef.current = key
-    const el = document.activeElement instanceof HTMLElement ? document.activeElement : null
-    activeEditorElRef.current = el
-    if (selected && dataFields && dataFields.length > 0 && el) {
-      // getBoundingClientRect() already returns post-transform (zoomed) coordinates, so the
-      // popover lines up with the field regardless of the canvas zoom level — no scale compensation needed.
-      const rect = el.getBoundingClientRect()
-      setTokenPopover({
-        top: rect.bottom + 6,
-        left: Math.min(rect.left, window.innerWidth - 380),
-        width: Math.max(320, Math.min(rect.width, 420)),
-      })
-    }
-  }
-  // While any non-token input is focused, datatree inserts are blocked
-  // entirely; blur restores the normal fallback behavior.
-  const blockActive = () => {
-    activeFieldRef.current = NON_TOKEN_FOCUSED
-  }
-  const unblockActive = () => {
-    if (activeFieldRef.current === NON_TOKEN_FOCUSED) activeFieldRef.current = null
-  }
-  // Insert a token chip at the caret of the last-focused editor; fall back to
-  // the step's primary field when nothing has been focused yet. DataTree emits
-  // braced `{{token}}`s; the chip editor takes the bare path.
-  const insertToken = (token: string) => {
-    if (activeFieldRef.current === NON_TOKEN_FOCUSED) return
-    const path = token.startsWith('{{') && token.endsWith('}}') ? token.slice(2, -2).trim() : token
-    const active = activeFieldRef.current ? editorHandles.current.get(activeFieldRef.current) : null
-    const fallbackKey = NODE_BODIES[node.type].defaultEditorKey
-    const editor = active ?? (fallbackKey ? editorHandles.current.get(fallbackKey) : null)
-    editor?.insertToken(path)
-  }
-  const tokenWiring: TokenEditorWiring = {
-    labelCtx: labelCtx ?? EMPTY_LABEL_CTX,
-    registerEditor,
-    focusEditor,
-    blockActive,
-    unblockActive,
-  }
-  const showErrors = Boolean(issues?.errors)
   const issuesButtonRef = useRef<HTMLButtonElement | null>(null)
   const issuesPopoverRef = useRef<HTMLDivElement | null>(null)
   const [issuesPopover, setIssuesPopover] = useState<{ top: number; left: number } | null>(null)
   // Errors first so the most blocking problems lead the list.
   const issueItems = issues ? [...issues.items].sort((a, b) => (a.level === b.level ? 0 : a.level === 'error' ? -1 : 1)) : []
-
-  useEffect(() => {
-    if (!selected) {
-      setTokenPopover(null)
-      activeFieldRef.current = null
-      activeEditorElRef.current = null
-    }
-  }, [selected])
 
   // Issues fixed while the popover is open: drop the popover with the badge.
   useEffect(() => {
@@ -329,27 +234,6 @@ export function StepCard({
     }
   }, [issuesPopover])
 
-  useEffect(() => {
-    if (!tokenPopover) return
-    const close = () => setTokenPopover(null)
-    const onMouseDown = (event: MouseEvent) => {
-      const target = event.target as Node
-      if (tokenPopoverRef.current?.contains(target)) return
-      if (activeEditorElRef.current?.contains(target)) return
-      close()
-    }
-    const onKeyDown = (event: globalThis.KeyboardEvent) => {
-      if (event.key === 'Escape') close()
-    }
-    document.addEventListener('mousedown', onMouseDown)
-    document.addEventListener('keydown', onKeyDown)
-    window.addEventListener('scroll', close, true)
-    return () => {
-      document.removeEventListener('mousedown', onMouseDown)
-      document.removeEventListener('keydown', onKeyDown)
-      window.removeEventListener('scroll', close, true)
-    }
-  }, [tokenPopover])
 
   return (
     <div
@@ -358,6 +242,10 @@ export function StepCard({
       onClick={(event) => {
         event.stopPropagation()
         onClick?.()
+      }}
+      onDoubleClick={(event) => {
+        event.stopPropagation()
+        onOpen?.()
       }}
       onKeyDown={onRootKeyDown}
       className={cn(
@@ -404,11 +292,7 @@ export function StepCard({
                   onKeyDown={(event) => {
                     if (event.key === 'Enter' || event.key === 'Escape') setRenaming(false)
                   }}
-                  onFocus={blockActive}
-                  onBlur={() => {
-                    unblockActive()
-                    setRenaming(false)
-                  }}
+                  onBlur={() => setRenaming(false)}
                   className="h-9 min-w-0 flex-1 rounded-md border border-blue-400 bg-background px-2 text-lg font-semibold text-foreground outline-none ring-2 ring-blue-100"
                   placeholder={displayTitle}
                   aria-label="Step name"
@@ -476,7 +360,7 @@ export function StepCard({
           type="button"
           onClick={(event) => {
             event.stopPropagation()
-            onClick?.()
+            ;(onOpen ?? onClick)?.()
           }}
           className="hidden h-9 w-9 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground sm:flex"
           aria-label="Open step settings"
@@ -521,7 +405,7 @@ export function StepCard({
               </DropdownMenuItem>
             )}
             <DropdownMenuSeparator />
-            <DropdownMenuItem onSelect={() => onClick?.()}>
+            <DropdownMenuItem onSelect={() => (onOpen ?? onClick)?.()}>
               <Settings2 className="h-4 w-4" /> Open settings
             </DropdownMenuItem>
             <DropdownMenuItem onSelect={() => setCodeOpen(true)}>
@@ -530,32 +414,9 @@ export function StepCard({
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
-      <AnimatePresence initial={false}>
-        {selected ? (
-          <motion.div
-            key="body"
-            initial={{ height: 0, opacity: 0 }}
-            animate={{ height: 'auto', opacity: 1 }}
-            exit={{ height: 0, opacity: 0 }}
-            transition={{ duration: 0.18, ease: 'easeOut' }}
-            className="overflow-hidden"
-          >
-            <div onClick={stopEvent} onFocus={stopEvent} className="border-t border-border px-5 py-4">
-              {(() => {
-                const { Body } = NODE_BODIES[node.type]
-                return <Body node={node} flowId={flowId} agents={agents} toolCatalog={toolCatalog} update={update} onRefreshAgents={onRefreshAgents} tokenWiring={tokenWiring} showErrors={showErrors} variableNames={variableNames} dataFields={dataFields} onAddStep={onAddStep} />
-              })()}
-              {node.type !== 'trigger' && (
-                <StepSettingsFooter node={node} update={update} onChangeType={onChangeType} tokenWiring={tokenWiring} />
-              )}
-            </div>
-          </motion.div>
-        ) : (
-          collapsedAffordance(node) && (
-            <div className="border-t border-border px-5 py-1.5">{collapsedAffordance(node)}</div>
-          )
-        )}
-      </AnimatePresence>
+      {collapsedAffordance(node) && (
+        <div className="border-t border-border px-5 py-1.5">{collapsedAffordance(node)}</div>
+      )}
       {codeOpen && (
         <div onClick={stopEvent} className="border-t border-border px-5 py-4">
           <div className="mb-2 flex items-center justify-between">
@@ -572,18 +433,6 @@ export function StepCard({
           <pre className="max-h-72 overflow-auto rounded-lg bg-slate-950 p-3 text-xs leading-5 text-slate-100">{JSON.stringify(node, null, 2)}</pre>
         </div>
       )}
-      {selected && tokenPopover && dataFields && dataFields.length > 0 &&
-        createPortal(
-          <div
-            ref={tokenPopoverRef}
-            style={{ position: 'fixed', top: tokenPopover.top, left: tokenPopover.left, width: tokenPopover.width, zIndex: 60 }}
-            className="max-h-72 overflow-hidden rounded-xl border border-border bg-card shadow-[0_16px_48px_rgba(15,23,42,0.18)]"
-            onMouseDown={(event) => event.stopPropagation()}
-          >
-            <DataTree fields={dataFields} onInsert={insertToken} title="Insert data" emptyMessage="No earlier step data is available yet." />
-          </div>,
-          document.body,
-        )}
       {issuesPopover && issueItems.length > 0 &&
         createPortal(
           <div
@@ -622,46 +471,6 @@ export function StepCard({
 
 
 /** Step type + notes — the drawer's shared chrome, now inline on the card. */
-function StepSettingsFooter({
-  node,
-  update,
-  onChangeType,
-  tokenWiring,
-}: {
-  node: FlowNode
-  update: (node: FlowNode) => void
-  onChangeType?: (type: EditableType) => void
-  tokenWiring: TokenEditorWiring
-}) {
-  const { blockActive, unblockActive } = tokenWiring
-  return (
-    <div className="mt-4 grid gap-3 border-t border-border/60 pt-3 sm:grid-cols-2">
-      {onChangeType && (
-        <div className="grid gap-1.5">
-          <label className={labelClass}>Step type</label>
-          <select value={node.type} onChange={(event) => onChangeType(event.target.value as EditableType)} className={controlClass}>
-            {NODE_TYPES.map((t) => (
-              <option key={t.value} value={t.value}>
-                {t.label}
-              </option>
-            ))}
-          </select>
-        </div>
-      )}
-      <div className="grid gap-1.5">
-        <label className={labelClass}>Notes (optional)</label>
-        <input
-          value={(node.data as { note?: string }).note ?? ''}
-          placeholder="Why this step exists, gotchas, links…"
-          onFocus={blockActive}
-          onBlur={unblockActive}
-          onChange={(event) => update({ ...node, data: { ...node.data, note: event.target.value || undefined } } as FlowNode)}
-          className={controlClass}
-        />
-      </div>
-    </div>
-  )
-}
 
 
 

@@ -6,7 +6,6 @@ import { cn } from '@/lib/utils'
 import { DATA_OP_LABELS } from '@/lib/flows/data-ops'
 import { CONDITION_OP_LABELS, VARIABLE_OP_LABELS, VARIABLE_TYPE_LABELS, type DataOp, type FlowGraph, type FlowNode, type VariableOp } from '@/lib/flows/graph'
 import type { StepType } from '@/lib/flows/mutate'
-import type { DataField } from '@/lib/flows/datatree'
 import { humanizeTokens, type TokenLabelContext } from '@/lib/flows/token-text'
 import { StepCard, type StepStatus } from './step-card'
 import { FlowPicker } from './flow-picker'
@@ -134,57 +133,49 @@ function AddNestedStepMenu({ onPick }: Readonly<{ onPick: (type: EditableType) =
 
 export function FlowCanvas({
   graph,
-  flowId,
   agentName,
   agents,
   toolCatalog,
-  dataFields,
   labelCtx,
-  variableNames,
   statusByNode,
   issuesByNode,
   highlightIds,
   selectedId,
   onSelect,
+  onOpenNode,
   onChangeNode,
   onInsertAfter,
   onAppendBranch,
-  onRefreshAgents,
   onDuplicateNode,
   onDeleteNode,
   onBackgroundClick,
   onPickTrigger,
   onMoveAfter,
   onReorderContainer,
-  onChangeNodeType,
   onAddContainerStep,
   jamPeers,
 }: {
   graph: FlowGraph
-  /** Threaded into StepCard so the trigger card's webhook panel can mint a trigger secret. */
-  flowId?: string
   agentName: (agentId: string) => string
   agents: Agent[]
   toolCatalog: ToolCatalog
-  dataFields?: DataField[]
   labelCtx?: TokenLabelContext
-  variableNames?: string[]
   statusByNode: Record<string, StepStatus>
   issuesByNode?: Record<string, { errors: number; warnings: number; items: { level: 'error' | 'warning'; message: string }[] }>
   highlightIds?: string[]
   selectedId: string | null
   onSelect: (nodeId: string) => void
+  /** Open the Node Detail View for a node (double-click / Enter / Open settings). */
+  onOpenNode?: (nodeId: string) => void
   onChangeNode: (node: FlowNode) => void
   onInsertAfter: (afterId: string, type: StepType, seed?: FlowInsertSeed) => void
   onAppendBranch: (conditionId: string, branch: string, type: StepType, seed?: FlowInsertSeed) => void
-  onRefreshAgents?: () => void
   onDuplicateNode?: (id: string) => void
   onDeleteNode?: (id: string) => void
   onBackgroundClick?: () => void
   onPickTrigger?: (triggerType: 'manual' | 'schedule' | 'webhook' | 'signal' | 'slack' | 'activity') => void
   onMoveAfter?: (nodeId: string, afterId: string) => void
   onReorderContainer?: (containerId: string, from: number, to: number, branchIndex?: number) => void
-  onChangeNodeType?: (nodeId: string, type: EditableType) => void
   onAddContainerStep?: (containerId: string, type: EditableType, branchIndex?: number) => void
   /** Flow Jam presence: peers keyed by the node they have selected. */
   jamPeers?: { userId: string; name: string; selectedNodeId: string | null }[]
@@ -351,7 +342,6 @@ export function FlowCanvas({
     <div data-node-id={node.id} className="w-full">
       <StepCard
         node={node}
-        flowId={flowId}
         index={index}
         title={titleFor(node)}
         subtitle={subtitleFor(node)}
@@ -359,21 +349,15 @@ export function FlowCanvas({
         issues={issuesByNode?.[node.id]}
         selected={selectedId === node.id}
         highlighted={highlightIds?.includes(node.id)}
-        agents={agents}
-        toolCatalog={toolCatalog}
-        dataFields={selectedId === node.id ? dataFields : undefined}
         labelCtx={labelCtx}
-        variableNames={selectedId === node.id ? variableNames : undefined}
         onChange={onChangeNode}
         onClick={() => onSelect(node.id)}
-        onRefreshAgents={onRefreshAgents}
+        onOpen={onOpenNode ? () => onOpenNode(node.id) : undefined}
         onDuplicate={node.type === 'trigger' ? undefined : onDuplicateNode ? () => onDuplicateNode(node.id) : undefined}
         onDelete={node.type === 'trigger' ? undefined : onDeleteNode ? () => onDeleteNode(node.id) : undefined}
         draggable={node.type !== 'trigger' && node.type !== 'condition' && node.type !== 'switch' && node.type !== 'router'}
         onDragStartNode={setDragId}
         onDragEndNode={() => setDragId(null)}
-        onChangeType={node.type !== 'trigger' && onChangeNodeType ? (type) => onChangeNodeType(node.id, type) : undefined}
-        onAddStep={(node.type === 'loop' || node.type === 'repeatUntil' || node.type === 'parallel' || node.type === 'errorShield') && onAddContainerStep ? (type, branchIndex) => onAddContainerStep(node.id, type, branchIndex) : undefined}
         jamEditors={jamPeers?.filter((peer) => peer.selectedNodeId === node.id)}
       />
     </div>

@@ -1686,8 +1686,6 @@ function FlowBuilder() {
               graph={canvasGraph}
               agents={agents}
               toolCatalog={toolCatalog}
-              dataFields={dataFields}
-              variableNames={upstreamVariables.map((variable) => variable.name)}
               statusByNode={viewingVersion ? {} : statusByNode}
               issuesByNode={viewingVersion ? undefined : issuesByNode}
               highlightIds={viewingVersion ? [] : highlightIds}
@@ -1696,6 +1694,7 @@ function FlowBuilder() {
               readOnly={Boolean(viewingVersion)}
               labelOf={(node) => labelCtx.stepLabels[node.id] || defaultStepLabel(node)}
               onSelect={viewingVersion ? () => {} : setSelectedId}
+              onOpenNode={viewingVersion ? undefined : openNdv}
               onChangeNode={viewingVersion ? () => {} : (node) => setGraph((g) => updateNode(g, node))}
               onChangeGraph={viewingVersion ? () => {} : commitGraph}
               onAddNode={
@@ -1783,18 +1782,16 @@ function FlowBuilder() {
             <JamStackCommentPins pins={stackCommentPins} zoom={zoom} onPinClick={openPinThread} />
             <FlowCanvas
               graph={canvasGraph}
-              flowId={id}
               agentName={(agentId) => agentsById.get(agentId) ?? ''}
               agents={agents}
               toolCatalog={toolCatalog}
-              dataFields={dataFields}
               labelCtx={labelCtx}
-              variableNames={upstreamVariables.map((variable) => variable.name)}
               statusByNode={viewingVersion ? {} : statusByNode}
               issuesByNode={viewingVersion ? undefined : issuesByNode}
               highlightIds={viewingVersion ? [] : highlightIds}
               selectedId={selectedId}
               onSelect={viewingVersion ? () => {} : setSelectedId}
+              onOpenNode={viewingVersion ? undefined : openNdv}
               onBackgroundClick={() => setSelectedId(null)}
               onChangeNode={viewingVersion ? () => {} : (node) => setGraph((g) => updateNode(g, node))}
               onInsertAfter={
@@ -1817,7 +1814,6 @@ function FlowBuilder() {
                       setSelectedId(nodeId)
                     }
               }
-              onRefreshAgents={refreshAgents}
               onDuplicateNode={
                 viewingVersion
                   ? () => {}
@@ -1850,7 +1846,6 @@ function FlowBuilder() {
               }
               onMoveAfter={viewingVersion ? () => {} : (nodeId, afterId) => commitGraph(moveNodeAfter(graph, nodeId, afterId))}
               jamPeers={peers}
-              onChangeNodeType={viewingVersion ? undefined : (nodeId, type) => commitGraph(changeNodeType(graph, nodeId, type))}
               onAddContainerStep={
                 viewingVersion
                   ? undefined

@@ -7,7 +7,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import React, { useState } from 'react'
 import { render, act, cleanup, fireEvent } from '@testing-library/react'
-import { StepCard } from '../step-card'
+import { NodeDetailView } from '../ndv/node-detail-view'
 import { updateNode } from '@/lib/flows/mutate'
 import type { FlowGraph, FlowNode } from '@/lib/flows/graph'
 
@@ -17,9 +17,11 @@ function CardHarness({ capture }: { capture: (n: FlowNode) => void }) {
   const [graph, setGraph] = useState<FlowGraph>({ nodes: [httpNode()], edges: [] } as FlowGraph)
   const node = graph.nodes.find((n) => n.id === 'h1') as FlowNode
   capture(node)
-  return React.createElement(StepCard, {
-    node, title: 'HTTP', selected: true, agents: [], toolCatalog: [], dataFields: [], labelCtx: {} as never,
-    onChange: (n: FlowNode) => setGraph((g) => updateNode(g, n)), onClick: () => {},
+  // The param body moved from the card into the Node Detail View — same body
+  // module, new host. The harness drives the same real controlled loop.
+  return React.createElement(NodeDetailView, {
+    node, agents: [], toolCatalog: [], dataFields: [], lastOutput: undefined,
+    onChange: (n: FlowNode) => setGraph((g) => updateNode(g, n)), onClose: () => {},
   })
 }
 
