@@ -244,11 +244,20 @@ misleading.
 (`src/app/flows/[id]/page.tsx`), so the server's stored draft is authoritative
 when computing `unpublishedChanges`.
 
+Let `behind = unpublishedChanges || dirty`, where `dirty` is the editor's
+existing unsaved-edits predicate (`src/app/flows/[id]/page.tsx`). Both terms are
+needed: `unpublishedChanges` is computed server-side against the *saved* draft,
+so without `dirty` the button would read "Unpublish" while the user is looking at
+unsaved edits on screen.
+
 | State | Primary button | Secondary |
 |---|---|---|
 | `!published` | **Publish** | — |
-| `published && !unpublishedChanges` | **Unpublish** | — |
-| `published && unpublishedChanges` | **Publish changes** | Revert |
+| `published && !behind` | **Unpublish** | — |
+| `published && behind` | **Publish changes** | Revert |
+
+Note that `dirty`'s snapshot key currently includes `status`; §4 removes that
+term along with the control.
 
 No version number appears on the button in any state; `title` attributes carry
 the detail (`Published v3` / `Draft differs from the published version`).
