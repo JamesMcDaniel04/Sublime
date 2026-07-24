@@ -97,7 +97,10 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
 export const PUT = withAuthenticatedApi(async (request, auth) => {
   const body = z
     .object({ id: z.string().min(1), baseUpdatedAt: z.string().optional() })
-    .merge(flowSchema.partial())
+    // status is deliberately omitted: publish state has ONE writer
+    // (src/lib/flows/publish.ts). zod strips an incoming status key, so older
+    // clients keep saving — they just stop moving publish state.
+    .merge(flowSchema.omit({ status: true }).partial())
     .parse(await request.json())
   const existing = await prisma.flow.findFirst({
     where: { id: body.id, organizationId: auth.organizationId, ...flowWriteScope(auth.dbUser.id) },
@@ -142,7 +145,6 @@ export const PUT = withAuthenticatedApi(async (request, auth) => {
     data: {
       ...(body.name !== undefined && { name: body.name }),
       ...(body.description !== undefined && { description: body.description }),
-      ...(body.status !== undefined && { status: body.status }),
       ...(body.visibility !== undefined && { visibility: normalizeVisibility(body.visibility) }),
       ...(body.errorFlowId !== undefined && {
         metadata: jsonValue({

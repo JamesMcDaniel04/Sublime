@@ -1,25 +1,28 @@
 import { z } from 'zod'
 import { prisma } from '@/lib/prisma'
 import { ApiError, withAuthenticatedApi } from '@/lib/server/api-handler'
-import { recordUserEvent } from '@/lib/behavior/record-event'
-import { agentReadScope, flowOwnerScope } from '@/lib/server/visibility'
+import { flowOwnerScope } from '@/lib/server/visibility'
 import { serializeFlow } from '@/lib/flows/serialize'
-import { flowGraphSchema } from '@/lib/flows/graph'
-import { validateFlowGraph, validationErrorMessage } from '@/lib/flows/validate'
-import { preserveWebhookSecretHash, triggerFromGraph } from '@/lib/flows/trigger'
-import { loadFlowToolCatalog } from '@/lib/flows/tool-catalog'
-import { recordAudit } from '@/lib/audit'
+import { publishFlowDraft, unpublishFlow } from '@/lib/flows/publish'
 
-function jsonValue(value: unknown) {
-  return JSON.parse(JSON.stringify(value ?? null))
-}
+const bodySchema = z
+  .object({
+    revert: z.boolean().default(false),
+    unpublish: z.boolean().default(false),
+    disable: z.boolean().default(false),
+  })
+  .refine((body) => [body.revert, body.unpublish, body.disable].filter(Boolean).length <= 1, {
+    message: 'Choose one of revert, unpublish, or disable',
+  })
 
-// POST /api/flows/[id]/publish — publish the draft (graph → publishedGraph,
-// version++), or revert the draft to the published version ({ revert: true }).
+// POST /api/flows/[id]/publish — lifecycle endpoint. Default: publish the
+// draft. { revert } restores the draft from the published graph. { unpublish }
+// retracts to DRAFT. { disable } parks as DISABLED (flows-list "Disable").
+// All state changes go through src/lib/flows/publish.ts — the single writer.
 export const POST = withAuthenticatedApi(async (request, auth) => {
   const id = request.nextUrl.pathname.split('/').at(-2)
   if (!id) throw new ApiError('Flow id is required')
-  const { revert } = z.object({ revert: z.boolean().default(false) }).parse(await request.json().catch(() => ({})))
+  const { revert, unpublish, disable } = bodySchema.parse(await request.json().catch(() => ({})))
 
   const existing = await prisma.flow.findFirst({
     where: { id, organizationId: auth.organizationId, ...flowOwnerScope(auth.dbUser.id) },
@@ -32,72 +35,15 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
     return { success: true, flow: serializeFlow(flow) }
   }
 
-  const graph = flowGraphSchema.parse(existing.graph)
-  const usedConnectionIds = Array.from(new Set(graph.nodes.flatMap((node) =>
-    node.type === 'tool' || node.type === 'http' ? [node.data.connectionId] : [],
-  ).filter((id): id is string => Boolean(id))))
-  const [agents, connections] = await Promise.all([
-    prisma.agentTask.findMany({
-      where: { organizationId: auth.organizationId, status: 'ACTIVE', ...agentReadScope(auth.dbUser.id) },
-      select: { id: true, description: true },
-      take: 500,
-    }),
-    usedConnectionIds.length
-      ? loadFlowToolCatalog(auth.organizationId, { userId: auth.dbUser.id, connectionIds: usedConnectionIds, takeConnections: usedConnectionIds.length })
-      : Promise.resolve([]),
-  ])
-  const validation = validateFlowGraph(graph, {
-    agents: agents.map((agent) => ({ id: agent.id, title: agent.description })),
-    toolCatalog: connections,
-  })
-  if (!validation.ok) {
-    throw new ApiError(validationErrorMessage(validation), 400, 'FLOW_VALIDATION_ERROR')
+  if (unpublish || disable) {
+    const result = await unpublishFlow(id, auth.organizationId, auth.dbUser.id, { disable })
+    if (!result.unpublished) throw new ApiError(result.reason, 400, 'NO_PUBLISHED')
+  } else {
+    const result = await publishFlowDraft(id, auth.organizationId, auth.dbUser.id)
+    if (!result.published) throw new ApiError(result.reason, 400, 'FLOW_VALIDATION_ERROR')
   }
 
-  const nextVersion = existing.version + 1
-  const trigger = jsonValue(preserveWebhookSecretHash(triggerFromGraph(graph, existing.trigger), existing.trigger))
-  const [flow] = await prisma.$transaction([
-    prisma.flow.update({
-      where: { id, organizationId: auth.organizationId },
-      data: {
-        trigger,
-        publishedGraph: existing.graph ?? {},
-        version: { increment: 1 },
-      },
-    }),
-    prisma.flowVersion.create({
-      data: {
-        flowId: id,
-        organizationId: auth.organizationId,
-        version: nextVersion,
-        graph: jsonValue(existing.graph ?? {}),
-        trigger,
-        publishedBy: auth.dbUser.id,
-      },
-    }),
-  ])
-  await recordAudit({
-    organizationId: auth.organizationId,
-    actorUserId: auth.dbUser.id,
-    action: 'flow.published',
-    resourceType: 'flow',
-    resourceId: id,
-    detail: { version: flow.version },
-  }).catch(() => undefined)
-  await recordUserEvent({
-    organizationId: auth.organizationId, userId: auth.dbUser.id,
-    kind: 'flow_published', resourceType: 'flow', resourceId: id,
-    context: { name: existing.name, version: nextVersion },
-  })
-  // Activating a suggested draft = accepting the suggestion (spec §4 feedback loop).
-  const publishedMeta = existing.metadata && typeof existing.metadata === 'object' && !Array.isArray(existing.metadata)
-    ? (existing.metadata as Record<string, unknown>) : {}
-  if (publishedMeta.suggested === true) {
-    await recordUserEvent({
-      organizationId: auth.organizationId, userId: auth.dbUser.id,
-      kind: 'suggestion_accepted', resourceType: 'flow', resourceId: id,
-      context: { name: existing.name },
-    })
-  }
+  const flow = await prisma.flow.findFirst({ where: { id, organizationId: auth.organizationId } })
+  if (!flow) throw new ApiError('Flow not found after update', 404, 'NOT_FOUND')
   return { success: true, flow: serializeFlow(flow) }
 })
