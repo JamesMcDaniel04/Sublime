@@ -5,6 +5,7 @@ import { cn } from '@/lib/utils'
 import type { FlowNode } from '@/lib/flows/graph'
 import { TokenTextEditor } from '../token-text-editor'
 import { controlClass, labelClass, tokenControlClass } from './field-primitives'
+import { FieldPreview } from './field-preview'
 import type { NodeBodyModule, NodeBodyProps, TokenEditorWiring } from './types'
 
 function routerFirstBranch(node: Extract<FlowNode, { type: 'router' }>) {
@@ -15,10 +16,12 @@ function RouterBody({
   node,
   update,
   tokenWiring,
+  previewContext,
 }: {
   node: Extract<FlowNode, { type: 'router' }>
   update: (node: FlowNode) => void
   tokenWiring: TokenEditorWiring
+  previewContext?: NodeBodyProps['previewContext']
 }) {
   const { labelCtx, registerEditor, focusEditor } = tokenWiring
   const branches = node.data.branches.length ? node.data.branches : [routerFirstBranch(node)]
@@ -40,6 +43,7 @@ function RouterBody({
           placeholder="The value the AI routes on, e.g. {{trigger.input}}"
           ariaLabel="Routing input"
         />
+        <FieldPreview value={node.data.input ?? ''} ctx={previewContext} />
       </div>
       <div className="grid gap-2">
         <label className={labelClass}>Routing instructions (optional)</label>
@@ -104,8 +108,8 @@ function RouterBody({
 
 // EMPTY_ROUTER in validate.ts requires at least one branch.
 export const routerModule: NodeBodyModule = {
-  Body: ({ node, update, tokenWiring }: NodeBodyProps) => (
-    <RouterBody node={node as Extract<FlowNode, { type: 'router' }>} update={update} tokenWiring={tokenWiring} />
+  Body: ({ node, update, tokenWiring, previewContext }: NodeBodyProps) => (
+    <RouterBody node={node as Extract<FlowNode, { type: 'router' }>} update={update} tokenWiring={tokenWiring} previewContext={previewContext} />
   ),
   requiredFields: ['branches'],
 }

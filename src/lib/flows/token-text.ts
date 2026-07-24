@@ -20,6 +20,10 @@ const TOKEN_RE = /\{\{\s*([^{}]+?)\s*\}\}/g
 export function parseTokenSegments(value: string): TokenSegment[] {
   const segments: TokenSegment[] = []
   let last = 0
+  // Defensive: the type says string, but a graph carries `undefined` for any
+  // unset optional field, and a node whose token field has never been filled
+  // would otherwise crash the whole editor rather than render empty.
+  if (typeof value !== 'string') return segments
   for (const match of value.matchAll(TOKEN_RE)) {
     const index = match.index ?? 0
     if (index > last) segments.push({ kind: 'text', value: value.slice(last, index) })

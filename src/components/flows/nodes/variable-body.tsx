@@ -5,6 +5,7 @@ import { VARIABLE_OPS, VARIABLE_OP_LABELS, VARIABLE_TYPES, VARIABLE_TYPE_LABELS,
 import { VARIABLE_VALUE_PLACEHOLDER, variableValueOptional } from '@/lib/flows/step-copy'
 import { TokenTextEditor } from '../token-text-editor'
 import { controlClass, labelClass, tokenControlBase } from './field-primitives'
+import { FieldPreview } from './field-preview'
 import type { NodeBodyModule, NodeBodyProps, TokenEditorWiring } from './types'
 
 function VariableBody({
@@ -13,12 +14,14 @@ function VariableBody({
   tokenWiring,
   variableNames,
   showErrors,
+  previewContext,
 }: {
   node: Extract<FlowNode, { type: 'variable' }>
   update: (node: FlowNode) => void
   tokenWiring: TokenEditorWiring
   variableNames?: string[]
   showErrors?: boolean
+  previewContext?: NodeBodyProps['previewContext']
 }) {
   const { labelCtx, registerEditor, focusEditor, blockActive, unblockActive } = tokenWiring
   const isInitialize = node.data.op === 'initialize'
@@ -104,6 +107,7 @@ function VariableBody({
           placeholder={VARIABLE_VALUE_PLACEHOLDER[node.data.op]}
           ariaLabel="Variable value"
         />
+        <FieldPreview value={node.data.value ?? ''} ctx={previewContext} />
       </div>
     </div>
   )
@@ -111,8 +115,8 @@ function VariableBody({
 
 // MISSING_VARIABLE_NAME + MISSING_VARIABLE_VALUE in validate.ts.
 export const variableModule: NodeBodyModule = {
-  Body: ({ node, update, tokenWiring, variableNames, showErrors }: NodeBodyProps) => (
-    <VariableBody node={node as Extract<FlowNode, { type: 'variable' }>} update={update} tokenWiring={tokenWiring} variableNames={variableNames} showErrors={showErrors} />
+  Body: ({ node, update, tokenWiring, variableNames, showErrors, previewContext }: NodeBodyProps) => (
+    <VariableBody node={node as Extract<FlowNode, { type: 'variable' }>} update={update} tokenWiring={tokenWiring} variableNames={variableNames} showErrors={showErrors} previewContext={previewContext} />
   ),
   defaultEditorKey: 'var.value',
   requiredFields: ['name'],

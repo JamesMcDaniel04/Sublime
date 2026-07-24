@@ -4,6 +4,7 @@ import { cn } from '@/lib/utils'
 import type { FlowNode } from '@/lib/flows/graph'
 import { TokenTextEditor } from '../token-text-editor'
 import { labelClass, tokenControlBase } from './field-primitives'
+import { FieldPreview } from './field-preview'
 import type { NodeBodyModule, NodeBodyProps, TokenEditorWiring } from './types'
 
 function HumanReviewBody({
@@ -11,11 +12,13 @@ function HumanReviewBody({
   update,
   tokenWiring,
   showErrors,
+  previewContext,
 }: {
   node: Extract<FlowNode, { type: 'humanReview' }>
   update: (node: FlowNode) => void
   tokenWiring: TokenEditorWiring
   showErrors?: boolean
+  previewContext?: NodeBodyProps['previewContext']
 }) {
   const { labelCtx, registerEditor, focusEditor } = tokenWiring
   const messageInvalid = Boolean(showErrors && !node.data.message.trim())
@@ -36,6 +39,7 @@ function HumanReviewBody({
           placeholder="What should the person be asked? Their reply becomes this step's output."
           ariaLabel="Message"
         />
+        <FieldPreview value={node.data.message ?? ''} ctx={previewContext} />
       </div>
       {/* No org-member roster is fetched anywhere in the builder today, so an
           assignee select would need a new members API + fetch. v1 keeps the
@@ -51,8 +55,8 @@ function HumanReviewBody({
 
 // MISSING_REVIEW_MESSAGE in validate.ts.
 export const humanReviewModule: NodeBodyModule = {
-  Body: ({ node, update, tokenWiring, showErrors }: NodeBodyProps) => (
-    <HumanReviewBody node={node as Extract<FlowNode, { type: 'humanReview' }>} update={update} tokenWiring={tokenWiring} showErrors={showErrors} />
+  Body: ({ node, update, tokenWiring, showErrors, previewContext }: NodeBodyProps) => (
+    <HumanReviewBody node={node as Extract<FlowNode, { type: 'humanReview' }>} update={update} tokenWiring={tokenWiring} showErrors={showErrors} previewContext={previewContext} />
   ),
   defaultEditorKey: 'hr.message',
   requiredFields: ['message'],

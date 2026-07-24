@@ -5,6 +5,7 @@ import { cn } from '@/lib/utils'
 import type { FlowNode } from '@/lib/flows/graph'
 import { TokenTextEditor } from '../token-text-editor'
 import { controlClass, tokenControlClass } from './field-primitives'
+import { FieldPreview } from './field-preview'
 import type { NodeBodyModule, NodeBodyProps, TokenEditorWiring } from './types'
 
 function transformFields(node: Extract<FlowNode, { type: 'transform' }>): { name: string; value: string }[] {
@@ -15,10 +16,12 @@ function TransformBody({
   node,
   update,
   tokenWiring,
+  previewContext,
 }: {
   node: Extract<FlowNode, { type: 'transform' }>
   update: (node: FlowNode) => void
   tokenWiring: TokenEditorWiring
+  previewContext?: NodeBodyProps['previewContext']
 }) {
   const { labelCtx, registerEditor, focusEditor, blockActive, unblockActive } = tokenWiring
   const fields = transformFields(node)
@@ -46,6 +49,7 @@ function TransformBody({
             placeholder="Value"
             ariaLabel={`Value for field ${field.name || index + 1}`}
           />
+          <FieldPreview value={field.value} ctx={previewContext} />
           <button
             type="button"
             onClick={() => setFields(fields.filter((_, fieldIndex) => fieldIndex !== index))}
@@ -65,8 +69,8 @@ function TransformBody({
 
 // EMPTY_TRANSFORM in validate.ts requires at least one field.
 export const transformModule: NodeBodyModule = {
-  Body: ({ node, update, tokenWiring }: NodeBodyProps) => (
-    <TransformBody node={node as Extract<FlowNode, { type: 'transform' }>} update={update} tokenWiring={tokenWiring} />
+  Body: ({ node, update, tokenWiring, previewContext }: NodeBodyProps) => (
+    <TransformBody node={node as Extract<FlowNode, { type: 'transform' }>} update={update} tokenWiring={tokenWiring} previewContext={previewContext} />
   ),
   defaultEditorKey: 'xf.0',
   requiredFields: ['fields'],

@@ -7,6 +7,7 @@ import { DATA_OP_LABELS } from '@/lib/flows/data-ops'
 import { DATA_OP_HELPER, DATA_OP_INPUT_PLACEHOLDER } from '@/lib/flows/step-copy'
 import { TokenTextEditor } from '../token-text-editor'
 import { controlClass, labelClass, tokenControlBase, tokenControlClass } from './field-primitives'
+import { FieldPreview } from './field-preview'
 import type { NodeBodyModule, NodeBodyProps, TokenEditorWiring } from './types'
 
 function DataBody({
@@ -14,11 +15,13 @@ function DataBody({
   update,
   tokenWiring,
   showErrors,
+  previewContext,
 }: {
   node: Extract<FlowNode, { type: 'data' }>
   update: (node: FlowNode) => void
   tokenWiring: TokenEditorWiring
   showErrors?: boolean
+  previewContext?: NodeBodyProps['previewContext']
 }) {
   const { labelCtx, registerEditor, focusEditor, blockActive, unblockActive } = tokenWiring
   const op = node.data.op
@@ -59,6 +62,7 @@ function DataBody({
           placeholder={DATA_OP_INPUT_PLACEHOLDER[op]}
           ariaLabel="Input"
         />
+        <FieldPreview value={node.data.input ?? ''} ctx={previewContext} />
       </div>
       {op === 'join' && (
         <div className="grid gap-2">
@@ -196,8 +200,8 @@ function DataBody({
 
 // The op always has a value (schema default); its input requirements vary by op.
 export const dataModule: NodeBodyModule = {
-  Body: ({ node, update, tokenWiring, showErrors }: NodeBodyProps) => (
-    <DataBody node={node as Extract<FlowNode, { type: 'data' }>} update={update} tokenWiring={tokenWiring} showErrors={showErrors} />
+  Body: ({ node, update, tokenWiring, showErrors, previewContext }: NodeBodyProps) => (
+    <DataBody node={node as Extract<FlowNode, { type: 'data' }>} update={update} tokenWiring={tokenWiring} showErrors={showErrors} previewContext={previewContext} />
   ),
   defaultEditorKey: 'data.input',
   requiredFields: ['op'],

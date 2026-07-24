@@ -7,6 +7,7 @@ import { FIELD_TYPES, type FlowNode, type OutputField } from '@/lib/flows/graph'
 import { TokenTextEditor } from '../token-text-editor'
 import { AdvancedParamsSection } from '../advanced-params'
 import { controlClass, labelClass, tokenControlClass } from './field-primitives'
+import { FieldPreview } from './field-preview'
 import type { Agent, NodeBodyModule, NodeBodyProps, TokenEditorWiring } from './types'
 
 function defaultAgentInput(value?: string): boolean {
@@ -21,6 +22,7 @@ function AgentBody({
   onRefreshAgents,
   tokenWiring,
   showErrors,
+  previewContext,
 }: {
   node: Extract<FlowNode, { type: 'agent' }>
   agents: Agent[]
@@ -28,6 +30,7 @@ function AgentBody({
   onRefreshAgents?: () => void
   tokenWiring: TokenEditorWiring
   showErrors?: boolean
+  previewContext?: NodeBodyProps['previewContext']
 }) {
   const { labelCtx, registerEditor, focusEditor, blockActive, unblockActive } = tokenWiring
   const isDefaultInput = defaultAgentInput(node.data.input)
@@ -133,6 +136,7 @@ function AgentBody({
           placeholder={isDefaultInput ? 'Uses the trigger input by default. Add instructions here if needed.' : 'Tell the agent what to do at this step.'}
           ariaLabel="Message to agent"
         />
+        <FieldPreview value={node.data.input ?? ''} ctx={previewContext} />
       </div>
       <div className="flex items-start justify-between gap-3 rounded-lg bg-muted p-3">
         <div>
@@ -227,8 +231,8 @@ function AgentBody({
 
 // MISSING_AGENT_OR_PROMPT in validate.ts: a saved agent OR an inline prompt.
 export const agentModule: NodeBodyModule = {
-  Body: ({ node, agents, update, onRefreshAgents, tokenWiring, showErrors }: NodeBodyProps) => (
-    <AgentBody node={node as Extract<FlowNode, { type: 'agent' }>} agents={agents} update={update} onRefreshAgents={onRefreshAgents} tokenWiring={tokenWiring} showErrors={showErrors} />
+  Body: ({ node, agents, update, onRefreshAgents, tokenWiring, showErrors, previewContext }: NodeBodyProps) => (
+    <AgentBody node={node as Extract<FlowNode, { type: 'agent' }>} agents={agents} update={update} onRefreshAgents={onRefreshAgents} tokenWiring={tokenWiring} showErrors={showErrors} previewContext={previewContext} />
   ),
   defaultEditorKey: 'agent.input',
   requiredFields: ['agentId'],

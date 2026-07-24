@@ -14,6 +14,7 @@ import { InputPane } from '../input-pane'
 import { OutputPane } from '../output-pane'
 import { FieldPreview } from '../../nodes/field-preview'
 import { buildPreviewContext } from '@/lib/flows/preview-context'
+import { NODE_BODIES } from '../../nodes/registry'
 import type { FlowNode } from '@/lib/flows/graph'
 
 afterEach(() => cleanup())
@@ -245,4 +246,40 @@ test('a step with missing fields is still fully editable', () => {
   const { getByRole } = render(<NodeDetailView node={bare} {...baseProps} />)
   const uri = getByRole('textbox', { name: /uri/i }) as HTMLElement
   assert.notEqual(uri.getAttribute('contenteditable'), 'false')
+})
+
+// ── Totality: every body tolerates a preview context ─────────────────────────
+
+// Minimal valid data for types whose body indexes a required array/object.
+const MINIMAL_DATA: Record<string, Record<string, unknown>> = {
+  trigger: { trigger: { type: 'manual' } },
+  parallel: { branches: [[]] },
+  loop: { over: '', body: [] },
+  repeatUntil: { body: [], clauses: [] },
+  errorShield: { body: [], fallback: [] },
+  switch: { cases: [] },
+  router: { branches: [] },
+  condition: { clauses: [] },
+  filter: { clauses: [] },
+  transform: { fields: [] },
+  data: { op: 'compose' },
+  variable: { op: 'initialize', name: 'v' },
+  http: { method: 'GET', url: '' },
+  tool: { connectionId: '', toolName: '' },
+  respondWebhook: { statusCode: 200, bodyMode: 'json' },
+  wait: { amount: 1, unit: 'seconds' },
+  subflow: { flowId: '' },
+  agent: { agentId: '' },
+}
+
+test('every node type mounts with a preview context', () => {
+  // The prop threading touched 10 bodies; a body that mishandles it would
+  // otherwise only crash in production, for that one node type.
+  const ctx = buildPreviewContext({ lastOutputs: { n0: { x: 1 } }, triggerInput: { a: 'b' } })
+  for (const type of Object.keys(NODE_BODIES)) {
+    const node = { id: 'n', type, data: MINIMAL_DATA[type] ?? {} } as unknown as FlowNode
+    const view = render(<NodeDetailView node={node} {...baseProps} previewContext={ctx} />)
+    assert.ok(view.container.firstChild, `${type} rendered nothing`)
+    view.unmount()
+  }
 })

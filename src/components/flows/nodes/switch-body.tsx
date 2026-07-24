@@ -5,6 +5,7 @@ import { cn } from '@/lib/utils'
 import { CONDITION_OPS, CONDITION_OP_LABELS, type ConditionOp, type FlowNode } from '@/lib/flows/graph'
 import { TokenTextEditor } from '../token-text-editor'
 import { controlClass, tokenControlClass } from './field-primitives'
+import { FieldPreview } from './field-preview'
 import type { NodeBodyModule, NodeBodyProps, TokenEditorWiring } from './types'
 
 function switchFirstCase(node: Extract<FlowNode, { type: 'switch' }>) {
@@ -15,10 +16,12 @@ function SwitchBody({
   node,
   update,
   tokenWiring,
+  previewContext,
 }: {
   node: Extract<FlowNode, { type: 'switch' }>
   update: (node: FlowNode) => void
   tokenWiring: TokenEditorWiring
+  previewContext?: NodeBodyProps['previewContext']
 }) {
   const { labelCtx, registerEditor, focusEditor } = tokenWiring
   const cases = node.data.cases.length ? node.data.cases : [switchFirstCase(node)]
@@ -58,6 +61,7 @@ function SwitchBody({
               placeholder="Field or value"
               ariaLabel={`Case ${index + 1} value`}
             />
+            <FieldPreview value={c.left} ctx={previewContext} />
             <select
               value={c.op}
               onChange={(event) => setCases(cases.map((x, j) => (j === index ? { ...x, op: event.target.value as ConditionOp } : x)))}
@@ -79,6 +83,7 @@ function SwitchBody({
               placeholder="Compare to"
               ariaLabel={`Case ${index + 1} comparison`}
             />
+            <FieldPreview value={c.right} ctx={previewContext} />
           </div>
         </div>
       ))}
@@ -97,8 +102,8 @@ function SwitchBody({
 
 // EMPTY_SWITCH in validate.ts requires at least one case.
 export const switchModule: NodeBodyModule = {
-  Body: ({ node, update, tokenWiring }: NodeBodyProps) => (
-    <SwitchBody node={node as Extract<FlowNode, { type: 'switch' }>} update={update} tokenWiring={tokenWiring} />
+  Body: ({ node, update, tokenWiring, previewContext }: NodeBodyProps) => (
+    <SwitchBody node={node as Extract<FlowNode, { type: 'switch' }>} update={update} tokenWiring={tokenWiring} previewContext={previewContext} />
   ),
   defaultEditorKey: 'sw.left',
   requiredFields: ['cases'],

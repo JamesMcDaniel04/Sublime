@@ -58,3 +58,11 @@ test('friendlyTokenLabel humanizes variable tokens', () => {
   assert.equal(friendlyTokenLabel('var.deal_count', ctx), 'Variable › deal_count')
   assert.equal(friendlyTokenLabel('var.deal.stage', ctx), 'Variable › deal › stage')
 })
+
+test('parseTokenSegments tolerates an absent value instead of crashing', () => {
+  // A graph carries `undefined` for any unset optional field. The declared type
+  // is string, so TS cannot catch it — and the failure mode was the entire node
+  // config surface throwing, not one blank field.
+  assert.deepEqual(parseTokenSegments(undefined as unknown as string), [])
+  assert.deepEqual(parseTokenSegments(null as unknown as string), [])
+})

@@ -7,6 +7,7 @@ import { AddStepMenu } from '../add-step-menu'
 import { AdvancedParamsSection } from '../advanced-params'
 import type { EditableType } from '../node-types'
 import { controlClass, tokenControlClass } from './field-primitives'
+import { FieldPreview } from './field-preview'
 import type { NodeBodyModule, NodeBodyProps, TokenEditorWiring } from './types'
 
 function LoopBody({
@@ -14,11 +15,13 @@ function LoopBody({
   update,
   tokenWiring,
   onAddStep,
+  previewContext,
 }: {
   node: Extract<FlowNode, { type: 'loop' }>
   update: (node: FlowNode) => void
   tokenWiring: TokenEditorWiring
   onAddStep?: (type: EditableType, branchIndex?: number) => void
+  previewContext?: NodeBodyProps['previewContext']
 }) {
   const { labelCtx, registerEditor, focusEditor } = tokenWiring
   const usesTriggerInput = node.data.over === '{{trigger.input}}'
@@ -37,16 +40,19 @@ function LoopBody({
         {usesTriggerInput ? (
           <input value="" readOnly className={controlClass} placeholder="Uses trigger input" disabled aria-label="Items to process" />
         ) : (
-          <TokenTextEditor
-            ref={registerEditor('loop.over')}
-            value={node.data.over}
-            labelCtx={labelCtx}
-            onFocus={focusEditor('loop.over')}
-            onChange={(over) => update({ ...node, data: { ...node.data, over } })}
-            className={cn(tokenControlClass, 'min-w-0')}
-            placeholder="Comma-separated list, JSON array, or mapped list"
-            ariaLabel="Items to process"
-          />
+          <div className="grid gap-1">
+            <TokenTextEditor
+              ref={registerEditor('loop.over')}
+              value={node.data.over}
+              labelCtx={labelCtx}
+              onFocus={focusEditor('loop.over')}
+              onChange={(over) => update({ ...node, data: { ...node.data, over } })}
+              className={cn(tokenControlClass, 'min-w-0')}
+              placeholder="Comma-separated list, JSON array, or mapped list"
+              ariaLabel="Items to process"
+            />
+            <FieldPreview value={node.data.over} ctx={previewContext} />
+          </div>
         )}
       </div>
       {onAddStep && <AddStepMenu label="Add step to loop" onPick={onAddStep} />}
@@ -57,8 +63,8 @@ function LoopBody({
 
 // MISSING_LOOP_SOURCE + EMPTY_LOOP_BODY in validate.ts.
 export const loopModule: NodeBodyModule = {
-  Body: ({ node, update, tokenWiring, onAddStep }: NodeBodyProps) => (
-    <LoopBody node={node as Extract<FlowNode, { type: 'loop' }>} update={update} tokenWiring={tokenWiring} onAddStep={onAddStep} />
+  Body: ({ node, update, tokenWiring, onAddStep, previewContext }: NodeBodyProps) => (
+    <LoopBody node={node as Extract<FlowNode, { type: 'loop' }>} update={update} tokenWiring={tokenWiring} onAddStep={onAddStep} previewContext={previewContext} />
   ),
   defaultEditorKey: 'loop.over',
   requiredFields: ['over', 'body'],

@@ -5,6 +5,7 @@ import { cn } from '@/lib/utils'
 import { CONDITION_OPS, CONDITION_OP_LABELS, type ConditionClause, type ConditionOp, type FlowNode } from '@/lib/flows/graph'
 import { TokenTextEditor } from '../token-text-editor'
 import { controlClass, tokenControlClass } from './field-primitives'
+import { FieldPreview } from './field-preview'
 import type { NodeBodyModule, NodeBodyProps, TokenEditorWiring } from './types'
 
 function firstClause(node: Extract<FlowNode, { type: 'condition' | 'filter' }>): ConditionClause {
@@ -23,10 +24,12 @@ export function ConditionBody({
   node,
   update,
   tokenWiring,
+  previewContext,
 }: {
   node: Extract<FlowNode, { type: 'condition' | 'filter' }>
   update: (node: FlowNode) => void
   tokenWiring: TokenEditorWiring
+  previewContext?: NodeBodyProps['previewContext']
 }) {
   const { labelCtx, registerEditor, focusEditor } = tokenWiring
   // All clauses (legacy single left/op/right normalizes to one row).
@@ -61,6 +64,7 @@ export function ConditionBody({
             placeholder="Field or value"
             ariaLabel={`Rule ${index + 1} field or value`}
           />
+          <FieldPreview value={clause.left} ctx={previewContext} />
           <select
             value={clause.op}
             onChange={(event) => setClauses(clauses.map((c, j) => (j === index ? { ...c, op: event.target.value as ConditionOp } : c)))}
@@ -82,6 +86,7 @@ export function ConditionBody({
             placeholder="Compare to"
             ariaLabel={`Rule ${index + 1} comparison`}
           />
+          <FieldPreview value={clause.right} ctx={previewContext} />
           {clauses.length > 1 ? (
             <button
               type="button"
@@ -111,8 +116,8 @@ export function ConditionBody({
 // old switch, and two copies would be two places to fix a clause-editor bug.
 // EMPTY_CONDITION in validate.ts makes clauses the one required key.
 export const conditionModule: NodeBodyModule = {
-  Body: ({ node, update, tokenWiring }: NodeBodyProps) => (
-    <ConditionBody node={node as Extract<FlowNode, { type: 'condition' | 'filter' }>} update={update} tokenWiring={tokenWiring} />
+  Body: ({ node, update, tokenWiring, previewContext }: NodeBodyProps) => (
+    <ConditionBody node={node as Extract<FlowNode, { type: 'condition' | 'filter' }>} update={update} tokenWiring={tokenWiring} previewContext={previewContext} />
   ),
   defaultEditorKey: 'clause.left',
   requiredFields: ['clauses'],
