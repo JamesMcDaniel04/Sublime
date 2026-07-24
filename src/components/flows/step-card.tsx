@@ -140,20 +140,6 @@ function collapsedAffordance(node: FlowNode): React.ReactNode | null {
 // editing.
 const NON_TOKEN_FOCUSED = 'non-token-focused'
 
-// Where a datatree click lands when no chip editor has been focused yet: the
-// step type's primary token field.
-const DEFAULT_EDITOR_KEYS: Partial<Record<FlowNode['type'], string>> = {
-  agent: 'agent.input',
-  http: 'http.body',
-  loop: 'loop.over',
-  transform: 'xf.0',
-  condition: 'clause.left',
-  filter: 'clause.left',
-  switch: 'sw.left',
-  variable: 'var.value',
-  data: 'data.input',
-  humanReview: 'hr.message',
-}
 
 // Chip editors still render when the caller omitted labelCtx: chips fall back
 // to generic step labels instead of crashing.
@@ -290,7 +276,7 @@ export function StepCard({
     if (activeFieldRef.current === NON_TOKEN_FOCUSED) return
     const path = token.startsWith('{{') && token.endsWith('}}') ? token.slice(2, -2).trim() : token
     const active = activeFieldRef.current ? editorHandles.current.get(activeFieldRef.current) : null
-    const fallbackKey = DEFAULT_EDITOR_KEYS[node.type]
+    const fallbackKey = NODE_BODIES[node.type].defaultEditorKey
     const editor = active ?? (fallbackKey ? editorHandles.current.get(fallbackKey) : null)
     editor?.insertToken(path)
   }
@@ -555,7 +541,10 @@ export function StepCard({
             className="overflow-hidden"
           >
             <div onClick={stopEvent} onFocus={stopEvent} className="border-t border-border px-5 py-4">
-              {renderNodeBody({ node, flowId, agents, toolCatalog, update, onRefreshAgents, tokenWiring, showErrors, variableNames, dataFields, onAddStep })}
+              {(() => {
+                const { Body } = NODE_BODIES[node.type]
+                return <Body node={node} flowId={flowId} agents={agents} toolCatalog={toolCatalog} update={update} onRefreshAgents={onRefreshAgents} tokenWiring={tokenWiring} showErrors={showErrors} variableNames={variableNames} dataFields={dataFields} onAddStep={onAddStep} />
+              })()}
               {node.type !== 'trigger' && (
                 <StepSettingsFooter node={node} update={update} onChangeType={onChangeType} tokenWiring={tokenWiring} />
               )}
@@ -674,56 +663,6 @@ function StepSettingsFooter({
   )
 }
 
-function renderNodeBody({
-  node,
-  flowId,
-  agents,
-  toolCatalog,
-  update,
-  onRefreshAgents,
-  tokenWiring,
-  showErrors,
-  variableNames,
-  dataFields,
-  onAddStep,
-}: {
-  node: FlowNode
-  flowId?: string
-  agents: Agent[]
-  toolCatalog: ToolCatalog
-  update: (node: FlowNode) => void
-  onRefreshAgents?: () => void
-  tokenWiring: TokenEditorWiring
-  showErrors?: boolean
-  variableNames?: string[]
-  dataFields?: DataField[]
-  onAddStep?: (type: EditableType, branchIndex?: number) => void
-}) {
-  // Registry first: types whose body has moved to nodes/<type>-body.tsx. The
-  // switch below shrinks to nothing as the remaining bodies move, at which
-  // point this whole function goes away.
-  const registered = NODE_BODIES[node.type]
-  if (registered) {
-    const { Body } = registered
-    return (
-      <Body
-        node={node}
-        flowId={flowId}
-        agents={agents}
-        toolCatalog={toolCatalog}
-        update={update}
-        onRefreshAgents={onRefreshAgents}
-        tokenWiring={tokenWiring}
-        showErrors={showErrors}
-        variableNames={variableNames}
-        dataFields={dataFields}
-        onAddStep={onAddStep}
-      />
-    )
-  }
-  switch (node.type) {
-  }
-}
 
 
 

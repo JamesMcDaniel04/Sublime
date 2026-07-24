@@ -30,10 +30,10 @@ import { humanReviewModule } from './human-review-body'
  * canvas card and the node detail view render the same body — and iterated, so a
  * totality test can prove no node type ships without a param surface.
  *
- * Widened to a total Record once every body has moved, at which point `tsc`
- * enforces exhaustiveness too.
+ * Total over the union: `tsc` fails here if a node type is added to graph.ts
+ * without a body module — the compile-time twin of the registry totality test.
  */
-export const NODE_BODIES: Partial<Record<FlowNode['type'], NodeBodyModule>> = {
+export const NODE_BODIES: Record<FlowNode['type'], NodeBodyModule> = {
   respondWebhook: respondWebhookModule,
   wait: waitModule,
   subflow: subflowModule,
