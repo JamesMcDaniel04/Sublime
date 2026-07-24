@@ -9,27 +9,27 @@ datasource db {
 }
 
 model Organization {
-  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  name      String
-  slug      String   @unique
+  id                   String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name                 String
+  slug                 String    @unique
   // Workspace avatar shown in the org switcher — a small data URL (client
   // resizes to 128px before upload) so no external storage is required.
-  logoUrl   String?
-  plan      Plan     @default(TRIAL)
+  logoUrl              String?
+  plan                 Plan      @default(TRIAL)
   // Stripe billing linkage. Customer is created lazily on first checkout;
   // subscription id tracks the single active subscription for the org.
-  stripeCustomerId     String? @unique
+  stripeCustomerId     String?   @unique
   stripeSubscriptionId String?
   // Legacy field retained for migration compatibility. Trial access was
   // removed; plan=TRIAL now means payment is required immediately.
-  trialEndsAt DateTime? @db.Timestamptz(6)
+  trialEndsAt          DateTime? @db.Timestamptz(6)
   // Existing test workspaces were permanently comped when paid activation
   // launched. New workspaces leave this null and must subscribe.
-  grandfatheredAt DateTime? @db.Timestamptz(6)
+  grandfatheredAt      DateTime? @db.Timestamptz(6)
   // Freeform org-level settings grab-bag (e.g. `disableConnectionScans`).
-  settings  Json     @default("{}")
-  createdAt DateTime @default(now()) @db.Timestamptz(6)
-  updatedAt DateTime @updatedAt @db.Timestamptz(6)
+  settings             Json      @default("{}")
+  createdAt            DateTime  @default(now()) @db.Timestamptz(6)
+  updatedAt            DateTime  @updatedAt @db.Timestamptz(6)
 
   users                     User[]
   agents                    AgentTask[]
@@ -149,13 +149,13 @@ model AgentTask {
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
 
-  organization        Organization         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  owner               User?                @relation(fields: [userId], references: [id], onDelete: SetNull)
-  executions          AgentExecution[]
-  chatMessages        AgentChatMessage[]
-  chatSessions        AgentChatSession[]
-  connectors          AgentConnector[]
-  memories            AgentMemory[]
+  organization Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  owner        User?              @relation(fields: [userId], references: [id], onDelete: SetNull)
+  executions   AgentExecution[]
+  chatMessages AgentChatMessage[]
+  chatSessions AgentChatSession[]
+  connectors   AgentConnector[]
+  memories     AgentMemory[]
 
   @@index([organizationId, status])
   @@index([organizationId, userId, status, updatedAt])
@@ -637,6 +637,7 @@ model Flow {
   versions      FlowVersion[]
   collaborators FlowCollaborator[]
   comments      FlowComment[]
+  nodePins      FlowNodePin[]
 
   @@index([organizationId, updatedAt])
   @@map("flows")
@@ -753,6 +754,27 @@ model FlowRunStep {
 
   @@index([flowRunId, order])
   @@map("flow_run_steps")
+}
+
+/// A pinned node output: a dev-time fixture so testing a step doesn't re-hit an
+/// upstream API. Deliberately NOT stored in Flow.graph — pins must never reach
+/// publishedGraph or /export, and they are per-user working state, not part of
+/// the flow definition.
+model FlowNodePin {
+  id             String   @id @default(cuid())
+  flowId         String
+  nodeId         String
+  userId         String
+  organizationId String   @db.Uuid
+  output         Json
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  flow Flow @relation(fields: [flowId], references: [id], onDelete: Cascade)
+
+  @@unique([flowId, nodeId, userId])
+  @@index([flowId, userId])
+  @@map("flow_node_pins")
 }
 
 /// Per-org Slack bot binding: one row per (org, Slack workspace). botToken and
@@ -1022,58 +1044,58 @@ model CreditGrant {
 }
 
 model KnowledgeDocument {
-  id             String   @id @default(cuid())
-  organizationId String   @db.Uuid
-  agentId        String? // the agent this knowledge belongs to (null = org-wide)
-  userId         String?
-  filename       String
-  title          String?
-  mimeType       String
-  sizeBytes      Int      @default(0)
-  charCount      Int      @default(0)
+  id               String    @id @default(cuid())
+  organizationId   String    @db.Uuid
+  agentId          String? // the agent this knowledge belongs to (null = org-wide)
+  userId           String?
+  filename         String
+  title            String?
+  mimeType         String
+  sizeBytes        Int       @default(0)
+  charCount        Int       @default(0)
   // Canonical source contract. Uploads, completed runs, connected-tool
   // profiles, and normalized activity all enter retrieval through the same
   // durable document/chunk substrate.
-  sourceType     String   @default("upload")
-  sourceId       String?
+  sourceType       String    @default("upload")
+  sourceId         String?
   // 'private' = creating user, 'agent' = users who can run the attached
   // agent, 'organization' = workspace-wide distilled knowledge.
-  visibility     String   @default("agent")
+  visibility       String    @default("agent")
   // Full canonical body is encrypted with ENCRYPTION_KEY. Chunks have their
   // own encrypted copy so future migrations can drop the legacy plaintext
   // column without losing keyword/vector retrieval compatibility.
-  contentEncrypted String? @db.Text
+  contentEncrypted String?   @db.Text
   contentHash      String?
-  provenance       Json     @default("{}")
+  provenance       Json      @default("{}")
   // workspace = retain until explicit deletion/workspace teardown;
   // zero = do not retain; expiring = expiresAt controls cleanup.
-  retentionPolicy String   @default("workspace")
-  lastSyncedAt    DateTime? @db.Timestamptz(6)
-  expiresAt       DateTime? @db.Timestamptz(6)
-  status         String   @default("ready") // ready | failed
-  error          String?
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  retentionPolicy  String    @default("workspace")
+  lastSyncedAt     DateTime? @db.Timestamptz(6)
+  expiresAt        DateTime? @db.Timestamptz(6)
+  status           String    @default("ready") // ready | failed
+  error            String?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
 
   organization Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   chunks       KnowledgeChunk[]
 
+  @@unique([organizationId, sourceType, sourceId])
   @@index([organizationId, agentId])
   @@index([organizationId, userId, createdAt])
   @@index([organizationId, sourceType, lastSyncedAt])
-  @@unique([organizationId, sourceType, sourceId])
   @@map("knowledge_documents")
 }
 
 model KnowledgeChunk {
-  id             String  @id @default(cuid())
-  documentId     String
-  organizationId String  @db.Uuid
-  agentId        String?
-  ordinal        Int     @default(0)
-  content        String  @db.Text
+  id               String  @id @default(cuid())
+  documentId       String
+  organizationId   String  @db.Uuid
+  agentId          String?
+  ordinal          Int     @default(0)
+  content          String  @db.Text
   contentEncrypted String? @db.Text
-  embedding      Json? // number[] embedding, or null when embeddings are unconfigured
+  embedding        Json? // number[] embedding, or null when embeddings are unconfigured
 
   /// pgvector copy of `embedding` (WS-R5). Reads/writes go through raw SQL —
   /// Prisma cannot query Unsupported columns. The Json column is legacy,

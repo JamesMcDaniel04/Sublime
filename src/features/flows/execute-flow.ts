@@ -45,6 +45,8 @@ export type FlowExecutionJob = {
   resumeReason?: 'time'
   /** Draft-test partial execution controls. Never used by external triggers. */
   startNodeId?: string
+  /** Builder single-node test: execute ONLY this node (never downstream). */
+  onlyNodeId?: string
   mockOutputs?: Record<string, unknown>
   // Queue mode only: dispatchFlowExecution pre-created this FlowRun row (so
   // the caller has an id to poll) — adopt it instead of creating a new one.
@@ -54,7 +56,7 @@ export type FlowExecutionJob = {
   // executes the working draft so you can test before publishing.
   usePublished?: boolean
   // How this run was started — persisted on the FlowRun for provenance.
-  trigger?: { type: 'manual' | 'schedule' | 'webhook' | 'signal' | 'slack' | 'activity'; [key: string]: unknown }
+  trigger?: { type: 'manual' | 'schedule' | 'webhook' | 'signal' | 'slack' | 'activity' | 'node_test'; [key: string]: unknown }
   // Synchronous subflow nesting depth — bounds runaway flow->flow recursion.
   subflowDepth?: number
   errorDepth?: number
@@ -228,8 +230,19 @@ export async function runFlowExecution(
       agents: agents.map((agent) => ({ id: agent.id, title: agent.description })),
       toolCatalog,
     })
-    if (!validation.ok) {
-      throw new ApiError(validationErrorMessage(validation), 400, 'FLOW_VALIDATION_ERROR')
+    // Single-node test: only THIS node's errors block. A half-built step
+    // elsewhere in the draft must not stop the user testing the step they just
+    // finished — "run the whole flow to learn anything" is the exact friction
+    // this mode removes. Full runs keep whole-graph validation.
+    const blockingErrors = job.onlyNodeId
+      ? validation.errors.filter((issue) => issue.nodeId === job.onlyNodeId)
+      : validation.errors
+    if (blockingErrors.length > 0) {
+      throw new ApiError(
+        validationErrorMessage({ ...validation, ok: false, errors: blockingErrors }),
+        400,
+        'FLOW_VALIDATION_ERROR',
+      )
     }
     stepLabels = stepLabelsOf(graph, agents.map((agent) => ({ id: agent.id, title: agent.description })))
   } catch (error) {
@@ -766,6 +779,7 @@ export async function runFlowExecution(
     // downgrade every loop resume to the bare-id fallback (reply lost).
     ...((resuming || job.mockOutputs) ? { completed: { ...(resuming ? completed : {}), ...(job.mockOutputs ?? {}) }, ...(resuming ? { resumeNodeId, resumeKey, resumeReply: job.reply } : {}) } : {}),
     ...(job.startNodeId ? { startNodeId: job.startNodeId } : {}),
+    ...(job.onlyNodeId ? { onlyNodeId: job.onlyNodeId } : {}),
   })
   await Promise.all(pending) // ensure all container-step rows are written
   const status = result.status === 'succeeded' ? 'succeeded'

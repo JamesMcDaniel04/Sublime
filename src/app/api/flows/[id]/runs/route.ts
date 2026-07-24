@@ -30,6 +30,9 @@ export const GET = withAuthenticatedApi(async (request, auth) => {
   const takeParam = Number(searchParams.get('take'))
   const take = Number.isFinite(takeParam) && takeParam > 0 ? Math.min(100, Math.floor(takeParam)) : 20
   const summary = searchParams.get('summary') === '1'
+  // Builder single-node tests are debugging noise in run history — excluded
+  // unless asked for explicitly (`includeNodeTests=1`).
+  const includeNodeTests = searchParams.get('includeNodeTests') === '1'
 
   const runs = await prisma.flowRun.findMany({
     // Run history is per-user even on a shared flow: a run's input/output can
@@ -39,6 +42,7 @@ export const GET = withAuthenticatedApi(async (request, auth) => {
       organizationId: auth.organizationId,
       ...flowRunVisibilityScope(auth.dbUser.id, flow.userId),
       ...(statusList.length ? { status: { in: statusList } } : {}),
+      ...(includeNodeTests ? {} : { NOT: { trigger: { path: ['type'], equals: 'node_test' } } }),
     },
     orderBy: { startedAt: 'desc' },
     take,
