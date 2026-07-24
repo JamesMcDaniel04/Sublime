@@ -244,6 +244,44 @@ if (TEST_DB) {
     assert.equal((row.trigger as { webhookSecretHash?: string }).webhookSecretHash, hashToken(secret1))
   })
 
+  test("export: another user's agent trigger secret is NEVER embedded, even when recoverable", async () => {
+    process.env.ENCRYPTION_KEY = process.env.ENCRYPTION_KEY || 'qa-test-key'
+    const route = await import('../flows/[id]/export/route')
+    const { encryptSecret, hashToken } = await import('@/lib/crypto/secrets')
+    const stranger = await prisma.user.create({ data: { supabaseId: crypto.randomUUID(), organizationId, isActive: true } })
+    // Org-shared agent owned by someone else, with a recoverable secret stored.
+    const strangerAgent = await prisma.agentTask.create({
+      data: {
+        organizationId, userId: stranger.id, status: 'ACTIVE', visibility: 'org_viewer',
+        description: 'Stranger QA Agent', objective: 'Do QA things.',
+        metadata: { title: 'Stranger QA Agent', triggerSecretHash: hashToken('STRANGER_SECRET'), triggerSecretEnc: encryptSecret('STRANGER_SECRET') },
+      },
+    })
+    const agentGraph = {
+      nodes: [
+        { id: 'trigger', type: 'trigger', data: {} },
+        { id: 'a1', type: 'agent', data: { agentId: strangerAgent.id } },
+      ],
+      edges: [{ id: 'e1', source: 'trigger', target: 'a1' }],
+    }
+    const flow = await createFlow({ name: 'Export Stranger Agent QA', graph: agentGraph })
+
+    const res = await route.POST(post(`/api/flows/${flow.id}/export`, { target: 'portable', includeCredentials: true }))
+    assert.equal(res.status, 200)
+    const body = await res.text()
+    assert.equal(body.includes('STRANGER_SECRET'), false, "another user's secret must not leak through export")
+    const doc = JSON.parse(body)
+    assert.equal(doc.credentials?.agentTriggerSecrets?.[strangerAgent.id], undefined)
+    // The omission is stated, not silent.
+    assert.ok(
+      doc.requirements.some((line: string) => line.includes('Stranger QA Agent')),
+      'requirements must name the agent whose secret was omitted',
+    )
+    // And the stranger's secret was NOT rotated out from under them.
+    const agentRow = await prisma.agentTask.findFirst({ where: { id: strangerAgent.id, organizationId } })
+    assert.equal((agentRow.metadata as { triggerSecretHash?: string }).triggerSecretHash, hashToken('STRANGER_SECRET'))
+  })
+
   test('activateFlow still works as a wrapper (template-provisioning contract)', async () => {
     const { activateFlow } = await import('@/lib/flows/activate')
     const flow = await createFlow()

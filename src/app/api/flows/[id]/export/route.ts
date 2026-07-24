@@ -105,18 +105,27 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
       }
     }
 
-    // Agent trigger secrets: decrypt (or accept legacy plaintext); mint ONLY
-    // for agents the caller owns — rotating someone else's agent secret from
-    // an export would break their integrations.
+    // Agent trigger secrets: OWNED AGENTS ONLY — reading is as restricted as
+    // minting. An agent's trigger secret is owner-only everywhere else
+    // (agentOwnerScope on its mint route); embedding an org-shared agent's
+    // secret would hand the flow owner — and anyone they forward the file to —
+    // a direct-trigger capability the platform deliberately reserves for that
+    // agent's owner. Non-owned agents keep the placeholder, and the omission
+    // is stated in requirements rather than failing silently on import.
     const agentTriggerSecrets: Record<string, string> = {}
+    const omittedAgents: string[] = []
     for (const row of rows) {
       const metadata = (isRecord(row.metadata) ? row.metadata : {}) as Record<string, unknown>
+      if (row.userId !== auth.dbUser.id) {
+        omittedAgents.push(readAgentMetadata(row.metadata).title || row.description.split('\n')[0] || 'agent')
+        continue
+      }
       let secret: string | null = null
       if (typeof metadata.triggerSecretEnc === 'string') {
         try { secret = decryptSecret(metadata.triggerSecretEnc) } catch { secret = null }
       }
       if (!secret && typeof metadata.triggerSecret === 'string') secret = metadata.triggerSecret // legacy plaintext
-      if (!secret && row.userId === auth.dbUser.id) {
+      if (!secret) {
         secret = newTriggerSecret()
         await prisma.agentTask.update({
           where: { id: row.id, organizationId: auth.organizationId },
@@ -126,7 +135,12 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
           extraRequirements.push(`A new trigger secret was minted for agent "${readAgentMetadata(row.metadata).title || 'agent'}" — its previous secret no longer works.`)
         }
       }
-      if (secret) agentTriggerSecrets[row.id] = secret
+      agentTriggerSecrets[row.id] = secret
+    }
+    if (omittedAgents.length) {
+      extraRequirements.push(
+        `Trigger secrets were NOT included for agents you don't own: ${omittedAgents.join(', ')}. Ask each agent's owner for its secret, or swap in an agent of your own.`,
+      )
     }
     credentialOptions = { includeCredentials: true, ...(triggerSecret ? { triggerSecret } : {}), agentTriggerSecrets }
   }
