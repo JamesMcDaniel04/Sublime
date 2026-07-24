@@ -361,16 +361,28 @@ export function Sidebar() {
   }
 
   const deleteAgent = async (agent: Agent) => {
-    const response = await fetch('/api/agents', {
-      method: 'DELETE',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id: agent.id }),
-    })
-    // Delete is owner-only, so a shared agent you don't own returns 404. Reporting
-    // nothing made the UI look like it worked.
-    if (!response.ok) {
-      const data = await response.json().catch(() => ({}))
-      toast.error(data.error || 'Could not delete this agent — only its owner can.')
+    // Optimistic: drop the row immediately, restore on failure. The forced
+    // snapshot refetch (notifyAgentsChanged → load(true)) reconciles with the
+    // server — and getSnapshot(0) is guaranteed to hit the network AFTER this
+    // delete, not reuse a poll already on the wire (see lib/client/snapshot).
+    const previous = agents
+    setAgents((current) => current.filter((candidate) => candidate.id !== agent.id))
+    try {
+      const response = await fetch('/api/agents', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: agent.id }),
+      })
+      // Delete is owner-only, so a shared agent you don't own returns 404. Reporting
+      // nothing made the UI look like it worked.
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}))
+        setAgents(previous)
+        toast.error(data.error || 'Could not delete this agent — only its owner can.')
+      }
+    } catch {
+      setAgents(previous)
+      toast.error('Could not delete this agent — check your connection and try again.')
     }
     notifyAgentsChanged()
   }

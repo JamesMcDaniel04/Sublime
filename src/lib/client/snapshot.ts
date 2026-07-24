@@ -35,6 +35,12 @@ const DEFAULT_FRESH_MS = 8_000
 
 let cached: { data: Snapshot; ts: number } | null = null
 let inflight: Promise<Snapshot> | null = null
+// Monotonic ordering of network reads: a response may resolve AFTER a newer
+// request's response has already been applied (e.g. a slow poll racing the
+// forced refetch that follows a delete). Applying it would repaint deleted
+// state — the "zombie agent" bug — so seeding is gated on the sequence.
+let fetchSeq = 0
+let appliedSeq = 0
 let cacheScope: string | null = null
 let bootstrapped = false
 const listeners = new Set<(snapshot: Snapshot) => void>()
@@ -82,7 +88,13 @@ function hydrateSnapshot(): void {
   }
 }
 
-function seedSnapshot(data: Snapshot): Snapshot {
+function seedSnapshot(data: Snapshot, seq?: number): Snapshot {
+  // External seeds (login prime, hydration) count as the newest read; network
+  // reads pass their own sequence and are dropped if something newer already
+  // painted — never let a slow response overwrite fresher state.
+  const effectiveSeq = seq ?? ++fetchSeq
+  if (effectiveSeq < appliedSeq) return data
+  appliedSeq = effectiveSeq
   cached = { data, ts: Date.now() }
   persistSnapshot()
   for (const listener of listeners) listener(data)
@@ -91,6 +103,7 @@ function seedSnapshot(data: Snapshot): Snapshot {
 
 async function fetchBootstrap(): Promise<Snapshot> {
   const requestScope = cacheScope
+  const seq = ++fetchSeq
   const res = await fetch('/api/bootstrap', { cache: 'no-store' })
   const body = (await res.json().catch(() => ({}))) as Partial<BootstrapResponse> & { error?: string; code?: string }
   if (!res.ok || !body.snapshot) throw new SnapshotError(body.error || `Bootstrap failed (${res.status})`, body.code, res.status)
@@ -102,16 +115,17 @@ async function fetchBootstrap(): Promise<Snapshot> {
   seedCachedJson('/api/agents', { success: true, agents: body.snapshot.agents })
   if (body.connectionStatus) seedCachedJson('/api/nango/status', body.connectionStatus, { persist: true })
   if (body.profile) seedCachedJson('/api/settings/profile', body.profile)
-  return seedSnapshot(body.snapshot)
+  return seedSnapshot(body.snapshot, seq)
 }
 
 async function fetchSnapshot(): Promise<Snapshot> {
   if (!bootstrapped && cacheScope) return fetchBootstrap()
   const requestScope = cacheScope
+  const seq = ++fetchSeq
   const res = await fetch('/api/snapshot', { cache: 'no-store' })
   const body = (await res.json().catch(() => ({}))) as Partial<Snapshot> & { error?: string; code?: string }
   if (!res.ok) throw new SnapshotError(body.error || `Snapshot failed (${res.status})`, body.code, res.status)
-  if (cacheScope === requestScope) return seedSnapshot(body as Snapshot)
+  if (cacheScope === requestScope) return seedSnapshot(body as Snapshot, seq)
   return body as Snapshot
 }
 
@@ -122,7 +136,20 @@ async function fetchSnapshot(): Promise<Snapshot> {
  */
 export async function getSnapshot(maxAgeMs: number = DEFAULT_FRESH_MS): Promise<Snapshot> {
   if (cached && Date.now() - cached.ts < maxAgeMs) return cached.data
-  inflight ??= fetchSnapshot().finally(() => { inflight = null })
+  if (maxAgeMs <= 0) {
+    // Forced read (right after a mutation): an in-flight request may have hit
+    // the server BEFORE the write committed, so reusing it returns
+    // pre-mutation state — the sidebar's delete looked dead exactly this way.
+    // Start a fresh request and make it the shared in-flight so concurrent
+    // pollers converge on the newest data.
+    const fresh = fetchSnapshot().finally(() => { if (inflight === fresh) inflight = null })
+    inflight = fresh
+    return fresh
+  }
+  if (!inflight) {
+    const request: Promise<Snapshot> = fetchSnapshot().finally(() => { if (inflight === request) inflight = null })
+    inflight = request
+  }
   return inflight
 }
 
@@ -163,5 +190,7 @@ export function __testResetSnapshotForReload(): void {
   inflight = null
   cacheScope = null
   bootstrapped = false
+  fetchSeq = 0
+  appliedSeq = 0
   listeners.clear()
 }
