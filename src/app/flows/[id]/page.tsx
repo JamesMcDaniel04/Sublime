@@ -44,6 +44,7 @@ import type { ToolCatalog } from '@/components/flows/tool-catalog-type'
 import { CopilotPanel, type CopilotRequest } from '@/components/flows/copilot-panel'
 import { RunPanel, type FlowRunDetail } from '@/components/flows/run-panel'
 import { CheckerPanel } from '@/components/flows/checker-panel'
+import { NodeDetailView } from '@/components/flows/ndv/node-detail-view'
 import { ResizablePanel } from '@/components/flows/resizable-panel'
 import { TestPanel } from '@/components/flows/test-panel'
 import { VersionsPanel } from '@/components/flows/versions-panel'
@@ -130,6 +131,15 @@ function FlowBuilder() {
   const [showVersions, setShowVersions] = useState(false)
   const [viewingVersion, setViewingVersion] = useState<{ version: number; graph: FlowGraph } | null>(null)
   const [selectedId, setSelectedId] = useState<string | null>(null)
+  // The Node Detail View's open node. Kept alongside selectedId (not derived
+  // from it) so selecting a card on the canvas doesn't pop a full overlay.
+  const [ndvNodeId, setNdvNodeId] = useState<string | null>(null)
+  // Opening the NDV also selects the node, so the dataFields memo (keyed off
+  // selectedId's upstream) feeds the NDV's input pane.
+  const openNdv = useCallback((nodeId: string) => {
+    setSelectedId(nodeId)
+    setNdvNodeId(nodeId)
+  }, [])
   const [statusByNode, setStatusByNode] = useState<Record<string, StepStatus>>({})
   // Nodes the copilot just touched — pulsed on the canvas, cleared after 2.5s.
   const [highlightIds, setHighlightIds] = useState<string[]>([])
@@ -816,6 +826,38 @@ function FlowBuilder() {
     })
     return buildDataTree({ upstream, insideLoop, lastOutputs, triggerInput, inputFields, variables: upstreamVariables })
   }, [selectedNode, upstreamIds, graph, selectedRun, insideLoop, agentsById, loopContext, testInput, inputFields, toolCatalog, upstreamVariables])
+
+  // ── Node Detail View wiring ────────────────────────────────────────────────
+  const ndvNode = useMemo(
+    () => (ndvNodeId ? graph.nodes.find((node) => node.id === ndvNodeId) ?? null : null),
+    [ndvNodeId, graph],
+  )
+  // This node's output from the selected run, for the NDV's output pane.
+  const ndvLastOutput = useMemo(() => {
+    if (!ndvNodeId) return undefined
+    const step = selectedRun?.steps?.find((entry) => entry.nodeId === ndvNodeId)
+    return step?.output === undefined || step.output === null ? undefined : parseFlowValue(step.output)
+  }, [ndvNodeId, selectedRun])
+  // `?node=<id>` keeps the open NDV in the URL — a builder link can point at a
+  // specific step, and a refresh mid-configuration doesn't dump you back to
+  // the bare canvas. replaceState, not router.push: opening/closing an overlay
+  // must not grow the back stack.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    if (ndvNodeId) params.set('node', ndvNodeId)
+    else params.delete('node')
+    const next = params.toString()
+    window.history.replaceState(null, '', next ? `?${next}` : window.location.pathname)
+  }, [ndvNodeId])
+  // Adopt an incoming `?node=` once, after the graph has loaded — and only if
+  // the id still exists (a stale link must not open an empty NDV).
+  const ndvUrlAdopted = useRef(false)
+  useEffect(() => {
+    if (ndvUrlAdopted.current || graph.nodes.length === 0) return
+    ndvUrlAdopted.current = true
+    const initial = new URLSearchParams(window.location.search).get('node')
+    if (initial && graph.nodes.some((node) => node.id === initial)) openNdv(initial)
+  }, [graph, openNdv])
 
   const validation = useMemo(
     () => validateFlowGraph(graph, { agents, toolCatalog }),
@@ -1973,6 +2015,27 @@ function FlowBuilder() {
         focusThreadId={focusThreadId}
       />
       <JamReactionsOverlay reactions={floatingReactions} />
+      {ndvNode && !viewingVersion && (
+        <NodeDetailView
+          node={ndvNode}
+          flowId={id}
+          agents={agents}
+          toolCatalog={toolCatalog}
+          dataFields={dataFields}
+          labelCtx={labelCtx}
+          variableNames={upstreamVariables.map((variable) => variable.name)}
+          lastOutput={ndvLastOutput}
+          onChange={(node) => setGraph((g) => updateNode(g, node))}
+          onChangeType={(type) => commitGraph(changeNodeType(graph, ndvNode.id, type))}
+          onRefreshAgents={refreshAgents}
+          onAddStep={(type, branchIndex) => {
+            const { graph: next, nodeId } = addContainerStep(graph, ndvNode.id, type, type === 'agent' ? agents[0]?.id ?? '' : undefined, branchIndex)
+            commitGraph(next)
+            setSelectedId(nodeId)
+          }}
+          onClose={() => setNdvNodeId(null)}
+        />
+      )}
     </div>
   )
 }
