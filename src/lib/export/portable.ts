@@ -5,12 +5,16 @@
  * the agents it runs are inlined (a bare `agentId` is meaningless on another
  * platform), and every step keeps its wiring so the DAG can be rebuilt.
  *
- * SAFETY: an export leaves this platform, so it must never carry credentials.
- * Everything here is sanitized:
- *   - `trigger.webhookSecretHash` is dropped
+ * SAFETY: sanitization is the DEFAULT — an export leaves this platform, so it
+ * carries no credentials unless the flow's OWNER opts in per download:
+ *   - `trigger.webhookSecretHash`/`webhookSecretEnc` are always dropped
  *   - Authorization/Proxy-Authorization headers and Cookie are redacted
  *   - a connection reference exports as a NAME + a "reconnect this" requirement,
  *     never a token — connections are per-user OAuth grants and cannot travel
+ * With `includeCredentials` (owner-only; enforced by the export route), the
+ * plaintext trigger secrets live EXCLUSIVELY in the top-level `credentials`
+ * block — never inside flow.trigger — and user-typed HTTP credentials stay in
+ * their steps. The document says so loudly in `requirements`.
  *
  * The result is deliberately plain JSON with a version, so an importer (ours or
  * an LLM) can read it without knowing our internals.
@@ -34,10 +38,23 @@ export type PortableAgent = {
   integrations: string[]
 }
 
+export type PortableCredentials = {
+  /** Plaintext webhook trigger secret for this flow, if it has one. */
+  triggerSecret?: string
+  /** Plaintext trigger secrets for inlined agents, keyed by PortableAgent.ref. */
+  agentTriggerSecrets?: Record<string, string>
+}
+
+export type PortableExportOptions = { includeCredentials?: boolean } & PortableCredentials
+
 export type PortableFlow = {
   format: typeof PORTABLE_FORMAT
   version: typeof PORTABLE_VERSION
   exportedAt: string
+  /** Present (true) only when the export was made with credentials embedded. */
+  containsCredentials?: true
+  /** Live secrets — present only when containsCredentials. NEVER placed inside flow.trigger. */
+  credentials?: PortableCredentials
   flow: {
     name: string
     description: string
@@ -95,11 +112,14 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === 'object' && !Array.isArray(value))
 }
 
-/** Strip the webhook secret hash — a credential, and useless off-platform anyway. */
+/** Strip the webhook secret hash + ciphertext — credentials, useless off-platform. */
 function sanitizeTrigger(trigger: unknown): unknown {
   if (!isRecord(trigger)) return trigger ?? { type: 'manual' }
   const rest = { ...trigger }
   delete rest.webhookSecretHash
+  // Ciphertext is a credential too; the PLAINTEXT travels (opt-in) in the
+  // top-level credentials block, never here — in EVERY mode.
+  delete rest.webhookSecretEnc
   return rest
 }
 
@@ -111,7 +131,11 @@ function sanitizeTrigger(trigger: unknown): unknown {
  * that authenticate that way. Each of those is stripped by key name, so the step
  * stays rebuildable while the credential does not travel.
  */
-function sanitizeNode(node: FlowNode): FlowNode {
+function sanitizeNode(node: FlowNode, includeCredentials: boolean): FlowNode {
+  // Owner opted in: user-typed secrets travel verbatim. The redaction helpers
+  // below stay UNCONDITIONAL — redactHttpAuthOption is shared with the
+  // persisted-run-row sanitizer, so the opt-in must live here, one level up.
+  if (includeCredentials) return node
   if (node.type === 'http') {
     const data = { ...node.data } as Record<string, unknown>
     // `redactAuthHeaders` is the same helper that keeps tokens out of persisted
@@ -151,10 +175,17 @@ export function toPortableFlow(
   flow: { name: string; description?: string; trigger?: unknown; graph: FlowGraph },
   agents: { id: string; title: string; instructions: string; goal?: string | null; model?: string; integrations?: string[] }[],
   exportedAt: string,
+  options: PortableExportOptions = {},
 ): PortableFlow {
-  const nodes = (flow.graph.nodes ?? []).map(sanitizeNode)
+  const includeCredentials = options.includeCredentials === true
+  const nodes = (flow.graph.nodes ?? []).map((node) => sanitizeNode(node, includeCredentials))
   const byId = new Map(agents.map((agent) => [agent.id, agent]))
   const requirements: string[] = []
+  if (includeCredentials) {
+    requirements.push(
+      '⚠ This file contains live credentials (trigger secrets and any keys typed into HTTP steps). Anyone holding it can trigger your flow — share it like a password.',
+    )
+  }
 
   // Agents referenced by the graph, inlined.
   const referenced = new Set(
@@ -182,10 +213,14 @@ export function toPortableFlow(
   const toolSteps = nodes.filter((node) => node.type === 'tool')
   if (toolSteps.length) {
     requirements.push(
-      `Reconnect the integrations used by: ${[...new Set(toolSteps.map(labelOf))].join(', ')}. Credentials are never exported.`,
+      `Reconnect the integrations used by: ${[...new Set(toolSteps.map(labelOf))].join(', ')}. ${
+        includeCredentials
+          ? 'OAuth connections cannot travel — reconnect them on the target.'
+          : 'Credentials are never exported.'
+      }`,
     )
   }
-  if (nodes.some((node) => node.type === 'http')) {
+  if (!includeCredentials && nodes.some((node) => node.type === 'http')) {
     requirements.push(
       'Re-enter any API keys/tokens for HTTP steps — credentials are redacted on export wherever they appear (Authorization headers, cookies, URL user:pass, and api_key/token/secret values in the URL, query or body).',
     )
@@ -199,6 +234,17 @@ export function toPortableFlow(
     format: PORTABLE_FORMAT,
     version: PORTABLE_VERSION,
     exportedAt,
+    ...(includeCredentials
+      ? {
+          containsCredentials: true as const,
+          credentials: {
+            ...(options.triggerSecret ? { triggerSecret: options.triggerSecret } : {}),
+            ...(options.agentTriggerSecrets && Object.keys(options.agentTriggerSecrets).length
+              ? { agentTriggerSecrets: options.agentTriggerSecrets }
+              : {}),
+          },
+        }
+      : {}),
     flow: {
       name: flow.name,
       description: flow.description ?? '',

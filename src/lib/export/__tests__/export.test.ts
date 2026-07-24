@@ -29,7 +29,7 @@ const graph: FlowGraph = {
 const flow = {
   name: 'Lead brief',
   description: 'Gather then summarize',
-  trigger: { type: 'webhook', webhookSecretHash: 'HASHED_SECRET' },
+  trigger: { type: 'webhook', webhookSecretHash: 'HASHED_SECRET', webhookSecretEnc: 'v1:AAA:BBB:CCC' },
   graph,
 }
 const agents = [{ id: 'agt_1', title: 'Summarizer', instructions: 'Summarize the lead.', goal: 'Brief sales', model: 'gpt-x', integrations: ['slack'] }]
@@ -38,10 +38,12 @@ const portable = () => toPortableFlow(flow, agents, AT)
 
 // ── Safety: an export leaves the platform ───────────────────────────────────
 
-test('NEVER exports the webhook secret hash', () => {
+test('NEVER exports the webhook secret hash or ciphertext', () => {
   const json = JSON.stringify(portable())
   assert.equal(json.includes('HASHED_SECRET'), false)
   assert.equal(json.includes('webhookSecretHash'), false)
+  assert.equal(json.includes('webhookSecretEnc'), false)
+  assert.equal(json.includes('v1:AAA'), false)
   // …but the trigger itself still travels.
   assert.equal((portable().flow.trigger as { type?: string }).type, 'webhook')
 })
@@ -121,6 +123,44 @@ test('secrets stay out of the n8n and instructions targets too', () => {
     assert.equal(n8n.includes(secret), false, `n8n export leaked ${secret}`)
     assert.equal(md.includes(secret), false, `instructions leaked ${secret}`)
   }
+})
+
+// ── Opt-in credentialed export (spec 2026-07-24 §5) ─────────────────────────
+
+const withCreds = () =>
+  toPortableFlow(flow, agents, AT, {
+    includeCredentials: true,
+    triggerSecret: 'FLOW_SECRET_PLAINTEXT',
+    agentTriggerSecrets: { agt_1: 'AGENT_SECRET_PLAINTEXT' },
+  })
+
+test('default call shape is unchanged: no credentials key, still redacted', () => {
+  const doc = portable()
+  assert.equal('credentials' in doc, false)
+  assert.equal('containsCredentials' in doc, false)
+})
+
+test('includeCredentials carries the secrets in the credentials block only', () => {
+  const doc = withCreds()
+  assert.equal(doc.containsCredentials, true)
+  assert.equal(doc.credentials?.triggerSecret, 'FLOW_SECRET_PLAINTEXT')
+  assert.equal(doc.credentials?.agentTriggerSecrets?.agt_1, 'AGENT_SECRET_PLAINTEXT')
+  // The trigger object itself STILL never carries hash or ciphertext.
+  const triggerJson = JSON.stringify(doc.flow.trigger)
+  assert.equal(triggerJson.includes('webhookSecretHash'), false)
+  assert.equal(triggerJson.includes('webhookSecretEnc'), false)
+  assert.equal(triggerJson.includes('HASHED_SECRET'), false)
+})
+
+test('includeCredentials keeps user-typed HTTP credentials in the steps', () => {
+  const json = JSON.stringify(withCreds())
+  assert.equal(json.includes('SUPER_SECRET'), true, 'bearer token travels when opted in')
+  assert.equal(json.includes('SECRET_COOKIE'), true, 'cookie travels when opted in')
+})
+
+test('includeCredentials leads requirements with the live-credentials warning', () => {
+  const doc = withCreds()
+  assert.match(doc.requirements[0] ?? '', /live credentials/i)
 })
 
 // ── Portable ────────────────────────────────────────────────────────────────

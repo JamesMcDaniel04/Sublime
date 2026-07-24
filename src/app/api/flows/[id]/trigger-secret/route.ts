@@ -1,9 +1,8 @@
-import { randomBytes } from 'crypto'
 import { z } from 'zod'
 import { prisma } from '@/lib/prisma'
 import { ApiError, withAuthenticatedApi } from '@/lib/server/api-handler'
 import { flowOwnerScope } from '@/lib/server/visibility'
-import { hashToken } from '@/lib/crypto/secrets'
+import { newTriggerSecret, withTriggerSecret } from '@/lib/flows/webhook-secret'
 
 // Mint (or rotate) the flow's webhook trigger secret. Mirrors the agent
 // trigger-secret: only a SHA-256 hash is stored (inside flow.trigger), so the
@@ -36,10 +35,12 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
     return { ...base, hasSecret: true, secret: null }
   }
 
-  const secret = randomBytes(24).toString('base64url')
+  const secret = newTriggerSecret()
   await prisma.flow.update({
     where: { id: flow.id, organizationId: auth.organizationId },
-    data: { trigger: { ...trigger, type: 'webhook', webhookSecretHash: hashToken(secret) } },
+    // Hash validates incoming webhooks; ciphertext lets an owner-only export
+    // recover the plaintext later without rotating (see lib/flows/webhook-secret).
+    data: { trigger: withTriggerSecret(trigger, secret) },
   })
   return { ...base, hasSecret: true, secret }
 })

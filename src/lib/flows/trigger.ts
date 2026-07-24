@@ -37,8 +37,10 @@ export function triggerFromGraph(graph: FlowGraph, fallback?: unknown): FlowTrig
 
 export function preserveWebhookSecretHash(next: unknown, existing: unknown): FlowTrigger {
   const trigger = normalizeFlowTrigger(next)
-  if (isRecord(existing) && typeof existing.webhookSecretHash === 'string') {
-    trigger.webhookSecretHash = existing.webhookSecretHash
+  if (isRecord(existing)) {
+    // The client never sees either field, so a plain PUT would wipe them.
+    if (typeof existing.webhookSecretHash === 'string') trigger.webhookSecretHash = existing.webhookSecretHash
+    if (typeof existing.webhookSecretEnc === 'string') trigger.webhookSecretEnc = existing.webhookSecretEnc
   }
   return trigger
 }

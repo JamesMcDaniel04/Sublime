@@ -3,7 +3,7 @@ import { z } from 'zod'
 import { prisma } from '@/lib/prisma'
 import { ApiError, withAuthenticatedApi } from '@/lib/server/api-handler'
 import { agentOwnerScope } from '@/lib/server/visibility'
-import { hashToken } from '@/lib/crypto/secrets'
+import { encryptSecret, hashToken } from '@/lib/crypto/secrets'
 
 // Returns the agent's webhook trigger secret status, minting one on first call.
 // The plaintext secret is only ever returned at creation/rotation time — only a
@@ -39,7 +39,9 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
   }
 
   const secret = randomBytes(24).toString('base64url')
-  const nextMetadata = { ...metadata, triggerSecretHash: hashToken(secret) }
+  // Hash validates incoming triggers; ciphertext lets an owner-only flow
+  // export recover the plaintext later without rotating.
+  const nextMetadata = { ...metadata, triggerSecretHash: hashToken(secret), triggerSecretEnc: encryptSecret(secret) }
   // Drop any legacy plaintext secret from before hashing was introduced.
   delete (nextMetadata as Record<string, unknown>).triggerSecret
   await prisma.agentTask.update({
