@@ -13,7 +13,11 @@ import { NODE_BODIES } from '../registry'
 // Grows to the full union as bodies move. Listed explicitly rather than derived
 // from NODE_BODIES' own keys: a test that reads its expectations off the thing
 // under test proves nothing.
-const MOVED_SO_FAR = ['respondWebhook', 'wait', 'subflow', 'stop'] as const
+const MOVED_SO_FAR = [
+  'respondWebhook', 'wait', 'subflow', 'stop',
+  'condition', 'filter', 'transform', 'loop', 'parallel', 'switch',
+  'router', 'errorShield', 'repeatUntil', 'input', 'output',
+] as const
 
 test('every moved node type has a body module', () => {
   for (const type of MOVED_SO_FAR) {
@@ -31,6 +35,12 @@ test('requiredFields entries are non-empty strings', () => {
       assert.ok(field.trim().length > 0, `${type} has a blank requiredField`)
     }
   }
+})
+
+test('condition and filter share one body module', () => {
+  // They shared a single ConditionBody in the old switch; two copies would be
+  // two places to fix a clause-editor bug.
+  assert.equal(NODE_BODIES.condition, NODE_BODIES.filter)
 })
 
 test('registry holds exactly the types moved so far', () => {

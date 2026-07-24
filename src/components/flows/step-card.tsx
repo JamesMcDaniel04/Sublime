@@ -73,7 +73,6 @@ import { TriggerFilterEditor } from './trigger-filter-editor'
 import type { ToolCatalog } from './tool-catalog-type'
 import { ToolArgsEditor } from './tool-args-editor'
 import { NODE_TYPES, type EditableType } from './node-types'
-import { AddStepMenu } from './add-step-menu'
 import { AdvancedParamsSection } from './advanced-params'
 import { DataTree } from './data-tree'
 import { TokenTextEditor, type TokenTextEditorHandle } from './token-text-editor'
@@ -218,25 +217,9 @@ function defaultAgentInput(value?: string): boolean {
   return trimmed === 'Use this flow input:\n{{trigger.input}}' || trimmed === 'Process this item:\n{{item}}'
 }
 
-function firstClause(node: Extract<FlowNode, { type: 'condition' | 'filter' }>): ConditionClause {
-  if (node.data.clauses?.[0]) return node.data.clauses[0]
-  if (node.type === 'condition') {
-    return { left: node.data.left ?? '', op: node.data.op ?? 'contains', right: node.data.right ?? '' }
-  }
-  return { left: '', op: 'contains', right: '' }
-}
 
-function transformFields(node: Extract<FlowNode, { type: 'transform' }>): { name: string; value: string }[] {
-  return node.data.fields.length ? node.data.fields : [{ name: '', value: '' }]
-}
 
-function switchFirstCase(node: Extract<FlowNode, { type: 'switch' }>) {
-  return node.data.cases[0] ?? { id: 'case1', left: '', op: 'contains' as ConditionOp, right: '' }
-}
 
-function routerFirstBranch(node: Extract<FlowNode, { type: 'router' }>) {
-  return node.data.branches[0] ?? { id: 'branch1', label: '' }
-}
 
 function selectedTool(connectionId: string, toolName: string, toolCatalog: ToolCatalog) {
   const connection = toolCatalog.find((entry) => entry.id === connectionId)
@@ -852,66 +835,19 @@ function renderNodeBody({
       return <AgentBody node={node} agents={agents} update={update} onRefreshAgents={onRefreshAgents} tokenWiring={tokenWiring} showErrors={showErrors} />
     case 'http':
       return <HttpBody node={node} toolCatalog={toolCatalog} update={update} tokenWiring={tokenWiring} showErrors={showErrors} />
-    case 'repeatUntil':
-      return <RepeatUntilBody node={node} update={update} tokenWiring={tokenWiring} onAddStep={onAddStep} />
     case 'tool':
       return <ToolBody node={node} toolCatalog={toolCatalog} update={update} showErrors={showErrors} dataFields={dataFields ?? []} tokenWiring={tokenWiring} />
-    case 'condition':
-      return <ConditionBody node={node} update={update} tokenWiring={tokenWiring} />
-    case 'filter':
-      return <ConditionBody node={node} update={update} tokenWiring={tokenWiring} />
-    case 'transform':
-      return <TransformBody node={node} update={update} tokenWiring={tokenWiring} />
-    case 'loop':
-      return <LoopBody node={node} update={update} tokenWiring={tokenWiring} onAddStep={onAddStep} />
-    case 'parallel':
-      return (
-        <div className="space-y-3">
-          <p className="text-sm text-muted-foreground">Runs {node.data.branches.length || 0} branches side by side.</p>
-          <div className="grid gap-1.5">
-            <label className={labelClass}>Join strategy</label>
-            <select
-              value={node.data.join ?? ''}
-              onChange={(event) => update({ ...node, data: { ...node.data, join: (event.target.value || undefined) as 'object' | 'array' | 'merge' | undefined } })}
-              className={controlClass}
-            >
-              <option value="">Keyed object (default)</option>
-              <option value="object">Object (keyed by labels)</option>
-              <option value="array">Array (branch order)</option>
-              <option value="merge">Merge (shallow-merge objects)</option>
-            </select>
-          </div>
-          {onAddStep && <AddStepMenu label="Add parallel branch" onPick={onAddStep} />}
-        </div>
-      )
-    case 'switch':
-      return <SwitchBody node={node} update={update} tokenWiring={tokenWiring} />
     case 'variable':
       return <VariableBody node={node} update={update} tokenWiring={tokenWiring} variableNames={variableNames} showErrors={showErrors} />
     case 'data':
       return <DataBody node={node} update={update} tokenWiring={tokenWiring} showErrors={showErrors} />
     case 'humanReview':
       return <HumanReviewBody node={node} update={update} tokenWiring={tokenWiring} showErrors={showErrors} />
-    case 'router':
-      return <RouterBody node={node} update={update} tokenWiring={tokenWiring} />
-    case 'errorShield':
-      return <ErrorShieldBody node={node} onAddStep={onAddStep} />
-    case 'input':
-      return <p className="text-sm text-muted-foreground">Define the typed values callers may pass to this workflow.</p>
-    case 'output':
-      return <p className="text-sm text-muted-foreground">Define the values this workflow returns to callers.</p>
   }
 }
 
 
 
-function RepeatUntilBody({ node, update, tokenWiring, onAddStep }: { node: Extract<FlowNode, { type: 'repeatUntil' }>; update: (node: FlowNode) => void; tokenWiring: TokenEditorWiring; onAddStep?: (type: EditableType) => void }) {
-  return <div className="space-y-3">
-    <ConditionBody node={{ id: node.id, type: 'condition', data: { clauses: node.data.clauses, match: node.data.match } }} update={(updated) => updated.type === 'condition' && update({ ...node, data: { ...node.data, clauses: updated.data.clauses ?? [], match: updated.data.match } })} tokenWiring={tokenWiring} />
-    <div className="grid grid-cols-2 gap-2"><label className={labelClass}>Maximum runs<input className={controlClass} type="number" min={1} max={1000} value={node.data.maxIterations} onChange={(event) => update({ ...node, data: { ...node.data, maxIterations: Number(event.target.value) } })} /></label><label className={labelClass}>Delay (ms)<input className={controlClass} type="number" min={0} max={60000} value={node.data.delayMs ?? 0} onChange={(event) => update({ ...node, data: { ...node.data, delayMs: Number(event.target.value) } })} /></label></div>
-    {onAddStep && <AddStepMenu label="Add repeated step" onPick={onAddStep} />}
-  </div>
-}
 
 
 function TriggerBody({
@@ -1958,385 +1894,11 @@ function ToolBody({
   )
 }
 
-function ConditionBody({
-  node,
-  update,
-  tokenWiring,
-}: {
-  node: Extract<FlowNode, { type: 'condition' | 'filter' }>
-  update: (node: FlowNode) => void
-  tokenWiring: TokenEditorWiring
-}) {
-  const { labelCtx, registerEditor, focusEditor } = tokenWiring
-  // All clauses (legacy single left/op/right normalizes to one row).
-  const clauses: ConditionClause[] = node.data.clauses?.length ? node.data.clauses : [firstClause(node)]
-  const setClauses = (next: ConditionClause[]) =>
-    update({ ...node, data: { ...node.data, clauses: next, match: node.data.match ?? 'all', left: undefined, op: undefined, right: undefined } } as FlowNode)
-  return (
-    <div className="space-y-3">
-      <div className="flex items-center justify-between gap-2">
-        <p className="text-sm text-muted-foreground">{node.type === 'condition' ? 'Route the flow based on a rule.' : 'Continue only when this rule is true.'}</p>
-        {clauses.length > 1 && (
-          <select
-            value={node.data.match ?? 'all'}
-            onChange={(event) => update({ ...node, data: { ...node.data, match: event.target.value as 'all' | 'any', clauses } } as FlowNode)}
-            className={cn(controlClass, 'w-auto py-1 text-xs')}
-            aria-label="Match all or any rules"
-          >
-            <option value="all">All match</option>
-            <option value="any">Any match</option>
-          </select>
-        )}
-      </div>
-      {clauses.map((clause, index) => (
-        <div key={index} className="grid gap-2 sm:grid-cols-[1fr_150px_1fr_auto]">
-          <TokenTextEditor
-            ref={registerEditor(`clause.${index}.left`)}
-            value={clause.left}
-            labelCtx={labelCtx}
-            onFocus={focusEditor(`clause.${index}.left`)}
-            onChange={(left) => setClauses(clauses.map((c, j) => (j === index ? { ...c, left } : c)))}
-            className={cn(tokenControlClass, 'min-w-0')}
-            placeholder="Field or value"
-            ariaLabel={`Rule ${index + 1} field or value`}
-          />
-          <select
-            value={clause.op}
-            onChange={(event) => setClauses(clauses.map((c, j) => (j === index ? { ...c, op: event.target.value as ConditionOp } : c)))}
-            className={controlClass}
-          >
-            {CONDITION_OPS.map((op) => (
-              <option key={op} value={op}>
-                {CONDITION_OP_LABELS[op]}
-              </option>
-            ))}
-          </select>
-          <TokenTextEditor
-            ref={registerEditor(`clause.${index}.right`)}
-            value={clause.right}
-            labelCtx={labelCtx}
-            onFocus={focusEditor(`clause.${index}.right`)}
-            onChange={(right) => setClauses(clauses.map((c, j) => (j === index ? { ...c, right } : c)))}
-            className={cn(tokenControlClass, 'min-w-0')}
-            placeholder="Compare to"
-            ariaLabel={`Rule ${index + 1} comparison`}
-          />
-          {clauses.length > 1 ? (
-            <button
-              type="button"
-              onClick={() => setClauses(clauses.filter((_, j) => j !== index))}
-              className="self-center px-1 text-red-500 hover:text-red-700"
-              aria-label={`Remove rule ${index + 1}`}
-            >
-              <Trash2 className="h-4 w-4" />
-            </button>
-          ) : (
-            <span aria-hidden="true" />
-          )}
-        </div>
-      ))}
-      <button
-        type="button"
-        onClick={() => setClauses([...clauses, { left: '', op: 'contains', right: '' }])}
-        className="flex items-center gap-1 text-xs font-medium text-indigo-600 hover:text-indigo-700"
-      >
-        <Plus className="h-3.5 w-3.5" /> Add rule
-      </button>
-    </div>
-  )
-}
 
-function TransformBody({
-  node,
-  update,
-  tokenWiring,
-}: {
-  node: Extract<FlowNode, { type: 'transform' }>
-  update: (node: FlowNode) => void
-  tokenWiring: TokenEditorWiring
-}) {
-  const { labelCtx, registerEditor, focusEditor, blockActive, unblockActive } = tokenWiring
-  const fields = transformFields(node)
-  const setFields = (next: typeof fields) => update({ ...node, data: { ...node.data, fields: next } })
-  return (
-    <div className="space-y-3">
-      <p className="text-sm text-muted-foreground">Create a clean object for later steps.</p>
-      {fields.map((field, index) => (
-        <div key={index} className="grid gap-2 sm:grid-cols-[1fr_1fr_36px]">
-          <input
-            value={field.name}
-            onChange={(event) => setFields(fields.map((entry, fieldIndex) => (fieldIndex === index ? { ...entry, name: event.target.value } : entry)))}
-            onFocus={blockActive}
-            onBlur={unblockActive}
-            className={controlClass}
-            placeholder="Output field"
-          />
-          <TokenTextEditor
-            ref={registerEditor(`xf.${index}`)}
-            value={field.value}
-            labelCtx={labelCtx}
-            onFocus={focusEditor(`xf.${index}`)}
-            onChange={(value) => setFields(fields.map((entry, fieldIndex) => (fieldIndex === index ? { ...entry, value } : entry)))}
-            className={cn(tokenControlClass, 'min-w-0')}
-            placeholder="Value"
-            ariaLabel={`Value for field ${field.name || index + 1}`}
-          />
-          <button
-            type="button"
-            onClick={() => setFields(fields.filter((_, fieldIndex) => fieldIndex !== index))}
-            className="flex h-10 w-10 items-center justify-center rounded-md text-muted-foreground hover:bg-red-50 hover:text-red-600"
-            aria-label="Remove field"
-          >
-            <Trash2 className="h-4 w-4" />
-          </button>
-        </div>
-      ))}
-      <button type="button" onClick={() => setFields([...fields, { name: '', value: '' }])} className="text-sm font-semibold text-blue-700 hover:text-blue-900">
-        Add field
-      </button>
-    </div>
-  )
-}
 
-function LoopBody({
-  node,
-  update,
-  tokenWiring,
-  onAddStep,
-}: {
-  node: Extract<FlowNode, { type: 'loop' }>
-  update: (node: FlowNode) => void
-  tokenWiring: TokenEditorWiring
-  onAddStep?: (type: EditableType, branchIndex?: number) => void
-}) {
-  const { labelCtx, registerEditor, focusEditor } = tokenWiring
-  const usesTriggerInput = node.data.over === '{{trigger.input}}'
-  return (
-    <div className="space-y-3">
-      <p className="text-sm text-muted-foreground">Run the steps inside this loop once for each item in a list.</p>
-      <div className="grid gap-2 sm:grid-cols-[180px_1fr]">
-        <select
-          value={usesTriggerInput ? 'trigger' : 'custom'}
-          onChange={(event) => update({ ...node, data: { ...node.data, over: event.target.value === 'trigger' ? '{{trigger.input}}' : '' } })}
-          className={controlClass}
-        >
-          <option value="trigger">Trigger input</option>
-          <option value="custom">Custom list</option>
-        </select>
-        {usesTriggerInput ? (
-          <input value="" readOnly className={controlClass} placeholder="Uses trigger input" disabled aria-label="Items to process" />
-        ) : (
-          <TokenTextEditor
-            ref={registerEditor('loop.over')}
-            value={node.data.over}
-            labelCtx={labelCtx}
-            onFocus={focusEditor('loop.over')}
-            onChange={(over) => update({ ...node, data: { ...node.data, over } })}
-            className={cn(tokenControlClass, 'min-w-0')}
-            placeholder="Comma-separated list, JSON array, or mapped list"
-            ariaLabel="Items to process"
-          />
-        )}
-      </div>
-      {onAddStep && <AddStepMenu label="Add step to loop" onPick={onAddStep} />}
-      <AdvancedParamsSection node={node} onChange={update} />
-    </div>
-  )
-}
 
-function ErrorShieldBody({
-  node: _node,
-  onAddStep,
-}: {
-  node: Extract<FlowNode, { type: 'errorShield' }>
-  onAddStep?: (type: EditableType, branchIndex?: number) => void
-}) {
-  return (
-    <div className="space-y-3">
-      <p className="text-sm text-muted-foreground">
-        Runs the body below. If a body step fails, the fallback runs instead — with the error available as{' '}
-        <code className="rounded bg-muted px-1 py-0.5 text-xs">{'{{error}}'}</code> — and this step still succeeds.
-      </p>
-      {onAddStep && <AddStepMenu label="Add step to body" onPick={onAddStep} />}
-      {onAddStep && <AddStepMenu label="Add fallback step" onPick={(type) => onAddStep(type, -1)} />}
-    </div>
-  )
-}
 
-function SwitchBody({
-  node,
-  update,
-  tokenWiring,
-}: {
-  node: Extract<FlowNode, { type: 'switch' }>
-  update: (node: FlowNode) => void
-  tokenWiring: TokenEditorWiring
-}) {
-  const { labelCtx, registerEditor, focusEditor } = tokenWiring
-  const cases = node.data.cases.length ? node.data.cases : [switchFirstCase(node)]
-  const setCases = (next: typeof cases) => update({ ...node, data: { ...node.data, cases: next } })
-  return (
-    <div className="space-y-3">
-      <p className="text-sm text-muted-foreground">Route to the first matching case, otherwise use the default path.</p>
-      {cases.map((c, index) => (
-        <div key={c.id} className="space-y-2 rounded-lg border border-border p-2.5">
-          <div className="flex gap-2">
-            <input
-              value={c.label ?? ''}
-              placeholder={`Case ${index + 1} label`}
-              onChange={(event) => setCases(cases.map((x, j) => (j === index ? { ...x, label: event.target.value } : x)))}
-              className={cn(controlClass, 'flex-1')}
-              aria-label={`Case ${index + 1} label`}
-            />
-            {cases.length > 1 && (
-              <button
-                type="button"
-                onClick={() => setCases(cases.filter((_, j) => j !== index))}
-                className="px-1 text-red-500 hover:text-red-700"
-                aria-label={`Remove case ${index + 1}`}
-              >
-                <Trash2 className="h-4 w-4" />
-              </button>
-            )}
-          </div>
-          <div className="grid gap-2 sm:grid-cols-[1fr_150px_1fr]">
-            <TokenTextEditor
-              ref={registerEditor(`sw.${index}.left`)}
-              value={c.left}
-              labelCtx={labelCtx}
-              onFocus={focusEditor(`sw.${index}.left`)}
-              onChange={(left) => setCases(cases.map((x, j) => (j === index ? { ...x, left } : x)))}
-              className={cn(tokenControlClass, 'min-w-0')}
-              placeholder="Field or value"
-              ariaLabel={`Case ${index + 1} value`}
-            />
-            <select
-              value={c.op}
-              onChange={(event) => setCases(cases.map((x, j) => (j === index ? { ...x, op: event.target.value as ConditionOp } : x)))}
-              className={controlClass}
-            >
-              {CONDITION_OPS.map((op) => (
-                <option key={op} value={op}>
-                  {CONDITION_OP_LABELS[op]}
-                </option>
-              ))}
-            </select>
-            <TokenTextEditor
-              ref={registerEditor(`sw.${index}.right`)}
-              value={c.right}
-              labelCtx={labelCtx}
-              onFocus={focusEditor(`sw.${index}.right`)}
-              onChange={(right) => setCases(cases.map((x, j) => (j === index ? { ...x, right } : x)))}
-              className={cn(tokenControlClass, 'min-w-0')}
-              placeholder="Compare to"
-              ariaLabel={`Case ${index + 1} comparison`}
-            />
-          </div>
-        </div>
-      ))}
-      <button
-        type="button"
-        onClick={() =>
-          setCases([...cases, { id: `case${cases.length + 1}-${Math.random().toString(36).slice(2, 6)}`, left: '', op: 'contains', right: '' }])
-        }
-        className="flex items-center gap-1 text-xs font-medium text-indigo-600 hover:text-indigo-700"
-      >
-        <Plus className="h-3.5 w-3.5" /> Add case
-      </button>
-    </div>
-  )
-}
 
-function RouterBody({
-  node,
-  update,
-  tokenWiring,
-}: {
-  node: Extract<FlowNode, { type: 'router' }>
-  update: (node: FlowNode) => void
-  tokenWiring: TokenEditorWiring
-}) {
-  const { labelCtx, registerEditor, focusEditor } = tokenWiring
-  const branches = node.data.branches.length ? node.data.branches : [routerFirstBranch(node)]
-  const setBranches = (next: typeof branches) => update({ ...node, data: { ...node.data, branches: next } })
-  return (
-    <div className="space-y-3">
-      <p className="text-sm text-muted-foreground">
-        An AI model reads the routing input, weighs it against each branch&apos;s description below, and continues down the best match — otherwise the <strong>default</strong> path.
-      </p>
-      <div className="grid gap-2">
-        <label className={labelClass}>Routing input</label>
-        <TokenTextEditor
-          ref={registerEditor('router.input')}
-          value={node.data.input ?? ''}
-          labelCtx={labelCtx}
-          onFocus={focusEditor('router.input')}
-          onChange={(input) => update({ ...node, data: { ...node.data, input } })}
-          className={cn(tokenControlClass, 'min-w-0')}
-          placeholder="The value the AI routes on, e.g. {{trigger.input}}"
-          ariaLabel="Routing input"
-        />
-      </div>
-      <div className="grid gap-2">
-        <label className={labelClass}>Routing instructions (optional)</label>
-        <TokenTextEditor
-          ref={registerEditor('router.instructions')}
-          multiline
-          rows={3}
-          value={node.data.instructions ?? ''}
-          labelCtx={labelCtx}
-          onFocus={focusEditor('router.instructions')}
-          onChange={(instructions) => update({ ...node, data: { ...node.data, instructions: instructions || undefined } })}
-          className={tokenControlClass}
-          placeholder="Extra guidance for the model making the routing decision"
-          ariaLabel="Routing instructions"
-        />
-      </div>
-      <div className="space-y-2">
-        {branches.map((branch, index) => (
-          <div key={branch.id} className="space-y-2 rounded-lg border border-border p-2.5">
-            <div className="flex gap-2">
-              <input
-                value={branch.label ?? ''}
-                placeholder={`Branch ${index + 1} label`}
-                onChange={(event) => setBranches(branches.map((b, j) => (j === index ? { ...b, label: event.target.value } : b)))}
-                className={cn(controlClass, 'flex-1')}
-                aria-label={`Branch ${index + 1} label`}
-              />
-              {branches.length > 1 && (
-                <button
-                  type="button"
-                  onClick={() => setBranches(branches.filter((_, j) => j !== index))}
-                  className="px-1 text-red-500 hover:text-red-700"
-                  aria-label={`Remove branch ${index + 1}`}
-                >
-                  <Trash2 className="h-4 w-4" />
-                </button>
-              )}
-            </div>
-            <textarea
-              value={branch.description ?? ''}
-              onChange={(event) => setBranches(branches.map((b, j) => (j === index ? { ...b, description: event.target.value } : b)))}
-              rows={2}
-              className={cn(controlClass, 'h-auto w-full min-h-[64px] resize-y py-2')}
-              placeholder="What routes here — the AI picks the branch by this description"
-              aria-label={`Branch ${index + 1} description`}
-            />
-          </div>
-        ))}
-      </div>
-      <button
-        type="button"
-        onClick={() =>
-          setBranches([...branches, { id: `branch${branches.length + 1}-${Math.random().toString(36).slice(2, 6)}`, label: '', description: '' }])
-        }
-        className="flex items-center gap-1 text-xs font-medium text-indigo-600 hover:text-indigo-700"
-      >
-        <Plus className="h-3.5 w-3.5" /> Add branch
-      </button>
-    </div>
-  )
-}
 
 
 function VariableBody({
