@@ -22,7 +22,8 @@ export type FlowValidationResult = {
   issues: FlowValidationIssue[]
 }
 
-function nodeLabel(node: FlowNode | undefined) {
+/** Exported for node-test-input's NodeRef labels — one label derivation, not two. */
+export function nodeLabel(node: FlowNode | undefined) {
   if (!node) return 'Unknown step'
   const label = 'label' in node.data && typeof node.data.label === 'string' ? node.data.label.trim() : ''
   if (label) return label
