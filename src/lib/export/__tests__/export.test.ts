@@ -163,6 +163,27 @@ test('includeCredentials leads requirements with the live-credentials warning', 
   assert.match(doc.requirements[0] ?? '', /live credentials/i)
 })
 
+test('every target carries the real secrets when the document does', () => {
+  const doc = withCreds()
+  const outputs = [
+    JSON.stringify(toN8nWorkflow(doc, { triggerBaseUrl: 'https://app.example' })),
+    JSON.stringify(toWorkatoRecipe(doc, { triggerBaseUrl: 'https://app.example' })),
+    JSON.stringify(toPowerAutomateFlow(doc, { triggerBaseUrl: 'https://app.example' })),
+    toInstructions(doc),
+  ]
+  for (const out of outputs) {
+    assert.equal(out.includes('AGENT_SECRET_PLAINTEXT'), true, 'agent trigger secret must be filled in')
+    assert.equal(out.includes('REPLACE_WITH_TRIGGER_SECRET'), false, 'no placeholder when the secret is known')
+  }
+  assert.match(toInstructions(doc).split('\n')[0] ?? '', /live credentials/i)
+})
+
+test('targets keep the placeholder when the document has no credentials', () => {
+  const doc = portable()
+  const n8n = JSON.stringify(toN8nWorkflow(doc, { triggerBaseUrl: 'https://app.example' }))
+  assert.equal(n8n.includes('REPLACE_WITH_TRIGGER_SECRET'), true)
+})
+
 // ── Portable ────────────────────────────────────────────────────────────────
 
 test('inlines referenced agents so the export stands alone', () => {

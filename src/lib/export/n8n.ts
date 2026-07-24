@@ -41,12 +41,14 @@ export type N8nWorkflow = {
 const labelOf = (node: FlowNode) => (node.data as { label?: string }).label?.trim() || node.type
 
 /** Our step → an n8n node type + parameters. */
-function mapNode(node: FlowNode, triggerBaseUrl?: string): { type: string; typeVersion: number; parameters: Record<string, unknown>; notes?: string } {
+function mapNode(node: FlowNode, portable: PortableFlow, triggerBaseUrl?: string): { type: string; typeVersion: number; parameters: Record<string, unknown>; notes?: string } {
   const data = node.data as Record<string, unknown>
   switch (node.type) {
     case 'agent': {
       const agentId = typeof data.agentId === 'string' ? data.agentId : ''
       if (!triggerBaseUrl || !agentId) break // placeholder fallback below
+      const secret = portable.credentials?.agentTriggerSecrets?.[agentId] ?? 'REPLACE_WITH_TRIGGER_SECRET'
+      const filled = secret !== 'REPLACE_WITH_TRIGGER_SECRET'
       return {
         type: 'n8n-nodes-base.httpRequest',
         typeVersion: 4.2,
@@ -54,12 +56,14 @@ function mapNode(node: FlowNode, triggerBaseUrl?: string): { type: string; typeV
           method: 'POST',
           url: `${triggerBaseUrl}/api/agents/${agentId}/trigger`,
           sendHeaders: true,
-          headerParameters: { parameters: [{ name: 'x-trigger-secret', value: 'REPLACE_WITH_TRIGGER_SECRET' }] },
+          headerParameters: { parameters: [{ name: 'x-trigger-secret', value: secret }] },
           sendBody: true,
           specifyBody: 'json',
           jsonBody: '={{ JSON.stringify({ input: $json }) }}',
         },
-        notes: 'Runs the live Sublime agent. Paste the trigger secret from the agent\u2019s Webhook settings into the x-trigger-secret header.',
+        notes: filled
+          ? 'Runs the live Sublime agent. The trigger secret is embedded \u2014 treat this workflow file like a password.'
+          : 'Runs the live Sublime agent. Paste the trigger secret from the agent\u2019s Webhook settings into the x-trigger-secret header.',
       }
     }
     case 'trigger':
@@ -146,7 +150,7 @@ export function toN8nWorkflow(portable: PortableFlow, options: { triggerBaseUrl?
   }
 
   const n8nNodes: N8nNode[] = nodes.map((node, index) => {
-    const mapped = mapNode(node, options.triggerBaseUrl)
+    const mapped = mapNode(node, portable, options.triggerBaseUrl)
     const position = layout[node.id]
     const notes = [placeholderNotes(node, portable), mapped.notes].filter(Boolean).join('\n\n') || undefined
     return {

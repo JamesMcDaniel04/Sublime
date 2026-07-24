@@ -64,17 +64,22 @@ function mapAction(node: FlowNode, portable: PortableFlow, triggerBaseUrl?: stri
       const agentId = typeof data.agentId === 'string' ? data.agentId : ''
       if (triggerBaseUrl && agentId) {
         // Runnable: an HTTP action that executes the live Sublime agent.
+        const secret = portable.credentials?.agentTriggerSecrets?.[agentId] ?? 'REPLACE_WITH_TRIGGER_SECRET'
+        const filled = secret !== 'REPLACE_WITH_TRIGGER_SECRET'
+        const secretNote = filled
+          ? 'The trigger secret is embedded — treat this flow file like a password.'
+          : "Paste the trigger secret from the agent's Webhook settings."
         return {
           type: 'Http',
           inputs: {
             method: 'POST',
             uri: `${triggerBaseUrl}/api/agents/${agentId}/trigger`,
-            headers: { 'x-trigger-secret': 'REPLACE_WITH_TRIGGER_SECRET', 'Content-Type': 'application/json' },
+            headers: { 'x-trigger-secret': secret, 'Content-Type': 'application/json' },
             body: { input: '@{triggerBody()}' },
           },
           description: agent
-            ? `Runs the live Sublime agent "${agent.title}". Paste the trigger secret from the agent's Webhook settings.\n\nInstructions:\n${agent.instructions}`
-            : 'Runs a live Sublime agent — paste the trigger secret from the agent\u2019s Webhook settings.',
+            ? `Runs the live Sublime agent "${agent.title}". ${secretNote}\n\nInstructions:\n${agent.instructions}`
+            : `Runs a live Sublime agent — ${filled ? 'the trigger secret is embedded; treat this flow file like a password' : 'paste the trigger secret from the agent\u2019s Webhook settings'}.`,
         }
       }
       return {
