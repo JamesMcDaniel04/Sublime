@@ -1378,13 +1378,18 @@ function FlowBuilder() {
 
   /**
    * Export this workflow for another platform. The server does the conversion
-   * (and the redaction — credentials never leave), and streams a file back, so
-   * this just follows the download.
+   * and streams a file back, so this just follows the download. Owners can opt
+   * into embedding live credentials (trigger secrets, HTTP keys) so the file
+   * runs without hunting for them — the server enforces owner-only for that.
    */
   const exportFlow = useCallback(
-    async (target: 'portable' | 'n8n' | 'workato' | 'power-automate' | 'instructions') => {
+    async (target: 'portable' | 'n8n' | 'workato' | 'power-automate' | 'instructions', includeCredentials: boolean) => {
       try {
-        const response = await fetch(`/api/flows/${id}/export?target=${target}`, { cache: 'no-store' })
+        const response = await fetch(`/api/flows/${id}/export`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ target, includeCredentials }),
+        })
         if (!response.ok) {
           const data = await response.json().catch(() => ({}))
           throw new Error(data.error || 'Export failed')
@@ -1398,9 +1403,11 @@ function FlowBuilder() {
         link.click()
         URL.revokeObjectURL(url)
         toast.success(
-          target === 'instructions'
-            ? 'Rebuild instructions downloaded — paste them into any builder.'
-            : 'Exported. Credentials were not included — the file lists what to reconnect.',
+          includeCredentials
+            ? 'Exported with live credentials — treat the file like a password.'
+            : target === 'instructions'
+              ? 'Rebuild instructions downloaded — paste them into any builder.'
+              : 'Exported. Credentials were not included — the file lists what to reconnect.',
         )
       } catch (error) {
         toast.error(error instanceof Error ? error.message : 'Export failed')
@@ -1595,22 +1602,27 @@ function FlowBuilder() {
               <Download className="h-4 w-4" /> Download JSON
             </DropdownMenuItem>
             <DropdownMenuSeparator />
-            {/* Take this workflow elsewhere. Credentials are never included —
-                the export states what has to be reconnected on the other side. */}
+            {/* Take this workflow elsewhere. Owners export with live
+                credentials embedded by default (the server mints/decrypts
+                trigger secrets and enforces owner-only); non-owners get the
+                sanitized variant, which lists what to reconnect. */}
             <DropdownMenuLabel>Export to another platform</DropdownMenuLabel>
-            <DropdownMenuItem onSelect={() => exportFlow('portable')}>
-              <Download className="h-4 w-4" /> Portable JSON (any platform)
-            </DropdownMenuItem>
-            <DropdownMenuItem onSelect={() => exportFlow('n8n')}>
-              <Download className="h-4 w-4" /> n8n workflow (import-ready)
-            </DropdownMenuItem>
-            <DropdownMenuItem onSelect={() => exportFlow('workato')}>
-              <Download className="h-4 w-4" /> Workato recipe (linear — merges noted)
-            </DropdownMenuItem>
-            <DropdownMenuItem onSelect={() => exportFlow('power-automate')}>
-              <Download className="h-4 w-4" /> Power Automate flow (import-ready)
-            </DropdownMenuItem>
-            <DropdownMenuItem onSelect={() => exportFlow('instructions')}>
+            {([
+              ['portable', 'Portable JSON (any platform)'],
+              ['n8n', 'n8n workflow (import-ready)'],
+              ['workato', 'Workato recipe (linear — merges noted)'],
+              ['power-automate', 'Power Automate flow (import-ready)'],
+            ] as const).map(([target, label]) => (
+              <DropdownMenuItem key={target} onSelect={() => exportFlow(target, canManageJam)}>
+                <Download className="h-4 w-4" /> {label}
+              </DropdownMenuItem>
+            ))}
+            {canManageJam && (
+              <DropdownMenuItem onSelect={() => exportFlow('portable', false)}>
+                <Download className="h-4 w-4" /> Portable JSON (no credentials)
+              </DropdownMenuItem>
+            )}
+            <DropdownMenuItem onSelect={() => exportFlow('instructions', canManageJam)}>
               <ScrollText className="h-4 w-4" /> Rebuild instructions (Zapier &amp; anything else)
             </DropdownMenuItem>
             <DropdownMenuSeparator />

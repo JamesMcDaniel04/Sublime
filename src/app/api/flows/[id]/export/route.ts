@@ -1,40 +1,59 @@
+import { z } from 'zod'
 import { prisma } from '@/lib/prisma'
 import { ApiError, withAuthenticatedApi } from '@/lib/server/api-handler'
-import { flowReadScope, agentReadScope } from '@/lib/server/visibility'
+import { flowReadScope, flowOwnerScope, agentReadScope } from '@/lib/server/visibility'
 import { flowGraphSchema } from '@/lib/flows/graph'
 import { readAgentMetadata } from '@/lib/agents/metadata'
-import { toPortableFlow } from '@/lib/export/portable'
+import { toPortableFlow, type PortableExportOptions } from '@/lib/export/portable'
 import { toInstructions } from '@/lib/export/instructions'
 import { toN8nWorkflow } from '@/lib/export/n8n'
 import { toWorkatoRecipe } from '@/lib/export/workato'
 import { toPowerAutomateFlow } from '@/lib/export/power-automate'
+import { readTriggerSecret, newTriggerSecret, withTriggerSecret } from '@/lib/flows/webhook-secret'
+import { decryptSecret, encryptSecret, hashToken } from '@/lib/crypto/secrets'
 import { NextResponse } from 'next/server'
 
 export const runtime = 'nodejs'
 
 const TARGETS = ['portable', 'n8n', 'workato', 'power-automate', 'instructions'] as const
-type Target = (typeof TARGETS)[number]
 
-const isTarget = (value: string): value is Target => (TARGETS as readonly string[]).includes(value)
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === 'object' && !Array.isArray(value))
+}
 
 /**
- * GET /api/flows/<id>/export?target=portable|n8n|workato|power-automate|instructions
+ * POST /api/flows/<id>/export  { target, includeCredentials }
  *
- * Read access is enough to export — if you can open a shared flow you can take a
- * copy of it. Credentials never travel (see lib/export/portable), so an export
- * cannot leak more than the builder already shows you.
+ * Sanitized export (default): read scope — a copy of what the builder already
+ * shows, credentials never included. includeCredentials: OWNER ONLY; embeds
+ * live trigger secrets (minting one if none is recoverable) and keeps
+ * user-typed HTTP credentials, so the response itself is a credential. POST
+ * because minting is a side effect.
  */
-export const GET = withAuthenticatedApi(async (request, auth) => {
+export const POST = withAuthenticatedApi(async (request, auth) => {
   const id = request.nextUrl.pathname.split('/').at(-2)
   if (!id) throw new ApiError('Flow id is required')
-  const target = request.nextUrl.searchParams.get('target') ?? 'portable'
-  if (!isTarget(target)) throw new ApiError(`Unknown export target "${target}"`, 400, 'UNKNOWN_TARGET')
+  const { target, includeCredentials } = z.object({
+    target: z.enum(TARGETS).default('portable'),
+    includeCredentials: z.boolean().default(false),
+  }).parse(await request.json().catch(() => ({})))
 
+  const scope = includeCredentials ? flowOwnerScope(auth.dbUser.id) : flowReadScope(auth.dbUser.id)
   const flow = await prisma.flow.findFirst({
-    where: { id, organizationId: auth.organizationId, ...flowReadScope(auth.dbUser.id) },
-    select: { name: true, description: true, trigger: true, graph: true },
+    where: { id, organizationId: auth.organizationId, ...scope },
+    select: { id: true, name: true, description: true, trigger: true, graph: true },
   })
-  if (!flow) throw new ApiError('Flow not found', 404, 'NOT_FOUND')
+  if (!flow) {
+    // Distinguish "can read but not own" from "cannot see at all" honestly.
+    if (includeCredentials) {
+      const readable = await prisma.flow.findFirst({
+        where: { id, organizationId: auth.organizationId, ...flowReadScope(auth.dbUser.id) },
+        select: { id: true },
+      })
+      if (readable) throw new ApiError('Only the flow owner can export with credentials', 403, 'FORBIDDEN')
+    }
+    throw new ApiError('Flow not found', 404, 'NOT_FOUND')
+  }
 
   const graph = flowGraphSchema.parse(flow.graph)
   // Inline only the agents this graph actually references — and only ones the
@@ -50,7 +69,7 @@ export const GET = withAuthenticatedApi(async (request, auth) => {
   const rows = agentIds.length
     ? await prisma.agentTask.findMany({
         where: { id: { in: agentIds }, organizationId: auth.organizationId, ...agentReadScope(auth.dbUser.id) },
-        select: { id: true, description: true, objective: true, goal: true, metadata: true },
+        select: { id: true, description: true, objective: true, goal: true, metadata: true, userId: true },
       })
     : []
   const agents = rows.map((row) => {
@@ -65,7 +84,60 @@ export const GET = withAuthenticatedApi(async (request, auth) => {
     }
   })
 
-  const portable = toPortableFlow({ name: flow.name, description: flow.description, trigger: flow.trigger, graph }, agents, new Date().toISOString())
+  let credentialOptions: PortableExportOptions = {}
+  const extraRequirements: string[] = []
+  if (includeCredentials) {
+    // Flow webhook secret: decrypt if recoverable; mint if the flow has a
+    // webhook trigger but no recoverable secret. A pre-encryption secret is
+    // REPLACED — the export states that the old one is now invalid.
+    const trigger = (isRecord(flow.trigger) ? flow.trigger : {}) as Record<string, unknown>
+    let triggerSecret = readTriggerSecret(trigger)
+    const hasWebhook = trigger.type === 'webhook' || typeof trigger.webhookSecretHash === 'string'
+    if (!triggerSecret && hasWebhook) {
+      const hadLegacySecret = typeof trigger.webhookSecretHash === 'string'
+      triggerSecret = newTriggerSecret()
+      await prisma.flow.update({
+        where: { id: flow.id, organizationId: auth.organizationId },
+        data: { trigger: withTriggerSecret(trigger, triggerSecret) },
+      })
+      if (hadLegacySecret) {
+        extraRequirements.push('A new webhook trigger secret was minted for this export — the previous secret no longer works.')
+      }
+    }
+
+    // Agent trigger secrets: decrypt (or accept legacy plaintext); mint ONLY
+    // for agents the caller owns — rotating someone else's agent secret from
+    // an export would break their integrations.
+    const agentTriggerSecrets: Record<string, string> = {}
+    for (const row of rows) {
+      const metadata = (isRecord(row.metadata) ? row.metadata : {}) as Record<string, unknown>
+      let secret: string | null = null
+      if (typeof metadata.triggerSecretEnc === 'string') {
+        try { secret = decryptSecret(metadata.triggerSecretEnc) } catch { secret = null }
+      }
+      if (!secret && typeof metadata.triggerSecret === 'string') secret = metadata.triggerSecret // legacy plaintext
+      if (!secret && row.userId === auth.dbUser.id) {
+        secret = newTriggerSecret()
+        await prisma.agentTask.update({
+          where: { id: row.id, organizationId: auth.organizationId },
+          data: { metadata: { ...metadata, triggerSecretHash: hashToken(secret), triggerSecretEnc: encryptSecret(secret) } },
+        })
+        if (typeof metadata.triggerSecretHash === 'string') {
+          extraRequirements.push(`A new trigger secret was minted for agent "${readAgentMetadata(row.metadata).title || 'agent'}" — its previous secret no longer works.`)
+        }
+      }
+      if (secret) agentTriggerSecrets[row.id] = secret
+    }
+    credentialOptions = { includeCredentials: true, ...(triggerSecret ? { triggerSecret } : {}), agentTriggerSecrets }
+  }
+
+  const portable = toPortableFlow(
+    { name: flow.name, description: flow.description, trigger: flow.trigger, graph },
+    agents,
+    new Date().toISOString(),
+    credentialOptions,
+  )
+  portable.requirements.push(...extraRequirements)
   const slug = (flow.name || 'workflow').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'workflow'
 
   if (target === 'instructions') {
@@ -76,10 +148,10 @@ export const GET = withAuthenticatedApi(async (request, auth) => {
       },
     })
   }
-  // Each target converts the SAME sanitized portable doc — redaction can never
-  // be skipped by adding a new target. The deployment origin makes agent steps
-  // export as RUNNABLE HTTP calls to their live trigger endpoints (the secret
-  // itself is never exported — the user pastes it in the target tool).
+  // Each target converts the SAME portable doc — sanitization (or the owner's
+  // explicit credential opt-in) can never be skipped by adding a new target.
+  // The deployment origin makes agent steps export as RUNNABLE HTTP calls to
+  // their live trigger endpoints.
   const triggerBaseUrl = request.nextUrl.origin
   const BY_TARGET = {
     n8n: { body: () => toN8nWorkflow(portable, { triggerBaseUrl }), suffix: '.n8n' },

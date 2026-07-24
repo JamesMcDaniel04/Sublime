@@ -200,6 +200,50 @@ if (TEST_DB) {
     assert.equal((await toolNames()).includes(await slugOf('Planes QA Draft')), false)
   })
 
+  test('export: non-owner gets 403 for includeCredentials, 200 for sanitized', async () => {
+    process.env.ENCRYPTION_KEY = process.env.ENCRYPTION_KEY || 'qa-test-key'
+    const route = await import('../flows/[id]/export/route')
+    const owner = await prisma.user.create({ data: { supabaseId: crypto.randomUUID(), organizationId, isActive: true } })
+    const flow = await createFlow({ name: 'Export QA', userId: owner.id, visibility: 'org_viewer' })
+
+    // Caller is the seeded (non-owner) user.
+    const denied = await route.POST(post(`/api/flows/${flow.id}/export`, { target: 'portable', includeCredentials: true }))
+    assert.equal(denied.status, 403)
+    const allowed = await route.POST(post(`/api/flows/${flow.id}/export`, { target: 'portable' }))
+    assert.equal(allowed.status, 200)
+    const doc = await allowed.json()
+    assert.equal('credentials' in doc, false)
+  })
+
+  test('export: owner with a webhook flow gets a working secret; re-export returns the SAME one', async () => {
+    process.env.ENCRYPTION_KEY = process.env.ENCRYPTION_KEY || 'qa-test-key'
+    const route = await import('../flows/[id]/export/route')
+    const webhookGraph = {
+      nodes: [
+        { id: 'trigger', type: 'trigger', data: { trigger: { type: 'webhook' } } },
+        { id: 't1', type: 'transform', data: { fields: [{ name: 'echo', value: 'ok' }] } },
+      ],
+      edges: [{ id: 'e1', source: 'trigger', target: 't1' }],
+    }
+    const flow = await createFlow({ name: 'Export Secret QA', graph: webhookGraph, trigger: { type: 'webhook' } })
+
+    const first = await route.POST(post(`/api/flows/${flow.id}/export`, { target: 'portable', includeCredentials: true }))
+    assert.equal(first.status, 200)
+    const doc1 = await first.json()
+    assert.equal(doc1.containsCredentials, true)
+    const secret1 = doc1.credentials?.triggerSecret
+    assert.ok(secret1, 'a webhook flow must get a minted secret')
+
+    const second = await route.POST(post(`/api/flows/${flow.id}/export`, { target: 'portable', includeCredentials: true }))
+    const doc2 = await second.json()
+    assert.equal(doc2.credentials?.triggerSecret, secret1, 'export must not rotate an existing secret')
+
+    // The stored hash validates the exported plaintext.
+    const { hashToken } = await import('@/lib/crypto/secrets')
+    const row = await prisma.flow.findFirst({ where: { id: flow.id, organizationId } })
+    assert.equal((row.trigger as { webhookSecretHash?: string }).webhookSecretHash, hashToken(secret1))
+  })
+
   test('activateFlow still works as a wrapper (template-provisioning contract)', async () => {
     const { activateFlow } = await import('@/lib/flows/activate')
     const flow = await createFlow()

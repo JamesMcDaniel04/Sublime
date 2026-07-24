@@ -92,8 +92,13 @@ if (TEST_DB) {
     { name: 'GET /api/agents/[id]/export', run: async () => (await import('../agents/[id]/export/route')).GET(req('/api/agents/no-such-id/export')) },
     { name: 'GET /api/flows/[id]/collaboration', run: async () => (await import('../flows/[id]/collaboration/route')).GET(req('/api/flows/no-such-id/collaboration')) },
     { name: 'GET /api/flows/[id]/comments', run: async () => (await import('../flows/[id]/comments/route')).GET(req('/api/flows/no-such-id/comments')) },
-    { name: 'GET /api/flows/[id]/export', run: async () => (await import('../flows/[id]/export/route')).GET(req('/api/flows/no-such-id/export')) },
+    // Export moved to POST (it can mint a trigger secret as a side effect).
+    { name: 'POST /api/flows/[id]/export', run: async () => (await import('../flows/[id]/export/route')).POST(new NextRequest(new URL('http://test/api/flows/no-such-id/export'), { method: 'POST', body: '{}', headers: { 'content-type': 'application/json' } } as never)) },
     { name: 'GET /api/flows/[id]/jam', run: async () => (await import('../flows/[id]/jam/route')).GET(req('/api/flows/no-such-id/jam')) },
+    { name: 'GET /api/flows/[id]/pins', run: async () => (await import('../flows/[id]/pins/route')).GET(req('/api/flows/no-such-id/pins')) },
+    { name: 'GET /api/intelligence/health', run: async () => (await import('../intelligence/health/route')).GET(req('/api/intelligence/health')) },
+    { name: 'GET /api/intelligence/patterns', run: async () => (await import('../intelligence/patterns/route')).GET(req('/api/intelligence/patterns')) },
+    { name: 'GET /api/intelligence/readiness', run: async () => (await import('../intelligence/readiness/route')).GET(req('/api/intelligence/readiness')) },
     { name: 'GET /api/skills/[id]', run: async () => (await import('../skills/[id]/route')).GET(req('/api/skills/no-such-id')) },
     // Plain authenticated GETs with no seeding requirements.
     { name: 'GET /api/activity', run: async () => (await import('../activity/route')).GET(req('/api/activity')) },
