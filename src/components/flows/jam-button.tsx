@@ -9,13 +9,12 @@
  */
 import { useEffect, useState } from 'react'
 import { toast } from 'sonner'
-import { ChevronDown, Headphones, Loader2, Megaphone, Mic, MicOff, PhoneOff, SmilePlus, UserPlus } from 'lucide-react'
+import { ChevronDown, Headphones, Loader2, Megaphone, Mic, MicOff, PhoneOff, UserPlus } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { jamCursorColor } from '@/lib/flows/jam-presence'
 import { HUDDLE_MAX_PARTICIPANTS, huddleHasRoom } from '@/lib/flows/jam-huddle'
 import { cn } from '@/lib/utils'
-import { JAM_REACTION_EMOJI } from './flow-comments'
 import type { JamConnectionState, JamPeer } from './use-flow-jam'
 
 type Member = { id: string; name: string; email?: string | null; isSelf: boolean }
@@ -181,49 +180,6 @@ function HuddleControl({ peers, huddle }: { peers: JamPeer[]; huddle: JamHuddleC
   )
 }
 
-/**
- * Ephemeral emoji picker + spotlight request, shown while the jam is live.
- * Rendered in a portal (Radix) because the builder toolbar is an overflow-x
- * scroll container — an absolutely-positioned panel inside it gets clipped
- * under the canvas.
- */
-function ReactionPicker({ onReact, onSpotlight }: { onReact: (emoji: string) => void; onSpotlight?: () => void }) {
-  const [open, setOpen] = useState(false)
-  return (
-    <DropdownMenu open={open} onOpenChange={setOpen}>
-      <DropdownMenuTrigger asChild>
-        <Button variant="outline" size="icon" className="h-8 w-8" aria-label="React" title="Send a reaction">
-          <SmilePlus className="h-4 w-4" />
-        </Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-max rounded-xl border-border bg-card p-1.5 shadow-xl">
-        <div className="flex gap-0.5">
-          {JAM_REACTION_EMOJI.map((emoji) => (
-            <button
-              key={emoji}
-              type="button"
-              aria-label={`React ${emoji}`}
-              className="flex h-8 w-8 items-center justify-center rounded-lg text-lg transition-transform hover:scale-125 hover:bg-muted"
-              onClick={() => { onReact(emoji); setOpen(false) }}
-            >
-              {emoji}
-            </button>
-          ))}
-        </div>
-        {onSpotlight && (
-          <button
-            type="button"
-            className="mt-1 flex w-full items-center gap-1.5 rounded-lg px-2 py-1.5 text-xs font-medium text-muted-foreground hover:bg-muted hover:text-indigo-700"
-            onClick={() => { onSpotlight(); setOpen(false) }}
-          >
-            <Megaphone className="h-3.5 w-3.5" /> Spotlight me — ask everyone to follow
-          </button>
-        )}
-      </DropdownMenuContent>
-    </DropdownMenu>
-  )
-}
-
 export function JamButton({
   flowId,
   peers,
@@ -234,7 +190,6 @@ export function JamButton({
   followingClientId = null,
   onToggleFollow,
   huddle,
-  onReact,
   onSpotlight,
 }: {
   flowId: string
@@ -251,8 +206,6 @@ export function JamButton({
   onToggleFollow?: (clientId: string) => void
   /** Voice huddle controls from useJamHuddle; omit to hide the huddle UI. */
   huddle?: JamHuddleControls
-  /** Fire an ephemeral emoji reaction at every peer. */
-  onReact?: (emoji: string) => void
   /** Ask peers to follow this viewport (they get a consent toast). */
   onSpotlight?: () => void
 }) {
@@ -348,9 +301,6 @@ export function JamButton({
           must never strand a hot mic with no mute/leave. Joining, by contrast,
           needs the live channel (it is the signaling rail). */}
       {huddle && (huddle.active || connectionState === 'connected') && <HuddleControl peers={peers} huddle={huddle} />}
-      {onReact && connectionState === 'connected' && (
-        <ReactionPicker onReact={onReact} onSpotlight={peers.length > 0 ? onSpotlight : undefined} />
-      )}
       {/* The invite picker portals out (Radix) — the toolbar's overflow-x
           scroll container would otherwise clip it behind the canvas. Opens for
           EVERYONE (status + who's here); a click must never be a silent no-op.
@@ -378,6 +328,18 @@ export function JamButton({
             </p>
             {connectionDetail && connectionState !== 'connected' && (
               <p className="mt-1 text-[11px] leading-snug text-muted-foreground">{connectionDetail}</p>
+            )}
+            {/* Spotlight lives with the rest of the presence controls (it used
+                to hide inside the removed reaction picker). Peers get a
+                consent toast — never a forced viewport. */}
+            {onSpotlight && peers.length > 0 && connectionState === 'connected' && (
+              <button
+                type="button"
+                className="mt-2 flex w-full items-center gap-1.5 rounded-lg px-2 py-1.5 text-xs font-medium text-muted-foreground hover:bg-muted hover:text-indigo-700"
+                onClick={() => { onSpotlight(); setOpen(false) }}
+              >
+                <Megaphone className="h-3.5 w-3.5" /> Spotlight me — ask everyone to follow
+              </button>
             )}
             {!canManage && (
               <p className="mt-2 rounded-lg bg-muted px-2 py-1.5 text-xs text-muted-foreground">

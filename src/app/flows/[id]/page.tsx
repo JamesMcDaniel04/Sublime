@@ -52,7 +52,7 @@ import { VersionsPanel } from '@/components/flows/versions-panel'
 import { useFlowJam, type HuddleSignal, type JamPeer } from '@/components/flows/use-flow-jam'
 import { CanvasErrorBoundary } from '@/components/flows/canvas-error-boundary'
 import { useJamHuddle } from '@/components/flows/use-jam-huddle'
-import { CommentsPanel, JamReactionsOverlay, JamStackCommentPins, commentPinsFor, useFlowComments, type CommentAnchorPoint, type FloatingReaction } from '@/components/flows/flow-comments'
+import { CommentsPanel, JamStackCommentPins, commentPinsFor, useFlowComments, type CommentAnchorPoint } from '@/components/flows/flow-comments'
 import { contentPointFromClient, jamCursorColor, type JamCursor } from '@/lib/flows/jam-presence'
 import type { ReactFlowInstance } from '@xyflow/react'
 import { JamButton } from '@/components/flows/jam-button'
@@ -360,16 +360,6 @@ function FlowBuilder() {
     }, 30000)
     return () => window.clearInterval(timer)
   }, [commentsOpen, refreshComments])
-  const [floatingReactions, setFloatingReactions] = useState<FloatingReaction[]>([])
-  const reactionKeyRef = useRef(0)
-  const pushReaction = useCallback((emoji: string, name: string) => {
-    const key = ++reactionKeyRef.current
-    // Cap the burst so a spamming teammate can't flood the overlay.
-    setFloatingReactions((current) => [...current.slice(-11), { key, emoji, name }])
-    window.setTimeout(() => {
-      setFloatingReactions((current) => current.filter((reaction) => reaction.key !== key))
-    }, 1900)
-  }, [])
   // Spotlight requests are consent-based and throttled — never a forced viewport.
   const spotlightToastAtRef = useRef(0)
 
@@ -377,7 +367,7 @@ function FlowBuilder() {
   // which itself needs useFlowJam's transport — a ref breaks the circle (same
   // pattern as jamCursorUpdateRef).
   const huddleSignalRef = useRef<(signal: HuddleSignal) => void>(() => {})
-  const { peers, connectionState, connectionDetail, graphSyncLive, clientId, broadcastGraph, updateCursor, broadcastAccessChange, sendHuddleSignal, setHuddlePresence, sendReaction, requestSpotlight, broadcastCommentsChanged } = useFlowJam({
+  const { peers, connectionState, connectionDetail, graphSyncLive, clientId, broadcastGraph, updateCursor, broadcastAccessChange, sendHuddleSignal, setHuddlePresence, requestSpotlight, broadcastCommentsChanged } = useFlowJam({
     flowId: id,
     enabled: !loading && !loadError,
     selectedNodeId: selectedId,
@@ -394,7 +384,6 @@ function FlowBuilder() {
       for (const peer of left) peerToast('left', peer.userId, `${peer.name} left the jam`)
     },
     onHuddleSignal: (signal) => huddleSignalRef.current(signal),
-    onReaction: ({ name, emoji }) => pushReaction(emoji, name),
     onSpotlight: ({ clientId: presenterClientId, name }) => {
       const now = Date.now()
       if (now - spotlightToastAtRef.current < 10000) return
@@ -410,10 +399,6 @@ function FlowBuilder() {
   const huddle = useJamHuddle({ clientId, peers, sendSignal: sendHuddleSignal, setHuddlePresence })
   huddleSignalRef.current = huddle.handleSignal
 
-  const handleReact = (emoji: string) => {
-    sendReaction(emoji)
-    pushReaction(emoji, 'You')
-  }
   const handleSpotlight = () => {
     requestSpotlight()
     toast.success('Asked your teammates to follow you.')
@@ -1690,19 +1675,6 @@ function FlowBuilder() {
             </button>
           ))}
         </div>
-        <JamButton
-          flowId={id}
-          peers={peers}
-          connectionState={connectionState}
-          connectionDetail={connectionDetail}
-          canManage={canManageJam}
-          onAccessChanged={broadcastAccessChange}
-          followingClientId={followingClientId}
-          onToggleFollow={(peerClientId) => setFollowingClientId((current) => (current === peerClientId ? null : peerClientId))}
-          huddle={huddle}
-          onReact={handleReact}
-          onSpotlight={handleSpotlight}
-        />
         <Button
           variant="outline"
           size="sm"
@@ -1800,6 +1772,25 @@ function FlowBuilder() {
 
       {/* Body: canvas + optional drawer + optional copilot */}
       <div className="relative flex min-h-0 flex-1">
+        {/* Jam presence + huddle float over the canvas (both modes share this
+            one overlay because the wrapper is position:relative). The wrapper
+            is pointer-transparent so it never blocks canvas interactions. */}
+        <div className="pointer-events-none absolute right-4 top-3 z-30">
+          <div className="pointer-events-auto rounded-full border border-border bg-card/95 px-2 py-1 shadow-sm backdrop-blur">
+            <JamButton
+              flowId={id}
+              peers={peers}
+              connectionState={connectionState}
+              connectionDetail={connectionDetail}
+              canManage={canManageJam}
+              onAccessChanged={broadcastAccessChange}
+              followingClientId={followingClientId}
+              onToggleFollow={(peerClientId) => setFollowingClientId((current) => (current === peerClientId ? null : peerClientId))}
+              huddle={huddle}
+              onSpotlight={handleSpotlight}
+            />
+          </div>
+        </div>
         {/* DAG mode owns its own pan/zoom/background (React Flow), so it renders
             OUTSIDE the stack canvas's scroll + transform wrapper. */}
         <CanvasErrorBoundary>
@@ -2142,7 +2133,6 @@ function FlowBuilder() {
         onTogglePinPlacement={() => setPlacingPin((value) => !value)}
         focusThreadId={focusThreadId}
       />
-      <JamReactionsOverlay reactions={floatingReactions} />
       {ndvNode && !viewingVersion && (
         <NodeDetailView
           node={ndvNode}

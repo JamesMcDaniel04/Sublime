@@ -575,39 +575,3 @@ export function CommentsPanel({
     </div>
   )
 }
-
-// ── Ephemeral reactions ──────────────────────────────────────────────────────
-
-export const JAM_REACTION_EMOJI = ['👍', '🎉', '❤️', '😂', '👀', '🔥'] as const
-
-export type FloatingReaction = { key: number; emoji: string; name: string }
-
-/** Floating emoji rising from the bottom of the canvas — broadcast-only, never stored. */
-export function JamReactionsOverlay({ reactions }: { reactions: FloatingReaction[] }) {
-  if (reactions.length === 0) return null
-  return (
-    <div className="pointer-events-none fixed inset-x-0 bottom-20 z-50 flex justify-center" aria-hidden="true">
-      <style>{`
-        @keyframes jam-reaction-rise {
-          0% { transform: translateY(0) scale(0.8); opacity: 0; }
-          15% { transform: translateY(-16px) scale(1.1); opacity: 1; }
-          100% { transform: translateY(-160px) scale(1); opacity: 0; }
-        }
-      `}</style>
-      <div className="relative h-0 w-0">
-        {reactions.map((reaction) => (
-          <div
-            key={reaction.key}
-            className="absolute bottom-0 flex -translate-x-1/2 flex-col items-center"
-            style={{ left: `${((reaction.key % 7) - 3) * 26}px`, animation: 'jam-reaction-rise 1.8s ease-out forwards' }}
-          >
-            <span className="text-3xl drop-shadow">{reaction.emoji}</span>
-            <span className="mt-0.5 whitespace-nowrap rounded-full bg-background/90 px-1.5 text-[10px] font-semibold text-muted-foreground shadow-sm">
-              {reaction.name}
-            </span>
-          </div>
-        ))}
-      </div>
-    </div>
-  )
-}
