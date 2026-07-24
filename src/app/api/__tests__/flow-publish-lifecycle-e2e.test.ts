@@ -160,6 +160,46 @@ if (TEST_DB) {
     assert.equal(row.status, 'DRAFT', 'status must not move through PUT')
   })
 
+  // Tool names are flowToolSlug(flow.name) — assert on those, not on flow ids
+  // (ids are not guaranteed to appear in a serialized group).
+  const toolNames = async () => {
+    const { loadFlowPlaneGroups } = await import('@/features/agents/tool-planes')
+    const groups = await loadFlowPlaneGroups(organizationId, userId)
+    return groups.flatMap((group: { tools: { name: string }[] }) => group.tools.map((tool) => tool.name))
+  }
+  const slugOf = async (name: string) => {
+    const { flowToolSlug } = await import('@/lib/flows/flow-tool')
+    return flowToolSlug(name)
+  }
+
+  test('tool-planes: a published flow is offered with allowFlows and NO flowIds (defect-1 regression)', async () => {
+    const { publishFlowDraft } = await import('@/lib/flows/publish')
+    const flow = await createFlow({ name: 'Planes QA Alpha' })
+    await publishFlowDraft(flow.id, organizationId, userId)
+    assert.ok((await toolNames()).includes(await slugOf('Planes QA Alpha')),
+      'published flow must appear without any metadata flag')
+  })
+
+  test("tool-planes: another user's private flow is NOT offered; org-shared is", async () => {
+    const { publishFlowDraft } = await import('@/lib/flows/publish')
+    const stranger = await prisma.user.create({
+      data: { supabaseId: crypto.randomUUID(), organizationId, isActive: true },
+    })
+    const privateFlow = await createFlow({ name: 'Planes QA Private', userId: stranger.id })
+    const sharedFlow = await createFlow({ name: 'Planes QA Shared', userId: stranger.id, visibility: 'org_viewer' })
+    await publishFlowDraft(privateFlow.id, organizationId, stranger.id)
+    await publishFlowDraft(sharedFlow.id, organizationId, stranger.id)
+
+    const names = await toolNames()
+    assert.equal(names.includes(await slugOf('Planes QA Private')), false, 'private flow of another user must not leak')
+    assert.equal(names.includes(await slugOf('Planes QA Shared')), true, 'org-shared flow must be offered')
+  })
+
+  test('tool-planes: an unpublished flow is not offered', async () => {
+    await createFlow({ name: 'Planes QA Draft' })
+    assert.equal((await toolNames()).includes(await slugOf('Planes QA Draft')), false)
+  })
+
   test('activateFlow still works as a wrapper (template-provisioning contract)', async () => {
     const { activateFlow } = await import('@/lib/flows/activate')
     const flow = await createFlow()

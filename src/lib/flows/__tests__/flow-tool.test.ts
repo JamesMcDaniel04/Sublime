@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { inputParamsFromGraph, outputFieldsFromGraph, flowInputJsonSchema, flowToolSlug, isAgentCallableFlow, flowToolGroundingLine } from '../flow-tool'
+import { inputParamsFromGraph, outputFieldsFromGraph, flowInputJsonSchema, flowToolSlug, flowToolGroundingLine } from '../flow-tool'
 import { parseFlowToolConnectionId, formatFlowToolConnectionId } from '../tool-connection-id'
 import { toolName } from '@/features/agents/tool-planes'
 import type { FlowGraph } from '@/lib/flows/graph'
@@ -39,12 +39,6 @@ test('flowToolSlug + connection id round-trips the flow plane', () => {
   const id = formatFlowToolConnectionId('flow', 'flw_1')
   assert.equal(id, 'flow:flw_1')
   assert.deepEqual(parseFlowToolConnectionId(id), { plane: 'flow', ref: 'flw_1' })
-})
-
-test('isAgentCallableFlow reads the org opt-in', () => {
-  assert.equal(isAgentCallableFlow({ agentCallable: true }), true)
-  assert.equal(isAgentCallableFlow({ agentCallable: false }), false)
-  assert.equal(isAgentCallableFlow(null), false)
 })
 
 test('agent flow tool name = flow_<slug>', () => {

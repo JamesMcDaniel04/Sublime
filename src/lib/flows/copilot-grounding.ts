@@ -1,9 +1,9 @@
 import { prisma } from '@/lib/prisma'
-import { agentReadScope } from '@/lib/server/visibility'
+import { agentReadScope, flowReadScope } from '@/lib/server/visibility'
 import { readAgentMetadata } from '@/lib/agents/metadata'
 import { loadFlowToolCatalog, type FlowToolCatalogConnection } from '@/lib/flows/tool-catalog'
 import { outputFieldsFromJsonSchema } from '@/lib/flows/schema-fields'
-import { inputParamsFromGraph, outputFieldsFromGraph, flowToolGroundingLine, isAgentCallableFlow } from '@/lib/flows/flow-tool'
+import { inputParamsFromGraph, outputFieldsFromGraph, flowToolGroundingLine } from '@/lib/flows/flow-tool'
 import { flowGraphSchema } from '@/lib/flows/graph'
 import { listEligiblePatterns } from '@/lib/behavior/eligibility'
 
@@ -65,8 +65,11 @@ export async function buildCopilotGrounding(
     }),
     loadFlowToolCatalog(organizationId, { userId, takeConnections: 25, takeTools: 100 }),
     prisma.flow.findMany({
-      where: { organizationId, status: 'ACTIVE' },
-      select: { id: true, name: true, graph: true, publishedGraph: true, metadata: true },
+      // Same authorization as loadFlowPlaneGroups: published flows within the
+      // user's read scope (the metadata.agentCallable gate is gone — nothing
+      // ever wrote it, so this list always grounded to zero flows).
+      where: { organizationId, status: 'ACTIVE', ...flowReadScope(userId) },
+      select: { id: true, name: true, graph: true, publishedGraph: true },
       take: 50,
     }),
   ])
@@ -84,7 +87,6 @@ export async function buildCopilotGrounding(
     })),
   )
   const flowLines = callableFlows
-    .filter((flow) => isAgentCallableFlow(flow.metadata))
     .map((flow) => {
       const parsed = flowGraphSchema.safeParse(flow.publishedGraph ?? flow.graph)
       if (!parsed.success) return null

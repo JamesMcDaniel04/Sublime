@@ -284,15 +284,13 @@ async function loadTools(
 
   // ---- Flow tool plane (agent -> flow) -------------------------------------
   // Flows appear as `flow_<slug>` tools whose input schema is the flow's input
-  // node and whose result is its output node. Two authorization modes:
-  //  - explicit per-agent selection (allowFlows + flowIds) — the flow analog of
-  //    subagents; naming a flow authorizes it directly;
-  //  - the org-wide agentCallable flag, honored when allowFlows is on with no
-  //    explicit list (empty = any agent-callable flow).
+  // node and whose result is its output node. Authorization: allowFlows plus
+  // an optional flowIds narrowing; either way the pool is the ACTIVE flows
+  // within the owner's read scope (loadFlowPlaneGroups enforces it).
   // Only when an acting user is known (dispatch runs as that user).
   if (ownerUserId && flowOptions?.allowFlows) {
     const flowGroups = await loadFlowPlaneGroups(organizationId, ownerUserId, {
-      ...(flowOptions.flowIds?.length ? { flowIds: flowOptions.flowIds, explicit: true } : {}),
+      ...(flowOptions.flowIds?.length ? { flowIds: flowOptions.flowIds } : {}),
     })
     for (const group of flowGroups) pushGroup(group)
   }

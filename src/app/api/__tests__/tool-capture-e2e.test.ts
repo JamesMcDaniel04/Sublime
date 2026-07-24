@@ -110,12 +110,12 @@ if (TEST_DB) {
     organizationId = seeded.organizationId
     userId = seeded.userId
 
-    // The agent-callable child flow both seams execute.
+    // The published child flow both seams execute. Owned by the seeded user —
+    // flow tools are scoped to the owner's read scope, not a metadata flag.
     await prisma.flow.create({
       data: {
         name: 'QA Echo Child', organizationId, userId, status: 'ACTIVE', visibility: 'shared',
         trigger: { type: 'manual' }, graph: childGraph, publishedGraph: childGraph,
-        metadata: { agentCallable: true },
       },
     })
 

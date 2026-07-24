@@ -34,7 +34,8 @@ import { EmailToolClient, emailTools } from '@/lib/integrations/email'
 import { BUILTIN_CONNECTORS, isSelected, nangoConnector, type ConnectorDescriptor } from '@/lib/connectors/registry'
 import { formatFlowToolConnectionId, type FlowToolPlane } from '@/lib/flows/tool-connection-id'
 import { flowGraphSchema } from '@/lib/flows/graph'
-import { inputParamsFromGraph, flowInputJsonSchema, flowToolSlug, isAgentCallableFlow } from '@/lib/flows/flow-tool'
+import { inputParamsFromGraph, flowInputJsonSchema, flowToolSlug } from '@/lib/flows/flow-tool'
+import { flowReadScope } from '@/lib/server/visibility'
 
 // Minimal interface every plane's execution client satisfies (McpClient,
 // the built-in ToolClients, and adapters).
@@ -378,20 +379,22 @@ export async function loadNangoPlaneGroups(
  * break the execute-flow -> tool-planes cycle. Only surfaces when a userId is
  * available (dispatch runs as that user).
  *
- * Authorization: by default only org-opted flows (metadata.agentCallable) are
- * exposed. `options.explicit` (set when an agent names specific flowIds) treats
- * the named flows as authorized directly — the per-agent selection IS the
- * opt-in, so the flow need not also carry the org-wide flag.
+ * Authorization is the OWNER'S read scope: the agent can call exactly the
+ * published flows its owner can open. (The old metadata.agentCallable gate was
+ * never writable from the product — its settings UI was never built — so
+ * "All flows" always resolved to zero; the per-agent allowFlows toggle plus
+ * its optional flowIds list is the real opt-in.)
  */
 export async function loadFlowPlaneGroups(
   organizationId: string,
   userId: string,
-  options: { flowIds?: string[]; explicit?: boolean } = {},
+  options: { flowIds?: string[] } = {},
 ): Promise<ToolPlaneGroup[]> {
   const flows = await prisma.flow.findMany({
     where: {
       organizationId,
       status: 'ACTIVE',
+      ...flowReadScope(userId),
       ...(options.flowIds?.length ? { id: { in: options.flowIds } } : {}),
     },
     take: 100,
@@ -403,7 +406,6 @@ export async function loadFlowPlaneGroups(
   // short, stable flow-id suffix (the first flow keeps the clean slug).
   const usedSlugs = new Set<string>()
   for (const flow of flows) {
-    if (!options.explicit && !isAgentCallableFlow(flow.metadata)) continue
     const parsed = flowGraphSchema.safeParse(flow.publishedGraph ?? flow.graph)
     if (!parsed.success) continue
     const params = inputParamsFromGraph(parsed.data)

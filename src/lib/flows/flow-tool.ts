@@ -65,11 +65,6 @@ export function flowToolSlug(name: string): string {
   return name.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '').slice(0, 48) || 'flow'
 }
 
-/** Org opt-in gate: only flows explicitly marked agentCallable are exposed as tools. */
-export function isAgentCallableFlow(metadata: unknown): boolean {
-  return Boolean(metadata && typeof metadata === 'object' && !Array.isArray(metadata) && (metadata as Record<string, unknown>).agentCallable === true)
-}
-
 /** One copilot-grounding line describing a callable flow's signature. */
 export function flowToolGroundingLine(
   flow: { id: string; name: string },
