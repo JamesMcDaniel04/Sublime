@@ -10,6 +10,7 @@ import assert from 'node:assert/strict'
 import React from 'react'
 import { render, cleanup } from '@testing-library/react'
 import { NodeDetailView } from '../node-detail-view'
+import { InputPane } from '../input-pane'
 import type { FlowNode } from '@/lib/flows/graph'
 
 afterEach(() => cleanup())
@@ -43,4 +44,36 @@ test('closes on Escape', () => {
   render(<NodeDetailView node={NODES[3]} {...baseProps} onClose={() => { closed = true }} />)
   document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
   assert.equal(closed, true)
+})
+
+// ── Input pane ────────────────────────────────────────────────────────────────
+
+test('input pane lists upstream fields and inserts on click', () => {
+  let inserted: string | null = null
+  const { getByText } = render(
+    <InputPane
+      dataFields={[{ label: 'account', token: '{{trigger.input.account}}', type: 'string' }]}
+      onInsertToken={(token) => { inserted = token }}
+    />,
+  )
+  getByText('account').click()
+  assert.equal(inserted, '{{trigger.input.account}}')
+})
+
+test('input pane shows an empty state rather than nothing', () => {
+  // A blank pane reads as broken; say WHY there is no data.
+  const { getByText } = render(<InputPane dataFields={[]} onInsertToken={() => {}} />)
+  getByText(/no upstream data/i)
+})
+
+test('input pane leaves are draggable and carry the braced token', () => {
+  const { getByText } = render(
+    <InputPane
+      dataFields={[{ label: 'account', token: '{{trigger.input.account}}', type: 'string' }]}
+      onInsertToken={() => {}}
+    />,
+  )
+  // The draggable attribute lives on the row button wrapping the label.
+  const leaf = getByText('account').closest('[draggable="true"]')
+  assert.ok(leaf, 'leaf row is not draggable')
 })

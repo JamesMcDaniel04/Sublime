@@ -29,6 +29,14 @@ function FieldRow({ field, depth, onInsert }: { field: DataField; depth: number;
           // token inserts at the cursor instead of stealing focus.
           onMouseDown={(e) => e.preventDefault()}
           onClick={() => onInsert(field.token)}
+          // Drag alternative to click-insert: contenteditable token editors
+          // accept a text/plain drop at the caret natively, so no drop handler
+          // is needed on the receiving side.
+          draggable
+          onDragStart={(e) => {
+            e.dataTransfer.setData('text/plain', field.token)
+            e.dataTransfer.effectAllowed = 'copy'
+          }}
           title={`Insert ${field.token}`}
           className="group flex min-w-0 flex-1 items-start gap-2 rounded-md px-2 py-1.5 text-left hover:bg-indigo-50 dark:hover:bg-indigo-500/10"
         >
@@ -55,13 +63,29 @@ export function DataTree({
   onInsert,
   title = 'Available data',
   emptyMessage = 'No earlier step data is available yet.',
+  fill = false,
 }: {
   fields: DataField[]
   onInsert: (token: string) => void
   title?: string
   emptyMessage?: string
+  /**
+   * Fill the parent instead of rendering as a bounded card: no outer border,
+   * no title header, no max-height. For hosts that provide their own chrome
+   * and scrolling (the NDV input pane); the default card stays for popovers.
+   */
+  fill?: boolean
 }) {
   if (fields.length === 0) return <p className="rounded-lg border border-dashed border-border px-3 py-2 text-xs text-muted-foreground">{emptyMessage}</p>
+  if (fill) {
+    return (
+      <div className="p-1.5">
+        {fields.map((field) => (
+          <FieldRow key={field.token} field={field} depth={0} onInsert={onInsert} />
+        ))}
+      </div>
+    )
+  }
   return (
     <div className="rounded-lg border border-border bg-background">
       <div className="border-b border-border px-3 py-2">
