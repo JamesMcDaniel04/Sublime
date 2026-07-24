@@ -1,13 +1,13 @@
 'use client'
 
-import { cn } from '@/lib/utils'
 import type { FlowNode } from '@/lib/flows/graph'
 import type { DataField } from '@/lib/flows/datatree'
 import { IntegrationLogo } from '@/components/integrations/integration-logo'
 import { ToolArgsEditor } from '../tool-args-editor'
+import { SearchableSelect } from '../searchable-select'
 import { AdvancedParamsSection } from '../advanced-params'
 import type { ToolCatalog } from '../tool-catalog-type'
-import { controlClass, labelClass } from './field-primitives'
+import { labelClass } from './field-primitives'
 import type { NodeBodyModule, NodeBodyProps, TokenEditorWiring } from './types'
 
 function selectedTool(connectionId: string, toolName: string, toolCatalog: ToolCatalog) {
@@ -39,38 +39,35 @@ function ToolBody({
     <div className="space-y-4">
       <div className="grid gap-2">
         <label className={labelClass}>Connection <span className="text-red-500">*</span></label>
-        <select
+        <SearchableSelect
           value={node.data.connectionId}
-          onChange={(event) => {
-            const nextConnection = toolCatalog.find((entry) => entry.id === event.target.value)
+          ariaLabel="Connection"
+          placeholder="Choose a connected tool"
+          invalid={Boolean(showErrors && !node.data.connectionId)}
+          emptyLabel="Connectors available on this workspace will show here."
+          options={toolCatalog.map((entry) => ({ value: entry.id, label: entry.name }))}
+          onChange={(connectionId) => {
+            const nextConnection = toolCatalog.find((entry) => entry.id === connectionId)
             const selected = nextConnection?.tools[0]
-            update({ ...node, data: { ...node.data, connectionId: event.target.value, toolName: selected?.name ?? '', actionDescription: selected?.description, actionInputSchema: selected?.inputSchema, actionOutputSchema: selected?.outputSchema, actionSchemaHash: selected?.schemaHash, risk: selected?.risk } })
+            update({ ...node, data: { ...node.data, connectionId, toolName: selected?.name ?? '', actionDescription: selected?.description, actionInputSchema: selected?.inputSchema, actionOutputSchema: selected?.outputSchema, actionSchemaHash: selected?.schemaHash, risk: selected?.risk } })
           }}
-          className={cn(controlClass, showErrors && !node.data.connectionId && 'border-red-400 focus:border-red-500')}
-        >
-          <option value="">Choose a connected tool</option>
-          {toolCatalog.map((entry) => (
-            <option key={entry.id} value={entry.id}>
-              {entry.name}
-            </option>
-          ))}
-        </select>
+        />
       </div>
       {connection && (
         <div className="grid gap-2">
           <label className={labelClass}>Action <span className="text-red-500">*</span></label>
-          <select
+          <SearchableSelect
             value={node.data.toolName}
-            onChange={(event) => { const selected = connection.tools.find((entry) => entry.name === event.target.value); update({ ...node, data: { ...node.data, toolName: event.target.value, actionDescription: selected?.description, actionInputSchema: selected?.inputSchema, actionOutputSchema: selected?.outputSchema, actionSchemaHash: selected?.schemaHash, risk: selected?.risk } }) }}
-            className={cn(controlClass, showErrors && !node.data.toolName && 'border-red-400 focus:border-red-500')}
-          >
-            <option value="">Choose an action</option>
-            {connection.tools.map((entry) => (
-              <option key={entry.name} value={entry.name}>
-                {entry.name}
-              </option>
-            ))}
-          </select>
+            ariaLabel="Action"
+            placeholder="Choose an action"
+            invalid={Boolean(showErrors && !node.data.toolName)}
+            // A connection whose discovery failed carries toolsError — say that
+            // here rather than showing an empty list that reads as "still
+            // loading". (Phase 3's verified-state chip replaces this stopgap.)
+            emptyLabel={connection.toolsError ?? 'This connection reports no actions.'}
+            options={connection.tools.map((entry) => ({ value: entry.name, label: entry.name, hint: entry.description }))}
+            onChange={(toolName) => { const selected = connection.tools.find((entry) => entry.name === toolName); update({ ...node, data: { ...node.data, toolName, actionDescription: selected?.description, actionInputSchema: selected?.inputSchema, actionOutputSchema: selected?.outputSchema, actionSchemaHash: selected?.schemaHash, risk: selected?.risk } }) }}
+          />
         </div>
       )}
       {connection ? (
