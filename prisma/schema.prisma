@@ -634,6 +634,25 @@ model Credential {
   @@map("credentials")
 }
 
+/// Whether a credential/connection has been proven to work, keyed by the exact
+/// id the flow tool catalog uses (a raw McpConnection cuid, native:<provider>,
+/// nango:<capability>, or credential:<id>). One uniform table rather than a
+/// verified flag on four different models.
+///
+/// Written by explicit tests, by the OAuth callback, and by every real run —
+/// that last writer is what catches DRIFT, where a credential valid at save
+/// time expires later.
+model ConnectionVerification {
+  organizationId String   @db.Uuid
+  connectionId   String
+  state          String // verified | failed
+  checkedAt      DateTime
+  error          String?  @db.Text
+
+  @@id([organizationId, connectionId])
+  @@map("connection_verifications")
+}
+
 /// A visual agent pipeline: a graph of steps, each running a workspace agent
 /// via runAgentExecution. Distinct from WorkflowStep/WorkflowEvent (those are a
 /// single agent's internal tool-call trace). See docs/superpowers/specs.

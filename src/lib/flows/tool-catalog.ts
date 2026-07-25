@@ -25,11 +25,13 @@ import {
 } from '@/features/agents/tool-planes'
 import { createHash } from 'crypto'
 import { planesForConnectionIds } from '@/lib/flows/tool-connection-id'
+import { loadVerifications } from '@/lib/connections/record-verification'
+import { toVerification, type Verification } from '@/lib/connections/verification'
 
 export { mcpConnectionScope } from '@/features/agents/tool-planes'
 
 export type FlowToolSummary = { name: string; description: string; inputSchema?: unknown; outputSchema?: unknown; schemaHash?: string; risk?: 'read' | 'write' | 'destructive' }
-export type FlowToolCatalogConnection = { id: string; name: string; tools: FlowToolSummary[]; toolsError?: string }
+export type FlowToolCatalogConnection = { id: string; name: string; tools: FlowToolSummary[]; toolsError?: string; verification?: Verification }
 
 export async function loadFlowToolCatalog(
   organizationId: string,
@@ -55,6 +57,9 @@ export async function loadFlowToolCatalog(
   // the remaining planes.
   const groups = [...mcp, ...native, ...nango]
   const wantedIds = wanted ? new Set(options.connectionIds) : null
+  // Whether each connection has actually been proven to work. A missing row
+  // reads as `unverified` — never as healthy, which is the point.
+  const verifications = await loadVerifications(organizationId, groups.map((group) => group.id))
   const riskFor = (name: string, groupWrite: boolean): 'read' | 'write' | 'destructive' => {
     const normalized = name.toLowerCase()
     if (/\b(delete|remove|destroy|revoke|archive|cancel|terminate|drop)\b/.test(normalized.replace(/[_-]/g, ' '))) return 'destructive'
@@ -67,6 +72,7 @@ export async function loadFlowToolCatalog(
       id: group.id,
       name: group.name,
       ...(group.toolsError ? { toolsError: group.toolsError } : {}),
+      verification: toVerification(verifications.get(group.id)),
       tools: group.tools.slice(0, options.takeTools ?? group.tools.length).map((tool) => ({
         name: tool.name,
         description: tool.description ?? '',

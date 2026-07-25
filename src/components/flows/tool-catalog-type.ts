@@ -9,4 +9,6 @@ export type ToolCatalog = {
   name: string
   tools: { name: string; description: string; inputSchema?: unknown; outputSchema?: unknown; schemaHash?: string; risk?: 'read' | 'write' | 'destructive' }[]
   toolsError?: string
+  /** Whether this connection has been proven to work (see lib/connections/verification). */
+  verification?: { state: 'verified' | 'stale' | 'failed' | 'unverified'; checkedAt?: string; error?: string }
 }[]

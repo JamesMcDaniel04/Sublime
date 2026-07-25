@@ -5,6 +5,7 @@ import type { DataField } from '@/lib/flows/datatree'
 import { IntegrationLogo } from '@/components/integrations/integration-logo'
 import { ToolArgsEditor } from '../tool-args-editor'
 import { SearchableSelect } from '../searchable-select'
+import { ConnectionHealth } from './connection-health'
 import { AdvancedParamsSection } from '../advanced-params'
 import type { ToolCatalog } from '../tool-catalog-type'
 import { labelClass } from './field-primitives'
@@ -52,6 +53,7 @@ function ToolBody({
             update({ ...node, data: { ...node.data, connectionId, toolName: selected?.name ?? '', actionDescription: selected?.description, actionInputSchema: selected?.inputSchema, actionOutputSchema: selected?.outputSchema, actionSchemaHash: selected?.schemaHash, risk: selected?.risk } })
           }}
         />
+        <ConnectionHealth connectionId={node.data.connectionId || undefined} verification={connection?.verification} />
       </div>
       {connection && (
         <div className="grid gap-2">

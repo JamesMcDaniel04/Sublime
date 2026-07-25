@@ -3,9 +3,12 @@ import { McpClient } from '@/lib/mcp/mcp-client'
 import { ApiError, withAuthenticatedApi } from '@/lib/server/api-handler'
 import { rateLimit } from '@/lib/ratelimit'
 import { assertPublicUrl, SsrfError } from '@/lib/net/ssrf'
+import { recordVerification } from '@/lib/connections/record-verification'
 
 // Same schema as the main route (without id, without isActive)
 const testSchema = z.object({
+  /** Present when testing an EXISTING connection — lets the pass/fail persist. */
+  id: z.string().optional(),
   name: z.string().min(1).optional(),
   description: z.string().optional(),
   serverUrl: z.string().url(),
@@ -53,6 +56,12 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
   try {
     const tools = await client.getServerTools(data.serverUrl)
     const limited = tools.slice(0, 30)
+    // Persist the proof. Previously this endpoint demonstrated the credential
+    // worked and then threw that away, so the builder still showed the
+    // connection as never-verified.
+    if (data.id) {
+      await recordVerification({ organizationId: auth.organizationId, connectionId: data.id, state: 'verified' })
+    }
     return {
       ok: true,
       toolCount: tools.length,
@@ -69,6 +78,11 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
       .replace(/api[_-]?key[=:]\s*\S+/gi, 'api_key=[redacted]')
       .substring(0, 300)
 
+    // A failed test is a verification fact too — record it so the builder can
+    // show this connection as broken rather than merely unproven.
+    if (data.id) {
+      await recordVerification({ organizationId: auth.organizationId, connectionId: data.id, state: 'failed', error: safeMessage })
+    }
     return { ok: false, error: safeMessage }
   }
 })

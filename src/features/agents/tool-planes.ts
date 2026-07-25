@@ -20,6 +20,7 @@
 import { prisma } from '@/lib/prisma'
 import { apiLogger } from '@/lib/logger'
 import { cacheGet, cacheSet } from '@/lib/cache'
+import { recordVerificationAsync } from '@/lib/connections/record-verification'
 import { DELIVERY_TOOLS, deliverySpecByName, nangoConfigured, resolveDeliveryConnection, type DeliveryCapability } from '@/lib/nango/delivery'
 import { googleOAuthConfigured } from '@/lib/google/oauth'
 import { isGoogleNativeProvider, proxyForConnection } from '@/lib/google/proxy'
@@ -179,6 +180,10 @@ export async function loadMcpConnectionPlaneGroups(
         organizationId, error: error instanceof Error ? error.message : String(error),
       })
       group.toolsError = "Couldn't load this connection's actions — reconnect it and try again."
+      // Discovery failing IS a credential fact (expired token, unreachable
+      // server, never authorized) — record it so every picker can show this
+      // connection as broken rather than merely unproven.
+      recordVerificationAsync({ organizationId, connectionId: group.id, state: 'failed', error: group.toolsError })
     }
     return group
   }))

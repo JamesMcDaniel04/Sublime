@@ -12,7 +12,12 @@ export type FlowValidationIssue = {
 
 export type FlowValidationContext = {
   agents?: { id: string; title?: string }[]
-  toolCatalog?: { id: string; name?: string; tools?: { name: string; inputSchema?: unknown; schemaHash?: string; risk?: 'read' | 'write' | 'destructive' }[] }[]
+  toolCatalog?: {
+    id: string
+    name?: string
+    tools?: { name: string; inputSchema?: unknown; schemaHash?: string; risk?: 'read' | 'write' | 'destructive' }[]
+    verification?: { state: 'verified' | 'stale' | 'failed' | 'unverified'; error?: string }
+  }[]
   requireRunnable?: boolean
 }
 
@@ -428,6 +433,19 @@ export function validateFlowGraph(graph: FlowGraph, context: FlowValidationConte
             }
           }
         }
+      }
+    }
+
+    if (node.type === 'tool' || node.type === 'http') {
+      // Credential health, surfaced where the flow is checked rather than only
+      // in the connection editor. A FAILED connection blocks publish; one that
+      // has merely never been proven warns — a first run is how it gets proven.
+      const usedId = node.data.connectionId
+      const entry = usedId ? context.toolCatalog?.find((candidate) => candidate.id === usedId) : undefined
+      if (entry?.verification?.state === 'failed') {
+        add(issues, 'error', 'CONNECTION_FAILED', `${nodeLabel(node)} uses a connection that is not working${entry.verification.error ? ` — ${entry.verification.error}` : ''}. Reconnect it in Integrations.`, node.id)
+      } else if (entry && (entry.verification?.state === 'unverified' || entry.verification?.state === 'stale')) {
+        add(issues, 'warning', 'CONNECTION_UNVERIFIED', `${nodeLabel(node)} uses a connection that has not been confirmed working yet — test the step, or test the connection in Integrations.`, node.id)
       }
     }
 
