@@ -1,11 +1,14 @@
 'use client'
 
-import { useState } from 'react'
 import { cn } from '@/lib/utils'
 import type { FlowNode } from '@/lib/flows/graph'
 import { parseCurlCommand } from '@/lib/flows/curl-import'
 import { parseFlowToolConnectionId } from '@/lib/flows/tool-connection-id'
+import { useEffect, useState } from 'react'
 import { TokenTextEditor } from '../token-text-editor'
+import { SearchableSelect } from '../searchable-select'
+import { TYPE_LABELS } from '@/lib/credentials/form'
+import type { CredentialType } from '@/lib/credentials/types'
 import { AdvancedParamsSection } from '../advanced-params'
 import type { ToolCatalog } from '../tool-catalog-type'
 import { InlineKeyValue } from './inline-key-value'
@@ -29,6 +32,20 @@ function HttpBody({
   previewContext?: NodeBodyProps['previewContext']
 }) {
   const { labelCtx, registerEditor, focusEditor } = tokenWiring
+  // Absent authMode is inferred from whichever reference is set, matching the
+  // executor's own fallback so the UI and the runtime never disagree.
+  const authMode: 'none' | 'predefined' | 'generic' =
+    node.data.authMode ?? (node.data.credentialId ? 'generic' : node.data.connectionId ? 'predefined' : 'none')
+  const [credentials, setCredentials] = useState<Array<{ id: string; name: string; type: string; allowedDomains: string[] }>>([])
+  useEffect(() => {
+    if (authMode !== 'generic') return
+    let cancelled = false
+    fetch('/api/credentials')
+      .then((response) => (response.ok ? response.json() : null))
+      .then((body) => { if (!cancelled && body?.credentials) setCredentials(body.credentials) })
+      .catch(() => {})
+    return () => { cancelled = true }
+  }, [authMode])
   const urlInvalid = Boolean(showErrors && !node.data.url)
   const authConnections = toolCatalog.filter((entry) => parseFlowToolConnectionId(entry.id).plane === 'mcp')
   const [curlOpen, setCurlOpen] = useState(false)
@@ -121,22 +138,76 @@ function HttpBody({
         tokenWiring={tokenWiring}
       />
       <div className="grid gap-2">
-        <label className={labelClass}>Authenticate with (optional)</label>
+        <label className={labelClass}>Authentication</label>
         <select
-          value={node.data.connectionId ?? ''}
-          onChange={(event) => update({ ...node, data: { ...node.data, connectionId: event.target.value || undefined } })}
+          aria-label="Authentication"
+          value={authMode}
+          onChange={(event) => {
+            const mode = event.target.value as 'none' | 'predefined' | 'generic'
+            // Switching mode clears the other mode's reference so the executor
+            // can never see two competing auth sources on one step.
+            update({
+              ...node,
+              data: {
+                ...node.data,
+                authMode: mode,
+                ...(mode === 'predefined' ? { credentialId: undefined } : {}),
+                ...(mode === 'generic' ? { connectionId: undefined } : {}),
+                ...(mode === 'none' ? { connectionId: undefined, credentialId: undefined } : {}),
+              },
+            })
+          }}
           className={controlClass}
         >
-          <option value="">No authentication</option>
-          {authConnections.map((entry) => (
-            <option key={entry.id} value={entry.id}>
-              {entry.name}
-            </option>
-          ))}
+          <option value="none">None</option>
+          <option value="predefined">Connection (an integration you&apos;ve authorized)</option>
+          <option value="generic">Saved credential (the vault)</option>
         </select>
-        <p className="text-xs text-muted-foreground">
-          Uses this connection&apos;s login to authorize the request — connections shared with your workspace, plus your own. Your own Authorization header always takes precedence.
-        </p>
+
+        {authMode === 'predefined' && (
+          <>
+            <select
+              aria-label="Connection"
+              value={node.data.connectionId ?? ''}
+              onChange={(event) => update({ ...node, data: { ...node.data, connectionId: event.target.value || undefined } })}
+              className={controlClass}
+            >
+              <option value="">Choose a connection</option>
+              {authConnections.map((entry) => (
+                <option key={entry.id} value={entry.id}>
+                  {entry.name}
+                </option>
+              ))}
+            </select>
+            <p className="text-xs text-muted-foreground">
+              Uses this connection&apos;s login to authorize the request — connections shared with your workspace, plus your own. Your own Authorization header always takes precedence.
+            </p>
+          </>
+        )}
+
+        {authMode === 'generic' && (
+          <>
+            <SearchableSelect
+              value={node.data.credentialId ?? ''}
+              ariaLabel="Saved credential"
+              placeholder="Choose a saved credential"
+              emptyLabel="No saved credentials yet — add one under Integrations → Credentials."
+              options={credentials.map((entry) => ({
+                value: entry.id,
+                label: entry.name,
+                hint: [TYPE_LABELS[entry.type as CredentialType] ?? entry.type, entry.allowedDomains.length ? entry.allowedDomains.join(', ') : 'any domain'].join(' · '),
+              }))}
+              onChange={(credentialId) => update({ ...node, data: { ...node.data, credentialId: credentialId || undefined } })}
+            />
+            <p className="text-xs text-muted-foreground">
+              The secret is injected server-side at request time. It never travels in this flow&apos;s definition, its run
+              history, or an export.{' '}
+              <a href="/integrations?tab=credentials" target="_blank" rel="noreferrer" className="font-semibold text-blue-700 hover:underline">
+                Manage credentials →
+              </a>
+            </p>
+          </>
+        )}
       </div>
       <div className="grid gap-2">
         <label className={labelClass}>Generic auth (optional)</label>

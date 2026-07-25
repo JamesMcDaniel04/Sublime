@@ -3,8 +3,9 @@
 import { Suspense, useEffect } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { toast } from 'sonner'
-import { Cable, Server } from 'lucide-react'
+import { Cable, KeyRound, Server } from 'lucide-react'
 import { McpServersPanel } from '@/components/connections/mcp-servers-panel'
+import { CredentialsPanel } from '@/components/credentials/credentials-panel'
 import { PageHeader } from '@/components/ui/page-header'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
@@ -14,7 +15,7 @@ function IntegrationsTabs() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const tabParam = searchParams.get('tab')
-  const activeTab = tabParam === 'mcp' ? 'mcp' : 'accounts'
+  const activeTab = tabParam === 'mcp' ? 'mcp' : tabParam === 'credentials' ? 'credentials' : 'accounts'
 
   // The native Google OAuth callback lands back here with a result param —
   // surface it once, then strip it from the URL.
@@ -36,6 +37,7 @@ function IntegrationsTabs() {
       <TabsList>
         <TabsTrigger value="accounts"><Cable className="mr-2 h-4 w-4" />Integrations</TabsTrigger>
         <TabsTrigger value="mcp"><Server className="mr-2 h-4 w-4" />MCP Servers</TabsTrigger>
+        <TabsTrigger value="credentials"><KeyRound className="mr-2 h-4 w-4" />Credentials</TabsTrigger>
       </TabsList>
       <TabsContent value="accounts" className="mt-6 space-y-6">
         <Suspense
@@ -51,6 +53,7 @@ function IntegrationsTabs() {
         </Suspense>
       </TabsContent>
       <TabsContent value="mcp" className="mt-6"><McpServersPanel /></TabsContent>
+      <TabsContent value="credentials" className="mt-6"><CredentialsPanel /></TabsContent>
     </Tabs>
   )
 }
