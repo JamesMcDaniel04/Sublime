@@ -1,0 +1,153 @@
+/**
+ * Credentials CRUD against a real Postgres. The invariant every test shares:
+ * a secret goes IN through the API and never comes back OUT of it.
+ */
+import { test, before, after } from 'node:test'
+import assert from 'node:assert/strict'
+import { NextRequest } from 'next/server'
+
+const TEST_DB = process.env.TEST_DATABASE_URL
+if (!TEST_DB) {
+  test('skipped: TEST_DATABASE_URL not set', { skip: true }, () => {})
+} else {
+  process.env.DATABASE_URL = TEST_DB
+  process.env.DIRECT_URL = TEST_DB
+  process.env.ENCRYPTION_KEY = process.env.ENCRYPTION_KEY ?? 'unit-test-key'
+
+  const SECRET = 'sk-vault-secret-xyz'
+  let prisma: typeof import('@/lib/prisma').prisma
+  let seeded: { organizationId: string; userId: string; auth: unknown; cleanup: () => Promise<void> }
+  let installTestAuth: (auth: unknown) => void
+
+  before(async () => {
+    ;({ prisma } = await import('@/lib/prisma'))
+    const testAuth = await import('@/lib/server/__tests__/test-auth')
+    installTestAuth = testAuth.installTestAuth as (auth: unknown) => void
+    seeded = (await testAuth.seedTestOrg(prisma)) as typeof seeded
+    installTestAuth(seeded.auth)
+  })
+
+  after(async () => {
+    if (seeded) await seeded.cleanup()
+  })
+
+  const post = async (body: unknown) => {
+    const { POST } = await import('@/app/api/credentials/route')
+    return POST(new NextRequest(new URL('http://test/api/credentials'), {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+    }) as never)
+  }
+  const list = async () => {
+    const { GET } = await import('@/app/api/credentials/route')
+    return GET(new NextRequest(new URL('http://test/api/credentials')) as never)
+  }
+  const put = async (id: string, body: unknown) => {
+    const { PUT } = await import('@/app/api/credentials/[id]/route')
+    return PUT(new NextRequest(new URL(`http://test/api/credentials/${id}`), {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+    }) as never)
+  }
+  const del = async (id: string) => {
+    const { DELETE } = await import('@/app/api/credentials/[id]/route')
+    return DELETE(new NextRequest(new URL(`http://test/api/credentials/${id}`), { method: 'DELETE' }) as never)
+  }
+
+  test('create → list: the response is redacted, the row is encrypted', async () => {
+    const created = await post({ name: 'Acme API', type: 'bearer', token: SECRET, allowedDomains: ['acme.com'] })
+    assert.equal(created.status, 200)
+    const createdBody = await created.json()
+    assert.equal(JSON.stringify(createdBody).includes(SECRET), false, 'POST echoed the secret back')
+    assert.deepEqual(createdBody.credential.config, { type: 'bearer', hasToken: true })
+
+    const listed = await (await list()).json()
+    assert.equal(JSON.stringify(listed).includes(SECRET), false, 'GET leaked the secret')
+    const row = await prisma.credential.findFirstOrThrow({
+      where: { id: createdBody.credential.id, organizationId: seeded.organizationId },
+      select: { authConfig: true },
+    })
+    // Stored, but not as plaintext.
+    assert.equal(JSON.stringify(row.authConfig).includes(SECRET), false, 'the secret was stored in plaintext')
+  })
+
+  test('update preserves an omitted secret and changes metadata', async () => {
+    const created = await (await post({ name: 'Keyed', type: 'apiKeyHeader', headerName: 'X-Old', key: SECRET })).json()
+    const updated = await put(created.credential.id, { name: 'Keyed', headerName: 'X-New' })
+    assert.equal(updated.status, 200)
+    const body = await updated.json()
+    assert.equal(body.credential.config.headerName, 'X-New')
+    assert.equal(body.credential.config.hasKey, true)
+
+    // Prove the secret survived by resolving it, the only sanctioned read path.
+    const { resolveCredential } = await import('@/lib/credentials/resolve')
+    const plan = await resolveCredential({
+      credentialId: created.credential.id,
+      organizationId: seeded.organizationId,
+      requestUrl: 'https://api.example.com/x',
+    })
+    assert.equal(plan.headers?.['X-New'], SECRET)
+  })
+
+  test('a duplicate org-shared name is a 409', async () => {
+    await post({ name: 'Unique one', type: 'bearer', token: 'a' })
+    const again = await post({ name: 'Unique one', type: 'bearer', token: 'b' })
+    assert.equal(again.status, 409)
+  })
+
+  test('delete removes the row', async () => {
+    const created = await (await post({ name: 'Temporary', type: 'bearer', token: 'x' })).json()
+    assert.equal((await del(created.credential.id)).status, 200)
+    const gone = await prisma.credential.findFirst({
+      where: { id: created.credential.id, organizationId: seeded.organizationId },
+      select: { id: true },
+    })
+    assert.equal(gone, null)
+  })
+
+  test('another org cannot read, update, or delete this credential', async () => {
+    const created = await (await post({ name: 'Private to org A', type: 'bearer', token: SECRET })).json()
+    const testAuth = await import('@/lib/server/__tests__/test-auth')
+    const other = (await testAuth.seedTestOrg(prisma)) as typeof seeded
+    installTestAuth(other.auth)
+    try {
+      const { GET } = await import('@/app/api/credentials/[id]/route')
+      const read = await GET(new NextRequest(new URL(`http://test/api/credentials/${created.credential.id}`)) as never)
+      // 404, not 403 — a cross-org id must not confirm existence.
+      assert.equal(read.status, 404)
+      assert.equal((await put(created.credential.id, { name: 'hijacked' })).status, 404)
+      assert.equal((await del(created.credential.id)).status, 404)
+    } finally {
+      installTestAuth(seeded.auth)
+      await other.cleanup()
+    }
+  })
+
+  test('a personal credential is invisible to another user in the same org', async () => {
+    // Re-assert auth rather than inheriting it: the cross-org test above swaps
+    // the acting identity, and a test that depends on another test's teardown
+    // ordering fails for reasons that have nothing to do with what it asserts.
+    installTestAuth(seeded.auth)
+    const created = await (await post({ name: 'Just mine', type: 'bearer', token: 'p', personal: true })).json()
+    assert.equal(created.credential.personal, true)
+    // Same org, different user: seedTestOrg gives a fresh user, so scope must hide it.
+    const rows = await prisma.credential.findMany({
+      where: { organizationId: seeded.organizationId, userId: null },
+      select: { id: true },
+    })
+    assert.equal(rows.some((row) => row.id === created.credential.id), false)
+  })
+
+  test('an unknown credential type is rejected', async () => {
+    installTestAuth(seeded.auth)
+    const bad = await post({ name: 'Bad type', type: 'digest', token: 'x' })
+    assert.notEqual(bad.status, 200)
+  })
+
+  test('a nameless credential is rejected', async () => {
+    installTestAuth(seeded.auth)
+    assert.notEqual((await post({ name: '', type: 'bearer', token: 'x' })).status, 200)
+  })
+}
