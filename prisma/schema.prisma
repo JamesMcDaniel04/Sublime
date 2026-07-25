@@ -57,6 +57,7 @@ model Organization {
   slackWorkspaceConnections SlackWorkspaceConnection[]
   slackThreadSessions       SlackThreadSession[]
   userEvents                UserEvent[]
+  credentials               Credential[]
   userPatterns              UserPattern[]
   userSuggestions           UserSuggestion[]
   persona                   OrganizationPersona?
@@ -88,6 +89,7 @@ model User {
   flowInvitesSent    FlowCollaborator[] @relation("FlowCollaboratorInviter")
   flowComments       FlowComment[]      @relation("FlowCommentAuthor")
   identities         UserIdentity[]
+  credentials        Credential[]
 
   @@index([organizationId])
   @@map("users")
@@ -603,6 +605,33 @@ model IntegrationSecret {
   @@unique([organizationId, provider])
   @@index([organizationId, isActive])
   @@map("integration_secrets")
+}
+
+/// Reusable, org-scoped credential for authenticating outbound requests from
+/// flow nodes. authConfig holds encryptSecret() blobs for secret fields plus
+/// plaintext metadata (headerName, queryParam, username). userId null =
+/// org-shared; set = personal to creator. allowedDomains empty = any host.
+model Credential {
+  id             String    @id @default(cuid())
+  organizationId String    @db.Uuid
+  userId         String?
+  name           String
+  type           String // basic | bearer | apiKeyHeader | apiKeyQuery | custom
+  authConfig     Json      @default("{}")
+  allowedDomains String[]  @default([])
+  isActive       Boolean   @default(true)
+  createdById    String?
+  lastUsedAt     DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user         User?        @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, userId, name])
+  @@index([organizationId, isActive])
+  @@index([organizationId, userId, isActive])
+  @@map("credentials")
 }
 
 /// A visual agent pipeline: a graph of steps, each running a workspace agent
