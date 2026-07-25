@@ -721,6 +721,10 @@ export async function interpretFlow(graph: FlowGraph, input: unknown, opts: Opts
             }
           : {
               ...(node.data.connectionId ? { connectionId: node.data.connectionId } : {}),
+              // Vault credential reference — an opaque id, resolved server-side
+              // at fetch time. Never a secret, so nothing to resolve here.
+              ...(node.data.credentialId ? { credentialId: node.data.credentialId } : {}),
+              ...(node.data.authMode ? { authMode: node.data.authMode } : {}),
               ...(node.data.auth ? { auth: resolveTemplateValue(node.data.auth, ctx) } : {}),
               method: node.data.method,
               url: resolveTemplate(node.data.url, ctx),

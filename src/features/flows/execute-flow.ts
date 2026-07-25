@@ -25,6 +25,8 @@ import { generateStructured, generateText } from '@/lib/llm/model-runner'
 import { flowActionRetries, flowActionTimeoutMs, runWithRetries, shouldRetryAfterTimeout } from './action-reliability'
 import { performHttpRequest, prepareHttpRequest, redactHttpStepInput, withBearerAuthorization } from './http'
 import { resolveHttpConnectionToken } from './http-auth'
+import { resolveCredential } from '@/lib/credentials/resolve'
+import { applyCredentialPlan } from '@/lib/credentials/apply'
 import { shouldPersistInterpreterStep } from './run-step-persistence'
 import { prepareToolArgs } from './tool-args'
 import { flowToolOutput } from './tool-output'
@@ -694,7 +696,23 @@ export async function runFlowExecution(
       // wins. The token lives only in the outbound request, never in the
       // persisted step input/output or logs.
       const httpConnectionId = typeof node.config.connectionId === 'string' ? node.config.connectionId.trim() : ''
-      if (httpConnectionId) {
+      const httpCredentialId = typeof node.config.credentialId === 'string' ? node.config.credentialId.trim() : ''
+      const httpAuthMode = typeof node.config.authMode === 'string' ? node.config.authMode : undefined
+      // A vault credential wins over a predefined connection only when the node
+      // explicitly says so; otherwise infer from whichever field is populated,
+      // preserving every pre-vault graph's behaviour.
+      const useGeneric = httpAuthMode === 'generic' || (!httpAuthMode && !httpConnectionId && Boolean(httpCredentialId))
+      if (httpAuthMode !== 'none' && useGeneric && httpCredentialId) {
+        const plan = await resolveCredential({
+          credentialId: httpCredentialId,
+          organizationId: job.organizationId,
+          userId: job.userId,
+          requestUrl: request.url,
+        })
+        const applied = applyCredentialPlan(request.url, request.init.headers as Record<string, string>, plan)
+        request.url = applied.url
+        request.init.headers = applied.headers
+      } else if (httpAuthMode !== 'none' && httpConnectionId) {
         const token = await resolveHttpConnectionToken({
           connectionId: httpConnectionId,
           organizationId: job.organizationId,

@@ -163,6 +163,14 @@ const httpNode = z.object({
       name: z.string().optional(),
       value: z.string().optional(),
     }).optional(),
+    // Which auth path this step uses. 'predefined' = the connectionId above
+    // (an MCP connection's OAuth token); 'generic' = credentialId, a row in the
+    // reusable vault. Absent = today's behaviour, inferred from which field is
+    // set, so every existing graph keeps working untouched.
+    authMode: z.enum(['none', 'predefined', 'generic']).optional(),
+    // Opaque reference to a Credential row. The secret itself NEVER travels in
+    // the graph — that is the whole point of the vault (see lib/credentials).
+    credentialId: z.string().optional(),
     method: z.enum(['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS']).default('POST'),
     url: z.string(),
     query: z.string().optional(),
