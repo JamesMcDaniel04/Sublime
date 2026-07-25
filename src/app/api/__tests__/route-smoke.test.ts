@@ -96,6 +96,8 @@ if (TEST_DB) {
     { name: 'POST /api/flows/[id]/export', run: async () => (await import('../flows/[id]/export/route')).POST(new NextRequest(new URL('http://test/api/flows/no-such-id/export'), { method: 'POST', body: '{}', headers: { 'content-type': 'application/json' } } as never)) },
     { name: 'GET /api/flows/[id]/jam', run: async () => (await import('../flows/[id]/jam/route')).GET(req('/api/flows/no-such-id/jam')) },
     { name: 'GET /api/flows/[id]/pins', run: async () => (await import('../flows/[id]/pins/route')).GET(req('/api/flows/no-such-id/pins')) },
+    { name: 'GET /api/credentials', run: async () => (await import('../credentials/route')).GET(req('/api/credentials')) },
+    { name: 'GET /api/credentials/[id]', run: async () => (await import('../credentials/[id]/route')).GET(req('/api/credentials/no-such-id')) },
     { name: 'GET /api/intelligence/health', run: async () => (await import('../intelligence/health/route')).GET(req('/api/intelligence/health')) },
     { name: 'GET /api/intelligence/patterns', run: async () => (await import('../intelligence/patterns/route')).GET(req('/api/intelligence/patterns')) },
     { name: 'GET /api/intelligence/readiness', run: async () => (await import('../intelligence/readiness/route')).GET(req('/api/intelligence/readiness')) },
