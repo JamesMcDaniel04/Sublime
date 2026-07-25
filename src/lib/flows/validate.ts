@@ -1,4 +1,5 @@
 import { FIELD_TYPES, type FlowGraph, type FlowNode } from '@/lib/flows/graph'
+import { literalAuthSecrets } from '@/lib/flows/inline-auth'
 import { FLOW_TRIGGER_TYPES } from '@/lib/flows/trigger'
 import { SLACK_EVENT_KINDS } from '@/lib/slack/payload'
 
@@ -442,6 +443,24 @@ export function validateFlowGraph(graph: FlowGraph, context: FlowValidationConte
       }
       if ((node.data.bodyMode ?? 'json') !== 'none' && ['GET', 'DELETE'].includes(node.data.method) && node.data.body?.trim()) {
         add(issues, 'warning', 'HTTP_BODY_IGNORED', `${nodeLabel(node)} will not send a body for ${node.data.method}.`, node.id)
+      }
+      // Inline auth holding a LITERAL secret keeps that secret in the graph,
+      // which fans out to publishedGraph, version snapshots, run snapshots,
+      // exports, copilot grounding, and the clipboard — each an independent
+      // place it can escape. A warning rather than an error: existing flows must
+      // keep running while their owner moves the secret to the vault.
+      const inlineSecrets = literalAuthSecrets(node.data.auth)
+      if (inlineSecrets.length > 0) {
+        add(
+          issues,
+          'warning',
+          'INLINE_AUTH_SECRET',
+          `${nodeLabel(node)} stores its ${inlineSecrets.join(' and ')} directly in this flow. Save it as a credential (Integrations → Credentials) and attach it instead, so the secret stays out of the flow's definition, history, and exports.`,
+          node.id,
+        )
+      }
+      if (node.data.authMode === 'generic' && !node.data.credentialId?.trim()) {
+        add(issues, 'error', 'MISSING_CREDENTIAL', `${nodeLabel(node)} is set to use a saved credential but none is chosen.`, node.id)
       }
     }
 
