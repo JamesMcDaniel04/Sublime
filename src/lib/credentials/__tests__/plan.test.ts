@@ -26,8 +26,10 @@ test('apiKeyHeader injects under its own header name', () => {
 
 test('apiKeyQuery injects a query param, never a header', () => {
   const plan = credentialInjectionPlan({ type: 'apiKeyQuery', queryParam: 'api_key', key: 'k' })
-  assert.deepEqual(plan, { query: { api_key: 'k' } })
+  // Header assertion FIRST: assert.deepEqual carries an assertion signature
+  // that narrows `plan` to the expected literal, hiding later property access.
   assert.equal(plan.headers, undefined)
+  assert.deepEqual(plan, { query: { api_key: 'k' } })
 })
 
 test('custom merges named headers and query params', () => {
