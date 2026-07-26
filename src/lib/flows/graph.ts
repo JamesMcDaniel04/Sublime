@@ -168,19 +168,30 @@ const httpNode = z.object({
     // reusable vault. Absent = today's behaviour, inferred from which field is
     // set, so every existing graph keeps working untouched.
     authMode: z.enum(['none', 'predefined', 'generic']).optional(),
+    // Generic auth type selected in the editor. Non-secret and useful before a
+    // credential has been created; the credential id remains runtime truth.
+    credentialType: z.enum(['basic', 'bearer', 'custom', 'digest', 'apiKeyHeader', 'oauth1', 'oauth2', 'apiKeyQuery']).optional(),
     // Opaque reference to a Credential row. The secret itself NEVER travels in
     // the graph — that is the whole point of the vault (see lib/credentials).
     credentialId: z.string().optional(),
     method: z.enum(['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS']).default('POST'),
     url: z.string(),
     query: z.string().optional(),
+    sendQuery: z.boolean().optional(),
+    queryMode: z.enum(['json', 'fields']).optional(),
     // How array query values serialize: tag=a&tag=b (repeat, default),
     // tag[]=a, tag[0]=a, or tag=a,b.
     queryArrayFormat: z.enum(['repeat', 'brackets', 'indices', 'comma']).optional(),
     headers: z.string().optional(),
+    sendHeaders: z.boolean().optional(),
+    headersMode: z.enum(['json', 'fields']).optional(),
     body: z.string().optional(),
+    sendBody: z.boolean().optional(),
     cookie: z.string().optional(),
-    bodyMode: z.enum(['json', 'text', 'raw', 'formUrlencoded', 'multipart', 'binary', 'none']).optional(),
+    bodyMode: z.enum(['json', 'text', 'raw', 'graphql', 'formUrlencoded', 'multipart', 'binary', 'none']).optional(),
+    bodyInputMode: z.enum(['json', 'fields']).optional(),
+    bodyContentType: z.string().optional(),
+    graphqlVariables: z.string().optional(),
     responseType: z.enum(['auto', 'json', 'text', 'binary']).optional(),
     failOnHttpError: z.boolean().optional(),
     retries: z.number().int().min(0).max(5).optional(),

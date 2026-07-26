@@ -229,15 +229,16 @@ export function saveBody(draft: CredentialDraft, editing: boolean): CredentialIn
     allowedDomains: parseAllowedDomains(draft.allowedDomains),
   }
   if (draft.caCert.trim()) body.caCert = draft.caCert
+  const writable = body as Record<string, unknown>
   const put = (field: CredentialField, value: string) => {
     const trimmed = value.trim()
     if (SECRET_FIELDS.has(field)) {
       // Never send a blank secret: on create it would store an empty
       // credential, on edit it would wipe the stored one.
-      if (trimmed) body[field] = value
+      if (trimmed) writable[field] = value
       return
     }
-    if (trimmed || !editing) body[field] = value
+    if (trimmed || !editing) writable[field] = value
   }
   for (const field of fieldsForType(draft.type)) {
     if (draft.type === 'oauth2') {

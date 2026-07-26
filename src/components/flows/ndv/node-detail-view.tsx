@@ -11,7 +11,6 @@ import type { TokenLabelContext } from '@/lib/flows/token-text'
 import type { ToolCatalog } from '../tool-catalog-type'
 import type { EditableType } from '../node-types'
 import type { TokenTextEditorHandle } from '../token-text-editor'
-import { ResizablePanel } from '../resizable-panel'
 import { NODE_BODIES } from '../nodes/registry'
 import type { Agent, TokenEditorWiring } from '../nodes/types'
 import { ParamsPane } from './params-pane'
@@ -153,6 +152,15 @@ export function NodeDetailView({
   }
 
   const label = ('label' in node.data && node.data.label) || node.type
+  const rawInput = previewContext
+    ? {
+        trigger: previewContext.trigger.input,
+        previousNodes: Object.fromEntries(
+          Object.entries(previewContext.step).map(([nodeId, value]) => [nodeId, value.output]),
+        ),
+        ...(previewContext.item !== undefined ? { item: previewContext.item } : {}),
+      }
+    : undefined
 
   return (
     <div className="fixed inset-0 z-50 flex flex-col bg-black/40 p-4 sm:p-8" role="dialog" aria-modal="true" aria-label={`Configure ${label}`}>
@@ -204,13 +212,11 @@ export function NodeDetailView({
             </div>
           </div>
         )}
-        <div className="flex min-h-0 flex-1">
-          {/* ResizablePanel is right-docked (dragging left widens), so it fits
-              only the output side; the input pane takes a plain fixed width. */}
-          <div className="w-[280px] shrink-0">
-            <InputPane dataFields={dataFields} onInsertToken={insertToken} />
+        <div className="grid min-h-0 flex-1 grid-cols-[minmax(240px,1fr)_minmax(440px,620px)_minmax(260px,1fr)]">
+          <div className="min-w-0">
+            <InputPane dataFields={dataFields} rawInput={rawInput} onInsertToken={insertToken} />
           </div>
-          <div className="min-w-0 flex-1 border-x border-border">
+          <div className="min-w-0 border-x border-border">
             <ParamsPane
               node={node}
               flowId={flowId}
@@ -226,9 +232,9 @@ export function NodeDetailView({
               onChangeType={onChangeType}
             />
           </div>
-          <ResizablePanel storageKey="flow.ndv.outputWidth" defaultWidth={320}>
+          <div className="min-w-0">
             <OutputPane lastOutput={lastOutput} pinned={pinned} onPin={onPin} onUnpin={onUnpin} error={testState?.status === 'failed' ? testState.error : undefined} />
-          </ResizablePanel>
+          </div>
         </div>
       </div>
     </div>

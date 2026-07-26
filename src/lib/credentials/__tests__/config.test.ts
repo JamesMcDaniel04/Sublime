@@ -106,3 +106,52 @@ test('an empty authConfig redacts to hasX=false rather than throwing', async () 
   assert.deepEqual(redactCredential('bearer', {}), { type: 'bearer', hasToken: false })
   assert.deepEqual(redactCredential('bearer', null), { type: 'bearer', hasToken: false })
 })
+
+test('OAuth1 encrypts every secret while preserving signing metadata', async () => {
+  const { buildCredentialConfig, redactCredential, decryptCredentialConfig } = await fresh()
+  const cfg = buildCredentialConfig({
+    type: 'oauth1',
+    consumerKey: 'consumer',
+    consumerSecret: 'consumer-secret',
+    accessToken: 'access',
+    tokenSecret: 'token-secret',
+    signatureMethod: 'HMAC-SHA256',
+  })
+  assert.equal(cfg.consumerKey, 'consumer')
+  assert.notEqual(cfg.consumerSecret, 'consumer-secret')
+  assert.notEqual(cfg.accessToken, 'access')
+  assert.deepEqual(redactCredential('oauth1', cfg), {
+    type: 'oauth1',
+    consumerKey: 'consumer',
+    hasConsumerSecret: true,
+    hasAccessToken: true,
+    hasTokenSecret: true,
+    signatureMethod: 'HMAC-SHA256',
+  })
+  assert.equal(decryptCredentialConfig('oauth1', cfg).tokenSecret, 'token-secret')
+})
+
+test('OAuth2 client credentials redact secrets and keep endpoint metadata', async () => {
+  const { buildCredentialConfig, redactCredential, decryptCredentialConfig } = await fresh()
+  const cfg = buildCredentialConfig({
+    type: 'oauth2',
+    grantType: 'clientCredentials',
+    tokenUrl: 'https://auth.example.com/token',
+    clientId: 'client',
+    clientSecret: 'client-secret',
+    scope: 'read write',
+    clientAuth: 'header',
+  })
+  assert.notEqual(cfg.clientSecret, 'client-secret')
+  assert.deepEqual(redactCredential('oauth2', cfg), {
+    type: 'oauth2',
+    grantType: 'clientCredentials',
+    hasAccessToken: false,
+    tokenUrl: 'https://auth.example.com/token',
+    clientId: 'client',
+    hasClientSecret: true,
+    scope: 'read write',
+    clientAuth: 'header',
+  })
+  assert.equal(decryptCredentialConfig('oauth2', cfg).clientSecret, 'client-secret')
+})

@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { prepareHttpRequest, responseOutput, withBearerAuthorization, redactAuthHeaders, redactHttpStepInput } from '../http'
+import { performHttpRequest, prepareHttpRequest, responseOutput, withBearerAuthorization, redactAuthHeaders, redactHttpStepInput } from '../http'
 
 test('prepareHttpRequest appends query params and sends JSON bodies', () => {
   const request = prepareHttpRequest({
@@ -75,6 +75,96 @@ test('prepareHttpRequest rejects invalid JSON bodies when JSON mode is explicit'
     () => prepareHttpRequest({ method: 'POST', url: 'https://api.example.com', bodyMode: 'json', body: '{broken' }),
     /not valid JSON/,
   )
+})
+
+test('send toggles suppress stored query, headers, and body without deleting them', () => {
+  const request = prepareHttpRequest({
+    method: 'POST',
+    url: 'https://api.example.com/items',
+    query: '{"page":2}',
+    headers: '{"x-api-key":"keep-for-later"}',
+    body: '{"name":"saved"}',
+    bodyMode: 'json',
+    sendQuery: false,
+    sendHeaders: false,
+    sendBody: false,
+  })
+  assert.equal(request.url, 'https://api.example.com/items')
+  assert.deepEqual(request.init.headers, {})
+  assert.equal(request.init.body, undefined)
+})
+
+test('GraphQL mode serializes query and variables as JSON', () => {
+  const request = prepareHttpRequest({
+    method: 'POST',
+    url: 'https://api.example.com/graphql',
+    bodyMode: 'graphql',
+    body: 'query Thing($id: ID!) { thing(id: $id) { name } }',
+    graphqlVariables: '{"id":"thing_1"}',
+  })
+  assert.equal(request.init.body, JSON.stringify({
+    query: 'query Thing($id: ID!) { thing(id: $id) { name } }',
+    variables: { id: 'thing_1' },
+  }))
+  assert.equal((request.init.headers as Record<string, string>)['content-type'], 'application/json')
+})
+
+test('raw mode sends its explicit content type', () => {
+  const request = prepareHttpRequest({
+    method: 'POST',
+    url: 'https://api.example.com/document',
+    bodyMode: 'raw',
+    bodyContentType: 'text/html',
+    body: '<p>Hello</p>',
+  })
+  assert.equal(request.init.body, '<p>Hello</p>')
+  assert.equal((request.init.headers as Record<string, string>)['content-type'], 'text/html')
+})
+
+test('OAuth1 runtime auth signs the actual request URL', async () => {
+  const request = prepareHttpRequest({ method: 'GET', url: 'https://api.example.com/items?page=2' })
+  request.runtimeAuth = {
+    type: 'oauth1',
+    consumerKey: 'consumer',
+    consumerSecret: 'consumer-secret',
+    accessToken: 'token',
+    tokenSecret: 'token-secret',
+    signatureMethod: 'HMAC-SHA256',
+  }
+  let authorization = ''
+  await performHttpRequest(request, {}, {
+    fetchImpl: (async (_input, init) => {
+      authorization = new Headers(init?.headers).get('authorization') ?? ''
+      return new Response('{"ok":true}', { status: 200, headers: { 'content-type': 'application/json' } })
+    }) as typeof fetch,
+  })
+  assert.match(authorization, /^OAuth /)
+  assert.match(authorization, /oauth_signature_method="HMAC-SHA256"/)
+  assert.match(authorization, /oauth_signature=/)
+  assert.equal(authorization.includes('consumer-secret'), false)
+})
+
+test('Digest runtime auth answers a server challenge and retries once', async () => {
+  const request = prepareHttpRequest({ method: 'GET', url: 'https://api.example.com/protected' })
+  request.runtimeAuth = { type: 'digest', username: 'joe', password: 'secret' }
+  const authorizations: string[] = []
+  await performHttpRequest(request, {}, {
+    fetchImpl: (async (_input, init) => {
+      const authorization = new Headers(init?.headers).get('authorization') ?? ''
+      authorizations.push(authorization)
+      if (!authorization) {
+        return new Response('', {
+          status: 401,
+          headers: { 'www-authenticate': 'Digest realm="api", nonce="abc", qop="auth", algorithm=SHA-256' },
+        })
+      }
+      return new Response('{"ok":true}', { status: 200, headers: { 'content-type': 'application/json' } })
+    }) as typeof fetch,
+  })
+  assert.equal(authorizations.length, 2)
+  assert.match(authorizations[1], /^Digest /)
+  assert.match(authorizations[1], /username="joe"/)
+  assert.equal(authorizations[1].includes('secret'), false)
 })
 
 test('queryArrayFormat controls how array params serialize', () => {

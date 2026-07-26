@@ -59,16 +59,67 @@ test('an invalid cURL command shows an error and leaves the node unchanged', () 
   cleanup()
 })
 
-test('choosing a generic auth type stores it on the node and switching to none clears it', () => {
+test('generic auth uses a reusable credential type and never writes inline secrets', () => {
   let latest: FlowNode | null = null
   const { container } = render(React.createElement(CardHarness, { capture: (n) => { latest = n } }))
+  act(() => {
+    fireEvent.change(container.querySelector('[aria-label="Authentication"]') as HTMLSelectElement, { target: { value: 'generic' } })
+  })
   const select = container.querySelector('[aria-label="Generic auth type"]') as HTMLSelectElement
   assert.ok(select, 'generic auth select renders')
-  act(() => { fireEvent.change(select, { target: { value: 'basic' } }) })
-  let data = (latest as unknown as { data: { auth?: { type?: string } } }).data
-  assert.equal(data.auth?.type, 'basic')
-  act(() => { fireEvent.change(container.querySelector('[aria-label="Generic auth type"]') as HTMLSelectElement, { target: { value: '' } }) })
-  data = (latest as unknown as { data: { auth?: { type?: string } } }).data
+  act(() => { fireEvent.change(select, { target: { value: 'oauth2' } }) })
+  let data = (latest as unknown as { data: { authMode?: string; credentialType?: string; auth?: unknown } }).data
+  assert.equal(data.authMode, 'generic')
+  assert.equal(data.credentialType, 'oauth2')
   assert.equal(data.auth, undefined)
+  act(() => {
+    fireEvent.change(container.querySelector('[aria-label="Authentication"]') as HTMLSelectElement, { target: { value: 'none' } })
+  })
+  data = (latest as unknown as { data: { authMode?: string; credentialType?: string } }).data
+  assert.equal(data.authMode, 'none')
+  assert.equal(data.credentialType, undefined)
+  cleanup()
+})
+
+test('HTTP parameters expose n8n-style query, header, and body toggles', () => {
+  let latest: FlowNode | null = null
+  const { getByRole, getByLabelText } = render(React.createElement(CardHarness, { capture: (n) => { latest = n } }))
+
+  act(() => { getByRole('switch', { name: 'Send Query Parameters' }).click() })
+  assert.ok(getByLabelText('Query Parameters JSON'))
+  act(() => { getByRole('switch', { name: 'Send Headers' }).click() })
+  assert.ok(getByLabelText('Headers JSON'))
+  act(() => { getByRole('switch', { name: 'Send Body' }).click() })
+
+  const contentType = getByLabelText('Body Content Type') as HTMLSelectElement
+  assert.deepEqual(Array.from(contentType.options).map((option) => option.text), [
+    'JSON',
+    'Raw',
+    'GraphQL',
+    'Form URL Encoded',
+  ])
+  act(() => { fireEvent.change(contentType, { target: { value: 'graphql' } }) })
+  assert.ok(getByLabelText('GraphQL Query'))
+  assert.ok(getByLabelText('GraphQL Variables JSON'))
+  const data = (latest as unknown as { data: { sendQuery?: boolean; sendHeaders?: boolean; sendBody?: boolean; bodyMode?: string } }).data
+  assert.equal(data.sendQuery, true)
+  assert.equal(data.sendHeaders, true)
+  assert.equal(data.sendBody, true)
+  assert.equal(data.bodyMode, 'graphql')
+  cleanup()
+})
+
+test('the credential setup opens a smaller editor for the selected auth method', () => {
+  const { container, getByRole } = render(React.createElement(CardHarness, { capture: () => {} }))
+  act(() => {
+    fireEvent.change(container.querySelector('[aria-label="Authentication"]') as HTMLSelectElement, { target: { value: 'generic' } })
+  })
+  act(() => {
+    fireEvent.change(container.querySelector('[aria-label="Generic auth type"]') as HTMLSelectElement, { target: { value: 'digest' } })
+  })
+  act(() => { getByRole('button', { name: /set up credential/i }).click() })
+  assert.ok(document.querySelector('#cred-username'))
+  assert.ok(document.querySelector('#cred-password'))
+  assert.ok(document.querySelector('[role="dialog"]'))
   cleanup()
 })

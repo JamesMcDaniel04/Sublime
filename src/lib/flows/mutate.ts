@@ -31,7 +31,19 @@ function defaultData(type: FlowNode['type'], extra?: { bodyId?: string; agentId?
     case 'tool':
       return { connectionId: '', toolName: '', args: '{}' }
     case 'http':
-      return { method: 'POST', url: '', bodyMode: 'json', responseType: 'auto', failOnHttpError: true, retries: 0, body: '' }
+      return {
+        method: 'POST',
+        url: '',
+        authMode: 'none',
+        sendQuery: false,
+        sendHeaders: false,
+        sendBody: false,
+        bodyMode: 'json',
+        responseType: 'auto',
+        failOnHttpError: true,
+        retries: 0,
+        body: '',
+      }
     case 'respondWebhook':
       return { statusCode: 200, bodyMode: 'json', body: '{{trigger.input}}' }
     case 'wait':

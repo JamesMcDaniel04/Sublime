@@ -36,11 +36,13 @@ export function CredentialEditor({
   credentialId,
   onSaved,
   onCancel,
+  verifyAgainst,
 }: Readonly<{
   initial?: CredentialDraft
   credentialId?: string
   onSaved: (credential: { id: string; name: string; type: string; allowedDomains: string[] }) => void
   onCancel: () => void
+  verifyAgainst?: string
 }>) {
   const editing = Boolean(credentialId)
   const [draft, setDraft] = useState<CredentialDraft>(initial ?? emptyDraft())
@@ -65,6 +67,16 @@ export function CredentialEditor({
       const body = await response.json().catch(() => ({}))
       if (!response.ok) throw new Error(body.error || 'Could not save the credential.')
       toast.success(editing ? 'Credential updated.' : 'Credential saved.')
+      if (verifyAgainst && /^https?:\/\//i.test(verifyAgainst)) {
+        const verification = await fetch(`/api/credentials/${body.credential.id}/verify`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ url: verifyAgainst, method: 'GET' }),
+        })
+        const verificationBody = await verification.json().catch(() => ({}))
+        if (verification.ok) toast.success('Credential verified against this endpoint.')
+        else toast.error(verificationBody.error || 'Credential saved, but verification failed.')
+      }
       onSaved(body.credential)
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Could not save the credential.')
@@ -167,6 +179,12 @@ export function CredentialEditor({
     )
   }
 
+  const visibleFields = fieldsForType(draft.type).filter((field) => {
+    if (draft.type !== 'oauth2') return true
+    if (draft.grantType === 'staticToken') return field === 'grantType' || field === 'accessToken'
+    return field !== 'accessToken'
+  })
+
   return (
     <div className="grid gap-4">
       <div className="grid gap-1.5">
@@ -194,7 +212,7 @@ export function CredentialEditor({
         </select>
       </div>
 
-      {fieldsForType(draft.type).map(fieldInput)}
+      {visibleFields.map(fieldInput)}
 
       {(draft.type === 'bearer' || draft.type === 'apiKeyHeader') && (
         <div className="grid gap-1.5">
@@ -249,7 +267,7 @@ export function CredentialEditor({
       <div className="flex justify-end gap-2">
         <Button variant="outline" size="sm" onClick={onCancel} disabled={saving}>Cancel</Button>
         <Button size="sm" onClick={save} loading={saving} disabled={saving} className={cn(problems.length > 0 && showProblems && 'opacity-80')}>
-          {editing ? 'Save changes' : 'Save credential'}
+          {editing ? 'Save changes' : verifyAgainst ? 'Save & verify' : 'Save credential'}
         </Button>
       </div>
     </div>

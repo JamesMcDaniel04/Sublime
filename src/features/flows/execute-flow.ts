@@ -25,7 +25,7 @@ import { generateStructured, generateText } from '@/lib/llm/model-runner'
 import { flowActionRetries, flowActionTimeoutMs, runWithRetries, shouldRetryAfterTimeout } from './action-reliability'
 import { performHttpRequest, prepareHttpRequest, redactHttpStepInput, withBearerAuthorization } from './http'
 import { resolveHttpConnectionToken } from './http-auth'
-import { resolveCredential } from '@/lib/credentials/resolve'
+import { resolveHttpCredential } from '@/lib/credentials/resolve'
 import { applyCredentialPlan } from '@/lib/credentials/apply'
 import { shouldPersistInterpreterStep } from './run-step-persistence'
 import { prepareToolArgs } from './tool-args'
@@ -34,6 +34,8 @@ import { slackOriginOf } from '@/lib/slack/reply'
 import { deliverSlackRunReply } from '@/lib/slack/deliver'
 import { apiLogger } from '@/lib/logger'
 import { recordToolCallEvents } from '@/lib/behavior/record-event'
+import { credentialVerificationKey } from '@/lib/connections/verification'
+import { recordVerificationAsync } from '@/lib/connections/record-verification'
 
 export type FlowExecutionJob = {
   flowId: string
@@ -703,15 +705,17 @@ export async function runFlowExecution(
       // preserving every pre-vault graph's behaviour.
       const useGeneric = httpAuthMode === 'generic' || (!httpAuthMode && !httpConnectionId && Boolean(httpCredentialId))
       if (httpAuthMode !== 'none' && useGeneric && httpCredentialId) {
-        const plan = await resolveCredential({
+        const resolvedCredential = await resolveHttpCredential({
           credentialId: httpCredentialId,
           organizationId: job.organizationId,
           userId: job.userId,
           requestUrl: request.url,
+          assertUrlAllowed: assertPublicUrl,
         })
-        const applied = applyCredentialPlan(request.url, request.init.headers as Record<string, string>, plan)
+        const applied = applyCredentialPlan(request.url, request.init.headers as Record<string, string>, resolvedCredential.plan)
         request.url = applied.url
         request.init.headers = applied.headers
+        request.runtimeAuth = resolvedCredential.runtimeAuth
       } else if (httpAuthMode !== 'none' && httpConnectionId) {
         const token = await resolveHttpConnectionToken({
           connectionId: httpConnectionId,
@@ -721,29 +725,49 @@ export async function runFlowExecution(
         request.init.headers = withBearerAuthorization(request.init.headers as Record<string, string>, token)
       }
       const retries = flowActionRetries(node.config.retries)
-      const output = await runWithRetries(async () => {
-        const controller = new AbortController()
-        let timedOut = false
-        const timer = setTimeout(() => {
-          timedOut = true
-          controller.abort()
-        }, request.timeoutMs)
-        try {
-          // The whole request sequence (redirects, pagination, batch throttle)
-          // lives in performHttpRequest so it's unit-testable; this wrapper
-          // supplies the real fetch, SSRF guard, and per-attempt abort signal.
-          return await performHttpRequest(request, node.config, {
-            assertUrlAllowed: assertPublicUrl,
-            signal: controller.signal,
-            maxResponseChars: HTTP_MAX_RESPONSE_CHARS,
+      let output
+      try {
+        output = await runWithRetries(async () => {
+          const controller = new AbortController()
+          let timedOut = false
+          const timer = setTimeout(() => {
+            timedOut = true
+            controller.abort()
+          }, request.timeoutMs)
+          try {
+            // The whole request sequence (redirects, pagination, batch throttle)
+            // lives in performHttpRequest so it's unit-testable; this wrapper
+            // supplies the real fetch, SSRF guard, and per-attempt abort signal.
+            return await performHttpRequest(request, node.config, {
+              assertUrlAllowed: assertPublicUrl,
+              signal: controller.signal,
+              maxResponseChars: HTTP_MAX_RESPONSE_CHARS,
+            })
+          } catch (error) {
+            if (timedOut) throw new Error(`HTTP request timed out after ${request.timeoutMs}ms`)
+            throw error
+          } finally {
+            clearTimeout(timer)
+          }
+        }, { retries, retryDelayMs: typeof node.config.retryDelayMs === 'number' ? node.config.retryDelayMs : undefined })
+        if (useGeneric && httpCredentialId) {
+          recordVerificationAsync({
+            organizationId: job.organizationId,
+            connectionId: credentialVerificationKey(httpCredentialId),
+            state: 'verified',
           })
-        } catch (error) {
-          if (timedOut) throw new Error(`HTTP request timed out after ${request.timeoutMs}ms`)
-          throw error
-        } finally {
-          clearTimeout(timer)
         }
-      }, { retries, retryDelayMs: typeof node.config.retryDelayMs === 'number' ? node.config.retryDelayMs : undefined })
+      } catch (error) {
+        if (useGeneric && httpCredentialId) {
+          recordVerificationAsync({
+            organizationId: job.organizationId,
+            connectionId: credentialVerificationKey(httpCredentialId),
+            state: 'failed',
+            error: error instanceof Error ? error.message : String(error),
+          })
+        }
+        throw error
+      }
       await finish({ status: 'succeeded', output })
       return { output }
     } catch (error) {

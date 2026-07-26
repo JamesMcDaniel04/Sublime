@@ -51,6 +51,17 @@ test('an incomplete credential injects NOTHING rather than a blank header', () =
   assert.deepEqual(credentialInjectionPlan({ type: 'custom', headers: [], query: [] }), {})
 })
 
+test('OAuth2 access-token credentials inject bearer auth', () => {
+  assert.deepEqual(
+    credentialInjectionPlan({ type: 'oauth2', grantType: 'staticToken', accessToken: 'token-1' }),
+    { headers: { authorization: 'Bearer token-1' } },
+  )
+  assert.deepEqual(
+    credentialInjectionPlan({ type: 'oauth2', grantType: 'clientCredentials', accessToken: 'stale' }),
+    {},
+  )
+})
+
 test('an empty allow-list permits any host', () => {
   assert.equal(isRequestUrlAllowed('https://anything.example.com/x', []), true)
 })

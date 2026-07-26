@@ -10,7 +10,7 @@ const g = globalThis as unknown as Record<string, unknown>
 
 // Copy DOM constructors/globals React and Testing Library expect. Some globals
 // (navigator) are read-only on Node 22 — define them non-fatally.
-const keys = ['window', 'document', 'Element', 'HTMLElement', 'HTMLInputElement', 'HTMLTextAreaElement', 'SVGElement', 'Node', 'Event', 'CustomEvent', 'KeyboardEvent', 'InputEvent', 'MouseEvent', 'getComputedStyle', 'DocumentFragment', 'Range', 'Text', 'MutationObserver', 'requestAnimationFrame', 'cancelAnimationFrame', 'ResizeObserver']
+const keys = ['window', 'document', 'Element', 'HTMLElement', 'HTMLInputElement', 'HTMLTextAreaElement', 'SVGElement', 'Node', 'NodeFilter', 'Event', 'CustomEvent', 'KeyboardEvent', 'InputEvent', 'MouseEvent', 'getComputedStyle', 'DocumentFragment', 'Range', 'Text', 'MutationObserver', 'requestAnimationFrame', 'cancelAnimationFrame', 'ResizeObserver']
 g.window = dom.window
 for (const key of keys) {
   if (key === 'window') continue

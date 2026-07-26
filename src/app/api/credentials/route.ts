@@ -5,6 +5,8 @@ import { recordAudit } from '@/lib/audit'
 import { buildCredentialConfig, redactCredential } from '@/lib/credentials/config'
 import { credentialScope } from '@/lib/credentials/resolve'
 import { CREDENTIAL_TYPES, type CredentialType } from '@/lib/credentials/types'
+import { loadVerifications } from '@/lib/connections/record-verification'
+import { credentialVerificationKey, toVerification } from '@/lib/connections/verification'
 
 export const runtime = 'nodejs'
 
@@ -54,6 +56,10 @@ export const GET = withAuthenticatedApi(async (_request, auth) => {
     orderBy: { name: 'asc' },
     select: { id: true, name: true, type: true, authConfig: true, allowedDomains: true, userId: true, lastUsedAt: true, updatedAt: true },
   })
+  const verifications = await loadVerifications(
+    auth.organizationId,
+    rows.map((row) => credentialVerificationKey(row.id)),
+  )
   return {
     success: true,
     credentials: rows.map((row) => ({
@@ -64,6 +70,7 @@ export const GET = withAuthenticatedApi(async (_request, auth) => {
       personal: row.userId !== null,
       lastUsedAt: row.lastUsedAt,
       updatedAt: row.updatedAt,
+      verification: toVerification(verifications.get(credentialVerificationKey(row.id))),
       config: redactCredential(row.type, row.authConfig),
     })),
   }
