@@ -64,3 +64,27 @@ test('paceDelta returns null when a side has fewer than two points', () => {
   assert.equal(before, null)
   assert.ok(after !== null)
 })
+
+test('pure duration stats: unmeasurable flow runs leave the denominator', async () => {
+  const { flowRunStatsOf, agentRunStatsOf } = await import('../impact')
+  const t0 = new Date('2026-01-01T00:00:00Z')
+  const flow = flowRunStatsOf([
+    { startedAt: t0, finishedAt: new Date(t0.getTime() + 42_000) },
+    { startedAt: t0, finishedAt: null }, // succeeded but unmeasurable — excluded entirely
+    { startedAt: t0, finishedAt: new Date(t0.getTime() + 18_000) },
+  ])
+  assert.equal(flow.runs, 2)
+  assert.equal(flow.measuredRunSeconds.total, 60)
+  assert.equal(flow.measuredRunSeconds.avg, 30)
+
+  const agent = agentRunStatsOf([
+    { inputTokens: 1000, outputTokens: 500, executionTime: 90_000 }, // ms → 90s
+    { inputTokens: 200, outputTokens: 100, executionTime: null },
+  ])
+  assert.equal(agent.runs, 2)
+  assert.equal(agent.tokens, 1800)
+  assert.equal(agent.measuredRunSeconds.total, 90)
+  assert.equal(agent.measuredRunSeconds.avg, 45)
+
+  assert.deepEqual(flowRunStatsOf([]).measuredRunSeconds, { total: 0, avg: null })
+})

@@ -4,6 +4,7 @@ import { ApiError, withAuthenticatedApi } from '@/lib/server/api-handler'
 import { recordUserEvent } from '@/lib/behavior/record-event'
 import { evaluateGoal } from '@/lib/goals/evaluate'
 import { bucketKeyFor } from '@/lib/goals/refresh'
+import { validateReadOnlyQuery } from '@/lib/metrics/sources/postgres'
 
 export const runtime = 'nodejs'
 
@@ -56,6 +57,23 @@ const createSchema = z
   })
   .refine((body) => body.metric.source === 'manual' || Boolean(body.metric.connectionRef), {
     message: 'Pick the connection this metric reads from.',
+  })
+  // A postgres binding must be a valid read-only statement at creation —
+  // a direct POST that skipped the wizard preview should fail here, not
+  // surface as lastError on the first tick.
+  .superRefine((body, ctx) => {
+    if (body.metric.source !== 'postgres') return
+    try {
+      validateReadOnlyQuery(
+        typeof body.metric.config.query === 'string' ? body.metric.config.query : '',
+      )
+    } catch (error) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['metric', 'config', 'query'],
+        message: error instanceof Error ? error.message : 'Invalid Postgres query.',
+      })
+    }
   })
 
 export const GET = withAuthenticatedApi(async (_request, auth) => {

@@ -1,3 +1,16 @@
+/**
+ * Global k-anonymous goal-outcome benchmarks.
+ *
+ * Privacy model: the ONLY things that cross an org boundary are per-kind
+ * COUNTS — distinct orgs, settled outcomes, achieved outcomes — plus
+ * platform-catalogue seed keys ranked by adoption. No goal names, values,
+ * org ids, or user ids are stored; rows surface only at the
+ * MIN_BENCHMARK_ORGS floor (enforced at read time in surfaceGoalBenchmark).
+ *
+ * Runs as a weekly global cron sweep (systemPrisma: cross-tenant by design,
+ * CRON_SECRET-gated at the route). Pure helpers carry the math so the
+ * k-anonymity contract is testable without a database.
+ */
 import { systemPrisma } from '@/lib/prisma'
 import { apiLogger } from '@/lib/logger'
 import { captureError } from '@/lib/observability/sentry'
@@ -15,6 +28,8 @@ export type GoalOutcome = {
   kind: string
   organizationId: string
   outcome: 'achieved' | 'missed'
+  /** Pre-aggregated row weight (exact DB group counts); defaults to 1. */
+  count?: number
 }
 
 export type BenchmarkTopSeed = {
@@ -63,8 +78,11 @@ export function computeGoalBenchmarks(
     return {
       kind,
       orgCount: new Set(group.map((outcome) => outcome.organizationId)).size,
-      settledCount: group.length,
-      achievedCount: group.filter((outcome) => outcome.outcome === 'achieved').length,
+      settledCount: group.reduce((sum, outcome) => sum + (outcome.count ?? 1), 0),
+      achievedCount: group.reduce(
+        (sum, outcome) => sum + (outcome.outcome === 'achieved' ? (outcome.count ?? 1) : 0),
+        0,
+      ),
       topSeedKeys: candidates,
     }
   })
@@ -112,32 +130,39 @@ export async function aggregateGoalBenchmarks(
   db = systemPrisma,
 ): Promise<{ benchmarks: number } | { skipped: string }> {
   try {
-    const [oneShotGoals, periods, adoption] = await Promise.all([
-      db.goal.findMany({
+    // Exact grouped aggregates — no row caps. A truncated sample would
+    // silently deflate orgCount toward the k-floor and skew achievedRate on
+    // a number the UI presents as cross-workspace truth.
+    const [oneShotGroups, periodGroups, adoption] = await Promise.all([
+      db.goal.groupBy({
+        by: ['kind', 'organizationId', 'status'],
         where: { status: { in: ['achieved', 'missed'] } },
-        select: { kind: true, organizationId: true, status: true },
-        take: 10_000,
+        _count: { _all: true },
       }),
-      db.goalPeriod.findMany({
-        select: {
-          organizationId: true,
-          outcome: true,
-          goal: { select: { kind: true } },
-        },
-        take: 10_000,
-      }),
+      // Raw join: Prisma groupBy cannot reach the parent goal's kind.
+      // systemPrisma raw read: global k-anon aggregation, CRON_SECRET-gated.
+      db.$queryRaw<
+        Array<{ kind: string; organizationId: string; outcome: string; count: number }>
+      >`
+        SELECT g.kind, gp."organizationId", gp.outcome, COUNT(*)::int AS count
+        FROM goal_periods gp
+        JOIN goals g ON g.id = gp."goalId"
+        GROUP BY g.kind, gp."organizationId", gp.outcome
+      `,
       loadTemplateAdoptionScores(db),
     ])
     const outcomes: GoalOutcome[] = [
-      ...oneShotGoals.map((goal) => ({
-        kind: goal.kind,
-        organizationId: goal.organizationId,
-        outcome: goal.status as 'achieved' | 'missed',
+      ...oneShotGroups.map((group) => ({
+        kind: group.kind,
+        organizationId: group.organizationId,
+        outcome: group.status as 'achieved' | 'missed',
+        count: group._count._all,
       })),
-      ...periods.map((period) => ({
-        kind: period.goal.kind,
-        organizationId: period.organizationId,
-        outcome: period.outcome as 'achieved' | 'missed',
+      ...periodGroups.map((group) => ({
+        kind: group.kind,
+        organizationId: group.organizationId,
+        outcome: group.outcome as 'achieved' | 'missed',
+        count: group.count,
       })),
     ]
     const rows = computeGoalBenchmarks(outcomes, SEED_CATALOGUE, adoption)

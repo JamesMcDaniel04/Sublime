@@ -83,14 +83,12 @@ export default function GoalsPage() {
 
       {state && (
         <>
-          {state.goals.length > 0 && (
-            <div className="space-y-3">
-              <div className="flex justify-end">
-                <ExportRoiReport />
-              </div>
-              <ImpactStrip impact={state.impact} onSaved={load} />
-            </div>
-          )}
+          {/* Export stays reachable at zero goals — the report route renders a
+              valid "no goals tracked yet" document by design. */}
+          <div className="flex justify-end">
+            <ExportRoiReport />
+          </div>
+          {state.goals.length > 0 && <ImpactStrip impact={state.impact} onSaved={load} />}
           {state.goals.length === 0 ? (
             <EmptyState
               icon={Target}

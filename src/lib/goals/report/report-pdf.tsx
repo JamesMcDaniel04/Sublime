@@ -68,24 +68,41 @@ function Footer() {
   )
 }
 
+/** Pinned locale + UTC: a board-ready document must not vary by server TZ. */
+function reportDate(date: Date): string {
+  return date.toLocaleDateString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+    timeZone: 'UTC',
+  })
+}
+
 function Trend({ goal }: { goal: ReportGoal }) {
   const width = 480
   const height = 90
   if (goal.points.length < 2) {
     return <Text style={styles.note}>Not enough readings for a trendline.</Text>
   }
-  const minTime = goal.points[0].capturedAt.getTime()
-  const maxTime = goal.points.at(-1)!.capturedAt.getTime()
+  // Domain spans the goal window ∪ readings so the pace line (start → target)
+  // is always drawable — the spec's chart is "trendline + pace line".
+  const minTime = Math.min(goal.points[0].capturedAt.getTime(), goal.startAt.getTime())
+  const maxTime = Math.max(goal.points.at(-1)!.capturedAt.getTime(), goal.targetDate.getTime())
   const values = goal.points.map((point) => point.value)
-  const minValue = Math.min(...values, goal.targetValue)
-  const maxValue = Math.max(...values, goal.targetValue)
+  const minValue = Math.min(...values, goal.targetValue, goal.startValue)
+  const maxValue = Math.max(...values, goal.targetValue, goal.startValue)
   const x = scaleLinear([minTime, maxTime], [4, width - 4])
   const y = scaleLinear([minValue, maxValue], [height - 4, 4])
   const path = linePath(
     goal.points.map((point) => ({ x: x(point.capturedAt.getTime()), y: y(point.value) })),
   )
+  const pacePath = linePath([
+    { x: x(goal.startAt.getTime()), y: y(goal.startValue) },
+    { x: x(goal.targetDate.getTime()), y: y(goal.targetValue) },
+  ])
   return (
     <Svg width={width} height={height}>
+      <Path d={pacePath} stroke="#9aa1ad" strokeWidth={1} strokeDasharray="4 3" fill="none" />
       <Path d={path} stroke="#6558d3" strokeWidth={2} fill="none" />
     </Svg>
   )
@@ -141,7 +158,11 @@ function GoalPage({ goal }: { goal: ReportGoal }) {
           <View style={styles.chips}>
             {goal.periods.map((period) => (
               <Text key={period.periodEnd.toISOString()} style={styles.chip}>
-                {period.periodEnd.toLocaleDateString('en-US', { month: 'short', year: 'numeric' })}{' '}
+                {/* periodEnd is exclusive — label the window that ENDED. */}
+                {new Date(period.periodEnd.getTime() - 24 * 60 * 60 * 1000).toLocaleDateString(
+                  'en-US',
+                  { month: 'short', year: 'numeric', timeZone: 'UTC' },
+                )}{' '}
                 {period.outcome === 'achieved' ? 'achieved' : 'missed'}
               </Text>
             ))}
@@ -186,8 +207,8 @@ export function RoiReportDocument({ data }: { data: RoiReportData }) {
         <Text style={styles.eyebrow}>SUBLIME ROI REPORT</Text>
         <Text style={styles.title}>{data.organizationName}</Text>
         <Text style={styles.subtitle}>
-          {data.windowStart.toLocaleDateString()} – {data.generatedAt.toLocaleDateString()} · generated{' '}
-          {data.generatedAt.toLocaleString()}
+          {reportDate(data.windowStart)} – {reportDate(data.generatedAt)} · generated{' '}
+          {reportDate(data.generatedAt)}
         </Text>
         <View style={styles.figures}>
           <View style={styles.figure}>

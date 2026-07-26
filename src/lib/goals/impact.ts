@@ -110,6 +110,74 @@ type ContributionRow = {
   createdAt: Date
 }
 
+export type ContributionRunStats = {
+  runs: number
+  tokens: number
+  measuredRunSeconds: { total: number; avg: number | null }
+}
+
+/** Pure: flow-run rows → stats. A succeeded run with no finishedAt is
+ *  unmeasurable and is EXCLUDED from both the count and the average — a zero
+ *  in the numerator with a spot in the denominator would understate avg. */
+export function flowRunStatsOf(rows: Array<{ startedAt: Date; finishedAt: Date | null }>): ContributionRunStats {
+  const measurable = rows.filter((run) => run.finishedAt !== null)
+  const total = measurable.reduce(
+    (sum, run) => sum + Math.max(0, (run.finishedAt as Date).getTime() - run.startedAt.getTime()) / 1000,
+    0,
+  )
+  return {
+    runs: measurable.length,
+    tokens: 0,
+    measuredRunSeconds: { total, avg: measurable.length > 0 ? total / measurable.length : null },
+  }
+}
+
+/** Pure: agent-execution rows → stats. executionTime is persisted in ms. */
+export function agentRunStatsOf(
+  rows: Array<{ inputTokens: number; outputTokens: number; executionTime: number | null }>,
+): ContributionRunStats {
+  const total = rows.reduce((sum, run) => sum + Math.max(0, run.executionTime ?? 0) / 1000, 0)
+  return {
+    runs: rows.length,
+    tokens: rows.reduce((sum, run) => sum + run.inputTokens + run.outputTokens, 0),
+    measuredRunSeconds: { total, avg: rows.length > 0 ? total / rows.length : null },
+  }
+}
+
+/** The ONE loader every surface uses (impact tiers, contributions API, PDF
+ *  report) — a duration-rule change lands everywhere at once. */
+export async function contributionRunStats(
+  organizationId: string,
+  contribution: Pick<ContributionRow, 'resourceType' | 'resourceId' | 'createdAt'>,
+): Promise<ContributionRunStats> {
+  if (contribution.resourceType === 'flow') {
+    const rows = await prisma.flowRun.findMany({
+      where: {
+        organizationId,
+        flowId: contribution.resourceId,
+        status: 'succeeded',
+        startedAt: { gt: contribution.createdAt },
+      },
+      select: { startedAt: true, finishedAt: true },
+    })
+    return flowRunStatsOf(rows)
+  }
+  if (contribution.resourceType === 'agent') {
+    const rows = await prisma.agentExecution.findMany({
+      where: {
+        organizationId,
+        agentTaskId: contribution.resourceId,
+        completedAt: { not: null },
+        error: null,
+        startedAt: { gt: contribution.createdAt },
+      },
+      select: { inputTokens: true, outputTokens: true, executionTime: true },
+    })
+    return agentRunStatsOf(rows)
+  }
+  return { runs: 0, tokens: 0, measuredRunSeconds: { total: 0, avg: null } }
+}
+
 async function contributionStats(
   organizationId: string,
   contributions: ContributionRow[],
@@ -122,71 +190,10 @@ async function contributionStats(
   }>
 > {
   return Promise.all(
-    contributions.map(async (contribution) => {
-      if (contribution.resourceType === 'flow') {
-        const runs = await prisma.flowRun.findMany({
-          where: {
-            organizationId,
-            flowId: contribution.resourceId,
-            status: 'succeeded',
-            startedAt: { gt: contribution.createdAt },
-          },
-          select: { startedAt: true, finishedAt: true },
-        })
-        const measuredTotal = runs.reduce(
-          (sum, run) =>
-            sum +
-            (run.finishedAt
-              ? Math.max(0, run.finishedAt.getTime() - run.startedAt.getTime()) / 1000
-              : 0),
-          0,
-        )
-        return {
-          estimatedMinutesSavedPerRun: contribution.estimatedMinutesSavedPerRun,
-          runs: runs.length,
-          tokens: 0,
-          measuredRunSeconds: {
-            total: measuredTotal,
-            avg: runs.length > 0 ? measuredTotal / runs.length : null,
-          },
-        }
-      }
-      if (contribution.resourceType === 'agent') {
-        const executions = await prisma.agentExecution.findMany({
-          where: {
-            organizationId,
-            agentTaskId: contribution.resourceId,
-            completedAt: { not: null },
-            error: null,
-            startedAt: { gt: contribution.createdAt },
-          },
-          select: { inputTokens: true, outputTokens: true, executionTime: true },
-        })
-        const measuredTotal = executions.reduce(
-          (sum, execution) => sum + Math.max(0, execution.executionTime ?? 0) / 1000,
-          0,
-        )
-        return {
-          estimatedMinutesSavedPerRun: contribution.estimatedMinutesSavedPerRun,
-          runs: executions.length,
-          tokens: executions.reduce(
-            (sum, execution) => sum + execution.inputTokens + execution.outputTokens,
-            0,
-          ),
-          // AgentExecution.executionTime is persisted in milliseconds.
-          measuredRunSeconds: {
-            total: measuredTotal,
-            avg: executions.length > 0 ? measuredTotal / executions.length : null,
-          },
-        }
-      }
-      return {
-        estimatedMinutesSavedPerRun: contribution.estimatedMinutesSavedPerRun,
-        runs: 0,
-        tokens: 0,
-        measuredRunSeconds: { total: 0, avg: null },
-      }
-    }),
+    contributions.map(async (contribution) => ({
+      estimatedMinutesSavedPerRun: contribution.estimatedMinutesSavedPerRun,
+      ...(await contributionRunStats(organizationId, contribution)),
+    })),
   )
 }
 

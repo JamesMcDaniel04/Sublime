@@ -1,7 +1,7 @@
 import { prisma } from '@/lib/prisma'
 import { readAgentMetadata } from '@/lib/agents/metadata'
 import { evaluateGoal } from '@/lib/goals/evaluate'
-import { goalImpact, orgImpact, type ImpactTiers } from '@/lib/goals/impact'
+import { contributionRunStats, goalImpact, orgImpact, type ImpactTiers } from '@/lib/goals/impact'
 import { agentReadScope, flowReadScope } from '@/lib/server/visibility'
 
 const HOUR_MS = 60 * 60 * 1000
@@ -22,7 +22,10 @@ export type ReportGoal = {
   status: string
   riskLevel: string
   currentValue: number | null
+  startValue: number
   targetValue: number
+  startAt: Date
+  targetDate: Date
   expectedProgress: number
   paceDeltaPct: number | null
   points: Array<{ value: number; capturedAt: Date }>
@@ -81,8 +84,10 @@ async function contributionForReport(
     createdAt: Date
   },
 ): Promise<ReportContribution> {
+  // Names resolve with viewer visibility; run math comes from the single
+  // shared loader so the PDF can never disagree with the app.
   if (contribution.resourceType === 'flow') {
-    const [flow, runs] = await Promise.all([
+    const [flow, stats] = await Promise.all([
       prisma.flow.findFirst({
         where: {
           id: contribution.resourceId,
@@ -91,34 +96,18 @@ async function contributionForReport(
         },
         select: { name: true },
       }),
-      prisma.flowRun.findMany({
-        where: {
-          organizationId,
-          flowId: contribution.resourceId,
-          status: 'succeeded',
-          startedAt: { gt: contribution.createdAt },
-        },
-        select: { startedAt: true, finishedAt: true },
-      }),
+      contributionRunStats(organizationId, contribution),
     ])
-    const seconds = runs.reduce(
-      (sum, run) =>
-        sum +
-        (run.finishedAt
-          ? Math.max(0, run.finishedAt.getTime() - run.startedAt.getTime()) / 1000
-          : 0),
-      0,
-    )
     return {
       name: flow?.name ?? 'Private automation',
       origin: contribution.origin,
-      runs: runs.length,
-      avgRunSeconds: runs.length > 0 ? seconds / runs.length : null,
+      runs: stats.runs,
+      avgRunSeconds: stats.measuredRunSeconds.avg,
       estimatedMinutesSavedPerRun: contribution.estimatedMinutesSavedPerRun,
     }
   }
 
-  const [agent, executions] = await Promise.all([
+  const [agent, stats] = await Promise.all([
     prisma.agentTask.findFirst({
       where: {
         id: contribution.resourceId,
@@ -128,27 +117,14 @@ async function contributionForReport(
       },
       select: { description: true, metadata: true },
     }),
-    prisma.agentExecution.findMany({
-      where: {
-        organizationId,
-        agentTaskId: contribution.resourceId,
-        completedAt: { not: null },
-        error: null,
-        startedAt: { gt: contribution.createdAt },
-      },
-      select: { executionTime: true },
-    }),
+    contributionRunStats(organizationId, contribution),
   ])
-  const seconds = executions.reduce(
-    (sum, execution) => sum + Math.max(0, execution.executionTime ?? 0) / 1000,
-    0,
-  )
   const metadata = agent ? readAgentMetadata(agent.metadata) : null
   return {
     name: metadata?.title || agent?.description || 'Private automation',
     origin: contribution.origin,
-    runs: executions.length,
-    avgRunSeconds: executions.length > 0 ? seconds / executions.length : null,
+    runs: stats.runs,
+    avgRunSeconds: stats.measuredRunSeconds.avg,
     estimatedMinutesSavedPerRun: contribution.estimatedMinutesSavedPerRun,
   }
 }
@@ -160,8 +136,12 @@ export async function assembleRoiReportData(params: {
   now?: Date
 }): Promise<RoiReportData> {
   const generatedAt = params.now ?? new Date()
-  const windowStart = new Date(generatedAt)
-  windowStart.setUTCMonth(windowStart.getUTCMonth() - params.months)
+  // Anchor to day 1 before subtracting months: setUTCMonth on a long
+  // month-end overflows (Jul 31 − 3 months would land on May 1, not Apr 30 —
+  // and worse, Mar 31 − 1 month lands on Mar 3).
+  const windowStart = new Date(
+    Date.UTC(generatedAt.getUTCFullYear(), generatedAt.getUTCMonth() - params.months, 1),
+  )
 
   const [organization, candidates, impact] = await Promise.all([
     prisma.organization.findUnique({
@@ -169,7 +149,13 @@ export async function assembleRoiReportData(params: {
       select: { name: true },
     }),
     prisma.goal.findMany({
-      where: { organizationId: params.organizationId, status: { not: 'archived' } },
+      where: {
+        organizationId: params.organizationId,
+        status: { not: 'archived' },
+        // Visibility in the QUERY, not just post-filtering: other users'
+        // personal goals must not consume the 200-row candidate budget.
+        OR: [{ ownerUserId: null }, { ownerUserId: params.viewerUserId }],
+      },
       orderBy: { updatedAt: 'desc' },
       take: 200,
       include: {
@@ -241,7 +227,10 @@ export async function assembleRoiReportData(params: {
         status: goal.status,
         riskLevel: goal.riskLevel,
         currentValue: evaluation.currentValue,
+        startValue: goal.startValue,
         targetValue: goal.targetValue,
+        startAt: goal.startAt,
+        targetDate: goal.targetDate,
         expectedProgress: evaluation.expectedProgress,
         paceDeltaPct: perGoalImpact.correlated.paceDeltaPct,
         points,

@@ -1,7 +1,7 @@
 import { Prisma } from '@prisma/client'
 import { z } from 'zod'
 import { prisma } from '@/lib/prisma'
-import { goalImpact } from '@/lib/goals/impact'
+import { contributionRunStats, goalImpact } from '@/lib/goals/impact'
 import { recordUserEvent } from '@/lib/behavior/record-event'
 import { readAgentMetadata } from '@/lib/agents/metadata'
 import { agentReadScope, flowReadScope } from '@/lib/server/visibility'
@@ -42,6 +42,8 @@ async function contributionView(
     createdAt: Date
   },
 ) {
+  // Duration math lives in ONE place (contributionRunStats) — the panel, the
+  // impact tiers, and the PDF must never disagree on what a run's time is.
   if (contribution.resourceType === 'flow') {
     const flow = await prisma.flow.findFirst({
       where: {
@@ -51,31 +53,15 @@ async function contributionView(
       },
       select: { name: true },
     })
-    const flowRuns = flow
-      ? await prisma.flowRun.findMany({
-          where: {
-            organizationId,
-            flowId: contribution.resourceId,
-            status: 'succeeded',
-            startedAt: { gt: contribution.createdAt },
-          },
-          select: { startedAt: true, finishedAt: true },
-        })
-      : []
-    const runSeconds = flowRuns.reduce(
-      (sum, run) =>
-        sum +
-        (run.finishedAt
-          ? Math.max(0, run.finishedAt.getTime() - run.startedAt.getTime()) / 1000
-          : 0),
-      0,
-    )
+    const stats = flow
+      ? await contributionRunStats(organizationId, contribution)
+      : { runs: 0, tokens: 0, measuredRunSeconds: { total: 0, avg: null as number | null } }
     return {
       ...contribution,
       name: flow?.name ?? 'Private automation',
-      runs: flowRuns.length,
-      tokens: 0,
-      avgRunSeconds: flowRuns.length > 0 ? runSeconds / flowRuns.length : null,
+      runs: stats.runs,
+      tokens: stats.tokens,
+      avgRunSeconds: stats.measuredRunSeconds.avg,
     }
   }
 
@@ -88,34 +74,16 @@ async function contributionView(
     },
     select: { description: true, metadata: true },
   })
-  const executions = agent
-    ? await prisma.agentExecution.findMany({
-        where: {
-          organizationId,
-          agentTaskId: contribution.resourceId,
-          completedAt: { not: null },
-          error: null,
-          startedAt: { gt: contribution.createdAt },
-        },
-        select: { inputTokens: true, outputTokens: true, executionTime: true },
-      })
-    : []
+  const stats = agent
+    ? await contributionRunStats(organizationId, contribution)
+    : { runs: 0, tokens: 0, measuredRunSeconds: { total: 0, avg: null as number | null } }
   const metadata = agent ? readAgentMetadata(agent.metadata) : null
   return {
     ...contribution,
     name: metadata?.title || agent?.description || 'Private automation',
-    runs: executions.length,
-    tokens: executions.reduce(
-      (sum, execution) => sum + execution.inputTokens + execution.outputTokens,
-      0,
-    ),
-    avgRunSeconds:
-      executions.length > 0
-        ? executions.reduce(
-            (sum, execution) => sum + Math.max(0, execution.executionTime ?? 0) / 1000,
-            0,
-          ) / executions.length
-        : null,
+    runs: stats.runs,
+    tokens: stats.tokens,
+    avgRunSeconds: stats.measuredRunSeconds.avg,
   }
 }
 
