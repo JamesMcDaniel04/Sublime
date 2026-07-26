@@ -18,6 +18,7 @@ export const USER_EVENT_KINDS = [
   'template_used', 'connection_added',
   'tool_call',
   'goal_created', 'goal_off_track', 'goal_achieved', 'goal_contribution_linked',
+  'goal_datapoints_imported',
   'goal_estimate_edited',
 ] as const
 

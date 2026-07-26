@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { AlertTriangle, Archive, Pencil, Plus, RefreshCw, Target } from 'lucide-react'
+import { AlertTriangle, Archive, Pencil, Plus, RefreshCw, Target, Upload } from 'lucide-react'
 import { useParams, useRouter } from 'next/navigation'
 import { toast } from 'sonner'
 import { Badge } from '@/components/ui/badge'
@@ -26,6 +26,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import { Textarea } from '@/components/ui/textarea'
 import {
   Table,
   TableBody,
@@ -91,6 +92,9 @@ export default function GoalDetailPage() {
   const [editOpen, setEditOpen] = useState(false)
   const [archiveOpen, setArchiveOpen] = useState(false)
   const [recordOpen, setRecordOpen] = useState(false)
+  const [importOpen, setImportOpen] = useState(false)
+  const [importCsv, setImportCsv] = useState('')
+  const [importing, setImporting] = useState(false)
   const [edit, setEdit] = useState({
     name: '',
     targetValue: '',
@@ -140,6 +144,13 @@ export default function GoalDetailPage() {
   useEffect(() => {
     void load()
   }, [load])
+
+  // Wizard CSV card deep-links here with ?import=1 — open the dialog once.
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get('import') === '1') {
+      setImportOpen(true)
+    }
+  }, [])
 
   const chartGoal = useMemo<GoalSummary | null>(
     () =>
@@ -198,6 +209,29 @@ export default function GoalDetailPage() {
     setRecordOpen(false)
     setRecord({ value: '', capturedAt: '' })
     toast.success('Value recorded and risk re-evaluated.')
+  }
+
+  const runImport = async () => {
+    setImporting(true)
+    try {
+      const response = await fetch(`/api/goals/${goalId}/datapoints/import`, {
+        method: 'POST',
+        headers: { 'content-type': 'text/csv' },
+        body: importCsv,
+      })
+      const body = await response.json()
+      if (!response.ok) return toast.error(body.error || 'Import failed.')
+      await load()
+      setImportOpen(false)
+      setImportCsv('')
+      toast.success(
+        body.skipped?.length
+          ? `Imported ${body.imported} readings — ${body.skipped.length} line(s) skipped (first: line ${body.skipped[0].line}, ${body.skipped[0].reason}).`
+          : `Imported ${body.imported} readings.`,
+      )
+    } finally {
+      setImporting(false)
+    }
   }
 
   if (error) {
@@ -430,6 +464,43 @@ export default function GoalDetailPage() {
               {goal.metric?.source ?? 'manual'} · {goal.metric?.metricKey}
             </p>
           </div>
+          <div className="flex items-center gap-2">
+          <Dialog open={importOpen} onOpenChange={setImportOpen}>
+            <DialogTrigger asChild>
+              <Button size="sm" variant="outline">
+                <Upload className="mr-1.5 h-4 w-4" /> Import CSV
+              </Button>
+            </DialogTrigger>
+            <DialogContent>
+              <DialogHeader><DialogTitle>Import historical readings</DialogTitle></DialogHeader>
+              <p className="text-sm text-muted-foreground">
+                Paste <code className="font-mono">date,value</code> rows (header optional) or pick a
+                .csv file — up to 1,000 rows, one reading per day.
+              </p>
+              <Input
+                type="file"
+                accept=".csv,text/csv"
+                onChange={(event) => {
+                  const file = event.target.files?.[0]
+                  if (!file) return
+                  const reader = new FileReader()
+                  reader.onload = () => setImportCsv(String(reader.result ?? ''))
+                  reader.readAsText(file)
+                }}
+              />
+              <Textarea
+                value={importCsv}
+                onChange={(event) => setImportCsv(event.target.value)}
+                placeholder={'date,value\n2026-05-01,41200\n2026-06-01,44800'}
+                className="min-h-36 font-mono text-xs"
+              />
+              <DialogFooter>
+                <Button onClick={runImport} disabled={importing || !importCsv.trim()}>
+                  {importing ? 'Importing…' : 'Import readings'}
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
           <Dialog open={recordOpen} onOpenChange={setRecordOpen}>
             <DialogTrigger asChild>
               <Button size="sm">
@@ -467,6 +538,7 @@ export default function GoalDetailPage() {
               </DialogFooter>
             </DialogContent>
           </Dialog>
+          </div>
         </div>
         {goal.metric?.lastError && (
           <div className="flex items-start gap-2 rounded-xl border border-warning/30 bg-warning/5 p-3 text-sm text-warning">
