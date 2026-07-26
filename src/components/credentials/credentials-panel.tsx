@@ -10,6 +10,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { CredentialEditor } from './credential-editor'
 import { TYPE_LABELS, draftFromRedacted, type CredentialDraft } from '@/lib/credentials/form'
 import type { CredentialType, RedactedCredential } from '@/lib/credentials/types'
+import { VerificationBadge, type VerificationView } from '@/components/flows/nodes/verification-badge'
 
 export type ListedCredential = {
   id: string
@@ -19,6 +20,7 @@ export type ListedCredential = {
   personal: boolean
   lastUsedAt: string | null
   config: RedactedCredential
+  verification?: VerificationView
 }
 
 /**
@@ -119,6 +121,9 @@ export function CredentialsPanel() {
                     : ' · any domain'}
                   {row.lastUsedAt ? ` · last used ${new Date(row.lastUsedAt).toLocaleDateString()}` : ' · never used'}
                 </p>
+                {/* The verify endpoint has always recorded this; nothing rendered
+                    it, so a credential known to be broken looked healthy here. */}
+                {row.verification && <VerificationBadge verification={row.verification} />}
               </div>
               <button
                 type="button"

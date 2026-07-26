@@ -1,17 +1,11 @@
 'use client'
 
 import { useState } from 'react'
-import { AlertCircle, CheckCircle2, CircleDashed, RefreshCw, XCircle } from 'lucide-react'
+import { RefreshCw } from 'lucide-react'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
-import { verificationLabel, type VerificationState } from '@/lib/connections/verification'
-
-const TONE: Record<VerificationState, { icon: typeof CheckCircle2; className: string }> = {
-  verified: { icon: CheckCircle2, className: 'text-emerald-600' },
-  stale: { icon: CircleDashed, className: 'text-muted-foreground' },
-  failed: { icon: XCircle, className: 'text-red-600' },
-  unverified: { icon: AlertCircle, className: 'text-amber-600' },
-}
+import type { VerificationState } from '@/lib/connections/verification'
+import { VerificationBadge } from './verification-badge'
 
 /**
  * Credential health beside a connection picker.
@@ -35,8 +29,8 @@ export function ConnectionHealth({
   const [checking, setChecking] = useState(false)
   if (!connectionId || !verification) return null
   const state = verification.state
-  const { icon: Icon, className } = TONE[state]
-  // A vault credential has no endpoint to probe on its own.
+  // A vault credential is probed by CredentialHealth instead — it needs the
+  // step's URL as a target, which this component doesn't have.
   const probeable = !connectionId.startsWith('credential:')
 
   const recheck = async () => {
@@ -63,17 +57,7 @@ export function ConnectionHealth({
   }
 
   return (
-    <div className="flex items-start gap-1.5 text-[11px] leading-4">
-      <Icon className={cn('mt-px h-3.5 w-3.5 shrink-0', className)} />
-      <span className={cn('min-w-0', className)}>
-        {verificationLabel(state)}
-        {verification.checkedAt && state !== 'unverified' && (
-          <span className="text-muted-foreground"> · {new Date(verification.checkedAt).toLocaleDateString()}</span>
-        )}
-        {state === 'failed' && verification.error && (
-          <span className="block break-words text-muted-foreground">{verification.error}</span>
-        )}
-      </span>
+    <VerificationBadge verification={verification}>
       {probeable && state !== 'verified' && (
         <button
           type="button"
@@ -84,6 +68,6 @@ export function ConnectionHealth({
           <RefreshCw className={cn('h-3 w-3', checking && 'animate-spin')} /> Check now
         </button>
       )}
-    </div>
+    </VerificationBadge>
   )
 }

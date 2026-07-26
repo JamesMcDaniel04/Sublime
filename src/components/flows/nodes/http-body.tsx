@@ -1,24 +1,26 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { ChevronDown, KeyRound } from 'lucide-react'
+import { ChevronDown, KeyRound, Pencil } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { FlowNode } from '@/lib/flows/graph'
 import { parseCurlCommand } from '@/lib/flows/curl-import'
 import { parseFlowToolConnectionId } from '@/lib/flows/tool-connection-id'
-import { TYPE_LABELS, emptyDraft } from '@/lib/credentials/form'
-import { CREDENTIAL_TYPES, type CredentialType } from '@/lib/credentials/types'
+import { TYPE_LABELS, draftFromRedacted, emptyDraft, type CredentialDraft } from '@/lib/credentials/form'
+import { CREDENTIAL_TYPES, type CredentialType, type RedactedCredential } from '@/lib/credentials/types'
 import { CredentialEditor } from '@/components/credentials/credential-editor'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Switch } from '@/components/ui/switch'
 import { TokenTextEditor } from '../token-text-editor'
 import { SearchableSelect } from '../searchable-select'
-import { AdvancedParamsSection } from '../advanced-params'
 import type { ToolCatalog } from '../tool-catalog-type'
 import { InlineKeyValue } from './inline-key-value'
 import { controlClass, labelClass, tokenControlBase, tokenControlClass } from './field-primitives'
 import type { NodeBodyModule, NodeBodyProps, TokenEditorWiring } from './types'
 import { FieldPreview } from './field-preview'
+import { CredentialHealth } from './credential-health'
+import type { VerificationView } from './verification-badge'
+import { HttpOptionsSection } from './http-options'
 
 type HttpNode = Extract<FlowNode, { type: 'http' }>
 type ListedCredential = {
@@ -26,9 +28,17 @@ type ListedCredential = {
   name: string
   type: string
   allowedDomains: string[]
+  personal?: boolean
+  config?: RedactedCredential
+  verification?: VerificationView
 }
 
-const BODY_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE'])
+/**
+ * Methods where fetch refuses a body. Every other method may carry one — n8n
+ * offers Send Body on all of them, and silently hiding it for DELETE/OPTIONS
+ * blocked legitimate requests.
+ */
+const BODYLESS_METHODS = new Set(['GET', 'HEAD'])
 
 function hostnameOf(value: string): string {
   try {
@@ -148,7 +158,8 @@ function HttpBody({
   const authMode: 'none' | 'predefined' | 'generic' =
     node.data.authMode ?? (node.data.credentialId ? 'generic' : node.data.connectionId ? 'predefined' : 'none')
   const [credentials, setCredentials] = useState<ListedCredential[]>([])
-  const [credentialOpen, setCredentialOpen] = useState(false)
+  // null = closed. `{ id }` edits that stored credential; `{}` creates one.
+  const [credentialModal, setCredentialModal] = useState<{ id?: string; draft: CredentialDraft } | null>(null)
   const [curlOpen, setCurlOpen] = useState(false)
   const [curlText, setCurlText] = useState('')
   const [curlError, setCurlError] = useState<string | null>(null)
@@ -173,10 +184,13 @@ function HttpBody({
     () => credentials.filter((credential) => credential.type === credentialType && domainMatches(hostname, credential.allowedDomains)),
     [credentials, credentialType, hostname],
   )
-  const bodyAllowed = BODY_METHODS.has(node.data.method)
+  const bodyAllowed = !BODYLESS_METHODS.has(node.data.method)
   const sendQuery = node.data.sendQuery ?? Boolean(node.data.query?.trim())
   const sendHeaders = node.data.sendHeaders ?? Boolean(node.data.headers?.trim())
-  const sendBody = bodyAllowed && (node.data.sendBody ?? Boolean(node.data.body?.trim()))
+  // The toggle stays operable on GET/HEAD so the configuration survives a
+  // method switch; the warning below explains why nothing will be sent.
+  const sendBody = node.data.sendBody ?? Boolean(node.data.body?.trim())
+  const bodyBlocked = sendBody && !bodyAllowed
   const queryMode = node.data.queryMode ?? 'json'
   const headersMode = node.data.headersMode ?? 'json'
   const bodyInputMode = node.data.bodyInputMode ?? 'json'
@@ -333,14 +347,44 @@ function HttpBody({
                 }))}
                 onChange={(credentialId) => patch({ credentialId: credentialId || undefined })}
               />
-              <button
-                type="button"
-                onClick={() => setCredentialOpen(true)}
-                className="flex h-10 items-center justify-center gap-2 rounded-md border border-border bg-background px-3 text-sm font-semibold text-foreground hover:bg-muted"
-              >
-                <KeyRound className="h-4 w-4" /> Set up credential
-              </button>
+              <div className="flex gap-2">
+                {/* Without this there was no route from a step to a wrong
+                    credential — the only fix was to leave and find it in
+                    Settings, or create a duplicate. */}
+                {selectedCredential?.config && (
+                  <button
+                    type="button"
+                    aria-label={`Edit ${selectedCredential.name}`}
+                    onClick={() => setCredentialModal({
+                      id: selectedCredential.id,
+                      draft: draftFromRedacted({
+                        name: selectedCredential.name,
+                        type: selectedCredential.type,
+                        personal: selectedCredential.personal ?? true,
+                        allowedDomains: selectedCredential.allowedDomains,
+                        config: selectedCredential.config as RedactedCredential,
+                      }),
+                    })}
+                    className="flex h-10 items-center justify-center gap-2 rounded-md border border-border bg-background px-3 text-sm font-semibold text-foreground hover:bg-muted"
+                  >
+                    <Pencil className="h-4 w-4" /> Edit
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => setCredentialModal({ draft: startCredentialDraft })}
+                  className="flex h-10 items-center justify-center gap-2 rounded-md border border-border bg-background px-3 text-sm font-semibold text-foreground hover:bg-muted"
+                >
+                  <KeyRound className="h-4 w-4" /> Set up credential
+                </button>
+              </div>
             </div>
+            <CredentialHealth
+              credentialId={node.data.credentialId}
+              verification={selectedCredential?.verification}
+              requestUrl={node.data.url}
+              onRechecked={() => void loadCredentials().catch(() => undefined)}
+            />
             <p className="text-xs text-muted-foreground">
               Credentials are encrypted, scoped to your account by default, and reusable by other HTTP nodes that call an allowed domain.
             </p>
@@ -376,9 +420,14 @@ function HttpBody({
         label="Send Body"
         checked={sendBody}
         onCheckedChange={(checked) => patch({ sendBody: checked })}
-        disabled={!bodyAllowed}
       >
         <div className="grid gap-3">
+          {bodyBlocked && (
+            <p className="rounded-md border border-amber-200 bg-amber-50 p-2.5 text-xs text-amber-900 dark:border-amber-900/40 dark:bg-amber-950/30 dark:text-amber-300">
+              {node.data.method} requests cannot carry a body — this step will fail until you switch the method
+              (GraphQL and JSON bodies normally use POST) or turn Send Body off.
+            </p>
+          )}
           <div className="grid gap-2">
             <label className={labelClass}>Body Content Type</label>
             <select
@@ -471,28 +520,34 @@ function HttpBody({
         </div>
       </ToggleSection>
 
-      {!bodyAllowed && <p className="text-xs text-muted-foreground">The selected HTTP method does not send a request body.</p>}
+      <HttpOptionsSection node={node} onChange={update} tokenWiring={tokenWiring} />
 
-      <AdvancedParamsSection node={node} onChange={update} />
-
-      <Dialog open={credentialOpen} onOpenChange={setCredentialOpen}>
+      <Dialog open={credentialModal !== null} onOpenChange={(open) => !open && setCredentialModal(null)}>
         <DialogContent className="max-h-[88vh] max-w-2xl overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>{TYPE_LABELS[credentialType]}</DialogTitle>
+            <DialogTitle>{credentialModal?.id ? `Edit ${credentialModal.draft.name}` : TYPE_LABELS[credentialType]}</DialogTitle>
             <p className="text-sm text-muted-foreground">
               Save once, verify with a safe GET to this node&apos;s URL, then reuse it for matching endpoints.
             </p>
           </DialogHeader>
-          <CredentialEditor
-            initial={startCredentialDraft}
-            verifyAgainst={node.data.url}
-            onSaved={(credential) => {
-              setCredentials((current) => [...current.filter((item) => item.id !== credential.id), credential])
-              patch({ authMode: 'generic', credentialType: credential.type as CredentialType, credentialId: credential.id })
-              setCredentialOpen(false)
-            }}
-            onCancel={() => setCredentialOpen(false)}
-          />
+          {credentialModal && (
+            <CredentialEditor
+              key={credentialModal.id ?? 'new'}
+              credentialId={credentialModal.id}
+              initial={credentialModal.draft}
+              context="http"
+              verifyAgainst={node.data.url}
+              onSaved={(credential) => {
+                patch({ authMode: 'generic', credentialType: credential.type as CredentialType, credentialId: credential.id })
+                setCredentialModal(null)
+                // Refetch rather than splice in the returned row: only the list
+                // endpoint carries the redacted config and verification state
+                // the picker and health badge render.
+                void loadCredentials().catch(() => undefined)
+              }}
+              onCancel={() => setCredentialModal(null)}
+            />
+          )}
         </DialogContent>
       </Dialog>
     </div>
