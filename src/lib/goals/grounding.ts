@@ -60,9 +60,15 @@ export function renderGoalGrounding(goals: GroundingGoal[], now = new Date()): s
     const risk = goal.riskLevel.replace('_', ' ')
     return `- ${goal.name}: ${fmt(goal.currentValue ?? goal.startValue, goal.unit)} now → ${fmt(goal.targetValue, goal.unit)} by ${goal.targetDate.toISOString().slice(0, 10)}; ${risk}${gap === null ? '' : `, ${fmt(Math.abs(gap), goal.unit)} ${gap > 0 ? 'behind' : 'ahead of'} pace`}.`
   })
-  return ['Active goals (the user is working toward these):', ...lines]
-    .join('\n')
-    .slice(0, 600)
+  // Cap at a LINE boundary — a mid-word truncation reads as prompt corruption.
+  const all = ['Active goals (the user is working toward these):', ...lines]
+  let block = ''
+  for (const line of all) {
+    const next = block ? `${block}\n${line}` : line
+    if (next.length > 600) break
+    block = next
+  }
+  return block
 }
 
 /** Best-effort bounded grounding. A failed goal read must never break a run. */
@@ -82,6 +88,7 @@ export async function goalGroundingBlock(
       orderBy: { targetDate: 'asc' },
       include: {
         metrics: {
+          orderBy: { createdAt: 'asc' },
           take: 1,
           select: {
             datapoints: {

@@ -19,10 +19,15 @@ export function addPeriod(date: Date, recurrence: GoalRecurrence): Date {
   return result
 }
 
+/**
+ * Labels derive from the day BEFORE the exclusive periodEnd: a Jan 1 → Apr 1
+ * window is Q1 (not Q2), and a Jun 1 → Jul 1 monthly window is Jun (not Jul).
+ */
 export function periodLabel(periodEnd: Date, recurrence: GoalRecurrence): string {
+  const lastDay = new Date(periodEnd.getTime() - 24 * 60 * 60 * 1000)
   if (recurrence === 'quarterly') {
-    return `Q${Math.floor(periodEnd.getUTCMonth() / 3) + 1}`
+    return `Q${Math.floor(lastDay.getUTCMonth() / 3) + 1}`
   }
-  if (recurrence === 'yearly') return String(periodEnd.getUTCFullYear())
-  return periodEnd.toLocaleDateString('en-US', { month: 'short', timeZone: 'UTC' })
+  if (recurrence === 'yearly') return String(lastDay.getUTCFullYear())
+  return lastDay.toLocaleDateString('en-US', { month: 'short', timeZone: 'UTC' })
 }

@@ -24,9 +24,12 @@ test('quarterly and yearly recurrence preserve calendar intent', () => {
   )
 })
 
-test('period labels use month, quarter, or year', () => {
+test('period labels name the window that ENDED, not the one starting', () => {
+  // periodEnd is exclusive: a window ending Jul 1 covers June / Q2.
   const end = new Date('2026-07-01T00:00:00Z')
-  assert.equal(periodLabel(end, 'monthly'), 'Jul')
-  assert.equal(periodLabel(end, 'quarterly'), 'Q3')
+  assert.equal(periodLabel(end, 'monthly'), 'Jun')
+  assert.equal(periodLabel(end, 'quarterly'), 'Q2')
   assert.equal(periodLabel(end, 'yearly'), '2026')
+  // A yearly window ending Jan 1 2027 is the 2026 year.
+  assert.equal(periodLabel(new Date('2027-01-01T00:00:00Z'), 'yearly'), '2026')
 })
