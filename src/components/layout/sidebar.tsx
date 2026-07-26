@@ -80,11 +80,11 @@ export function notifyAgentsChanged() {
 // Templates has no nav entry — the library lives inside Agent HQ
 // (/agents?view=templates), toggled at the top of that page.
 const navigation = [
-  { name: 'Home', href: '/dashboard', icon: Sparkles },
-  { name: 'Goals', href: '/goals', icon: Target },
-  { name: 'Agents', href: '/agents', icon: Bot },
-  { name: 'Integrations', href: '/integrations', icon: Plug },
-  { name: 'Flows', href: '/flows', icon: Workflow },
+  { name: 'Home', href: '/dashboard', icon: Sparkles, description: 'Your assistant across the workspace' },
+  { name: 'Goals', href: '/goals', icon: Target, description: 'The numbers your workspace is accountable to' },
+  { name: 'Agents', href: '/agents', icon: Bot, description: 'Specialized agents serving your goals' },
+  { name: 'Integrations', href: '/integrations', icon: Plug, description: 'Connect the tools you already use' },
+  { name: 'Flows', href: '/flows', icon: Workflow, description: 'Orchestrate multi-step work' },
 ]
 
 function planLabel(plan: string) {
@@ -615,6 +615,7 @@ export function Sidebar() {
                   key={item.name}
                   href={item.href}
                   aria-label={item.name}
+                  title={item.description}
                   className={cn(
                     'flex items-center gap-2.5 rounded-lg text-sm font-medium transition-colors duration-fast',
                     rail ? 'justify-center p-2' : 'px-2 py-1.5',

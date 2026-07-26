@@ -24,6 +24,7 @@ import { Markdown } from '@/components/ui/markdown'
 import { notifyAgentsChanged } from '@/components/layout/sidebar'
 import { LearningProgressCard } from '@/components/intelligence/learning-progress-card'
 import { GoalStatusStrip } from '@/components/goals/goal-status-strip'
+import { FirstRunGuide } from '@/components/goals/first-run-guide'
 import { useAuth } from '@/hooks/use-auth'
 import { cn } from '@/lib/utils'
 import { getCachedJson } from '@/lib/client/use-cached-json'
@@ -615,6 +616,7 @@ export function HomeAssistant() {
         /* Hero: greeting + composer + presets, vertically centered. */
         <div className="flex min-h-0 flex-1 items-center justify-center p-4">
           <div className="w-full max-w-4xl">
+            <FirstRunGuide goalsCount={goals === null ? null : goals.filter((goal) => !goal.personal && goal.status === 'active').length} />
             <GoalStatusStrip goals={goals} />
             {hasGoals && proofLine && (
               <p className="mb-4 text-center text-sm text-muted-foreground">{proofLine}</p>
