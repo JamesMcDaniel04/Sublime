@@ -549,8 +549,7 @@ export async function performHttpRequest(
           auth = undefined
         }
         if (rewritesToGet(response.status, String(init.method ?? 'GET'))) {
-          const { body: _dropped, ...rest } = init
-          init = { ...rest, method: 'GET' }
+          init = { ...init, method: 'GET', body: undefined }
         }
         url = nextUrl
         continue

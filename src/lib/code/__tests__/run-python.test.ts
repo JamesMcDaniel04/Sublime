@@ -14,6 +14,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { runPython } from '../run-python'
+import { CODE_MAX_LOG_LINES } from '../run-js'
 
 test('returns the returned value — top-level return works, as in n8n snippets', async () => {
   const result = await runPython({ code: 'return 1 + 1', items: [] })
@@ -86,4 +87,18 @@ test('a runaway sync loop is interrupted by the timeout', async () => {
 test('the interpreter still works after an interrupt', async () => {
   const result = await runPython({ code: 'return "alive"', items: [] })
   assert.equal(result.ok && result.output, 'alive')
+})
+
+test('Python log volume is capped with a stated tail', async () => {
+  const result = await runPython({ code: 'for i in range(50000):\n    print("spam", i)\nreturn 1', items: [], timeoutMs: 30_000 })
+  assert.equal(result.ok, true, !result.ok ? result.error : '')
+  const logs = result.ok ? result.logs : []
+  assert.ok(logs.length <= CODE_MAX_LOG_LINES + 1, `expected <= ${CODE_MAX_LOG_LINES + 1}, got ${logs.length}`)
+  assert.match(logs.at(-1) ?? '', /more line/)
+})
+
+test('an oversized Python return is rejected with an actionable error', async () => {
+  const result = await runPython({ code: 'return ["xxxxxxxxxx"] * 500000', items: [], timeoutMs: 30_000 })
+  assert.equal(result.ok, false)
+  assert.match(!result.ok ? result.error : '', /too large/i)
 })

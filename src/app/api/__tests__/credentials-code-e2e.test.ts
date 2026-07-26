@@ -245,4 +245,24 @@ if (!TEST_DB) {
     assert.equal(body.run.status, 'failed')
     assert.match(body.run.error ?? '', /ValueError: bad data/)
   })
+  // LAST on purpose: this burns the per-user rate-limit window, so any
+  // test after it would be throttled by this one rather than by its own
+  // behaviour.
+  test('/test-node is rate limited — arbitrary code execution must not be unthrottled', async () => {
+    await saveGraph(
+      [
+        { id: 't', type: 'trigger', data: { trigger: { type: 'manual' } } },
+        { id: 'c1', type: 'code', data: { language: 'javascript', mode: 'allItems', code: 'return 1' } },
+      ],
+      [{ id: 'e1', source: 't', target: 'c1' }],
+    )
+    const { POST } = await import('../flows/[id]/test-node/route')
+    let limited = 0
+    for (let attempt = 0; attempt < 45; attempt += 1) {
+      const response = await POST(jsonReq(`/api/flows/${flowId}/test-node`, 'POST', { nodeId: 'c1', input: 'go' }))
+      if (response.status === 429) limited += 1
+    }
+    assert.ok(limited > 0, 'a burst of step tests must eventually be throttled')
+  })
+
 }

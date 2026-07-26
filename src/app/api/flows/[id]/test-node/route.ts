@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import { prisma } from '@/lib/prisma'
 import { ApiError, withAuthenticatedApi } from '@/lib/server/api-handler'
+import { rateLimit } from '@/lib/ratelimit'
 import { flowReadScope } from '@/lib/server/visibility'
 import { dispatchFlowExecution } from '@/features/flows/execute-flow'
 import { parseFlowInput } from '@/lib/flows/input'
@@ -20,6 +21,12 @@ export const maxDuration = 300
  * caller wants the result rather than a run id to poll.
  */
 export const POST = withAuthenticatedApi(async (request, auth) => {
+  // This route executes arbitrary user-authored JavaScript/Python (the Code
+  // step) and arbitrary outbound HTTP, so an unthrottled caller can saturate
+  // a worker. Generous enough for real builder use — testing a step is an
+  // interactive, one-at-a-time action — while bounding a hot loop.
+  const limited = await rateLimit(`test-node:${auth.dbUser.id}`, { limit: 40, windowMs: 60_000 })
+  if (!limited.ok) throw new ApiError('Too many step tests — wait a moment and try again.', 429, 'RATE_LIMITED')
   const id = request.nextUrl.pathname.split('/').at(-2)
   if (!id) throw new ApiError('Flow id is required')
   // Visibility gate mirrors /execute: a private flow may only be run by its owner.

@@ -29,7 +29,7 @@
  */
 import { Worker } from 'node:worker_threads'
 import type { CodeRunResult } from './run-js'
-import { CODE_DEFAULT_TIMEOUT_MS, CODE_MAX_TIMEOUT_MS } from './run-js'
+import { CODE_DEFAULT_TIMEOUT_MS, CODE_MAX_TIMEOUT_MS, createLogSink, jsonSafeError, toJsonSafe } from './run-js'
 
 type Pyodide = Awaited<ReturnType<typeof import('pyodide').loadPyodide>>
 
@@ -101,17 +101,20 @@ async function runExclusively(params: {
   timeoutMs?: number
 }): Promise<CodeRunResult> {
   const timeoutMs = clampTimeout(params.timeoutMs)
-  const logs: string[] = []
+  // Same bounds as the JS engine — a step's logs are held in memory and its
+  // output is persisted, so neither may be unbounded.
+  const sink = createLogSink()
+  const logs = { get value() { return sink.drain() } }
   let pyodide: Pyodide
   try {
     pyodide = await getPyodide()
   } catch (error) {
-    return { ok: false, error: `Python runtime failed to start: ${error instanceof Error ? error.message : String(error)}`, logs }
+    return { ok: false, error: `Python runtime failed to start: ${error instanceof Error ? error.message : String(error)}`, logs: logs.value }
   }
 
   interruptBuffer![0] = 0
-  pyodide.setStdout({ batched: (line) => logs.push(line) })
-  pyodide.setStderr({ batched: (line) => logs.push(line) })
+  pyodide.setStdout({ batched: (line) => sink.push(line) })
+  pyodide.setStderr({ batched: (line) => sink.push(line) })
 
   const watchdog = new Worker(WATCHDOG_SOURCE, {
     eval: true,
@@ -128,16 +131,19 @@ async function runExclusively(params: {
   try {
     // Synchronous single-frame execution — see the _sublime_run note above.
     const value = run(params.code, globals)
-    return { ok: true, output: serialize(pyodide, value), logs }
+    return { ok: true, output: serialize(pyodide, value), logs: logs.value }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
     if (interruptBuffer![0] !== 0 || message.includes('KeyboardInterrupt')) {
-      return { ok: false, error: `Code timed out after ${timeoutMs}ms.`, logs }
+      return { ok: false, error: `Code timed out after ${timeoutMs}ms.`, logs: logs.value }
     }
     if (message.includes('JSONDecodeError') || message.includes('not JSON serializable')) {
-      return { ok: false, error: 'Code must return JSON-serializable data (no functions, classes, or file handles).', logs }
+      return { ok: false, error: jsonSafeError('unserializable'), logs: logs.value }
     }
-    return { ok: false, error: pythonErrorSummary(message), logs }
+    if (message.includes('SUBLIME_OUTPUT_TOO_LARGE')) {
+      return { ok: false, error: jsonSafeError('too-large'), logs: logs.value }
+    }
+    return { ok: false, error: pythonErrorSummary(message), logs: logs.value }
   } finally {
     watchdog.terminate().catch(() => undefined)
     run.destroy()
@@ -158,9 +164,12 @@ function serialize(pyodide: Pyodide, value: unknown): unknown {
   const dumps = pyodide.globals.get('_sublime_dumps')
   const proxy = value as { destroy?: () => void }
   try {
-    return JSON.parse(dumps(value))
-  } catch {
-    throw new Error('PythonResult is not JSON serializable')
+    // json.dumps inside the interpreter proves serializability; the shared
+    // gate then applies the SAME size ceiling the JS engine uses.
+    const text: string = dumps(value)
+    const safe = toJsonSafe(JSON.parse(text))
+    if (!safe.ok) throw new Error(safe.reason === 'too-large' ? 'SUBLIME_OUTPUT_TOO_LARGE' : 'not JSON serializable')
+    return safe.value
   } finally {
     dumps.destroy()
     proxy.destroy?.()

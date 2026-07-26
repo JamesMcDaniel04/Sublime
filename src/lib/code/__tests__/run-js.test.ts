@@ -9,7 +9,7 @@
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { runJavaScript } from '../run-js'
+import { runJavaScript, CODE_MAX_LOG_LINES } from '../run-js'
 
 test('returns the return value of the code', async () => {
   const result = await runJavaScript({ code: 'return 1 + 1', items: [] })
@@ -92,4 +92,29 @@ test('setTimeout inside the sandbox works for small delays', async () => {
     items: [],
   })
   assert.equal(result.ok && result.output, 'slept')
+})
+
+// ── Resource bounds ─────────────────────────────────────────────────────────
+// A step's output and logs are persisted to a run row and held in memory, so
+// neither may be unbounded — the HTTP node has capped its response since day
+// one and code needs the same discipline.
+
+test('log volume is capped, and the truncation is stated rather than silent', async () => {
+  const result = await runJavaScript({ code: 'for (let i = 0; i < 50000; i++) console.log("spam", i); return 1', items: [], timeoutMs: 20_000 })
+  assert.equal(result.ok, true)
+  const logs = result.ok ? result.logs : []
+  assert.ok(logs.length <= CODE_MAX_LOG_LINES + 1, `expected <= ${CODE_MAX_LOG_LINES + 1} lines, got ${logs.length}`)
+  assert.match(logs.at(-1) ?? '', /more line/, 'the last line says what was dropped')
+})
+
+test('an oversized return value is rejected with an actionable error', async () => {
+  const result = await runJavaScript({ code: 'return new Array(500000).fill("xxxxxxxxxx")', items: [], timeoutMs: 20_000 })
+  assert.equal(result.ok, false)
+  assert.match(!result.ok ? result.error : '', /too large/i)
+})
+
+test('an output just under the cap still succeeds', async () => {
+  const result = await runJavaScript({ code: 'return "x".repeat(1000)', items: [] })
+  assert.equal(result.ok, true)
+  assert.equal(result.ok && (result.output as string).length, 1000)
 })
