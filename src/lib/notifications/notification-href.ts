@@ -7,6 +7,7 @@
  * not on the read-only activity page.
  */
 export function notificationHref(n: { type: string; executionId?: string | null }): string {
+  if (n.type.startsWith('goal.')) return n.executionId ? `/goals/${n.executionId}` : '/goals'
   if (n.type.startsWith('flow.jam') && n.executionId) return `/flows/${n.executionId}` // straight into the jam
   if (n.type.startsWith('flow.') && n.executionId) return `/flows/${n.executionId}/activity`
   return n.executionId ? `/agents?run=${n.executionId}` : '/agents'

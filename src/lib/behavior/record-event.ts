@@ -17,6 +17,7 @@ export const USER_EVENT_KINDS = [
   'suggestion_accepted', 'suggestion_dismissed',
   'template_used', 'connection_added',
   'tool_call',
+  'goal_created', 'goal_off_track', 'goal_achieved', 'goal_contribution_linked',
 ] as const
 
 export type UserEventKind = (typeof USER_EVENT_KINDS)[number]

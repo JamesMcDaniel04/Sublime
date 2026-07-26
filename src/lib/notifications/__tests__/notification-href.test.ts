@@ -16,6 +16,11 @@ test('other flow notifications go to the flow activity page', () => {
   assert.equal(notificationHref({ type: 'flow.run.failed', executionId: 'flow1' }), '/flows/flow1/activity')
 })
 
+test('goal notifications deep-link to the goal', () => {
+  assert.equal(notificationHref({ type: 'goal.risk', executionId: 'goal1' }), '/goals/goal1')
+  assert.equal(notificationHref({ type: 'goal.risk', executionId: null }), '/goals')
+})
+
 test('a run notification without a flow id goes to the agents run view', () => {
   assert.equal(notificationHref({ type: 'agent.run', executionId: 'run1' }), '/agents?run=run1')
 })
