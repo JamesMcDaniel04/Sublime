@@ -24,6 +24,7 @@ import { PRODUCT_DEPARTMENTS, type Department } from '@/lib/templates/department
 import { connectedSlugSet, missingIntegrations, sortByReadiness } from '@/lib/templates/relevance'
 import { useCachedJson } from '@/lib/client/use-cached-json'
 import { TemplateCatalogueCard } from '@/components/templates/template-catalogue-card'
+import type { GoalSummary } from '@/lib/types'
 
 /** Cards per page on the Templates and Skills grids. */
 const PAGE_SIZE = 9
@@ -49,6 +50,8 @@ interface TemplateItem {
   kind?: 'agent' | 'flow'
   seed?: boolean
   seedKey?: string
+  goalKinds?: GoalSummary['kind'][]
+  estimatedMinutesSaved?: number
   schedule?: { type?: string; cron?: string; time?: string; timezone?: string; isActive?: boolean }
 }
 
@@ -154,6 +157,7 @@ export function TemplatesExplorer() {
   const skillsQuery = useCachedJson<{ success?: boolean; skills?: SkillItem[] }>('/api/skills')
   const agentsQuery = useCachedJson<{ success?: boolean; agents?: AgentItem[] }>('/api/agents')
   const integrationsQuery = useCachedJson<{ success?: boolean; tools?: Parameters<typeof connectedSlugSet>[0] }>('/api/integrations/available')
+  const goalsQuery = useCachedJson<{ goals?: GoalSummary[] }>('/api/goals')
   const templates = useMemo(() => templatesQuery.data?.templates ?? [], [templatesQuery.data])
   const skills = useMemo(() => (skillsQuery.data?.success ? skillsQuery.data.skills ?? [] : []), [skillsQuery.data])
   const agents = useMemo(() => (agentsQuery.data?.success ? agentsQuery.data.agents ?? [] : []), [agentsQuery.data])
@@ -186,6 +190,10 @@ export function TemplatesExplorer() {
   const connected = useMemo(
     () => connectedSlugSet(integrationsQuery.data?.success ? integrationsQuery.data.tools ?? [] : []),
     [integrationsQuery.data],
+  )
+  const activeOrganizationGoals = useMemo(
+    () => (goalsQuery.data?.goals ?? []).filter((goal) => !goal.personal && goal.status === 'active'),
+    [goalsQuery.data],
   )
   const [dept, setDept] = useState<Department | 'all'>('all')
   const openCreate = (kind: 'template' | 'skill') => setDialog(emptyAsset(kind))
@@ -374,6 +382,7 @@ export function TemplatesExplorer() {
   const renderCatalogueCard = (t: TemplateItem) => {
     const missing = missingIntegrations(t.requiredIntegrations ?? [], connected)
     const department = t.departments?.[0]
+    const matchingGoal = activeOrganizationGoals.find((goal) => t.goalKinds?.includes(goal.kind))
     return (
       <TemplateCatalogueCard
         key={t.id}
@@ -384,6 +393,7 @@ export function TemplatesExplorer() {
         integrations={t.requiredIntegrations ?? []}
         kind={t.kind ?? 'agent'}
         missingIntegrations={missing}
+        advancesGoal={matchingGoal?.name}
       />
     )
   }

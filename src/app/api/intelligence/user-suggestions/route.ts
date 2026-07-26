@@ -19,6 +19,9 @@ export const GET = withAuthenticatedApi(async (_request, auth) => {
           description: suggestion.description, flowId: suggestion.flowId,
           targetType: suggestion.targetType, targetId: suggestion.targetId,
           evidence: Array.isArray(suggestion.evidence) ? (suggestion.evidence as string[]) : [],
+          metadata: suggestion.metadata && typeof suggestion.metadata === 'object'
+            ? suggestion.metadata
+            : {},
         }
       : null,
   }
@@ -105,7 +108,12 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
     organizationId: auth.organizationId, userId: auth.dbUser.id,
     kind: action === 'accept' ? 'suggestion_accepted' : 'suggestion_dismissed',
     resourceType: 'suggestion', resourceId: suggestion.id,
-    context: { suggestionKind: suggestion.kind },
+    context: {
+      suggestionKind: suggestion.kind,
+      ...(suggestion.kind === 'goal_action' && suggestion.targetId
+        ? { goalId: suggestion.targetId }
+        : {}),
+    },
   })
   return {
     success: true,

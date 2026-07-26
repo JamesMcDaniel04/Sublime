@@ -15,13 +15,17 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 
 export type OpenUserSuggestion = {
   id: string
-  kind: 'new_flow' | 'enhancement'
+  kind: 'new_flow' | 'enhancement' | 'goal_action'
   title: string
   description: string
   flowId: string | null
   targetType: string | null
   targetId: string | null
   evidence: string[]
+  metadata?: {
+    goalId?: string
+    seedKey?: string | null
+  }
 }
 
 type Props = {
@@ -37,6 +41,7 @@ function acceptedDestination(s: OpenUserSuggestion): string | null {
   if (s.flowId) return `/flows/${s.flowId}`
   if (s.targetType === 'flow' && s.targetId) return `/flows/${s.targetId}`
   if (s.targetType === 'agent' && s.targetId) return `/agents?agent=${s.targetId}`
+  if (s.targetType === 'goal' && s.targetId) return `/goals/${s.targetId}`
   return null
 }
 
@@ -69,16 +74,36 @@ export function SuggestionApprovalDialog({ open, onClose, onActioned }: Readonly
     if (!suggestion || busy) return
     setBusy(true)
     try {
-      const response = await fetch('/api/intelligence/user-suggestions', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id: suggestion.id, action, activate }),
-      })
+      const deployGoalRecommendation =
+        action === 'accept' && suggestion.kind === 'goal_action' && Boolean(suggestion.metadata?.seedKey)
+      const response = await fetch(
+        deployGoalRecommendation ? '/api/templates/provision' : '/api/intelligence/user-suggestions',
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(
+            deployGoalRecommendation
+              ? {
+                  seedKey: suggestion.metadata?.seedKey,
+                  goalId: suggestion.metadata?.goalId ?? suggestion.targetId,
+                  suggestionId: suggestion.id,
+                  activate: false,
+                }
+              : { id: suggestion.id, action, activate },
+          ),
+        },
+      )
       const data = await response.json().catch(() => ({}))
-      if (!response.ok) throw new Error('request failed')
+      if (!response.ok) throw new Error(data.error || 'request failed')
       onActioned?.(action)
       onClose()
       if (action !== 'accept') return
+      if (deployGoalRecommendation) {
+        toast.success('Recommendation deployed and linked to the goal.')
+        if (data.kind === 'flow' && data.flowId) router.push(`/flows/${data.flowId}`)
+        else if (data.agentId) router.push(`/agents?agent=${data.agentId}`)
+        return
+      }
       if (activate) {
         if (data.activated) toast.success('Approved — the flow is live.')
         else toast.info('Approved as a draft — it needs a quick review before it can go live.')
@@ -89,8 +114,8 @@ export function SuggestionApprovalDialog({ open, onClose, onActioned }: Readonly
       const destination = acceptedDestination(suggestion)
       if (destination) router.push(destination)
       else toast.success('Suggestion saved.')
-    } catch {
-      toast.error('Could not update the suggestion. Try again.')
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Could not update the suggestion. Try again.')
     } finally {
       setBusy(false)
     }
@@ -100,7 +125,9 @@ export function SuggestionApprovalDialog({ open, onClose, onActioned }: Readonly
     <Dialog open={open} onOpenChange={(next) => { if (!next) onClose() }}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Sublime noticed a routine</DialogTitle>
+          <DialogTitle>
+            {suggestion?.kind === 'goal_action' ? 'Sublime noticed goal risk' : 'Sublime noticed a routine'}
+          </DialogTitle>
         </DialogHeader>
         {loading ? (
           <p className="text-sm text-muted-foreground">Loading suggestion…</p>
@@ -135,6 +162,10 @@ export function SuggestionApprovalDialog({ open, onClose, onActioned }: Readonly
                     Approve & activate
                   </Button>
                 </>
+              ) : suggestion.kind === 'goal_action' && suggestion.metadata?.seedKey ? (
+                <Button loading={busy} onClick={() => void act('accept')}>
+                  Deploy recommendation
+                </Button>
               ) : (
                 <Button loading={busy} onClick={() => void act('accept')}>
                   Approve

@@ -47,6 +47,7 @@ type TemplateCatalogueCardProps = {
   kind?: 'agent' | 'flow'
   missingIntegrations?: readonly string[]
   actionLabel?: string
+  advancesGoal?: string
 }
 
 /** The canonical catalogue card shared by agent and flow starters. */
@@ -59,6 +60,7 @@ export function TemplateCatalogueCard({
   kind = 'agent',
   missingIntegrations = [],
   actionLabel = 'Use template',
+  advancesGoal,
 }: TemplateCatalogueCardProps) {
   const accent = accentFor(category)
   const Icon = categoryIcon(category, kind)
@@ -75,6 +77,12 @@ export function TemplateCatalogueCard({
           <div className="flex flex-wrap items-center gap-1.5">
             <Badge variant="outline" className={cn('text-[11px] font-medium', accent.badge)}>{category}</Badge>
             {kind === 'flow' && <Badge variant="outline" className="text-[11px] font-medium">Flow</Badge>}
+            {advancesGoal && (
+              <Badge variant="secondary" className="max-w-full gap-1 text-[11px] font-medium text-indigo-500">
+                <Target className="h-3 w-3 shrink-0" aria-hidden />
+                <span className="truncate">Advances: {advancesGoal}</span>
+              </Badge>
+            )}
           </div>
           <div className="flex items-start gap-2.5">
             <span className={cn('flex h-9 w-9 shrink-0 items-center justify-center rounded-lg transition-transform group-hover:scale-105', accent.tile)}>

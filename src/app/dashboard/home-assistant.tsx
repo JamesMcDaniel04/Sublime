@@ -22,6 +22,7 @@ import { Button } from '@/components/ui/button'
 import { Markdown } from '@/components/ui/markdown'
 import { notifyAgentsChanged } from '@/components/layout/sidebar'
 import { LearningProgressCard } from '@/components/intelligence/learning-progress-card'
+import { GoalStatusStrip } from '@/components/goals/goal-status-strip'
 import { useAuth } from '@/hooks/use-auth'
 import { cn } from '@/lib/utils'
 
@@ -592,6 +593,7 @@ export function HomeAssistant() {
             </div>
             <div className="mt-6">
               <LearningProgressCard />
+              <GoalStatusStrip />
               {composer}
             </div>
             <div className="mt-4 flex flex-wrap justify-center gap-2">
