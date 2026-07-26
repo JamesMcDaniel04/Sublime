@@ -2,6 +2,7 @@ import { prisma } from '@/lib/prisma'
 import { credentialScope } from '@/lib/credentials/resolve'
 import { decryptCredentialConfig } from '@/lib/credentials/config'
 import { getMetricSource } from '@/lib/metrics/registry'
+import { slackConfigured } from '@/lib/integrations/slack'
 import { withAuthenticatedApi } from '@/lib/server/api-handler'
 
 export const runtime = 'nodejs'
@@ -43,13 +44,15 @@ export const GET = withAuthenticatedApi(async (_request, auth) => {
       where: {
         organizationId: auth.organizationId,
         userId: auth.dbUser.id,
-        service: 'google-sheets',
+        service: { in: ['google-sheets', 'google-mail'] },
         status: 'connected',
       },
-      select: { id: true, accountEmail: true },
+      select: { id: true, accountEmail: true, service: true },
       orderBy: { accountEmail: 'asc' },
     }),
   ])
+  const sheetsConnections = googleConnections.filter((row) => row.service === 'google-sheets')
+  const gmailConnections = googleConnections.filter((row) => row.service === 'google-mail')
 
   const connectionsFor = (source: 'hubspot' | 'salesforce') =>
     nangoConnections
@@ -74,8 +77,20 @@ export const GET = withAuthenticatedApi(async (_request, auth) => {
         }
       })
 
+  // Grouping is the product posture: nobody is locked out of goal tracking.
+  // 'start_now' sources work without new SaaS connections; 'source_of_truth'
+  // sources are the upgrade path (entice, never gate).
+  const START_NOW = ['manual', 'slack_assisted', 'gmail_assisted', 'url'] as const
   const source = (name: string) => ({
     source: name,
+    group: (START_NOW as readonly string[]).includes(name) ? 'start_now' : 'source_of_truth',
+    // Availability beyond connections: manual/url always work; slack_assisted
+    // rides the workspace-level Slack integration.
+    available:
+      name === 'manual' ||
+      name === 'url' ||
+      (name === 'slack_assisted' && slackConfigured()) ||
+      undefined,
     // The manual descriptor belongs ONLY to the manual source — a registry
     // gap for a connector source must yield no metrics, not a mislabeled one.
     metrics:
@@ -93,15 +108,30 @@ export const GET = withAuthenticatedApi(async (_request, auth) => {
         : name === 'hubspot' || name === 'salesforce'
           ? connectionsFor(name)
           : name === 'google_sheets'
-            ? googleConnections.map((connection) => ({
+            ? sheetsConnections.map((connection) => ({
                 ref: `google:${connection.id}`,
                 label: connection.accountEmail,
               }))
-            : [],
+            : name === 'gmail_assisted'
+              ? gmailConnections.map((connection) => ({
+                  ref: `google:${connection.id}`,
+                  label: connection.accountEmail,
+                }))
+              : [],
   })
 
   return {
     success: true,
-    sources: ['stripe', 'hubspot', 'salesforce', 'google_sheets', 'postgres', 'manual'].map(source),
+    sources: [
+      'manual',
+      'slack_assisted',
+      'gmail_assisted',
+      'url',
+      'stripe',
+      'hubspot',
+      'salesforce',
+      'google_sheets',
+      'postgres',
+    ].map(source),
   }
 })

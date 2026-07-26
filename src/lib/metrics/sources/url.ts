@@ -35,7 +35,9 @@ function isPrivateIpv4(host: string): boolean {
 }
 
 function isForbiddenHost(hostname: string): boolean {
-  const host = hostname.toLowerCase().replace(/^\[|\]$/g, '')
+  // Strip trailing dots first: 'localhost.' and 'redis.internal.' are the
+  // same destinations with a root-label spelling that dodges suffix checks.
+  const host = hostname.toLowerCase().replace(/\.+$/, '').replace(/^\[|\]$/g, '')
   if (host === 'localhost' || host.endsWith('.localhost')) return true
   if (host.endsWith('.local') || host.endsWith('.internal')) return true
   if (isPrivateIpv4(host)) return true
@@ -50,6 +52,38 @@ function isForbiddenHost(hostname: string): boolean {
   // legitimate reason to use it.
   if (/^::ffff:/i.test(host)) return true
   return false
+}
+
+/**
+ * Layer 2: the literal checks above can be dodged by a PUBLIC hostname that
+ * RESOLVES to a private address (attacker-controlled DNS), and by numeric
+ * obfuscations (decimal/octal IPs) the OS resolver interprets. Resolve every
+ * non-literal hostname and reject if ANY answer is private. Residual risk:
+ * a rebinding attacker can still swap records between this check and the
+ * socket connect (TOCTOU) — closing that fully requires socket-level IP
+ * pinning; this check plus per-hop revalidation is the accepted mitigation.
+ */
+export async function assertSafeDestination(
+  url: URL,
+  lookupImpl?: (hostname: string, options: { all: true }) => Promise<Array<{ address: string }>>,
+): Promise<void> {
+  const host = url.hostname.toLowerCase().replace(/\.+$/, '').replace(/^\[|\]$/g, '')
+  // IP literals were already vetted by isForbiddenHost; only names resolve.
+  if (/^\d{1,3}(\.\d{1,3}){3}$/.test(host) || host.includes(':')) return
+  const resolve =
+    lookupImpl ?? (async (name: string, options: { all: true }) => (await import('node:dns/promises')).lookup(name, options))
+  let answers: Array<{ address: string }>
+  try {
+    answers = await resolve(host, { all: true })
+  } catch {
+    throw new Error('The URL host could not be resolved.')
+  }
+  if (answers.length === 0) throw new Error('The URL host could not be resolved.')
+  for (const answer of answers) {
+    if (isForbiddenHost(answer.address)) {
+      throw new Error('Internal and private-network URLs cannot be tracked.')
+    }
+  }
 }
 
 /** Pure and exported for the test matrix. Throws with actionable copy. */
@@ -99,7 +133,10 @@ export function extractTextNumber(body: string): number | null {
   return match ? parseSheetNumber([[match[0]]]) : null
 }
 
-export function makeUrlMetricSource(fetchImpl: typeof fetch = fetch): MetricSource {
+export function makeUrlMetricSource(
+  fetchImpl: typeof fetch = fetch,
+  assertDestination: typeof assertSafeDestination = assertSafeDestination,
+): MetricSource {
   return {
     source: 'url',
     availableMetrics: () => METRICS,
@@ -112,6 +149,7 @@ export function makeUrlMetricSource(fetchImpl: typeof fetch = fetch): MetricSour
           : undefined
 
       let url = assertSafeUrl(rawUrl)
+      await assertDestination(url)
       let response: Response | null = null
       for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
         response = await fetchImpl(url.toString(), {
@@ -122,9 +160,10 @@ export function makeUrlMetricSource(fetchImpl: typeof fetch = fetch): MetricSour
         if (response.status >= 300 && response.status < 400) {
           const location = response.headers.get('location')
           if (!location || hop === MAX_REDIRECTS) throw new Error('Too many redirects.')
-          // Every hop re-validated: a safe URL redirecting into the private
-          // network is the classic SSRF second act.
+          // Every hop re-validated (literals AND resolution): a safe URL
+          // redirecting into the private network is the classic SSRF second act.
           url = assertSafeUrl(new URL(location, url).toString())
+          await assertDestination(url)
           continue
         }
         break

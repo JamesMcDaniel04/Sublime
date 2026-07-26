@@ -24,8 +24,14 @@ const METRIC_SOURCES = [
   'salesforce',
   'google_sheets',
   'postgres',
+  'url',
+  'slack_assisted',
+  'gmail_assisted',
   'manual',
 ] as const
+/** Sources that carry no connectionRef: manual has none, url fetches
+ *  directly, slack_assisted rides the workspace-level Slack integration. */
+const NO_CONNECTION_SOURCES = new Set(['manual', 'url', 'slack_assisted'])
 const RECURRENCES = ['monthly', 'quarterly', 'yearly'] as const
 const HOUR_MS = 60 * 60 * 1000
 const SPARKLINE_POINTS = 30
