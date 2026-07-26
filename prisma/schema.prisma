@@ -65,6 +65,7 @@ model Organization {
   goalMetrics               GoalMetric[]
   metricDatapoints          MetricDatapoint[]
   goalContributions         GoalContribution[]
+  goalPeriods               GoalPeriod[]
 
   @@map("organizations")
 }
@@ -1228,6 +1229,7 @@ model Goal {
   targetValue     Float
   startAt         DateTime  @default(now()) @db.Timestamptz(6)
   targetDate      DateTime  @db.Timestamptz(6)
+  recurrence      String? // 'monthly' | 'quarterly' | 'yearly' | null
   status          String    @default("active") // 'active' | 'paused' | 'achieved' | 'missed' | 'archived'
   riskLevel       String    @default("no_data") // 'on_track' | 'at_risk' | 'off_track' | 'no_data'
   lastEvaluatedAt DateTime? @db.Timestamptz(6)
@@ -1241,10 +1243,32 @@ model Goal {
   children      Goal[]             @relation("GoalRollup")
   metrics       GoalMetric[]
   contributions GoalContribution[]
+  periods       GoalPeriod[]
 
   @@index([organizationId, status])
   @@index([organizationId, ownerUserId, status])
   @@map("goals")
+}
+
+/// Immutable settlement history for a recurring goal window. The Goal row
+/// advances in place; periods preserve the frozen target and outcome.
+model GoalPeriod {
+  id             String   @id @default(cuid())
+  organizationId String   @db.Uuid
+  goalId         String
+  periodStart    DateTime @db.Timestamptz(6)
+  periodEnd      DateTime @db.Timestamptz(6)
+  startValue     Float
+  targetValue    Float
+  finalValue     Float
+  outcome        String // 'achieved' | 'missed'
+  createdAt      DateTime @default(now()) @db.Timestamptz(6)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  goal         Goal         @relation(fields: [goalId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, goalId, periodEnd])
+  @@map("goal_periods")
 }
 
 /// Binding of a goal to its source-of-truth number. Exactly one per goal in
@@ -1307,6 +1331,7 @@ model GoalContribution {
   resourceType                String // 'flow' | 'agent'
   resourceId                  String
   origin                      String // 'suggestion' | 'manual'
+  seedKey                     String?
   estimatedMinutesSavedPerRun Int      @default(30)
   createdAt                   DateTime @default(now()) @db.Timestamptz(6)
 
@@ -1316,4 +1341,28 @@ model GoalContribution {
   @@unique([goalId, resourceType, resourceId])
   @@index([organizationId, goalId])
   @@map("goal_contributions")
+}
+
+/// Global k-anonymous calibration for a catalogue seed's manual-time estimate.
+/// No organization identity or individual estimate is stored.
+model TemplateEstimateCalibration {
+  seedKey       String   @id
+  medianMinutes Int
+  orgCount      Int
+  updatedAt     DateTime @updatedAt @db.Timestamptz(6)
+
+  @@map("template_estimate_calibrations")
+}
+
+/// Global k-anonymous outcome counts by goal kind. Values and org identities
+/// never cross workspace boundaries.
+model GoalBenchmark {
+  kind          String   @id
+  orgCount      Int
+  settledCount  Int
+  achievedCount Int
+  topSeedKeys   Json     @default("[]")
+  updatedAt     DateTime @updatedAt @db.Timestamptz(6)
+
+  @@map("goal_benchmarks")
 }
