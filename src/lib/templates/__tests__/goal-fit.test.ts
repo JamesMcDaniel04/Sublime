@@ -4,7 +4,7 @@ import { goalTemplatesFor } from '../goal-fit'
 import { SEED_CATALOGUE, type SeedTemplate } from '../catalogue'
 
 test('every revenue goal kind has at least one tagged template', () => {
-  for (const kind of ['arr', 'mrr', 'carr', 'revenue', 'quota'] as const) {
+  for (const kind of ['arr', 'mrr', 'lead_gen', 'revenue', 'quota'] as const) {
     assert.ok(goalTemplatesFor(kind).length >= 1, `no template tagged for goal kind '${kind}'`)
   }
 })

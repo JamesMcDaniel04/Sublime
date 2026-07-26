@@ -53,7 +53,7 @@ const BASE_SEED_CATALOGUE: SeedTemplate[] = [
     description: 'Webhook a new lead in, qualify it against Salesforce context, create the opportunity in Salesforce, and announce it in Slack.',
     departments: ['sales'], requiredIntegrations: ['salesforce'], recommendedIntegrations: ['slack'],
     kind: 'flow', icon: '🎯',
-    goalKinds: ['arr', 'mrr', 'carr', 'revenue', 'quota'],
+    goalKinds: ['arr', 'mrr', 'revenue', 'quota'],
     estimatedMinutesSaved: 30,
     trigger: { type: 'manual' },
     agents: [{
@@ -89,7 +89,7 @@ const BASE_SEED_CATALOGUE: SeedTemplate[] = [
     description: 'Every weekday morning, finds stale or past-close-date opportunities in Salesforce and nudges each owner in Slack with exactly what to fix.',
     departments: ['sales'], requiredIntegrations: ['salesforce'], recommendedIntegrations: ['slack'],
     kind: 'flow', icon: '🔔',
-    goalKinds: ['arr', 'mrr', 'carr', 'revenue', 'quota'],
+    goalKinds: ['arr', 'mrr', 'revenue', 'quota'],
     estimatedMinutesSaved: 20,
     trigger: schedule('0 13 * * 1-5'),
     agents: [{
@@ -112,7 +112,7 @@ const BASE_SEED_CATALOGUE: SeedTemplate[] = [
     description: 'Monday 8am: summarizes HubSpot pipeline movement for the week, appends the snapshot to a Google Sheet, and posts the highlights to Slack.',
     departments: ['sales'], requiredIntegrations: ['hubspot', 'google_sheets'], recommendedIntegrations: ['slack'],
     kind: 'flow', icon: '📈',
-    goalKinds: ['arr', 'mrr', 'carr', 'revenue', 'quota'],
+    goalKinds: ['arr', 'mrr', 'revenue', 'quota'],
     estimatedMinutesSaved: 35,
     trigger: schedule('0 12 * * 1'),
     agents: [{
@@ -217,6 +217,7 @@ const BASE_SEED_CATALOGUE: SeedTemplate[] = [
     description: 'On a form-fill webhook, scores the lead against ICP, upserts it to HubSpot with the score, and routes hot MQLs to the right AE in Slack.',
     departments: ['marketing'], requiredIntegrations: ['hubspot'], recommendedIntegrations: ['slack'],
     kind: 'flow', icon: '🧲',
+    goalKinds: ['lead_gen'], estimatedMinutesSaved: 20,
     trigger: { type: 'manual' },
     agents: [{
       ref: 'mql-scorer', title: 'MQL Scorer',

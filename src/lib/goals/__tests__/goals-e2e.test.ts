@@ -378,14 +378,14 @@ if (TEST_DB) {
       }
       for (let index = 0; index < 4; index += 1) {
         const org = await prisma.organization.create({
-          data: { name: `CARR peer ${index}`, slug: `carr-peer-${crypto.randomUUID()}` },
+          data: { name: `Lead-gen peer ${index}`, slug: `lead-gen-peer-${crypto.randomUUID()}` },
         })
         peerOrgIds.push(org.id)
         await prisma.goal.create({
           data: {
             organizationId: org.id,
             name: 'Settled CARR',
-            kind: 'carr',
+            kind: 'lead_gen',
             startValue: 10,
             targetValue: 20,
             targetDate: new Date('2026-06-01T00:00:00Z'),
@@ -393,7 +393,7 @@ if (TEST_DB) {
           },
         })
       }
-      const target = async (kind: 'mrr' | 'carr') =>
+      const target = async (kind: 'mrr' | 'lead_gen') =>
         prisma.goal.create({
           data: {
             organizationId: seeded.organizationId,
@@ -405,21 +405,21 @@ if (TEST_DB) {
             createdByUserId: seeded.userId,
           },
         })
-      const [mrrTarget, carrTarget] = await Promise.all([target('mrr'), target('carr')])
+      const [mrrTarget, leadGenTarget] = await Promise.all([target('mrr'), target('lead_gen')])
       const { aggregateGoalBenchmarks } = await import('../aggregate-benchmarks')
       await aggregateGoalBenchmarks()
       const route = await import('@/app/api/goals/[id]/route')
-      const [mrrResponse, carrResponse] = await Promise.all([
+      const [mrrResponse, leadGenResponse] = await Promise.all([
         route.GET(new NextRequest(`http://test/api/goals/${mrrTarget.id}`)),
-        route.GET(new NextRequest(`http://test/api/goals/${carrTarget.id}`)),
+        route.GET(new NextRequest(`http://test/api/goals/${leadGenTarget.id}`)),
       ])
-      const [mrrBody, carrBody] = await Promise.all([
+      const [mrrBody, leadGenBody] = await Promise.all([
         mrrResponse.json(),
-        carrResponse.json(),
+        leadGenResponse.json(),
       ])
       assert.equal(mrrBody.goal.benchmark.orgCount, 5)
       assert.equal(mrrBody.goal.benchmark.achievedRate, 60)
-      assert.equal(carrBody.goal.benchmark, null)
+      assert.equal(leadGenBody.goal.benchmark, null)
     } finally {
       await Promise.all(
         peerOrgIds.map((id) => prisma.organization.delete({ where: { id } }).catch(() => null)),

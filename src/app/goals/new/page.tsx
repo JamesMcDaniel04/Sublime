@@ -20,7 +20,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { Switch } from '@/components/ui/switch'
 import { Textarea } from '@/components/ui/textarea'
 import { cn } from '@/lib/utils'
-import type { GoalSummary } from '@/lib/types'
+import { GOAL_KIND_UNITS, type GoalSummary } from '@/lib/types'
 import { fmtValue } from '@/components/goals/chart-math'
 
 type Step = 1 | 2 | 3
@@ -36,10 +36,10 @@ type Source = {
 const KINDS: Array<{ value: GoalKind; label: string }> = [
   { value: 'arr', label: 'ARR' },
   { value: 'mrr', label: 'MRR' },
-  { value: 'carr', label: 'CARR' },
   { value: 'revenue', label: 'Revenue' },
   { value: 'quota', label: 'Sales quota' },
   { value: 'savings', label: 'Savings' },
+  { value: 'lead_gen', label: 'Lead generation' },
   { value: 'custom_kpi', label: 'Custom KPI' },
 ]
 
@@ -60,7 +60,7 @@ const tomorrow = () => {
 
 const defaultRecurrence = (kind: GoalKind): GoalRecurrence => {
   if (kind === 'quota') return 'quarterly'
-  if (kind === 'mrr') return 'monthly'
+  if (kind === 'mrr' || kind === 'lead_gen') return 'monthly'
   return null
 }
 
@@ -311,6 +311,8 @@ export default function NewGoalPage() {
                     ...current,
                     kind: value as GoalKind,
                     direction: value === 'savings' ? 'decrease' : 'increase',
+                    // The kind implies the unit; custom_kpi keeps the picker.
+                    unit: GOAL_KIND_UNITS[value as GoalKind] ?? current.unit,
                     recurrence: defaultRecurrence(value as GoalKind),
                   }))
                 }
@@ -325,22 +327,32 @@ export default function NewGoalPage() {
                 </SelectContent>
               </Select>
             </label>
-            <label className="space-y-1.5 text-sm">
-              <span className="font-medium">Unit</span>
-              <Select
-                value={state.unit}
-                onValueChange={(value) =>
-                  setState((current) => ({ ...current, unit: value as GoalUnit }))
-                }
-              >
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="usd">USD</SelectItem>
-                  <SelectItem value="count">Count</SelectItem>
-                  <SelectItem value="percent">Percent (0–1)</SelectItem>
-                </SelectContent>
-              </Select>
-            </label>
+            {state.kind === 'custom_kpi' ? (
+              <label className="space-y-1.5 text-sm">
+                <span className="font-medium">Unit</span>
+                <Select
+                  value={state.unit}
+                  onValueChange={(value) =>
+                    setState((current) => ({ ...current, unit: value as GoalUnit }))
+                  }
+                >
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="usd">USD</SelectItem>
+                    <SelectItem value="count">Count</SelectItem>
+                    <SelectItem value="percent">Percent (0–1)</SelectItem>
+                  </SelectContent>
+                </Select>
+              </label>
+            ) : (
+              <div className="space-y-1.5 text-sm">
+                <span className="font-medium">Unit</span>
+                <p className="rounded-lg border bg-muted px-3 py-2 text-muted-foreground">
+                  {state.unit === 'usd' ? 'USD' : state.unit === 'count' ? 'Count' : 'Percent'}
+                  <span className="ml-1 text-xs">· set by goal kind</span>
+                </p>
+              </div>
+            )}
             <label className="space-y-1.5 text-sm">
               <span className="font-medium">Target value</span>
               <Input

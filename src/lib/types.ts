@@ -39,17 +39,28 @@ export type Activity = {
 export const GOAL_KIND_LABELS: Record<GoalSummary['kind'], string> = {
   arr: 'ARR',
   mrr: 'MRR',
-  carr: 'CARR',
   revenue: 'Revenue',
   quota: 'Quota',
   savings: 'Savings',
+  lead_gen: 'Lead Gen',
   custom_kpi: 'Custom KPI',
+}
+
+/** The kind implies the unit; only custom_kpi lets the user choose (null). */
+export const GOAL_KIND_UNITS: Record<GoalSummary['kind'], GoalSummary['unit'] | null> = {
+  arr: 'usd',
+  mrr: 'usd',
+  revenue: 'usd',
+  quota: 'usd',
+  savings: 'usd',
+  lead_gen: 'count',
+  custom_kpi: null,
 }
 
 export interface GoalSummary {
   id: string
   name: string
-  kind: 'arr' | 'mrr' | 'carr' | 'revenue' | 'quota' | 'savings' | 'custom_kpi'
+  kind: 'arr' | 'mrr' | 'revenue' | 'quota' | 'savings' | 'lead_gen' | 'custom_kpi'
   direction: 'increase' | 'decrease'
   unit: 'usd' | 'count' | 'percent'
   startValue: number

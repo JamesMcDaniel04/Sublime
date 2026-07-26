@@ -5,16 +5,17 @@ import { recordUserEvent } from '@/lib/behavior/record-event'
 import { evaluateGoal } from '@/lib/goals/evaluate'
 import { bucketKeyFor } from '@/lib/goals/refresh'
 import { validateReadOnlyQuery } from '@/lib/metrics/sources/postgres'
+import { GOAL_KIND_UNITS } from '@/lib/types'
 
 export const runtime = 'nodejs'
 
 const GOAL_KINDS = [
   'arr',
   'mrr',
-  'carr',
   'revenue',
   'quota',
   'savings',
+  'lead_gen',
   'custom_kpi',
 ] as const
 const METRIC_SOURCES = [
@@ -180,7 +181,9 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
       description: input.description ?? null,
       kind: input.kind,
       direction: input.direction,
-      unit: input.unit,
+      // The kind implies the unit — client input is honored only for
+      // custom_kpi, so the invariant holds even for direct API callers.
+      unit: GOAL_KIND_UNITS[input.kind] ?? input.unit,
       startValue: input.startValue,
       targetValue: input.targetValue,
       targetDate: input.targetDate,

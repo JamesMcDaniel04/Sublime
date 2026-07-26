@@ -1222,7 +1222,7 @@ model Goal {
   parentGoalId    String?
   name            String
   description     String?   @db.Text
-  kind            String // 'arr' | 'mrr' | 'carr' | 'revenue' | 'quota' | 'savings' | 'custom_kpi'
+  kind            String // 'arr' | 'mrr' | 'revenue' | 'quota' | 'savings' | 'lead_gen' | 'custom_kpi'
   direction       String    @default("increase") // 'increase' | 'decrease' (savings count down)
   unit            String    @default("usd") // 'usd' | 'count' | 'percent'
   startValue      Float
