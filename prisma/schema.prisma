@@ -61,6 +61,10 @@ model Organization {
   userPatterns              UserPattern[]
   userSuggestions           UserSuggestion[]
   persona                   OrganizationPersona?
+  goals                     Goal[]
+  goalMetrics               GoalMetric[]
+  metricDatapoints          MetricDatapoint[]
+  goalContributions         GoalContribution[]
 
   @@map("organizations")
 }
@@ -90,6 +94,7 @@ model User {
   flowComments       FlowComment[]      @relation("FlowCommentAuthor")
   identities         UserIdentity[]
   credentials        Credential[]
+  goals              Goal[]
 
   @@index([organizationId])
   @@map("users")
@@ -999,6 +1004,9 @@ model UserSuggestion {
   targetId           String?
   sourcePatternSlugs Json     @default("[]")
   evidence           Json     @default("[]") // rendered "why this exists" lines
+  /// Kind-specific payload. goal_action: { goalId, seedKey } — the goal that
+  /// triggered it and the catalogue template the accept deploys.
+  metadata           Json     @default("{}")
   status             String   @default("open") // open | accepted | dismissed
   createdAt          DateTime @default(now()) @db.Timestamptz(6)
   updatedAt          DateTime @updatedAt @db.Timestamptz(6)
@@ -1199,4 +1207,113 @@ enum Plan {
 enum UserRole {
   ADMIN
   USER
+}
+
+/// A measurable target. ownerUserId null = org goal (visible to the whole
+/// org); set = personal goal (visible only to its owner). A personal goal may
+/// name the org goal it supports via parentGoalId (recommendation context and
+/// rollup display — never an auto-sum). riskLevel is PERSISTED so the
+/// evaluator can detect transitions: only a transition emits a suggestion.
+model Goal {
+  id              String    @id @default(cuid())
+  organizationId  String    @db.Uuid
+  ownerUserId     String?
+  parentGoalId    String?
+  name            String
+  description     String?   @db.Text
+  kind            String // 'arr' | 'mrr' | 'carr' | 'revenue' | 'quota' | 'savings' | 'custom_kpi'
+  direction       String    @default("increase") // 'increase' | 'decrease' (savings count down)
+  unit            String    @default("usd") // 'usd' | 'count' | 'percent'
+  startValue      Float
+  targetValue     Float
+  startAt         DateTime  @default(now()) @db.Timestamptz(6)
+  targetDate      DateTime  @db.Timestamptz(6)
+  status          String    @default("active") // 'active' | 'paused' | 'achieved' | 'missed' | 'archived'
+  riskLevel       String    @default("no_data") // 'on_track' | 'at_risk' | 'off_track' | 'no_data'
+  lastEvaluatedAt DateTime? @db.Timestamptz(6)
+  createdByUserId String?
+  createdAt       DateTime  @default(now()) @db.Timestamptz(6)
+  updatedAt       DateTime  @updatedAt @db.Timestamptz(6)
+
+  organization  Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  owner         User?              @relation(fields: [ownerUserId], references: [id], onDelete: Cascade)
+  parent        Goal?              @relation("GoalRollup", fields: [parentGoalId], references: [id], onDelete: SetNull)
+  children      Goal[]             @relation("GoalRollup")
+  metrics       GoalMetric[]
+  contributions GoalContribution[]
+
+  @@index([organizationId, status])
+  @@index([organizationId, ownerUserId, status])
+  @@map("goals")
+}
+
+/// Binding of a goal to its source-of-truth number. Exactly one per goal in
+/// v1 (the @unique enforces it; drop to allow multi-metric later).
+/// connectionRef: 'credential:<id>' (stripe) | 'nango:<connectionId>' |
+/// 'google:<googleOAuthConnectionId>' | null (manual). A stale or erroring
+/// metric is itself a goal-risk signal (riskLevel 'no_data').
+model GoalMetric {
+  id                   String    @id @default(cuid())
+  organizationId       String    @db.Uuid
+  goalId               String    @unique
+  source               String // 'stripe' | 'hubspot' | 'salesforce' | 'google_sheets' | 'manual'
+  metricKey            String // e.g. 'stripe.mrr' | 'hubspot.pipeline_value' | 'sheets.range'
+  connectionRef        String?
+  config               Json      @default("{}")
+  refreshIntervalHours Int       @default(24)
+  lastSyncAt           DateTime? @db.Timestamptz(6)
+  lastError            String?   @db.Text
+  createdAt            DateTime  @default(now()) @db.Timestamptz(6)
+  updatedAt            DateTime  @updatedAt @db.Timestamptz(6)
+
+  organization Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  goal         Goal              @relation(fields: [goalId], references: [id], onDelete: Cascade)
+  datapoints   MetricDatapoint[]
+
+  @@index([organizationId, source])
+  @@map("goal_metrics")
+}
+
+/// Time-series reading. bucketKey is the UTC day 'YYYY-MM-DD' of capturedAt —
+/// re-syncs upsert on (goalMetricId, bucketKey) and never double-write (the
+/// activity-ledger dedupe discipline).
+model MetricDatapoint {
+  id             String   @id @default(cuid())
+  organizationId String   @db.Uuid
+  goalMetricId   String
+  value          Float
+  capturedAt     DateTime @db.Timestamptz(6)
+  bucketKey      String
+  origin         String   @default("sync") // 'sync' | 'manual' | 'backfill'
+  createdAt      DateTime @default(now()) @db.Timestamptz(6)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  goalMetric   GoalMetric   @relation(fields: [goalMetricId], references: [id], onDelete: Cascade)
+
+  @@unique([goalMetricId, bucketKey])
+  @@index([organizationId, goalMetricId, capturedAt])
+  @@map("metric_datapoints")
+}
+
+/// Attribution link (proof layer): an automation that exists — or was
+/// enlisted — to advance a goal. Created automatically when a goal suggestion
+/// is provisioned, or manually from the goal page. Impact is computed by
+/// joining FlowRun/AgentExecution through these links; runs that started
+/// before createdAt never count.
+model GoalContribution {
+  id                          String   @id @default(cuid())
+  organizationId              String   @db.Uuid
+  goalId                      String
+  resourceType                String // 'flow' | 'agent'
+  resourceId                  String
+  origin                      String // 'suggestion' | 'manual'
+  estimatedMinutesSavedPerRun Int      @default(30)
+  createdAt                   DateTime @default(now()) @db.Timestamptz(6)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  goal         Goal         @relation(fields: [goalId], references: [id], onDelete: Cascade)
+
+  @@unique([goalId, resourceType, resourceId])
+  @@index([organizationId, goalId])
+  @@map("goal_contributions")
 }
