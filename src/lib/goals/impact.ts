@@ -221,7 +221,7 @@ export async function goalImpact(
       orderBy: { createdAt: 'asc' },
     }),
     prisma.goalMetric.findFirst({
-      where: { organizationId, goalId },
+      where: { organizationId, goalId, role: 'primary' },
       select: { id: true },
     }),
     settingsFor(organizationId),

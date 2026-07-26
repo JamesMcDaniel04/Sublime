@@ -23,6 +23,11 @@ import { cn } from '@/lib/utils'
 import { GOAL_KIND_UNITS, type GoalSummary } from '@/lib/types'
 import { goalTemplateByKey } from '@/lib/goals/goal-templates'
 import { fmtValue } from '@/components/goals/chart-math'
+import {
+  SOURCE_HINTS,
+  SOURCE_LABELS,
+} from '@/components/goals/source-labels'
+import { sourceIsAvailable } from '@/lib/metrics/source-options'
 
 type Step = 1 | 2 | 3
 type GoalKind = GoalSummary['kind']
@@ -45,24 +50,6 @@ const KINDS: Array<{ value: GoalKind; label: string }> = [
   { value: 'lead_gen', label: 'Lead generation' },
   { value: 'custom_kpi', label: 'Custom KPI' },
 ]
-
-const SOURCE_LABELS: Record<string, string> = {
-  stripe: 'Stripe',
-  hubspot: 'HubSpot',
-  salesforce: 'Salesforce',
-  google_sheets: 'Google Sheets',
-  postgres: 'Postgres / SQL',
-  manual: "I'll record values myself",
-  url: 'A URL that reports the number',
-  slack_assisted: 'Slack channel (AI-read)',
-  gmail_assisted: 'Report emails (AI-read)',
-}
-
-const SOURCE_HINTS: Record<string, string> = {
-  url: 'We fetch the page or JSON on every sync and parse the number.',
-  slack_assisted: 'AI reads recent messages and extracts the latest value — every reading is labeled AI-read.',
-  gmail_assisted: 'AI reads matching report emails and extracts the latest value — every reading is labeled AI-read.',
-}
 
 const tomorrow = () => {
   const date = new Date()
@@ -118,17 +105,34 @@ export default function NewGoalPage() {
   useEffect(() => {
     const key = new URLSearchParams(window.location.search).get('template')
     const entry = key ? goalTemplateByKey(key) : null
-    if (!entry) return
-    setState((current) => ({
-      ...current,
-      name: entry.name,
-      kind: entry.kind,
-      direction: entry.direction,
-      unit: entry.unit,
-      recurrence: entry.recurrence,
-      personal: entry.scope === 'personal',
-    }))
-    toast.info(`Template applied — set your target${entry.scope === 'personal' ? '' : ' for the org'} and pick a source.`)
+    if (entry) {
+      setState((current) => ({
+        ...current,
+        name: entry.name,
+        kind: entry.kind,
+        direction: entry.direction,
+        unit: entry.unit,
+        recurrence: entry.recurrence,
+        personal: entry.scope === 'personal',
+      }))
+      toast.info(
+        `Template applied — set your target${entry.scope === 'personal' ? '' : ' for the org'} and pick a source.`,
+      )
+      return
+    }
+    const stored = sessionStorage.getItem('goals:copilot-prefill')
+    if (stored) {
+      sessionStorage.removeItem('goals:copilot-prefill')
+      try {
+        const prefill = JSON.parse(stored)
+        setState((current) => ({ ...current, ...prefill }))
+        toast.info(
+          'Copilot draft applied — finish the remaining steps.',
+        )
+      } catch {
+        // Stale/corrupt prefill: start clean.
+      }
+    }
   }, [])
 
   useEffect(() => {
@@ -164,7 +168,7 @@ export default function NewGoalPage() {
   )
 
   const chooseSource = (source: Source) => {
-    const selectable = source.source === 'manual' || source.connections.length > 0
+    const selectable = sourceIsAvailable(source)
     if (!selectable) return
     const firstMetric = source.metrics[0]
     // A metric reports in its own unit. If that contradicts the unit the

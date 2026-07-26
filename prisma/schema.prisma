@@ -1233,6 +1233,10 @@ model Goal {
   status          String    @default("active") // 'active' | 'paused' | 'achieved' | 'missed' | 'archived'
   riskLevel       String    @default("no_data") // 'on_track' | 'at_risk' | 'off_track' | 'no_data'
   lastEvaluatedAt DateTime? @db.Timestamptz(6)
+  /// Ordered widget layout {version:1, widgets:[{id,type,config}]}. Null =
+  /// render defaultLayoutForGoal(). Invalid persisted layouts fail soft to
+  /// that default in the detail renderer.
+  dashboardLayout Json?
   createdByUserId String?
   createdAt       DateTime  @default(now()) @db.Timestamptz(6)
   updatedAt       DateTime  @updatedAt @db.Timestamptz(6)
@@ -1271,16 +1275,17 @@ model GoalPeriod {
   @@map("goal_periods")
 }
 
-/// Binding of a goal to its source-of-truth number. Exactly one per goal in
-/// v1 (the @unique enforces it; drop to allow multi-metric later).
-/// connectionRef: 'credential:<id>' (stripe) | 'nango:<connectionId>' |
-/// 'google:<googleOAuthConnectionId>' | null (manual). A stale or erroring
-/// metric is itself a goal-risk signal (riskLevel 'no_data').
+/// Binding of a goal to a tracked series. A goal may have several: exactly
+/// one role='primary' drives evaluation, and supporting metrics feed widgets.
+/// The partial unique index enforcing one primary is migration-managed.
 model GoalMetric {
   id                   String    @id @default(cuid())
   organizationId       String    @db.Uuid
-  goalId               String    @unique
-  source               String // 'stripe' | 'hubspot' | 'salesforce' | 'google_sheets' | 'postgres' | 'manual'
+  goalId               String
+  role                 String    @default("primary") // 'primary' | 'supporting'
+  label                String?
+  unit                 String? // null = inherit the goal's unit
+  source               String // 'stripe' | 'hubspot' | 'salesforce' | 'google_sheets' | 'postgres' | 'url' | 'slack_assisted' | 'gmail_assisted' | 'manual'
   metricKey            String // e.g. 'stripe.mrr' | 'hubspot.pipeline_value' | 'sheets.range'
   connectionRef        String?
   config               Json      @default("{}")
@@ -1294,6 +1299,7 @@ model GoalMetric {
   goal         Goal              @relation(fields: [goalId], references: [id], onDelete: Cascade)
   datapoints   MetricDatapoint[]
 
+  @@index([goalId])
   @@index([organizationId, source])
   @@map("goal_metrics")
 }

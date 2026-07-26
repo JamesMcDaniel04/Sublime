@@ -21,7 +21,7 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
       organizationId: auth.organizationId,
       OR: [{ ownerUserId: null }, { ownerUserId: auth.dbUser.id }],
     },
-    include: { metrics: { orderBy: { createdAt: 'asc' }, take: 1, select: { id: true } } },
+    include: { metrics: { where: { role: 'primary' }, take: 1, select: { id: true } } },
   })
   if (!goal) throw new ApiError('Goal not found', 404, 'GOAL_NOT_FOUND')
   const metric = goal.metrics[0]

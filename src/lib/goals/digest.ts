@@ -169,7 +169,7 @@ export async function sendWeeklyGoalDigests(
         where: { organizationId, status: 'active' },
         include: {
           metrics: {
-            orderBy: { createdAt: 'asc' },
+            where: { role: 'primary' },
             take: 1,
             include: {
               datapoints: {

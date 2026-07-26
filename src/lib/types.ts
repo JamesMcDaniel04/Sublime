@@ -83,3 +83,47 @@ export interface GoalSummary {
   expectedProgress: number
   sparkline: Array<{ value: number; capturedAt: string }>
 }
+
+export interface GoalMetricSeries {
+  id: string
+  label: string | null
+  role: 'primary' | 'supporting'
+  unit: GoalSummary['unit']
+  source: string
+  metricKey: string
+  lastSyncAt: string | null
+  lastError: string | null
+  datapoints: Array<{
+    id: string
+    value: number
+    capturedAt: string
+    origin: 'sync' | 'manual' | 'backfill' | 'assisted'
+  }>
+}
+
+/** GET /api/goals/[id] response shape, shared with dashboard widgets. */
+export interface GoalDetail extends Omit<GoalSummary, 'sparkline'> {
+  description: string | null
+  projectedValue: number | null
+  metric: (GoalSummary['metric'] & { id: string }) | null
+  metrics: GoalMetricSeries[]
+  dashboardLayout: unknown | null
+  children: Array<{
+    id: string | null
+    name: string
+    riskLevel: GoalSummary['riskLevel']
+    personal: boolean
+  }>
+  periods: Array<{
+    periodStart: string
+    periodEnd: string
+    targetValue: number
+    finalValue: number
+    outcome: 'achieved' | 'missed'
+  }>
+  benchmark: {
+    orgCount: number
+    achievedRate: number
+    topSeeds: Array<{ seedKey: string; name: string; deploys: number }>
+  } | null
+}

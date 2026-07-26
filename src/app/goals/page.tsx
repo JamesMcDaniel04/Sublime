@@ -8,25 +8,36 @@ import { EmptyState } from '@/components/ui/empty-state'
 import { PageHeader } from '@/components/ui/page-header'
 import { GoalCard } from '@/components/goals/goal-card'
 import { GoalTemplateGallery } from '@/components/goals/goal-template-gallery'
+import { GoalCopilot } from '@/components/goals/goal-copilot'
+import { CopilotPreview } from '@/components/goals/copilot-preview'
 import {
   ExportRoiReport,
   ImpactStrip,
   type OrgImpact,
 } from '@/components/goals/impact-strip'
 import type { GoalSummary } from '@/lib/types'
+import type { CopilotDraft } from '@/lib/goals/copilot'
 
 type State = { goals: GoalSummary[]; impact: OrgImpact }
 
 export default function GoalsPage() {
   const [state, setState] = useState<State | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [copilot, setCopilot] = useState<{
+    draft: CopilotDraft
+    notes: string[]
+  } | null>(null)
+  const [llmReady, setLlmReady] = useState(false)
 
   const load = useCallback(async () => {
     try {
       setError(null)
-      const [goalsResponse, impactResponse] = await Promise.all([
+      const [goalsResponse, impactResponse, capabilitiesBody] = await Promise.all([
         fetch('/api/goals', { cache: 'no-store' }),
         fetch('/api/goals/impact', { cache: 'no-store' }),
+        fetch('/api/system/capabilities', { cache: 'no-store' })
+          .then(async (response) => (response.ok ? response.json() : {}))
+          .catch(() => ({})),
       ])
       const [goalsBody, impactBody] = await Promise.all([
         goalsResponse.json(),
@@ -36,6 +47,16 @@ export default function GoalsPage() {
         throw new Error(goalsBody.error || impactBody.error || 'Could not load goals.')
       }
       setState({ goals: goalsBody.goals, impact: impactBody.impact })
+      setLlmReady(
+        Boolean(
+          capabilitiesBody.capabilities?.some(
+            (capability: { key: string; configured: boolean }) =>
+              (capability.key === 'model.anthropic' ||
+                capability.key === 'model.qwen') &&
+              capability.configured,
+          ),
+        ),
+      )
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Could not load goals.')
     }
@@ -64,6 +85,20 @@ export default function GoalsPage() {
           </Button>
         }
       />
+
+      {copilot ? (
+        <CopilotPreview
+          draft={copilot.draft}
+          notes={copilot.notes}
+          onCancel={() => setCopilot(null)}
+        />
+      ) : (
+        <>
+          {llmReady && (
+            <GoalCopilot
+              onDraft={(draft, notes) => setCopilot({ draft, notes })}
+            />
+          )}
 
       {!state && !error && (
         <div className="grid animate-pulse gap-3 sm:grid-cols-2 lg:grid-cols-4">
@@ -129,6 +164,8 @@ export default function GoalsPage() {
               )}
             </div>
           )}
+        </>
+      )}
         </>
       )}
     </div>

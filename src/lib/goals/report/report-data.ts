@@ -160,7 +160,7 @@ export async function assembleRoiReportData(params: {
       take: 200,
       include: {
         metrics: {
-          orderBy: { createdAt: 'asc' },
+          where: { role: 'primary' },
           take: 1,
           include: {
             datapoints: {

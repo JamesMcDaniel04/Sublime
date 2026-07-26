@@ -143,7 +143,11 @@ export async function evaluateAndPersistGoal(
   const foundGoal = await prisma.goal.findFirst({
     where: { id: goalId, organizationId },
     include: {
-      metrics: { select: { id: true, refreshIntervalHours: true, lastError: true } },
+      metrics: {
+        where: { role: 'primary' },
+        take: 1,
+        select: { id: true, refreshIntervalHours: true, lastError: true },
+      },
     },
   })
   if (!foundGoal || foundGoal.status === 'archived' || foundGoal.status === 'paused') return false

@@ -19,7 +19,7 @@ async function visibleGoal(
       organizationId,
       OR: [{ ownerUserId: null }, { ownerUserId: userId }],
     },
-    include: { metrics: { select: { id: true }, orderBy: { createdAt: 'asc' as const }, take: 1 } },
+    include: { metrics: { where: { role: 'primary' }, select: { id: true }, take: 1 } },
   })
   if (!goal) throw new ApiError('Goal not found', 404, 'GOAL_NOT_FOUND')
   const metric = goal.metrics[0]

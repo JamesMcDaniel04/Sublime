@@ -4,6 +4,7 @@ import { evaluateGoal } from '@/lib/goals/evaluate'
 import { evaluateAndPersistGoal } from '@/lib/goals/refresh'
 import { surfaceGoalBenchmark } from '@/lib/goals/aggregate-benchmarks'
 import { ApiError, withAuthenticatedApi } from '@/lib/server/api-handler'
+import { parseDashboardLayout } from '@/lib/goals/dashboard'
 
 export const runtime = 'nodejs'
 
@@ -17,6 +18,7 @@ const patchSchema = z
     targetDate: z.coerce.date().optional(),
     recurrence: z.enum(RECURRENCES).nullable().optional(),
     status: z.enum(['active', 'paused', 'achieved', 'missed']).optional(),
+    dashboardLayout: z.unknown().optional(),
   })
   .refine((body) => Object.keys(body).length > 0, { message: 'No changes supplied.' })
   .refine((body) => body.targetDate === undefined || body.targetDate.getTime() > Date.now(), {
@@ -36,13 +38,12 @@ export const GET = withAuthenticatedApi(async (request, auth) => {
     where: visibleWhere(auth.organizationId, auth.dbUser.id, id),
     include: {
       metrics: {
-        orderBy: { createdAt: 'asc' },
-        take: 1,
+        orderBy: [{ role: 'asc' }, { createdAt: 'asc' }],
         include: {
           datapoints: {
             orderBy: { capturedAt: 'desc' },
             take: 400,
-            select: { value: true, capturedAt: true, origin: true },
+            select: { id: true, value: true, capturedAt: true, origin: true },
           },
         },
       },
@@ -61,7 +62,8 @@ export const GET = withAuthenticatedApi(async (request, auth) => {
   })
   if (!goal) throw new ApiError('Goal not found', 404, 'GOAL_NOT_FOUND')
 
-  const metric = goal.metrics[0] ?? null
+  const metric =
+    goal.metrics.find((candidate) => candidate.role === 'primary') ?? goal.metrics[0] ?? null
   const points = [...(metric?.datapoints ?? [])].reverse()
   const evaluation = evaluateGoal(
     { ...goal, direction: goal.direction as 'increase' | 'decrease' },
@@ -114,6 +116,7 @@ export const GET = withAuthenticatedApi(async (request, auth) => {
       progress: evaluation.progress,
       expectedProgress: evaluation.expectedProgress,
       projectedValue: evaluation.projectedValue,
+      dashboardLayout: goal.dashboardLayout ?? null,
       metric: metric
         ? {
             id: metric.id,
@@ -123,6 +126,17 @@ export const GET = withAuthenticatedApi(async (request, auth) => {
             lastError: metric.lastError,
           }
         : null,
+      metrics: goal.metrics.map((series) => ({
+        id: series.id,
+        label: series.label,
+        role: series.role as 'primary' | 'supporting',
+        unit: (series.unit ?? goal.unit) as 'usd' | 'count' | 'percent',
+        source: series.source,
+        metricKey: series.metricKey,
+        lastSyncAt: series.lastSyncAt,
+        lastError: series.lastError,
+        datapoints: [...series.datapoints].reverse(),
+      })),
       children: children.map((child) =>
         child.ownerUserId && child.ownerUserId !== auth.dbUser.id
           ? {
@@ -156,9 +170,49 @@ export const PATCH = withAuthenticatedApi(async (request, auth) => {
     throw new ApiError('Target must differ from the baseline.', 400, 'INVALID_TARGET')
   }
 
+  let layoutUpdate: Record<string, unknown> = {}
+  if ('dashboardLayout' in input && input.dashboardLayout !== undefined) {
+    if (input.dashboardLayout === null) {
+      layoutUpdate = { dashboardLayout: null }
+    } else {
+      const layout = parseDashboardLayout(input.dashboardLayout)
+      if (!layout) {
+        throw new ApiError('Dashboard layout is not valid.', 400, 'INVALID_LAYOUT')
+      }
+      const owned = new Set(
+        (
+          await prisma.goalMetric.findMany({
+            where: { organizationId: auth.organizationId, goalId: goal.id },
+            select: { id: true },
+          })
+        ).map((metric) => metric.id),
+      )
+      const referenced = layout.widgets
+        .flatMap((widget) => {
+          const config = widget.config
+          return [
+            config.metricId,
+            config.numeratorId,
+            config.denominatorId,
+            ...((config.metricIds as string[] | undefined) ?? []),
+          ]
+        })
+        .filter((value): value is string => typeof value === 'string')
+      if (referenced.some((metricId) => !owned.has(metricId))) {
+        throw new ApiError(
+          'Layout references a metric that is not on this goal.',
+          400,
+          'INVALID_LAYOUT',
+        )
+      }
+      layoutUpdate = { dashboardLayout: layout as never }
+    }
+  }
+  const { dashboardLayout, ...rest } = input
+  void dashboardLayout
   await prisma.goal.update({
     where: { id: goal.id, organizationId: auth.organizationId },
-    data: input,
+    data: { ...rest, ...layoutUpdate },
   })
   // Re-evaluate when the target moved or the goal was un-paused — the cron
   // sweep skips paused goals, so without this the badge stays stale until the

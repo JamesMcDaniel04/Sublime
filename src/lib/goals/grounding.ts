@@ -88,7 +88,7 @@ export async function goalGroundingBlock(
       orderBy: { targetDate: 'asc' },
       include: {
         metrics: {
-          orderBy: { createdAt: 'asc' },
+          where: { role: 'primary' },
           take: 1,
           select: {
             datapoints: {

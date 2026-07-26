@@ -1,0 +1,341 @@
+/**
+ * Goal Copilot: one structured model call turns a natural-language goal into
+ * a dashboard draft. Every field is validated against the product's closed
+ * vocabularies before it leaves the server; this module performs no writes.
+ */
+import { z } from 'zod'
+import { DEFAULT_AGENT_MODEL, generateStructured } from '@/lib/llm/model-runner'
+import { GOAL_KIND_LABELS, GOAL_KIND_UNITS, type GoalSummary } from '@/lib/types'
+import { GOAL_TEMPLATES } from './goal-templates'
+import { WIDGET_TYPES, parseDraftLayout, type DashboardLayout } from './dashboard'
+import {
+  sourceIsAvailable,
+  type MetricSourceOption,
+} from '@/lib/metrics/available-sources'
+
+export class CopilotDraftError extends Error {}
+
+const GOAL_KINDS = [
+  'arr',
+  'mrr',
+  'revenue',
+  'quota',
+  'savings',
+  'lead_gen',
+  'custom_kpi',
+] as const
+const MAX_DESCRIPTION_CHARS = 2000
+
+export const COPILOT_DRAFT_SCHEMA = {
+  type: 'object',
+  properties: {
+    name: { type: 'string' },
+    description: { type: ['string', 'null'] },
+    kind: { type: 'string', enum: [...GOAL_KINDS] },
+    direction: { type: 'string', enum: ['increase', 'decrease'] },
+    unit: { type: 'string', enum: ['usd', 'count', 'percent'] },
+    recurrence: {
+      type: ['string', 'null'],
+      enum: ['monthly', 'quarterly', 'yearly', null],
+    },
+    personal: { type: 'boolean' },
+    suggestedTarget: {
+      type: ['object', 'null'],
+      properties: {
+        value: { type: 'number' },
+        rationale: { type: 'string' },
+      },
+      required: ['value', 'rationale'],
+      additionalProperties: false,
+    },
+    suggestedTargetDate: {
+      type: ['string', 'null'],
+      description: 'YYYY-MM-DD, must be in the future',
+    },
+    metrics: {
+      type: 'array',
+      minItems: 1,
+      maxItems: 4,
+      items: {
+        type: 'object',
+        properties: {
+          label: { type: 'string' },
+          role: { type: 'string', enum: ['primary', 'supporting'] },
+          source: { type: 'string' },
+          metricKey: { type: 'string' },
+          unit: { type: 'string', enum: ['usd', 'count', 'percent'] },
+          config: { type: 'object' },
+        },
+        required: ['label', 'role', 'source', 'metricKey', 'unit', 'config'],
+        additionalProperties: false,
+      },
+    },
+    widgets: {
+      type: 'array',
+      maxItems: 12,
+      items: {
+        type: 'object',
+        properties: {
+          id: { type: 'string' },
+          type: { type: 'string', enum: [...WIDGET_TYPES] },
+          config: { type: 'object' },
+        },
+        required: ['id', 'type', 'config'],
+        additionalProperties: false,
+      },
+    },
+    rationale: { type: 'string' },
+  },
+  required: [
+    'name',
+    'description',
+    'kind',
+    'direction',
+    'unit',
+    'recurrence',
+    'personal',
+    'suggestedTarget',
+    'suggestedTargetDate',
+    'metrics',
+    'widgets',
+    'rationale',
+  ],
+  additionalProperties: false,
+} as const
+
+const SYSTEM = [
+  'You design a goal-tracking dashboard from a user description.',
+  'Rules:',
+  `- kind MUST be one of: ${GOAL_KINDS.join(', ')}. Pick the closest; blends use the dominant kind plus supporting metrics from other kinds.`,
+  '- Use ONLY the metric sources listed as available in the input. When nothing fits, use source "manual" with metricKey "manual.value".',
+  '- Use 1-4 metrics and exactly one role "primary"; it drives progress and risk.',
+  '- Widget config references metrics by array INDEX: kpi/trend/history {"metric":0}, comparison {"metrics":[0,1]}, ratio {"numerator":0,"denominator":1,"format":"percent"|"ratio"}, narrative {"text":"..."}, and progress/impact/benchmark/periods/contributions/rollups {}.',
+  '- Put kpi first, then trend; add useful ratio/comparison widgets; include narrative, impact, and history.',
+  '- suggestedTarget is an honest starting point, never fabricated precision. Use null when the description gives no basis.',
+  '- suggestedTargetDate is a sensible future YYYY-MM-DD, or null when unclear.',
+  '- Respond with the JSON object only.',
+].join('\n')
+
+function fewShotTemplates(): Array<{
+  name: string
+  kind: string
+  recurrence: string | null
+}> {
+  return GOAL_TEMPLATES.slice(0, 8).map((template) => ({
+    name: template.name,
+    kind: template.kind,
+    recurrence: template.recurrence,
+  }))
+}
+
+const rawDraftSchema = z.object({
+  name: z.string().min(1).max(120),
+  description: z.string().max(2000).nullable(),
+  kind: z.string(),
+  direction: z.enum(['increase', 'decrease']),
+  unit: z.enum(['usd', 'count', 'percent']),
+  recurrence: z.enum(['monthly', 'quarterly', 'yearly']).nullable(),
+  personal: z.boolean(),
+  suggestedTarget: z
+    .object({ value: z.number().finite(), rationale: z.string().max(500) })
+    .nullable(),
+  suggestedTargetDate: z.string().nullable(),
+  metrics: z
+    .array(
+      z.object({
+        label: z.string().min(1).max(80),
+        role: z.enum(['primary', 'supporting']),
+        source: z.string(),
+        metricKey: z.string(),
+        unit: z.enum(['usd', 'count', 'percent']),
+        config: z.record(z.string(), z.unknown()).default({}),
+      }),
+    )
+    .min(1)
+    .max(4),
+  widgets: z.array(z.unknown()).max(12),
+  rationale: z.string().max(1000),
+})
+
+export type CopilotDraftMetric = {
+  label: string
+  role: 'primary' | 'supporting'
+  source: string
+  metricKey: string
+  unit: 'usd' | 'count' | 'percent'
+  connectionRef: string | null
+  config: Record<string, unknown>
+}
+export type CopilotDraft = {
+  name: string
+  description: string | null
+  kind: GoalSummary['kind']
+  direction: 'increase' | 'decrease'
+  unit: 'usd' | 'count' | 'percent'
+  recurrence: 'monthly' | 'quarterly' | 'yearly' | null
+  personal: boolean
+  suggestedTarget: { value: number; rationale: string } | null
+  suggestedTargetDate: string | null
+  metrics: CopilotDraftMetric[]
+  layout: DashboardLayout | null
+  rationale: string
+}
+
+const SOURCE_FALLBACK_LABELS: Record<string, string> = {
+  stripe: 'Stripe',
+  hubspot: 'HubSpot',
+  salesforce: 'Salesforce',
+  google_sheets: 'Google Sheets',
+  postgres: 'Postgres',
+  url: 'URL',
+  slack_assisted: 'Slack (AI-read)',
+  gmail_assisted: 'Gmail (AI-read)',
+}
+
+export function validateCopilotDraft(
+  raw: string,
+  sources: MetricSourceOption[],
+  now: Date = new Date(),
+): { draft: CopilotDraft; notes: string[] } {
+  let parsedJson: unknown
+  try {
+    parsedJson = JSON.parse(raw)
+  } catch {
+    throw new CopilotDraftError(
+      'The Copilot returned an unreadable draft — try rephrasing your goal.',
+    )
+  }
+  const shell = rawDraftSchema.safeParse(parsedJson)
+  if (!shell.success) {
+    throw new CopilotDraftError(
+      'The Copilot returned an unusable draft — try rephrasing your goal.',
+    )
+  }
+  const data = shell.data
+  if (!(GOAL_KINDS as readonly string[]).includes(data.kind)) {
+    throw new CopilotDraftError(
+      'The Copilot could not map this to a supported goal kind — try rephrasing.',
+    )
+  }
+  const kind = data.kind as GoalSummary['kind']
+  const notes: string[] = []
+  const availableBySource = new Map(
+    sources
+      .filter((option) => sourceIsAvailable(option))
+      .map((option) => [option.source, option]),
+  )
+
+  const metrics: CopilotDraftMetric[] = data.metrics.map((metric) => {
+    const option = availableBySource.get(metric.source)
+    if (!option) {
+      notes.push(
+        `${SOURCE_FALLBACK_LABELS[metric.source] ?? metric.source} isn't connected — "${metric.label}" starts as a manually recorded series.`,
+      )
+      return {
+        ...metric,
+        source: 'manual',
+        metricKey: 'manual.value',
+        connectionRef: null,
+        config: {},
+      }
+    }
+    let metricKey = metric.metricKey
+    if (
+      option.metrics.length > 0 &&
+      !option.metrics.some((descriptor) => descriptor.key === metricKey)
+    ) {
+      metricKey = option.metrics[0].key
+      notes.push(
+        `Adjusted "${metric.label}" to the ${metric.source} metric this workspace actually exposes.`,
+      )
+    }
+    const connectionRef =
+      option.connections.length === 1 ? option.connections[0].ref : null
+    return { ...metric, metricKey, connectionRef, config: metric.config }
+  })
+
+  let sawPrimary = false
+  for (const metric of metrics) {
+    if (metric.role === 'primary') {
+      if (sawPrimary) metric.role = 'supporting'
+      sawPrimary = true
+    }
+  }
+  if (!sawPrimary) metrics[0].role = 'primary'
+
+  const layout = parseDraftLayout(
+    { version: 1, widgets: data.widgets },
+    metrics.length,
+  )
+  if (!layout && data.widgets.length > 0) {
+    notes.push(
+      'The Copilot suggested widgets this dashboard cannot render — using the standard layout.',
+    )
+  }
+
+  let suggestedTargetDate: string | null = null
+  if (data.suggestedTargetDate) {
+    const validShape = /^\d{4}-\d{2}-\d{2}$/.test(data.suggestedTargetDate)
+    const date = validShape
+      ? new Date(`${data.suggestedTargetDate}T23:59:59Z`)
+      : new Date(Number.NaN)
+    if (
+      Number.isFinite(date.getTime()) &&
+      date.toISOString().slice(0, 10) === data.suggestedTargetDate &&
+      date.getTime() > now.getTime()
+    ) {
+      suggestedTargetDate = data.suggestedTargetDate
+    } else {
+      notes.push('The suggested target date was not usable — pick one below.')
+    }
+  }
+
+  return {
+    draft: {
+      name: data.name,
+      description: data.description,
+      kind,
+      direction: kind === 'savings' ? 'decrease' : data.direction,
+      unit: GOAL_KIND_UNITS[kind] ?? data.unit,
+      recurrence: data.recurrence,
+      personal: data.personal,
+      suggestedTarget: data.suggestedTarget,
+      suggestedTargetDate,
+      metrics,
+      layout,
+      rationale: data.rationale,
+    },
+    notes,
+  }
+}
+
+export async function draftGoalDashboard(params: {
+  description: string
+  sources: MetricSourceOption[]
+  generate?: typeof generateStructured
+  now?: Date
+}): Promise<{ draft: CopilotDraft; notes: string[] }> {
+  const generate = params.generate ?? generateStructured
+  const raw = await generate({
+    schemaName: 'goal_copilot_draft',
+    schema: COPILOT_DRAFT_SCHEMA as unknown as Record<string, unknown>,
+    system: SYSTEM,
+    user: JSON.stringify({
+      description: params.description.slice(0, MAX_DESCRIPTION_CHARS),
+      today: (params.now ?? new Date()).toISOString().slice(0, 10),
+      kinds: GOAL_KINDS.map((kindName) => ({
+        kind: kindName,
+        label: GOAL_KIND_LABELS[kindName],
+        unit: GOAL_KIND_UNITS[kindName],
+      })),
+      availableSources: params.sources.filter(sourceIsAvailable).map((option) => ({
+        source: option.source,
+        metrics: option.metrics,
+      })),
+      exampleGoals: fewShotTemplates(),
+    }),
+    maxTokens: 2000,
+    model: DEFAULT_AGENT_MODEL,
+  })
+  return validateCopilotDraft(raw, params.sources, params.now)
+}

@@ -7,6 +7,7 @@ import { bucketKeyFor } from '@/lib/goals/refresh'
 import { validateReadOnlyQuery } from '@/lib/metrics/sources/postgres'
 import { assertSafeUrl } from '@/lib/metrics/sources/url'
 import { GOAL_KIND_UNITS } from '@/lib/types'
+import { parseDraftLayout, resolveLayoutMetricRefs } from '@/lib/goals/dashboard'
 
 export const runtime = 'nodejs'
 
@@ -37,6 +38,26 @@ const RECURRENCES = ['monthly', 'quarterly', 'yearly'] as const
 const HOUR_MS = 60 * 60 * 1000
 const SPARKLINE_POINTS = 30
 
+const metricInputSchema = z.object({
+  source: z.enum(METRIC_SOURCES),
+  metricKey: z.string().min(1),
+  connectionRef: z.string().nullable().optional(),
+  config: z.record(z.string(), z.unknown()).default({}),
+})
+const metricListItemSchema = metricInputSchema.extend({
+  label: z.string().min(1).max(80),
+  role: z.enum(['primary', 'supporting']),
+  unit: z.enum(['usd', 'count', 'percent']).optional(),
+})
+const metricListOf = (body: {
+  metric?: z.infer<typeof metricInputSchema>
+  metrics?: z.infer<typeof metricListItemSchema>[]
+}) =>
+  body.metrics ??
+  (body.metric
+    ? [{ ...body.metric, label: null as string | null, role: 'primary' as const, unit: undefined }]
+    : [])
+
 const createSchema = z
   .object({
     name: z.string().min(1, 'Name the goal.').max(120),
@@ -50,13 +71,19 @@ const createSchema = z
     recurrence: z.enum(RECURRENCES).nullable().default(null),
     personal: z.boolean().default(false),
     parentGoalId: z.string().optional(),
-    metric: z.object({
-      source: z.enum(METRIC_SOURCES),
-      metricKey: z.string().min(1),
-      connectionRef: z.string().nullable().optional(),
-      config: z.record(z.string(), z.unknown()).default({}),
-    }),
+    metric: metricInputSchema.optional(),
+    metrics: z.array(metricListItemSchema).min(1).max(4).optional(),
+    dashboardLayout: z.unknown().optional(),
   })
+  .refine((body) => (body.metric !== undefined) !== (body.metrics !== undefined), {
+    message: 'Provide metric or metrics, not both.',
+  })
+  .refine(
+    (body) =>
+      !body.metrics ||
+      body.metrics.filter((metric) => metric.role === 'primary').length === 1,
+    { message: 'Exactly one metric must be primary.' },
+  )
   .refine((body) => body.targetValue !== body.startValue, {
     message: 'Target must differ from the baseline.',
   })
@@ -65,35 +92,51 @@ const createSchema = z
   })
   .refine(
     (body) =>
-      NO_CONNECTION_SOURCES.has(body.metric.source) || Boolean(body.metric.connectionRef),
+      metricListOf(body).every(
+        (metric) => NO_CONNECTION_SOURCES.has(metric.source) || Boolean(metric.connectionRef),
+      ),
     { message: 'Pick the connection this metric reads from.' },
   )
   // Per-source config validation at creation — a direct POST that skipped
   // the wizard preview should fail here, not surface as lastError on the
   // first tick.
   .superRefine((body, ctx) => {
-    const issue = (path: string, message: string) =>
-      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['metric', 'config', path], message })
-    const { source, config } = body.metric
-    if (source === 'postgres') {
-      try {
-        validateReadOnlyQuery(typeof config.query === 'string' ? config.query : '')
-      } catch (error) {
-        issue('query', error instanceof Error ? error.message : 'Invalid Postgres query.')
+    for (const [index, metric] of metricListOf(body).entries()) {
+      const issue = (path: string, message: string) =>
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: body.metrics
+            ? ['metrics', index, 'config', path]
+            : ['metric', 'config', path],
+          message,
+        })
+      const { source, config } = metric
+      if (source === 'postgres') {
+        try {
+          validateReadOnlyQuery(typeof config.query === 'string' ? config.query : '')
+        } catch (error) {
+          issue('query', error instanceof Error ? error.message : 'Invalid Postgres query.')
+        }
       }
-    }
-    if (source === 'url') {
-      try {
-        assertSafeUrl(typeof config.url === 'string' ? config.url : '')
-      } catch (error) {
-        issue('url', error instanceof Error ? error.message : 'Invalid URL.')
+      if (source === 'url') {
+        try {
+          assertSafeUrl(typeof config.url === 'string' ? config.url : '')
+        } catch (error) {
+          issue('url', error instanceof Error ? error.message : 'Invalid URL.')
+        }
       }
-    }
-    if (source === 'slack_assisted' && !(typeof config.channel === 'string' && config.channel.trim())) {
-      issue('channel', 'Pick the Slack channel that reports this number.')
-    }
-    if (source === 'gmail_assisted' && !(typeof config.query === 'string' && config.query.trim())) {
-      issue('query', 'Enter the Gmail search that finds the report emails.')
+      if (
+        source === 'slack_assisted' &&
+        !(typeof config.channel === 'string' && config.channel.trim())
+      ) {
+        issue('channel', 'Pick the Slack channel that reports this number.')
+      }
+      if (
+        source === 'gmail_assisted' &&
+        !(typeof config.query === 'string' && config.query.trim())
+      ) {
+        issue('query', 'Enter the Gmail search that finds the report emails.')
+      }
     }
   })
 
@@ -107,7 +150,7 @@ export const GET = withAuthenticatedApi(async (_request, auth) => {
     orderBy: [{ ownerUserId: 'asc' }, { createdAt: 'desc' }],
     include: {
       metrics: {
-        orderBy: { createdAt: 'asc' },
+        where: { role: 'primary' },
         take: 1,
         select: {
           source: true,
@@ -191,46 +234,76 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
     if (!parent) throw new ApiError('Linked org goal not found.', 404, 'PARENT_NOT_FOUND')
   }
 
-  const now = new Date()
-  const goal = await prisma.goal.create({
-    data: {
-      organizationId: auth.organizationId,
-      ownerUserId: input.personal ? auth.dbUser.id : null,
-      parentGoalId: input.parentGoalId ?? null,
-      name: input.name,
-      description: input.description ?? null,
-      kind: input.kind,
-      direction: input.direction,
-      // The kind implies the unit — client input is honored only for
-      // custom_kpi, so the invariant holds even for direct API callers.
-      unit: GOAL_KIND_UNITS[input.kind] ?? input.unit,
-      startValue: input.startValue,
-      targetValue: input.targetValue,
-      targetDate: input.targetDate,
-      recurrence: input.recurrence,
-      createdByUserId: auth.dbUser.id,
-      metrics: {
-        create: {
-          organizationId: auth.organizationId,
-          source: input.metric.source,
-          metricKey: input.metric.metricKey,
-          connectionRef: input.metric.connectionRef ?? null,
-          config: input.metric.config as never,
-        },
-      },
-    },
-    include: { metrics: { select: { id: true } } },
-  })
+  const metricList = input.metrics ?? [
+    { ...input.metric!, label: null, role: 'primary' as const, unit: undefined },
+  ]
+  const draftLayout =
+    input.dashboardLayout === undefined
+      ? null
+      : parseDraftLayout(input.dashboardLayout, metricList.length)
+  if (input.dashboardLayout !== undefined && draftLayout === null) {
+    throw new ApiError('Dashboard layout is not valid.', 400, 'INVALID_LAYOUT')
+  }
 
-  await prisma.metricDatapoint.create({
-    data: {
-      organizationId: auth.organizationId,
-      goalMetricId: goal.metrics[0].id,
-      value: input.startValue,
-      capturedAt: now,
-      bucketKey: bucketKeyFor(now),
-      origin: 'backfill',
-    },
+  const now = new Date()
+  const goal = await prisma.$transaction(async (tx) => {
+    const created = await tx.goal.create({
+      data: {
+        organizationId: auth.organizationId,
+        ownerUserId: input.personal ? auth.dbUser.id : null,
+        parentGoalId: input.parentGoalId ?? null,
+        name: input.name,
+        description: input.description ?? null,
+        kind: input.kind,
+        direction: input.direction,
+        // The kind implies the unit — client input is honored only for
+        // custom_kpi, so the invariant holds even for direct API callers.
+        unit: GOAL_KIND_UNITS[input.kind] ?? input.unit,
+        startValue: input.startValue,
+        targetValue: input.targetValue,
+        targetDate: input.targetDate,
+        recurrence: input.recurrence,
+        createdByUserId: auth.dbUser.id,
+      },
+    })
+    const metricIds: string[] = []
+    for (const metric of metricList) {
+      const row = await tx.goalMetric.create({
+        data: {
+          organizationId: auth.organizationId,
+          goalId: created.id,
+          role: metric.role,
+          label: metric.label,
+          unit: metric.role === 'primary' ? null : (metric.unit ?? null),
+          source: metric.source,
+          metricKey: metric.metricKey,
+          connectionRef: NO_CONNECTION_SOURCES.has(metric.source)
+            ? null
+            : (metric.connectionRef ?? null),
+          config: metric.config as never,
+        },
+      })
+      metricIds.push(row.id)
+    }
+    const primaryIndex = metricList.findIndex((metric) => metric.role === 'primary')
+    const primaryId = metricIds[primaryIndex]
+    await tx.metricDatapoint.create({
+      data: {
+        organizationId: auth.organizationId,
+        goalMetricId: primaryId,
+        value: input.startValue,
+        capturedAt: now,
+        bucketKey: bucketKeyFor(now),
+        origin: 'backfill',
+      },
+    })
+    if (draftLayout) {
+      await tx.goal.update({
+        where: { id: created.id, organizationId: auth.organizationId },
+        data: { dashboardLayout: resolveLayoutMetricRefs(draftLayout, metricIds) as never },
+      })
+    }
+    return created
   })
   await recordUserEvent({
     organizationId: auth.organizationId,
