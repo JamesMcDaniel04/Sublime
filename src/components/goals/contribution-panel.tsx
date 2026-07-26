@@ -1,0 +1,220 @@
+'use client'
+
+import { useEffect, useState } from 'react'
+import { Bot, Plus, Unlink, Workflow } from 'lucide-react'
+import { toast } from 'sonner'
+import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import { Card } from '@/components/ui/card'
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from '@/components/ui/dialog'
+import { Input } from '@/components/ui/input'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
+
+export type Contribution = {
+  id: string
+  resourceType: 'flow' | 'agent'
+  resourceId: string
+  name: string
+  origin: 'suggestion' | 'manual'
+  estimatedMinutesSavedPerRun: number
+  runs: number
+  tokens: number
+  createdAt: string
+}
+
+type Resource = { id: string; name: string; type: 'flow' | 'agent' }
+
+export function ContributionPanel({
+  goalId,
+  contributions,
+  onChanged,
+}: {
+  readonly goalId: string
+  readonly contributions: Contribution[]
+  readonly onChanged: () => Promise<void>
+}) {
+  const [open, setOpen] = useState(false)
+  const [resources, setResources] = useState<Resource[]>([])
+  const [resourceKey, setResourceKey] = useState('')
+  const [minutes, setMinutes] = useState('30')
+  const [saving, setSaving] = useState(false)
+
+  useEffect(() => {
+    if (!open) return
+    Promise.all([
+      fetch('/api/flows', { cache: 'no-store' }).then((response) => response.json()),
+      fetch('/api/agents', { cache: 'no-store' }).then((response) => response.json()),
+    ])
+      .then(([flowBody, agentBody]) => {
+        const flows = (flowBody.flows ?? []).map((flow: { id: string; name: string }) => ({
+          id: flow.id,
+          name: flow.name,
+          type: 'flow' as const,
+        }))
+        const agents = (agentBody.agents ?? []).map(
+          (agent: { id: string; title?: string; description?: string }) => ({
+            id: agent.id,
+            name: agent.title || agent.description || 'Untitled agent',
+            type: 'agent' as const,
+          }),
+        )
+        const linked = new Set(
+          contributions.map(
+            (contribution) => `${contribution.resourceType}:${contribution.resourceId}`,
+          ),
+        )
+        setResources(
+          [...flows, ...agents].filter(
+            (resource) => !linked.has(`${resource.type}:${resource.id}`),
+          ),
+        )
+      })
+      .catch(() => toast.error('Could not load automations.'))
+  }, [contributions, open])
+
+  const link = async () => {
+    const resource = resources.find(
+      (candidate) => `${candidate.type}:${candidate.id}` === resourceKey,
+    )
+    if (!resource) return toast.error('Choose an automation.')
+    setSaving(true)
+    try {
+      const response = await fetch(`/api/goals/${goalId}/contributions`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          resourceType: resource.type,
+          resourceId: resource.id,
+          estimatedMinutesSavedPerRun: Number(minutes),
+        }),
+      })
+      const body = await response.json()
+      if (!response.ok) throw new Error(body.error || 'Could not link automation.')
+      await onChanged()
+      setOpen(false)
+      setResourceKey('')
+      toast.success('Automation linked to this goal.')
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Could not link automation.')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const unlink = async (id: string) => {
+    const response = await fetch(
+      `/api/goals/${goalId}/contributions?contributionId=${encodeURIComponent(id)}`,
+      { method: 'DELETE' },
+    )
+    const body = await response.json()
+    if (!response.ok) return toast.error(body.error || 'Could not unlink automation.')
+    await onChanged()
+    toast.success('Automation unlinked.')
+  }
+
+  return (
+    <Card className="space-y-4 p-5">
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <h2 className="font-semibold">Contributing automations</h2>
+          <p className="text-sm text-muted-foreground">
+            Attribution starts when an automation is linked. Earlier runs never count.
+          </p>
+        </div>
+        <Dialog open={open} onOpenChange={setOpen}>
+          <DialogTrigger asChild>
+            <Button size="sm">
+              <Plus className="mr-1.5 h-4 w-4" />
+              Link automation
+            </Button>
+          </DialogTrigger>
+          <DialogContent>
+            <DialogHeader><DialogTitle>Link an automation</DialogTitle></DialogHeader>
+            <label className="space-y-1.5 text-sm">
+              <span>Flow or agent</span>
+              <Select value={resourceKey} onValueChange={setResourceKey}>
+                <SelectTrigger><SelectValue placeholder="Choose automation" /></SelectTrigger>
+                <SelectContent>
+                  {resources.map((resource) => (
+                    <SelectItem
+                      key={`${resource.type}:${resource.id}`}
+                      value={`${resource.type}:${resource.id}`}
+                    >
+                      {resource.type === 'flow' ? 'Flow' : 'Agent'} · {resource.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </label>
+            <label className="space-y-1.5 text-sm">
+              <span>Estimated manual minutes replaced per run</span>
+              <Input
+                type="number"
+                min="1"
+                max="1440"
+                value={minutes}
+                onChange={(event) => setMinutes(event.target.value)}
+              />
+            </label>
+            <DialogFooter>
+              <Button onClick={link} disabled={saving || !resourceKey}>
+                {saving ? 'Linking…' : 'Link'}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      </div>
+      {contributions.length === 0 ? (
+        <p className="rounded-xl border border-dashed p-5 text-sm text-muted-foreground">
+          No automation is linked yet. Link one to start the day-one proof trail.
+        </p>
+      ) : (
+        <div className="divide-y">
+          {contributions.map((contribution) => {
+            const Icon = contribution.resourceType === 'flow' ? Workflow : Bot
+            return (
+              <div key={contribution.id} className="flex items-center gap-3 py-3">
+                <span className="rounded-lg bg-muted p-2">
+                  <Icon className="h-4 w-4" aria-hidden />
+                </span>
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <p className="truncate text-sm font-medium">{contribution.name}</p>
+                    <Badge variant="outline">
+                      {contribution.origin === 'suggestion' ? 'Suggested' : 'Linked'}
+                    </Badge>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    {contribution.runs} completed runs · {contribution.estimatedMinutesSavedPerRun}{' '}
+                    estimated min/run
+                  </p>
+                </div>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  aria-label={`Unlink ${contribution.name}`}
+                  onClick={() => void unlink(contribution.id)}
+                >
+                  <Unlink className="h-4 w-4" />
+                </Button>
+              </div>
+            )
+          })}
+        </div>
+      )}
+    </Card>
+  )
+}
