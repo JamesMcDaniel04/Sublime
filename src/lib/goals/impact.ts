@@ -2,7 +2,7 @@ import { prisma } from '@/lib/prisma'
 import type { EvalPoint } from './evaluate'
 
 export interface ImpactTiers {
-  measured: { runsCompleted: number; tokens: number }
+  measured: { runsCompleted: number; tokens: number; aiRunSecondsTotal: number }
   estimated: {
     hoursSaved: number
     laborValueUsd: number
@@ -15,7 +15,12 @@ export interface ImpactTiers {
 }
 
 export function computeImpact(inputs: {
-  contributions: Array<{ estimatedMinutesSavedPerRun: number; runs: number; tokens: number }>
+  contributions: Array<{
+    estimatedMinutesSavedPerRun: number
+    runs: number
+    tokens: number
+    measuredRunSeconds: { total: number; avg: number | null }
+  }>
   hourlyRateUsd: number
   aiCostPerMTokensUsd: number
   paceBefore: number | null
@@ -23,6 +28,10 @@ export function computeImpact(inputs: {
 }): ImpactTiers {
   const runsCompleted = inputs.contributions.reduce((sum, contribution) => sum + contribution.runs, 0)
   const tokens = inputs.contributions.reduce((sum, contribution) => sum + contribution.tokens, 0)
+  const aiRunSecondsTotal = inputs.contributions.reduce(
+    (sum, contribution) => sum + contribution.measuredRunSeconds.total,
+    0,
+  )
   const minutesSaved = inputs.contributions.reduce(
     (sum, contribution) =>
       sum + contribution.runs * contribution.estimatedMinutesSavedPerRun,
@@ -37,7 +46,7 @@ export function computeImpact(inputs: {
       ? ((inputs.paceAfter - inputs.paceBefore) / Math.abs(inputs.paceBefore)) * 100
       : null
   return {
-    measured: { runsCompleted, tokens },
+    measured: { runsCompleted, tokens, aiRunSecondsTotal },
     estimated: {
       hoursSaved,
       laborValueUsd,
@@ -104,22 +113,42 @@ type ContributionRow = {
 async function contributionStats(
   organizationId: string,
   contributions: ContributionRow[],
-): Promise<Array<{ estimatedMinutesSavedPerRun: number; runs: number; tokens: number }>> {
+): Promise<
+  Array<{
+    estimatedMinutesSavedPerRun: number
+    runs: number
+    tokens: number
+    measuredRunSeconds: { total: number; avg: number | null }
+  }>
+> {
   return Promise.all(
     contributions.map(async (contribution) => {
       if (contribution.resourceType === 'flow') {
-        const runs = await prisma.flowRun.count({
+        const runs = await prisma.flowRun.findMany({
           where: {
             organizationId,
             flowId: contribution.resourceId,
             status: 'succeeded',
             startedAt: { gt: contribution.createdAt },
           },
+          select: { startedAt: true, finishedAt: true },
         })
+        const measuredTotal = runs.reduce(
+          (sum, run) =>
+            sum +
+            (run.finishedAt
+              ? Math.max(0, run.finishedAt.getTime() - run.startedAt.getTime()) / 1000
+              : 0),
+          0,
+        )
         return {
           estimatedMinutesSavedPerRun: contribution.estimatedMinutesSavedPerRun,
-          runs,
+          runs: runs.length,
           tokens: 0,
+          measuredRunSeconds: {
+            total: measuredTotal,
+            avg: runs.length > 0 ? measuredTotal / runs.length : null,
+          },
         }
       }
       if (contribution.resourceType === 'agent') {
@@ -131,8 +160,12 @@ async function contributionStats(
             error: null,
             startedAt: { gt: contribution.createdAt },
           },
-          select: { inputTokens: true, outputTokens: true },
+          select: { inputTokens: true, outputTokens: true, executionTime: true },
         })
+        const measuredTotal = executions.reduce(
+          (sum, execution) => sum + Math.max(0, execution.executionTime ?? 0) / 1000,
+          0,
+        )
         return {
           estimatedMinutesSavedPerRun: contribution.estimatedMinutesSavedPerRun,
           runs: executions.length,
@@ -140,12 +173,18 @@ async function contributionStats(
             (sum, execution) => sum + execution.inputTokens + execution.outputTokens,
             0,
           ),
+          // AgentExecution.executionTime is persisted in milliseconds.
+          measuredRunSeconds: {
+            total: measuredTotal,
+            avg: executions.length > 0 ? measuredTotal / executions.length : null,
+          },
         }
       }
       return {
         estimatedMinutesSavedPerRun: contribution.estimatedMinutesSavedPerRun,
         runs: 0,
         tokens: 0,
+        measuredRunSeconds: { total: 0, avg: null },
       }
     }),
   )

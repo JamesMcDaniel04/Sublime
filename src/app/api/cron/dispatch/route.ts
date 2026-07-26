@@ -409,6 +409,15 @@ export async function GET(request: Request) {
       }
     }
 
+    // Weekly k-anonymous calibration of catalogue time estimates. This global
+    // sweep stores only aggregate seed defaults and never rewrites existing links.
+    {
+      const calibration = await import('@/lib/goals/calibrate-estimates')
+      if (calibration.shouldRunEstimateCalibration(now)) {
+        void calibration.calibrateTemplateEstimates().catch(() => undefined)
+      }
+    }
+
     // Weekly goal tending: per-user atomic claims prevent retries in this
     // 15-minute Monday window from double-sending.
     if (now.getUTCDay() === 1 && now.getUTCHours() === 14 && now.getUTCMinutes() < 15) {

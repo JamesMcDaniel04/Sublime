@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { Bot, Clock3, DollarSign, TrendingUp } from 'lucide-react'
+import { Bot, Clock3, DollarSign, Download, TrendingUp } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import {
@@ -13,10 +13,17 @@ import {
   DialogTrigger,
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { StatTile } from '@/components/ui/stat-tile'
 
 export type ImpactTiers = {
-  measured: { runsCompleted: number; tokens: number }
+  measured: { runsCompleted: number; tokens: number; aiRunSecondsTotal: number }
   estimated: {
     hoursSaved: number
     laborValueUsd: number
@@ -122,7 +129,7 @@ export function ImpactStrip({
         <StatTile
           label="Actions completed"
           value={impact.measured.runsCompleted}
-          hint="measured · completed attributed runs"
+          hint={`${formatDuration(impact.measured.aiRunSecondsTotal)} measured AI run time`}
           icon={Bot}
         />
         <StatTile
@@ -150,4 +157,35 @@ export function ImpactStrip({
       </div>
     </section>
   )
+}
+
+export function ExportRoiReport() {
+  const [months, setMonths] = useState('3')
+  return (
+    <div className="flex items-center gap-2">
+      <Select value={months} onValueChange={setMonths}>
+        <SelectTrigger className="h-9 w-28" aria-label="ROI report window">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="3">3 months</SelectItem>
+          <SelectItem value="6">6 months</SelectItem>
+          <SelectItem value="12">12 months</SelectItem>
+        </SelectContent>
+      </Select>
+      <Button
+        variant="outline"
+        onClick={() => window.location.assign(`/api/goals/report?months=${months}`)}
+      >
+        <Download className="mr-2 h-4 w-4" />
+        Export ROI report
+      </Button>
+    </div>
+  )
+}
+
+function formatDuration(seconds: number) {
+  if (seconds < 60) return `${Math.round(seconds)}s`
+  if (seconds < 3600) return `${Math.round(seconds / 60)}m`
+  return `${(seconds / 3600).toFixed(seconds < 36_000 ? 1 : 0)}h`
 }

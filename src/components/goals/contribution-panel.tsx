@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { Bot, Plus, Unlink, Workflow } from 'lucide-react'
+import { Bot, Pencil, Plus, Unlink, Workflow } from 'lucide-react'
 import { toast } from 'sonner'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -32,6 +32,8 @@ export type Contribution = {
   estimatedMinutesSavedPerRun: number
   runs: number
   tokens: number
+  avgRunSeconds: number | null
+  calibratedFromTeams: number | null
   createdAt: string
 }
 
@@ -164,7 +166,7 @@ export function ContributionPanel({
               <Input
                 type="number"
                 min="1"
-                max="1440"
+                max="480"
                 value={minutes}
                 onChange={(event) => setMinutes(event.target.value)}
               />
@@ -198,10 +200,18 @@ export function ContributionPanel({
                     </Badge>
                   </div>
                   <p className="text-xs text-muted-foreground">
-                    {contribution.runs} completed runs · {contribution.estimatedMinutesSavedPerRun}{' '}
-                    estimated min/run
+                    {contribution.runs} completed runs ·{' '}
+                    {contribution.avgRunSeconds === null
+                      ? 'no measured AI time yet'
+                      : `${formatDuration(contribution.avgRunSeconds)} avg AI time / run`}
                   </p>
+                  {contribution.calibratedFromTeams && (
+                    <p className="text-xs text-muted-foreground">
+                      Estimate calibrated from {contribution.calibratedFromTeams} teams
+                    </p>
+                  )}
                 </div>
+                <EstimateEditor goalId={goalId} contribution={contribution} onChanged={onChanged} />
                 <Button
                   variant="ghost"
                   size="icon"
@@ -217,4 +227,95 @@ export function ContributionPanel({
       )}
     </Card>
   )
+}
+
+function EstimateEditor({
+  goalId,
+  contribution,
+  onChanged,
+}: {
+  readonly goalId: string
+  readonly contribution: Contribution
+  readonly onChanged: () => Promise<void>
+}) {
+  const [editing, setEditing] = useState(false)
+  const [minutes, setMinutes] = useState(String(contribution.estimatedMinutesSavedPerRun))
+  const [saving, setSaving] = useState(false)
+
+  const save = async () => {
+    if (saving) return
+    const value = Number(minutes)
+    if (!Number.isInteger(value) || value < 1 || value > 480) {
+      toast.error('Enter an estimate from 1 to 480 minutes.')
+      return
+    }
+    if (value === contribution.estimatedMinutesSavedPerRun) {
+      setEditing(false)
+      return
+    }
+    setSaving(true)
+    try {
+      const response = await fetch(`/api/goals/${goalId}/contributions`, {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          contributionId: contribution.id,
+          estimatedMinutesSavedPerRun: value,
+        }),
+      })
+      const body = await response.json()
+      if (!response.ok) throw new Error(body.error || 'Could not update the estimate.')
+      await onChanged()
+      setEditing(false)
+      toast.success('Time estimate updated.')
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Could not update the estimate.')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  if (!editing) {
+    return (
+      <Button
+        variant="ghost"
+        size="sm"
+        onClick={() => setEditing(true)}
+        aria-label={`Edit time estimate for ${contribution.name}`}
+      >
+        {contribution.estimatedMinutesSavedPerRun} min
+        <Pencil className="ml-1.5 h-3.5 w-3.5" />
+      </Button>
+    )
+  }
+
+  return (
+    <Input
+      className="w-24"
+      type="number"
+      min="1"
+      max="480"
+      autoFocus
+      value={minutes}
+      disabled={saving}
+      aria-label={`Estimated manual minutes replaced by ${contribution.name}`}
+      onChange={(event) => setMinutes(event.target.value)}
+      onBlur={() => void save()}
+      onKeyDown={(event) => {
+        if (event.key === 'Enter') {
+          event.currentTarget.blur()
+        }
+        if (event.key === 'Escape') {
+          setMinutes(String(contribution.estimatedMinutesSavedPerRun))
+          setEditing(false)
+        }
+      }}
+    />
+  )
+}
+
+function formatDuration(seconds: number) {
+  if (seconds < 60) return `${Math.round(seconds)}s`
+  if (seconds < 3600) return `${Math.round(seconds / 60)}m`
+  return `${(seconds / 3600).toFixed(seconds < 36_000 ? 1 : 0)}h`
 }

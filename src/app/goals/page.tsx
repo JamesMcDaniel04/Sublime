@@ -7,7 +7,11 @@ import { Button } from '@/components/ui/button'
 import { EmptyState } from '@/components/ui/empty-state'
 import { PageHeader } from '@/components/ui/page-header'
 import { GoalCard } from '@/components/goals/goal-card'
-import { ImpactStrip, type OrgImpact } from '@/components/goals/impact-strip'
+import {
+  ExportRoiReport,
+  ImpactStrip,
+  type OrgImpact,
+} from '@/components/goals/impact-strip'
 import type { GoalSummary } from '@/lib/types'
 
 type State = { goals: GoalSummary[]; impact: OrgImpact }
@@ -79,7 +83,14 @@ export default function GoalsPage() {
 
       {state && (
         <>
-          {state.goals.length > 0 && <ImpactStrip impact={state.impact} onSaved={load} />}
+          {state.goals.length > 0 && (
+            <div className="space-y-3">
+              <div className="flex justify-end">
+                <ExportRoiReport />
+              </div>
+              <ImpactStrip impact={state.impact} onSaved={load} />
+            </div>
+          )}
           {state.goals.length === 0 ? (
             <EmptyState
               icon={Target}

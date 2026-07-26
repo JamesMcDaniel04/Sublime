@@ -12,8 +12,8 @@ const pt = (n: number, value: number) => ({
 test('impact tiers: hours, labor value, ROI multiple', () => {
   const impact = computeImpact({
     contributions: [
-      { estimatedMinutesSavedPerRun: 30, runs: 10, tokens: 2_000_000 },
-      { estimatedMinutesSavedPerRun: 60, runs: 2, tokens: 0 },
+      { estimatedMinutesSavedPerRun: 30, runs: 10, tokens: 2_000_000, measuredRunSeconds: { total: 420, avg: 42 } },
+      { estimatedMinutesSavedPerRun: 60, runs: 2, tokens: 0, measuredRunSeconds: { total: 90, avg: 45 } },
     ],
     hourlyRateUsd: 50,
     aiCostPerMTokensUsd: 10,
@@ -22,6 +22,7 @@ test('impact tiers: hours, labor value, ROI multiple', () => {
   })
   assert.equal(impact.measured.runsCompleted, 12)
   assert.equal(impact.measured.tokens, 2_000_000)
+  assert.equal(impact.measured.aiRunSecondsTotal, 510)
   assert.equal(impact.estimated.hoursSaved, 7)
   assert.equal(impact.estimated.laborValueUsd, 350)
   assert.equal(impact.estimated.aiCostUsd, 20)
@@ -31,7 +32,7 @@ test('impact tiers: hours, labor value, ROI multiple', () => {
 
 test('zero AI cost produces a null ROI multiple', () => {
   const impact = computeImpact({
-    contributions: [{ estimatedMinutesSavedPerRun: 30, runs: 4, tokens: 0 }],
+    contributions: [{ estimatedMinutesSavedPerRun: 30, runs: 4, tokens: 0, measuredRunSeconds: { total: 80, avg: 20 } }],
     hourlyRateUsd: 50,
     aiCostPerMTokensUsd: 10,
     paceBefore: null,

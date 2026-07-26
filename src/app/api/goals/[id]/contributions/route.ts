@@ -37,6 +37,7 @@ async function contributionView(
     resourceType: string
     resourceId: string
     origin: string
+    seedKey: string | null
     estimatedMinutesSavedPerRun: number
     createdAt: Date
   },
@@ -50,17 +51,32 @@ async function contributionView(
       },
       select: { name: true },
     })
-    const runs = flow
-      ? await prisma.flowRun.count({
+    const flowRuns = flow
+      ? await prisma.flowRun.findMany({
           where: {
             organizationId,
             flowId: contribution.resourceId,
             status: 'succeeded',
             startedAt: { gt: contribution.createdAt },
           },
+          select: { startedAt: true, finishedAt: true },
         })
-      : 0
-    return { ...contribution, name: flow?.name ?? 'Private automation', runs, tokens: 0 }
+      : []
+    const runSeconds = flowRuns.reduce(
+      (sum, run) =>
+        sum +
+        (run.finishedAt
+          ? Math.max(0, run.finishedAt.getTime() - run.startedAt.getTime()) / 1000
+          : 0),
+      0,
+    )
+    return {
+      ...contribution,
+      name: flow?.name ?? 'Private automation',
+      runs: flowRuns.length,
+      tokens: 0,
+      avgRunSeconds: flowRuns.length > 0 ? runSeconds / flowRuns.length : null,
+    }
   }
 
   const agent = await prisma.agentTask.findFirst({
@@ -81,7 +97,7 @@ async function contributionView(
           error: null,
           startedAt: { gt: contribution.createdAt },
         },
-        select: { inputTokens: true, outputTokens: true },
+        select: { inputTokens: true, outputTokens: true, executionTime: true },
       })
     : []
   const metadata = agent ? readAgentMetadata(agent.metadata) : null
@@ -93,6 +109,13 @@ async function contributionView(
       (sum, execution) => sum + execution.inputTokens + execution.outputTokens,
       0,
     ),
+    avgRunSeconds:
+      executions.length > 0
+        ? executions.reduce(
+            (sum, execution) => sum + Math.max(0, execution.executionTime ?? 0) / 1000,
+            0,
+          ) / executions.length
+        : null,
   }
 }
 
@@ -107,11 +130,12 @@ export const GET = withAuthenticatedApi(async (request, auth) => {
       resourceType: true,
       resourceId: true,
       origin: true,
+      seedKey: true,
       estimatedMinutesSavedPerRun: true,
       createdAt: true,
     },
   })
-  const [contributions, impact] = await Promise.all([
+  const [rawContributions, impact] = await Promise.all([
     Promise.all(
       rows.map((contribution) =>
         contributionView(auth.organizationId, auth.dbUser.id, contribution),
@@ -119,6 +143,21 @@ export const GET = withAuthenticatedApi(async (request, auth) => {
     ),
     goalImpact(auth.organizationId, goalId),
   ])
+  const seedKeys = [...new Set(rows.flatMap((row) => (row.seedKey ? [row.seedKey] : [])))]
+  const calibrations =
+    seedKeys.length > 0
+      ? await prisma.templateEstimateCalibration.findMany({
+          where: { seedKey: { in: seedKeys } },
+          select: { seedKey: true, orgCount: true },
+        })
+      : []
+  const calibrationBySeed = new Map(calibrations.map((row) => [row.seedKey, row.orgCount]))
+  const contributions = rawContributions.map((contribution) => ({
+    ...contribution,
+    calibratedFromTeams: contribution.seedKey
+      ? calibrationBySeed.get(contribution.seedKey) ?? null
+      : null,
+  }))
   return { success: true, contributions, impact }
 })
 
@@ -129,7 +168,7 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
     .object({
       resourceType: z.enum(['flow', 'agent']),
       resourceId: z.string().min(1),
-      estimatedMinutesSavedPerRun: z.number().int().positive().max(1440).default(30),
+      estimatedMinutesSavedPerRun: z.number().int().min(1).max(480).default(30),
     })
     .parse(await request.json().catch(() => ({})))
 
@@ -201,5 +240,41 @@ export const DELETE = withAuthenticatedApi(async (request, auth) => {
   if (deleted.count === 0) {
     throw new ApiError('Contribution not found', 404, 'CONTRIBUTION_NOT_FOUND')
   }
+  return { success: true }
+})
+
+export const PATCH = withAuthenticatedApi(async (request, auth) => {
+  const goalId = goalIdFrom(request.nextUrl.pathname)
+  await requireGoal(auth.organizationId, auth.dbUser.id, goalId)
+  const input = z
+    .object({
+      contributionId: z.string().min(1),
+      estimatedMinutesSavedPerRun: z.number().int().min(1).max(480),
+    })
+    .parse(await request.json().catch(() => ({})))
+
+  const contribution = await prisma.goalContribution.findFirst({
+    where: {
+      id: input.contributionId,
+      goalId,
+      organizationId: auth.organizationId,
+    },
+    select: { id: true, resourceType: true, resourceId: true, seedKey: true },
+  })
+  if (!contribution) {
+    throw new ApiError('Contribution not found', 404, 'CONTRIBUTION_NOT_FOUND')
+  }
+  await prisma.goalContribution.update({
+    where: { id: contribution.id },
+    data: { estimatedMinutesSavedPerRun: input.estimatedMinutesSavedPerRun },
+  })
+  await recordUserEvent({
+    organizationId: auth.organizationId,
+    userId: auth.dbUser.id,
+    kind: 'goal_estimate_edited',
+    resourceType: contribution.resourceType,
+    resourceId: contribution.resourceId,
+    context: { goalId, seedKeyIfKnown: contribution.seedKey },
+  })
   return { success: true }
 })

@@ -358,6 +358,18 @@ export default function GoalDetailPage() {
           <ImpactFigure tier="Estimated" value={`$${Math.round(impact.estimated.laborValueUsd).toLocaleString()}`} label="labor value created" />
           <ImpactFigure tier="Estimated" value={impact.estimated.roiMultiple === null ? '—' : `${impact.estimated.roiMultiple.toFixed(1)}×`} label="ROI on AI cost" />
         </div>
+        {impact.measured.runsCompleted > 0 && (
+          <p className="mt-4 text-sm text-muted-foreground">
+            {formatDuration(
+              impact.measured.aiRunSecondsTotal / impact.measured.runsCompleted,
+            )}{' '}
+            measured AI time vs ~
+            {Math.round(
+              (impact.estimated.hoursSaved * 60) / impact.measured.runsCompleted,
+            )}{' '}
+            min manual estimate per run.
+          </p>
+        )}
         {impact.correlated.paceDeltaPct !== null && (
           // Signed: negative means pace SLOWED after linking — reporting that
           // as an improvement would falsify the proof layer's honesty rule.
@@ -478,6 +490,12 @@ export default function GoalDetailPage() {
       )}
     </div>
   )
+}
+
+function formatDuration(seconds: number) {
+  if (seconds < 60) return `${Math.round(seconds)}s`
+  if (seconds < 3600) return `${Math.round(seconds / 60)}m`
+  return `${(seconds / 3600).toFixed(seconds < 36_000 ? 1 : 0)}h`
 }
 
 function ImpactFigure({

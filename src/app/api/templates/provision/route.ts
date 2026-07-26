@@ -233,6 +233,12 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
   const seed = seedKey ? getSeedByKey(seedKey) : undefined
   if (seedKey && !seed) throw new ApiError('Template not found', 404, 'SEED_NOT_FOUND')
   const dbRecipe = templateId ? await loadDbTemplateRecipe(templateId, organizationId) : undefined
+  const estimateCalibration = seed
+    ? await prisma.templateEstimateCalibration.findUnique({
+        where: { seedKey: seed.seedKey },
+        select: { medianMinutes: true },
+      })
+    : null
 
   const requiredIntegrations = seed ? seed.requiredIntegrations : dbRecipe!.requiredIntegrations
   const desiredKind = targetKind ?? (seed ? seed.kind : dbRecipe!.kind)
@@ -314,7 +320,9 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
           resourceType,
           resourceId,
           origin: suggestionId ? 'suggestion' : 'manual',
-          estimatedMinutesSavedPerRun: seed?.estimatedMinutesSaved ?? 30,
+          seedKey: seed?.seedKey ?? null,
+          estimatedMinutesSavedPerRun:
+            estimateCalibration?.medianMinutes ?? seed?.estimatedMinutesSaved ?? 30,
         },
       })
       linked = true
