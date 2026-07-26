@@ -5,6 +5,7 @@ import { recordUserEvent } from '@/lib/behavior/record-event'
 import { evaluateGoal } from '@/lib/goals/evaluate'
 import { bucketKeyFor } from '@/lib/goals/refresh'
 import { validateReadOnlyQuery } from '@/lib/metrics/sources/postgres'
+import { assertSafeUrl } from '@/lib/metrics/sources/url'
 import { GOAL_KIND_UNITS } from '@/lib/types'
 
 export const runtime = 'nodejs'
@@ -62,24 +63,37 @@ const createSchema = z
   .refine((body) => body.targetDate.getTime() > Date.now(), {
     message: 'Target date must be in the future.',
   })
-  .refine((body) => body.metric.source === 'manual' || Boolean(body.metric.connectionRef), {
-    message: 'Pick the connection this metric reads from.',
-  })
-  // A postgres binding must be a valid read-only statement at creation —
-  // a direct POST that skipped the wizard preview should fail here, not
-  // surface as lastError on the first tick.
+  .refine(
+    (body) =>
+      NO_CONNECTION_SOURCES.has(body.metric.source) || Boolean(body.metric.connectionRef),
+    { message: 'Pick the connection this metric reads from.' },
+  )
+  // Per-source config validation at creation — a direct POST that skipped
+  // the wizard preview should fail here, not surface as lastError on the
+  // first tick.
   .superRefine((body, ctx) => {
-    if (body.metric.source !== 'postgres') return
-    try {
-      validateReadOnlyQuery(
-        typeof body.metric.config.query === 'string' ? body.metric.config.query : '',
-      )
-    } catch (error) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ['metric', 'config', 'query'],
-        message: error instanceof Error ? error.message : 'Invalid Postgres query.',
-      })
+    const issue = (path: string, message: string) =>
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['metric', 'config', path], message })
+    const { source, config } = body.metric
+    if (source === 'postgres') {
+      try {
+        validateReadOnlyQuery(typeof config.query === 'string' ? config.query : '')
+      } catch (error) {
+        issue('query', error instanceof Error ? error.message : 'Invalid Postgres query.')
+      }
+    }
+    if (source === 'url') {
+      try {
+        assertSafeUrl(typeof config.url === 'string' ? config.url : '')
+      } catch (error) {
+        issue('url', error instanceof Error ? error.message : 'Invalid URL.')
+      }
+    }
+    if (source === 'slack_assisted' && !(typeof config.channel === 'string' && config.channel.trim())) {
+      issue('channel', 'Pick the Slack channel that reports this number.')
+    }
+    if (source === 'gmail_assisted' && !(typeof config.query === 'string' && config.query.trim())) {
+      issue('query', 'Enter the Gmail search that finds the report emails.')
     }
   })
 

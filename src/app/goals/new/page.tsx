@@ -30,6 +30,8 @@ type GoalUnit = GoalSummary['unit']
 type GoalRecurrence = GoalSummary['recurrence']
 type Source = {
   source: string
+  group: 'start_now' | 'source_of_truth'
+  available?: boolean
   metrics: Array<{ key: string; label: string; unit: GoalUnit }>
   connections: Array<{ ref: string; label: string }>
 }
@@ -51,6 +53,15 @@ const SOURCE_LABELS: Record<string, string> = {
   google_sheets: 'Google Sheets',
   postgres: 'Postgres / SQL',
   manual: "I'll record values myself",
+  url: 'A URL that reports the number',
+  slack_assisted: 'Slack channel (AI-read)',
+  gmail_assisted: 'Report emails (AI-read)',
+}
+
+const SOURCE_HINTS: Record<string, string> = {
+  url: 'We fetch the page or JSON on every sync and parse the number.',
+  slack_assisted: 'AI reads recent messages and extracts the latest value — every reading is labeled AI-read.',
+  gmail_assisted: 'AI reads matching report emails and extracts the latest value — every reading is labeled AI-read.',
 }
 
 const tomorrow = () => {
@@ -93,8 +104,14 @@ export default function NewGoalPage() {
     spreadsheetId: '',
     range: '',
     query: '',
+    channel: '',
+    gmailQuery: '',
+    urlValue: '',
+    jsonPath: '',
+    metricHint: '',
     startValue: '',
   })
+  const [csvIntent, setCsvIntent] = useState(false)
 
   // Template prefill (?template=<key>): window.location instead of
   // useSearchParams so the page needs no Suspense boundary at build time.
@@ -136,8 +153,14 @@ export default function NewGoalPage() {
         ? { spreadsheetId: state.spreadsheetId, range: state.range }
         : state.source === 'postgres'
           ? { query: state.query }
-        : {},
-    [state.query, state.range, state.source, state.spreadsheetId],
+          : state.source === 'url'
+            ? { url: state.urlValue, ...(state.jsonPath.trim() ? { jsonPath: state.jsonPath } : {}) }
+            : state.source === 'slack_assisted'
+              ? { channel: state.channel, ...(state.metricHint.trim() ? { metricHint: state.metricHint } : {}) }
+              : state.source === 'gmail_assisted'
+                ? { query: state.gmailQuery, ...(state.metricHint.trim() ? { metricHint: state.metricHint } : {}) }
+                : {},
+    [state.channel, state.gmailQuery, state.jsonPath, state.metricHint, state.query, state.range, state.source, state.spreadsheetId, state.urlValue],
   )
 
   const chooseSource = (source: Source) => {
@@ -151,6 +174,7 @@ export default function NewGoalPage() {
       source.source !== 'postgres' &&
       firstMetric !== undefined &&
       firstMetric.unit !== state.unit
+    setCsvIntent(false)
     setState((current) => ({
       ...current,
       source: source.source,
@@ -186,7 +210,8 @@ export default function NewGoalPage() {
 
   const nextFromSource = () => {
     if (!selectedSource) return toast.error('Choose a metric source.')
-    if (state.source !== 'manual' && !state.connectionRef) {
+    const needsConnection = !['manual', 'url', 'slack_assisted'].includes(state.source)
+    if (needsConnection && !state.connectionRef) {
       return toast.error('Choose a connected account.')
     }
     if (!state.metricKey) return toast.error('Choose a metric.')
@@ -198,6 +223,15 @@ export default function NewGoalPage() {
     }
     if (state.source === 'postgres' && !state.query.trim()) {
       return toast.error('Enter a single SELECT query.')
+    }
+    if (state.source === 'url' && !state.urlValue.trim()) {
+      return toast.error('Enter the URL that reports this number.')
+    }
+    if (state.source === 'slack_assisted' && !state.channel.trim()) {
+      return toast.error('Enter the Slack channel that reports this number.')
+    }
+    if (state.source === 'gmail_assisted' && !state.gmailQuery.trim()) {
+      return toast.error('Enter the Gmail search that finds the report emails.')
     }
     setPreview({ status: 'idle' })
     setStep(3)
@@ -266,13 +300,20 @@ export default function NewGoalPage() {
           metric: {
             source: state.source,
             metricKey: state.metricKey,
-            connectionRef: state.source === 'manual' ? null : state.connectionRef,
+            connectionRef: ['manual', 'url', 'slack_assisted'].includes(state.source)
+              ? null
+              : state.connectionRef,
             config,
           },
         }),
       })
       const body = await response.json()
       if (!response.ok) throw new Error(body.error || 'Could not create goal.')
+      if (csvIntent && body.goal?.id) {
+        toast.success('Goal created — import your CSV history next.')
+        router.push(`/goals/${body.goal.id}?import=1`)
+        return
+      }
       toast.success(
         state.source === 'manual'
           ? 'Goal created.'
@@ -484,85 +525,144 @@ export default function NewGoalPage() {
               <Skeleton className="h-20" />
             </div>
           ) : (
-            <div className="space-y-3" role="radiogroup" aria-label="Metric source">
-              {sources.map((source) => {
-                const available =
-                  source.source === 'manual' || source.connections.length > 0
-                const selected = state.source === source.source
-                return (
-                  <div
-                    key={source.source}
-                    className={cn(
-                      'rounded-xl border p-4 transition-colors',
-                      available
-                        ? 'cursor-pointer hover:border-foreground/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring'
-                        : 'bg-muted/40',
-                      selected && 'border-horizon-500 bg-horizon-500/5',
-                    )}
-                    onClick={() => chooseSource(source)}
-                    onKeyDown={(event) => {
-                      if (event.key === 'Enter' || event.key === ' ') {
-                        event.preventDefault()
-                        chooseSource(source)
-                      }
-                    }}
-                    role={available ? 'radio' : undefined}
-                    aria-checked={available ? selected : undefined}
-                    aria-disabled={available ? undefined : true}
-                    tabIndex={available ? 0 : undefined}
-                  >
-                    <div className="flex items-center justify-between gap-3">
-                      <div>
-                        <p className="flex items-center gap-2 font-medium">
-                          {source.source === 'postgres' && <Database className="h-4 w-4" />}
-                          {SOURCE_LABELS[source.source] ?? source.source}
-                        </p>
-                        {!available && (
-                          <p className="text-xs text-muted-foreground">
-                            Connect an account before selecting this source.
-                          </p>
-                        )}
-                      </div>
-                      {selected && <Check className="h-4 w-4 text-success" />}
-                      {!available && (
-                        <Button variant="outline" size="sm" asChild>
-                          <Link
-                            href={
-                              source.source === 'stripe'
-                                || source.source === 'postgres'
-                                ? '/integrations?tab=credentials'
-                                : '/integrations'
-                            }
-                            onClick={(event) => event.stopPropagation()}
+            <div className="space-y-5">
+              {(
+                [
+                  ['start_now', 'Start tracking now', 'These work with what you already have — no new integrations required.'],
+                  ['source_of_truth', 'Stronger sources of truth', 'Connect for exact, automatic tracking — the upgrade path when you are ready.'],
+                ] as const
+              ).map(([group, heading, blurb]) => (
+                <div key={group} className="space-y-3">
+                  <div>
+                    <p className="text-sm font-semibold">{heading}</p>
+                    <p className="text-xs text-muted-foreground">{blurb}</p>
+                  </div>
+                  <div className="space-y-3" role="radiogroup" aria-label={heading}>
+                    {sources
+                      .filter((source) => source.group === group)
+                      .map((source) => {
+                        const available =
+                          source.available === true ||
+                          source.source === 'manual' ||
+                          source.connections.length > 0
+                        const selected = !csvIntent && state.source === source.source
+                        return (
+                          <div
+                            key={source.source}
+                            className={cn(
+                              'rounded-xl border p-4 transition-colors',
+                              available
+                                ? 'cursor-pointer hover:border-foreground/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring'
+                                : 'bg-muted/40',
+                              selected && 'border-horizon-500 bg-horizon-500/5',
+                            )}
+                            onClick={() => available && chooseSource(source)}
+                            onKeyDown={(event) => {
+                              if (available && (event.key === 'Enter' || event.key === ' ')) {
+                                event.preventDefault()
+                                chooseSource(source)
+                              }
+                            }}
+                            role={available ? 'radio' : undefined}
+                            aria-checked={available ? selected : undefined}
+                            aria-disabled={available ? undefined : true}
+                            tabIndex={available ? 0 : undefined}
                           >
-                            <Link2 className="mr-1.5 h-3.5 w-3.5" />
-                            Connect
-                          </Link>
-                        </Button>
-                      )}
-                    </div>
-                    {selected && source.connections.length > 1 && (
-                      <div className="mt-3" onClick={(event) => event.stopPropagation()}>
-                        <Select
-                          value={state.connectionRef}
-                          onValueChange={(connectionRef) =>
-                            setState((current) => ({ ...current, connectionRef }))
+                            <div className="flex items-center justify-between gap-3">
+                              <div>
+                                <p className="flex items-center gap-2 font-medium">
+                                  {source.source === 'postgres' && <Database className="h-4 w-4" />}
+                                  {SOURCE_LABELS[source.source] ?? source.source}
+                                </p>
+                                {SOURCE_HINTS[source.source] && (
+                                  <p className="text-xs text-muted-foreground">
+                                    {SOURCE_HINTS[source.source]}
+                                  </p>
+                                )}
+                                {!available && (
+                                  <p className="text-xs text-muted-foreground">
+                                    {source.source === 'slack_assisted'
+                                      ? 'Slack is not connected for this workspace yet.'
+                                      : 'Connect an account before selecting this source.'}
+                                  </p>
+                                )}
+                              </div>
+                              {selected && <Check className="h-4 w-4 text-success" />}
+                              {!available && source.source !== 'slack_assisted' && (
+                                <Button variant="outline" size="sm" asChild>
+                                  <Link
+                                    href={
+                                      source.source === 'stripe' || source.source === 'postgres'
+                                        ? '/integrations?tab=credentials'
+                                        : '/integrations'
+                                    }
+                                    onClick={(event) => event.stopPropagation()}
+                                  >
+                                    <Link2 className="mr-1.5 h-3.5 w-3.5" />
+                                    Connect
+                                  </Link>
+                                </Button>
+                              )}
+                            </div>
+                            {selected && source.connections.length > 1 && (
+                              <div className="mt-3" onClick={(event) => event.stopPropagation()}>
+                                <Select
+                                  value={state.connectionRef}
+                                  onValueChange={(connectionRef) =>
+                                    setState((current) => ({ ...current, connectionRef }))
+                                  }
+                                >
+                                  <SelectTrigger><SelectValue placeholder="Choose account" /></SelectTrigger>
+                                  <SelectContent>
+                                    {source.connections.map((connection) => (
+                                      <SelectItem key={connection.ref} value={connection.ref}>
+                                        {connection.label}
+                                      </SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                              </div>
+                            )}
+                          </div>
+                        )
+                      })}
+                    {group === 'start_now' && (
+                      <div
+                        className={cn(
+                          'cursor-pointer rounded-xl border p-4 transition-colors hover:border-foreground/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                          csvIntent && 'border-horizon-500 bg-horizon-500/5',
+                        )}
+                        role="radio"
+                        aria-checked={csvIntent}
+                        tabIndex={0}
+                        onClick={() => {
+                          const manual = sources.find((candidate) => candidate.source === 'manual')
+                          if (manual) chooseSource(manual)
+                          setCsvIntent(true)
+                        }}
+                        onKeyDown={(event) => {
+                          if (event.key === 'Enter' || event.key === ' ') {
+                            event.preventDefault()
+                            const manual = sources.find((candidate) => candidate.source === 'manual')
+                            if (manual) chooseSource(manual)
+                            setCsvIntent(true)
                           }
-                        >
-                          <SelectTrigger><SelectValue placeholder="Choose account" /></SelectTrigger>
-                          <SelectContent>
-                            {source.connections.map((connection) => (
-                              <SelectItem key={connection.ref} value={connection.ref}>
-                                {connection.label}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
+                        }}
+                      >
+                        <div className="flex items-center justify-between gap-3">
+                          <div>
+                            <p className="font-medium">Import history from a CSV</p>
+                            <p className="text-xs text-muted-foreground">
+                              date,value rows — we create the goal and take you straight to the import.
+                            </p>
+                          </div>
+                          {csvIntent && <Check className="h-4 w-4 text-success" />}
+                        </div>
                       </div>
                     )}
                   </div>
-                )
-              })}
+                </div>
+              ))}
             </div>
           )}
           {selectedSource && selectedSource.metrics.length > 1 && (
@@ -627,6 +727,78 @@ export default function NewGoalPage() {
                 Bearer credential token.
               </span>
             </label>
+          )}
+          {state.source === 'url' && (
+            <div className="grid gap-4 sm:grid-cols-2">
+              <label className="space-y-1.5 text-sm">
+                <span className="font-medium">URL</span>
+                <Input
+                  value={state.urlValue}
+                  onChange={(event) =>
+                    setState((current) => ({ ...current, urlValue: event.target.value }))
+                  }
+                  placeholder="https://status.example.com/mrr.json"
+                />
+              </label>
+              <label className="space-y-1.5 text-sm">
+                <span className="font-medium">JSON path (optional)</span>
+                <Input
+                  value={state.jsonPath}
+                  onChange={(event) =>
+                    setState((current) => ({ ...current, jsonPath: event.target.value }))
+                  }
+                  placeholder="data.mrr.current"
+                />
+              </label>
+            </div>
+          )}
+          {state.source === 'slack_assisted' && (
+            <div className="grid gap-4 sm:grid-cols-2">
+              <label className="space-y-1.5 text-sm">
+                <span className="font-medium">Slack channel</span>
+                <Input
+                  value={state.channel}
+                  onChange={(event) =>
+                    setState((current) => ({ ...current, channel: event.target.value }))
+                  }
+                  placeholder="#revenue"
+                />
+              </label>
+              <label className="space-y-1.5 text-sm">
+                <span className="font-medium">What number should we read? (optional)</span>
+                <Input
+                  value={state.metricHint}
+                  onChange={(event) =>
+                    setState((current) => ({ ...current, metricHint: event.target.value }))
+                  }
+                  placeholder="weekly MRR"
+                />
+              </label>
+            </div>
+          )}
+          {state.source === 'gmail_assisted' && (
+            <div className="grid gap-4 sm:grid-cols-2">
+              <label className="space-y-1.5 text-sm">
+                <span className="font-medium">Gmail search</span>
+                <Input
+                  value={state.gmailQuery}
+                  onChange={(event) =>
+                    setState((current) => ({ ...current, gmailQuery: event.target.value }))
+                  }
+                  placeholder="subject:(weekly revenue report)"
+                />
+              </label>
+              <label className="space-y-1.5 text-sm">
+                <span className="font-medium">What number should we read? (optional)</span>
+                <Input
+                  value={state.metricHint}
+                  onChange={(event) =>
+                    setState((current) => ({ ...current, metricHint: event.target.value }))
+                  }
+                  placeholder="closed-won revenue"
+                />
+              </label>
+            </div>
           )}
         </Card>
       )}

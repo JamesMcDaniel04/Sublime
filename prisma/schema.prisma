@@ -1308,7 +1308,7 @@ model MetricDatapoint {
   value          Float
   capturedAt     DateTime @db.Timestamptz(6)
   bucketKey      String
-  origin         String   @default("sync") // 'sync' | 'manual' | 'backfill'
+  origin         String   @default("sync") // 'sync' | 'manual' | 'backfill' | 'assisted'
   createdAt      DateTime @default(now()) @db.Timestamptz(6)
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)

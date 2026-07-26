@@ -45,8 +45,11 @@ type Datapoint = {
   id: string
   value: number
   capturedAt: string
-  origin: 'sync' | 'manual' | 'backfill'
+  origin: 'sync' | 'manual' | 'backfill' | 'assisted'
 }
+
+/** Sources that work without a dedicated integration — nudge toward one. */
+const SOFT_SOURCES = new Set(['manual', 'url', 'slack_assisted', 'gmail_assisted'])
 
 type Detail = Omit<GoalSummary, 'sparkline'> & {
   description: string | null
@@ -338,6 +341,16 @@ export default function GoalDetailPage() {
         </div>
       )}
 
+      {goal.metric && SOFT_SOURCES.has(goal.metric.source) && (
+        <p className="rounded-xl border border-dashed bg-muted/40 px-4 py-2.5 text-xs text-muted-foreground">
+          This goal is tracked {goal.metric.source === 'manual' ? 'manually' : 'from an assisted source'}.{' '}
+          <Link href="/integrations" className="font-medium text-foreground underline-offset-2 hover:underline">
+            Connect a source of truth
+          </Link>{' '}
+          (Stripe, your CRM, or SQL) for exact, automatic tracking.
+        </p>
+      )}
+
       <Card className="p-5">
         <div className="mb-3">
           <h2 className="font-semibold">Trend and pace</h2>
@@ -487,7 +500,13 @@ export default function GoalDetailPage() {
                 <TableRow key={point.id}>
                   <TableCell>{new Date(point.capturedAt).toLocaleDateString()}</TableCell>
                   <TableCell className="font-mono">{fmtValue(point.value, goal.unit)}</TableCell>
-                  <TableCell><Badge variant="outline">{point.origin}</Badge></TableCell>
+                  <TableCell>
+                    {point.origin === 'assisted' ? (
+                      <Badge variant="secondary">AI-read</Badge>
+                    ) : (
+                      <Badge variant="outline">{point.origin}</Badge>
+                    )}
+                  </TableCell>
                 </TableRow>
               ))
             )}

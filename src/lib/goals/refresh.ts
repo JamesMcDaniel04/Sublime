@@ -86,6 +86,9 @@ export async function refreshGoalMetrics(
         },
         metric.metricKey,
       )
+      // AI-extracted readings are labeled at the row level — the datapoints
+      // table renders them as "AI-read", never as an exact sync.
+      const origin = metric.source.endsWith('_assisted') ? 'assisted' : 'sync'
       await prisma.metricDatapoint.upsert({
         where: {
           goalMetricId_bucketKey: {
@@ -100,9 +103,9 @@ export async function refreshGoalMetrics(
           value: reading.value,
           capturedAt: reading.asOf,
           bucketKey: bucketKeyFor(reading.asOf),
-          origin: 'sync',
+          origin,
         },
-        update: { value: reading.value, capturedAt: reading.asOf },
+        update: { value: reading.value, capturedAt: reading.asOf, origin },
       })
       await prisma.goalMetric.update({
         where: { id: metric.id, organizationId: metric.organizationId },
