@@ -60,6 +60,7 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
     prepared.url = applied.url
     prepared.init.headers = applied.headers
     prepared.runtimeAuth = resolved.runtimeAuth
+    prepared.credentialHeaders = Object.keys(resolved.plan.headers ?? {})
     const result = await performHttpRequest(prepared, {}, {
       assertUrlAllowed: assertPublicUrl,
       maxResponseChars: 1,

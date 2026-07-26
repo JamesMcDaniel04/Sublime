@@ -194,7 +194,22 @@ function textBody(body: unknown): string | undefined {
   return typeof body === 'string' ? body : JSON.stringify(body)
 }
 
-export function prepareHttpRequest(config: FlowHttpConfig): { url: string; init: RequestInit; timeoutMs: number; failOnHttpError: boolean; responseType: 'auto' | 'json' | 'text' | 'binary'; followRedirects: boolean; maxRedirects: number; runtimeAuth?: RuntimeCredentialAuth } {
+export function prepareHttpRequest(config: FlowHttpConfig): {
+  url: string
+  init: RequestInit
+  timeoutMs: number
+  failOnHttpError: boolean
+  responseType: 'auto' | 'json' | 'text' | 'binary'
+  followRedirects: boolean
+  maxRedirects: number
+  runtimeAuth?: RuntimeCredentialAuth
+  /**
+   * Header names a vault credential contributed. Set by whoever applies the
+   * injection plan; read ONLY to strip them on an off-origin redirect, since
+   * a credential may use any header name.
+   */
+  credentialHeaders?: string[]
+} {
   const method = String(config.method || 'POST').toUpperCase()
   const auth = parseAuthOption(config.auth)
   const query = config.sendQuery === false ? undefined : config.query
@@ -439,6 +454,42 @@ async function fetchWithRuntimeAuth(
   return send(url, { ...init, headers })
 }
 
+/** Scheme + host + port. A port or scheme change IS a different origin. */
+function sameOrigin(a: string, b: string): boolean {
+  try {
+    return new URL(a).origin === new URL(b).origin
+  } catch {
+    // Unparseable: treat as foreign, i.e. strip. Failing closed is the only
+    // safe default for a credential decision.
+    return false
+  }
+}
+
+/** Headers that are credentials regardless of who set them. */
+const ALWAYS_CREDENTIAL_HEADERS = new Set(['authorization', 'proxy-authorization', 'cookie'])
+
+/**
+ * Drop every credential-bearing header for an off-origin hop.
+ *
+ * `injected` names the headers a vault credential contributed — a credential
+ * may use ANY header name (`apiKeyHeader`, `custom`), so a hard-coded list
+ * alone would still leak the most common case. Ordinary headers survive: they
+ * are the caller's own metadata, not a secret.
+ */
+function withoutCredentials(headers: HeadersInit | undefined, injected?: readonly string[]): Record<string, string> {
+  const drop = new Set([...ALWAYS_CREDENTIAL_HEADERS, ...(injected ?? []).map((name) => name.trim().toLowerCase())])
+  const kept: Record<string, string> = {}
+  new Headers(headers).forEach((value, key) => {
+    if (!drop.has(key.toLowerCase())) kept[key] = value
+  })
+  return kept
+}
+
+/** 301/302/303 turn a non-GET into a GET and drop the body (RFC 9110 §15.4). */
+function rewritesToGet(status: number, method: string): boolean {
+  return (status === 301 || status === 302 || status === 303) && method.toUpperCase() !== 'GET' && method.toUpperCase() !== 'HEAD'
+}
+
 const atPath = (value: unknown, path: unknown) =>
   String(path ?? '')
     .split('.')
@@ -475,19 +526,33 @@ export async function performHttpRequest(
   }
   const fetchPage = async (initialUrl: string) => {
     let url = initialUrl
+    let init: RequestInit = { ...request.init, ...(deps.signal ? { signal: deps.signal } : {}) }
+    let auth = request.runtimeAuth
     for (let redirects = 0; ; redirects += 1) {
       await deps.assertUrlAllowed?.(url)
-      const response = await fetchWithRuntimeAuth(
-        fetchImpl,
-        url,
-        { ...request.init, ...(deps.signal ? { signal: deps.signal } : {}) },
-        request.runtimeAuth,
-        () => { requestCount += 1 },
-      )
+      const response = await fetchWithRuntimeAuth(fetchImpl, url, init, auth, () => { requestCount += 1 })
       if (response.status >= 300 && response.status < 400 && response.headers.get('location')) {
         if (!request.followRedirects) throw new Error(`HTTP ${response.status}: redirect blocked (enable Follow redirects to allow it).`)
         if (redirects >= request.maxRedirects) throw new Error(`HTTP redirect limit (${request.maxRedirects}) exceeded.`)
-        url = new URL(response.headers.get('location')!, url).toString()
+        const nextUrl = new URL(response.headers.get('location')!, url).toString()
+        // A redirect target is chosen by the REMOTE server, so it is
+        // attacker-influenceable. Two rules, both matching what browsers and
+        // curl do by default:
+        //   - credentials never cross an origin boundary (curl requires an
+        //     explicit --location-trusted for that), and
+        //   - 301/302/303 rewrite to GET and drop the body, so a redirected
+        //     write is never silently re-submitted to a new target.
+        if (!sameOrigin(url, nextUrl)) {
+          init = { ...init, headers: withoutCredentials(init.headers, request.credentialHeaders) }
+          // Runtime auth SIGNS the request (OAuth1) or answers a challenge
+          // (digest) — both are credentials by another name.
+          auth = undefined
+        }
+        if (rewritesToGet(response.status, String(init.method ?? 'GET'))) {
+          const { body: _dropped, ...rest } = init
+          init = { ...rest, method: 'GET' }
+        }
+        url = nextUrl
         continue
       }
       const nextOutput = await responseOutput(response, request.responseType, deps.maxResponseChars ?? 50_000)

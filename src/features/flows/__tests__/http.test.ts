@@ -579,3 +579,111 @@ test('every HTTP method reaches the wire with its body where permitted', async (
     assert.equal('status' in output && output.status, 200, `${method} parses its response`)
   }
 })
+
+// ── Redirect hardening ──────────────────────────────────────────────────────
+// A redirect is attacker-influenceable: the remote server chooses the next
+// URL. Credentials must not follow it off-origin, and a 302 must not re-POST.
+
+const redirectTo = (location: string, status = 302) =>
+  new Response(null, { status, headers: { location } })
+const okJson = () => new Response('{"ok":true}', { status: 200, headers: { 'content-type': 'application/json' } })
+
+async function driveRedirect(config: Parameters<typeof prepareHttpRequest>[0], hops: Array<Response | null>) {
+  const seen: Array<{ url: string; method: string; auth: string | null; cookie: string | null; body: unknown; headers: Record<string, string> }> = []
+  const request = prepareHttpRequest(config)
+  const headers = request.init.headers as Record<string, string>
+  headers.authorization = 'Bearer super-secret'
+  headers.cookie = 'session=abc'
+  headers['x-api-key'] = 'key-secret'
+  headers['x-trace'] = 'keep-me'
+  // What the executor records after applying a credential's injection plan:
+  // the header names the credential contributed, whatever they are called.
+  request.credentialHeaders = ['x-api-key']
+  await performHttpRequest(request, {}, {
+    fetchImpl: (async (url, init) => {
+      const requestHeaders = new Headers(init?.headers)
+      const all: Record<string, string> = {}
+      requestHeaders.forEach((value, key) => { all[key] = value })
+      seen.push({
+        url: String(url),
+        method: String(init?.method),
+        auth: requestHeaders.get('authorization'),
+        cookie: requestHeaders.get('cookie'),
+        body: init?.body,
+        headers: all,
+      })
+      return hops[seen.length - 1] ?? okJson()
+    }) as typeof fetch,
+  })
+  return seen
+}
+
+test('credentials are stripped when a redirect crosses to another origin', async () => {
+  const hops = await driveRedirect(
+    { method: 'GET', url: 'https://api.example.com/a', followRedirects: true },
+    [redirectTo('https://evil.attacker.test/steal')],
+  )
+  assert.equal(hops[0].auth, 'Bearer super-secret', 'the first hop is authenticated')
+  assert.equal(hops[1].url, 'https://evil.attacker.test/steal')
+  assert.equal(hops[1].auth, null, 'Authorization must NOT follow to another origin')
+  assert.equal(hops[1].cookie, null, 'Cookie must NOT follow to another origin')
+})
+
+test('a custom API-key header is stripped off-origin, ordinary headers survive', async () => {
+  // A vault credential can inject ANY header name (apiKeyHeader / custom), so
+  // stripping only Authorization would still leak the common case.
+  const hops = await driveRedirect(
+    { method: 'GET', url: 'https://api.example.com/a', followRedirects: true },
+    [redirectTo('https://evil.attacker.test/steal')],
+  )
+  assert.equal(hops[0].headers['x-api-key'], 'key-secret', 'sent on the first hop')
+  assert.equal(hops[1].headers['x-api-key'], undefined, 'must not follow off-origin')
+  assert.equal(hops[1].headers['x-trace'], 'keep-me', 'non-credential headers still travel')
+})
+
+test('credentials survive a same-origin redirect', async () => {
+  const hops = await driveRedirect(
+    { method: 'GET', url: 'https://api.example.com/a', followRedirects: true },
+    [redirectTo('https://api.example.com/b')],
+  )
+  assert.equal(hops[1].auth, 'Bearer super-secret', 'same origin keeps the credential')
+  assert.equal(hops[1].cookie, 'session=abc')
+})
+
+test('a scheme or port change counts as another origin', async () => {
+  const hops = await driveRedirect(
+    { method: 'GET', url: 'https://api.example.com/a', followRedirects: true },
+    [redirectTo('https://api.example.com:8443/b')],
+  )
+  assert.equal(hops[1].auth, null, 'a different port is a different origin')
+})
+
+test('a 302 on a POST becomes a GET and drops the body', async () => {
+  const hops = await driveRedirect(
+    { method: 'POST', url: 'https://api.example.com/a', followRedirects: true, sendBody: true, bodyMode: 'json', body: '{"charge":1}' },
+    [redirectTo('https://api.example.com/b', 302)],
+  )
+  assert.equal(hops[0].method, 'POST')
+  assert.equal(hops[0].body, '{"charge":1}')
+  assert.equal(hops[1].method, 'GET', 'a 302 must not re-submit the write')
+  assert.equal(hops[1].body, undefined, 'and must not resend the body')
+})
+
+test('303 also rewrites to GET', async () => {
+  const hops = await driveRedirect(
+    { method: 'POST', url: 'https://api.example.com/a', followRedirects: true, sendBody: true, bodyMode: 'json', body: '{"charge":1}' },
+    [redirectTo('https://api.example.com/b', 303)],
+  )
+  assert.equal(hops[1].method, 'GET')
+})
+
+test('307 and 308 preserve the method and body, as the RFC requires', async () => {
+  for (const status of [307, 308]) {
+    const hops = await driveRedirect(
+      { method: 'POST', url: 'https://api.example.com/a', followRedirects: true, sendBody: true, bodyMode: 'json', body: '{"charge":1}' },
+      [redirectTo('https://api.example.com/b', status)],
+    )
+    assert.equal(hops[1].method, 'POST', `${status} keeps the method`)
+    assert.equal(hops[1].body, '{"charge":1}', `${status} keeps the body`)
+  }
+})

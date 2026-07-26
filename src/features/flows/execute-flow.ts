@@ -734,6 +734,9 @@ export async function runFlowExecution(
         request.url = applied.url
         request.init.headers = applied.headers
         request.runtimeAuth = resolvedCredential.runtimeAuth
+        // Names only — so an off-origin redirect can strip exactly what the
+        // credential added, whatever header it chose to use.
+        request.credentialHeaders = Object.keys(resolvedCredential.plan.headers ?? {})
       } else if (httpAuthMode !== 'none' && httpConnectionId) {
         const token = await resolveHttpConnectionToken({
           connectionId: httpConnectionId,
