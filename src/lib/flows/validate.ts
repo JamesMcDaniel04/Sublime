@@ -449,6 +449,10 @@ export function validateFlowGraph(graph: FlowGraph, context: FlowValidationConte
       }
     }
 
+    if (node.type === 'code' && !node.data.code.trim()) {
+      add(issues, 'error', 'MISSING_CODE', `${nodeLabel(node)} has no code to run.`, node.id)
+    }
+
     if (node.type === 'http') {
       validateHttpUrl(issues, node.data.url, node.id)
       if (node.data.connectionId && context.toolCatalog && !connectionIds.has(node.data.connectionId)) {
@@ -459,8 +463,11 @@ export function validateFlowGraph(graph: FlowGraph, context: FlowValidationConte
       if ((node.data.bodyMode ?? 'json') === 'json') {
         validateTemplatedJsonField(issues, node.data.body, `${nodeLabel(node)} body must be valid JSON or a data value.`, node.id)
       }
-      if ((node.data.bodyMode ?? 'json') !== 'none' && ['GET', 'DELETE'].includes(node.data.method) && node.data.body?.trim()) {
-        add(issues, 'warning', 'HTTP_BODY_IGNORED', `${nodeLabel(node)} will not send a body for ${node.data.method}.`, node.id)
+      // DELETE (and OPTIONS) legitimately carry bodies now; only GET/HEAD
+      // cannot, and the executor fails those loudly when Send Body is on —
+      // this warning is the design-time twin of that runtime error.
+      if ((node.data.bodyMode ?? 'json') !== 'none' && ['GET', 'HEAD'].includes(node.data.method) && node.data.sendBody === true && node.data.body?.trim()) {
+        add(issues, 'warning', 'HTTP_BODY_IGNORED', `${nodeLabel(node)} cannot send a body for ${node.data.method} — switch the method or turn Send Body off.`, node.id)
       }
       // Inline auth holding a LITERAL secret keeps that secret in the graph,
       // which fans out to publishedGraph, version snapshots, run snapshots,

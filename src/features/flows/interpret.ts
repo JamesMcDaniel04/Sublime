@@ -24,6 +24,18 @@ export type RunAgentFn = (node: { id: string; agentId: string; input: string; pr
 // `resume` marks the node a paused run is re-entering so the adapter can
 // consume the reply instead of re-executing.
 export type RunActionFn = (node: { id: string; kind: 'tool' | 'http'; config: Record<string, unknown>; resume?: boolean; iterationPath?: number[] }) => Promise<RunAgentResult>
+// Code step: run user-authored JS/Python against the resolved item list.
+// Injected (like runAgent) so the interpreter stays pure — the vm/pyodide
+// engines live in lib/code and are wired by execute-flow / the test route.
+export type CodeRunOutcome = { ok: true; output: unknown; logs: string[] } | { ok: false; error: string; logs: string[] }
+export type RunCodeFn = (params: {
+  id: string
+  language: 'javascript' | 'python'
+  code: string
+  items: unknown[]
+  item?: unknown
+  timeoutMs?: number
+}) => Promise<CodeRunOutcome>
 // Subflow: run a child flow and block on its output. A child that pauses
 // (ask-user / humanReview / durable Wait) pauses the PARENT too — the adapter
 // returns `waiting` (with the child's question or wake time), the parent run
@@ -48,6 +60,7 @@ export type InterpretResult = {
 type Opts = {
   runAgent: RunAgentFn
   runAction?: RunActionFn
+  runCode?: RunCodeFn
   runFlow?: RunFlowFn
   routeAi?: RouteAiFn
   maxSteps?: number
@@ -364,7 +377,7 @@ function agentInput(nodeInput: string | undefined, ctx: FlowContext): string {
 // / structural nodes (condition, loop, trigger, …) carry no payload; variables
 // have their own `{{var.*}}` channel. Feeds the `{{upstream}}` aggregate.
 const DATA_BEARING_NODE_TYPES: ReadonlySet<FlowNode['type']> = new Set([
-  'http', 'tool', 'data', 'transform', 'agent', 'subflow',
+  'http', 'tool', 'data', 'transform', 'agent', 'subflow', 'code',
 ])
 
 /**
@@ -528,12 +541,12 @@ export async function interpretFlow(graph: FlowGraph, input: unknown, opts: Opts
 
     if (node.type === 'trigger') return { kind: 'skip' }
 
-    if ((node.type === 'agent' || node.type === 'tool' || node.type === 'http') && node.data.disabled) {
+    if ((node.type === 'agent' || node.type === 'tool' || node.type === 'http' || node.type === 'code') && node.data.disabled) {
       emit({ nodeId: node.id, status: 'skipped', output: node.data.mockOutput, iterationPath: ctx.iterationPath })
       if (node.data.mockOutput !== undefined) ctx.step[node.id] = { output: node.data.mockOutput }
       return { kind: 'ok', output: node.data.mockOutput }
     }
-    if ((node.type === 'agent' || node.type === 'tool' || node.type === 'http') && node.data.mockOutput !== undefined) {
+    if ((node.type === 'agent' || node.type === 'tool' || node.type === 'http' || node.type === 'code') && node.data.mockOutput !== undefined) {
       const output = resolveTemplateValue(node.data.mockOutput, ctx)
       ctx.step[node.id] = { output }
       emit({ nodeId: node.id, status: 'succeeded', output, iterationPath: ctx.iterationPath })
@@ -631,6 +644,56 @@ export async function interpretFlow(graph: FlowGraph, input: unknown, opts: Opts
       const wakeAt = new Date(Date.now() + node.data.amount * multiplier).toISOString()
       emit({ nodeId: node.id, status: 'waiting', output: { waiting: { kind: 'time', wakeAt } }, iterationPath: ctx.iterationPath })
       return { kind: 'pause', nodeId: node.id, wakeAt }
+    }
+
+    if (node.type === 'code') {
+      if (!opts.runCode) {
+        const error = 'Code steps are not available in this execution context.'
+        emit({ nodeId: node.id, status: 'failed', error, iterationPath: ctx.iterationPath })
+        return { kind: 'fail', error }
+      }
+      // The item list: an explicit `input` template wins; inside a loop body
+      // the current item is the natural subject; otherwise the direct
+      // parents' outputs (one parent = its output, several = an array), and a
+      // source-less code step falls back to the trigger input. An array IS
+      // the item list; a single value is one item — n8n's items semantics.
+      let itemsSource: unknown
+      if (typeof node.data.input === 'string' && node.data.input.trim()) {
+        itemsSource = resolveTemplateValue(node.data.input, ctx)
+      } else if (ctx.item !== undefined) {
+        itemsSource = ctx.item
+      } else {
+        const owned = bodyOwner.get(node.id)
+        const direct = parentsOf.get(node.id) ?? []
+        const parentIds = direct.length ? direct : owned?.priorSiblings.length ? [owned.priorSiblings.at(-1)!] : []
+        const outputs = parentIds.map((id) => ctx.step[id]?.output).filter((value) => value !== undefined)
+        itemsSource = outputs.length === 0 ? ctx.trigger.input : outputs.length === 1 ? outputs[0] : outputs
+      }
+      const items = Array.isArray(itemsSource) ? itemsSource : itemsSource == null ? [] : [itemsSource]
+
+      const fail = (error: string) => {
+        emit({ nodeId: node.id, status: 'failed', error, iterationPath: ctx.iterationPath })
+        if ((node.data.onError ?? 'stop') === 'continue') return { kind: 'ok' as const, output: undefined }
+        return { kind: 'fail' as const, error }
+      }
+      const base = { id: node.id, language: node.data.language, code: node.data.code, timeoutMs: node.data.timeoutMs }
+      let output: unknown
+      if (node.data.mode === 'eachItem') {
+        const collected: unknown[] = []
+        for (const item of items) {
+          const result = await opts.runCode({ ...base, items, item })
+          if (!result.ok) return fail(result.error)
+          collected.push(result.output)
+        }
+        output = collected
+      } else {
+        const result = await opts.runCode({ ...base, items })
+        if (!result.ok) return fail(result.error)
+        output = result.output
+      }
+      ctx.step[node.id] = { output }
+      emit({ nodeId: node.id, status: 'succeeded', output, iterationPath: ctx.iterationPath })
+      return { kind: 'ok', output }
     }
 
     if (node.type === 'transform') {

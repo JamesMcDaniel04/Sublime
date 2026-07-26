@@ -13,7 +13,7 @@ import { NODE_BODIES } from '../registry'
 // rather than derived from NODE_BODIES' own keys: a test that reads its
 // expectations off the thing under test proves nothing.
 const ALL_TYPES = [
-  'trigger', 'agent', 'condition', 'loop', 'parallel', 'stop', 'tool', 'http',
+  'trigger', 'agent', 'code', 'condition', 'loop', 'parallel', 'stop', 'tool', 'http',
   'transform', 'filter', 'switch', 'variable', 'data', 'humanReview',
   'respondWebhook', 'wait', 'repeatUntil', 'input', 'output', 'subflow',
   'router', 'errorShield',

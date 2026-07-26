@@ -33,6 +33,7 @@ export type AdvancedParamKey =
 const BY_TYPE: Partial<Record<FlowNode['type'], AdvancedParamKey[]>> = {
   agent: ['includeUpstream', 'onError', 'retries', 'timeoutMs', 'disabled', 'mockOutput'],
   tool: ['excludeFromContext', 'onError', 'retries', 'timeoutMs', 'disabled', 'mockOutput'],
+  code: ['excludeFromContext', 'onError', 'retries', 'timeoutMs', 'disabled', 'mockOutput'],
   loop: ['concurrency'],
 }
 

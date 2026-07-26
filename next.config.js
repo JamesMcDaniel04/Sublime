@@ -2,7 +2,10 @@
 const nextConfig = {
   poweredByHeader: false,
   outputFileTracingRoot: __dirname,
-  serverExternalPackages: ['@prisma/client'],
+  // pyodide must stay external: bundling would inline references to its
+  // .wasm / python_stdlib.zip assets that only resolve from node_modules —
+  // outputFileTracing carries the real files into the serverless function.
+  serverExternalPackages: ['@prisma/client', 'pyodide'],
   async headers() {
     return [
       {

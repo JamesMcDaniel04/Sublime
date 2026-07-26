@@ -18,7 +18,8 @@ import { triggerFromGraph, triggerInputFieldsFromTrigger } from '@/lib/flows/tri
 import { stepLabelsOf } from '@/lib/flows/token-text'
 import { missingRequiredInputFields } from '@/lib/flows/input-validation'
 import { shouldReuseInput, storedRunInput } from '@/lib/flows/reuse-input'
-import { interpretFlow, type RunAgentFn, type RunActionFn, type RunFlowFn, type RouteAiFn } from './interpret'
+import { interpretFlow, type RunAgentFn, type RunActionFn, type RunCodeFn, type RunFlowFn, type RouteAiFn } from './interpret'
+import { runJavaScript } from '@/lib/code/run-js'
 import { resolveResumeState } from './resume-scan'
 import { buildRouterPrompt, routerBranchSchema, parseRouterChoice } from '@/lib/flows/router'
 import { generateStructured, generateText } from '@/lib/llm/model-runner'
@@ -605,6 +606,19 @@ export async function runFlowExecution(
     }
   }
 
+  // Code steps: dispatch to the language engine. Step rows are persisted by
+  // the generic interpreter onStep path (shouldPersistInterpreterStep), so
+  // this adapter only runs the code. run-python is imported lazily — its
+  // engine is Pyodide, and merely warming that module costs nothing until a
+  // Python step actually executes.
+  const runCode: RunCodeFn = async (params) => {
+    if (params.language === 'python') {
+      const { runPython } = await import('@/lib/code/run-python')
+      return runPython(params)
+    }
+    return runJavaScript(params)
+  }
+
   // Deterministic steps: MCP tool calls and HTTP requests. Same FlowRunStep
   // bookkeeping as agent steps so the run panel shows their input/output.
   const runAction: RunActionFn = async (node) => {
@@ -811,6 +825,7 @@ export async function runFlowExecution(
   const result = await interpretFlow(graph, input, {
     runAgent,
     runAction,
+    runCode,
     runFlow,
     routeAi,
     onStep,

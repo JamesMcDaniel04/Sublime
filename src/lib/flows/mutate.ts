@@ -1,4 +1,5 @@
 import { flowNodeSchema, type FlowGraph, type FlowNode } from '@/lib/flows/graph'
+import { CODE_SNIPPETS } from './code-snippets'
 
 /** Node types a user can create as a step (everything but the trigger). */
 export type StepType = Exclude<FlowNode['type'], 'trigger'>
@@ -50,6 +51,9 @@ function defaultData(type: FlowNode['type'], extra?: { bodyId?: string; agentId?
       return { amount: 1, unit: 'seconds' }
     case 'repeatUntil':
       return { body: extra?.bodyId ? [extra.bodyId] : [], clauses: [], match: 'all', maxIterations: 20, delayMs: 1000 }
+    case 'code':
+      // A fresh node opens with the runnable JS starter, like n8n's.
+      return { language: 'javascript', mode: 'allItems', code: CODE_SNIPPETS.javascript.allItems }
     case 'transform':
       return { fields: [{ name: '', value: '' }] }
     case 'filter':

@@ -257,6 +257,29 @@ const parallelNode = z.object({
 })
 // Deterministic "Set fields": build an object from templated assignments. Its
 // output is the assembled object; downstream steps map its fields.
+// n8n-parity Code step: user-authored JavaScript (node:vm) or Python
+// (Pyodide/WASM), run server-side by the engines in lib/code. `input` is a
+// template resolving to the item list (default: the previous step's output);
+// `mode` mirrors n8n — run once with all items, or once per item.
+const codeNode = z.object({
+  id: z.string(),
+  type: z.literal('code'),
+  data: z.object({
+    label: z.string().optional(),
+    note: z.string().optional(),
+    language: z.enum(['javascript', 'python']).default('javascript'),
+    mode: z.enum(['allItems', 'eachItem']).default('allItems'),
+    code: z.string().default(''),
+    input: z.string().optional(),
+    onError: z.enum(['stop', 'continue']).optional(),
+    retries: z.number().int().min(0).max(5).optional(),
+    timeoutMs: z.number().int().min(1000).max(60000).optional(),
+    excludeFromContext: z.boolean().optional(),
+    outputFields: z.array(outputFieldSchema).optional(),
+    disabled: z.boolean().optional(),
+    mockOutput: z.any().optional(),
+  }),
+})
 const transformNode = z.object({
   id: z.string(),
   type: z.literal('transform'),
@@ -495,7 +518,7 @@ const errorShieldNode = z.object({
 })
 
 export const flowNodeSchema = z.discriminatedUnion('type', [
-  triggerNode, agentNode, conditionNode, loopNode, parallelNode, stopNode, toolNode, httpNode, transformNode, filterNode, switchNode, variableNode, dataNode, humanReviewNode, respondWebhookNode, waitNode, repeatUntilNode, inputNode, outputNode, subflowNode, routerNode, errorShieldNode,
+  triggerNode, agentNode, conditionNode, loopNode, parallelNode, stopNode, toolNode, httpNode, codeNode, transformNode, filterNode, switchNode, variableNode, dataNode, humanReviewNode, respondWebhookNode, waitNode, repeatUntilNode, inputNode, outputNode, subflowNode, routerNode, errorShieldNode,
 ])
 export const flowEdgeSchema = z.object({
   id: z.string(),

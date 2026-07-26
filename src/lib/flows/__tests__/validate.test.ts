@@ -93,7 +93,9 @@ test('validateFlowGraph checks HTTP request configuration', () => {
       { id: 'trigger', type: 'trigger', data: {} },
       { id: 'bad-url', type: 'http', data: { method: 'POST', url: 'ftp://example.com', headers: '[]', query: '"bad"', bodyMode: 'json', body: '{broken' } },
       { id: 'insecure-url', type: 'http', data: { method: 'POST', url: 'http://api.example.com' } },
-      { id: 'get-body', type: 'http', data: { method: 'GET', url: 'https://api.example.com', body: '{"ignored":true}' } },
+      // Only an explicit Send Body triggers the warning — a leftover body from a
+      // method switch with the toggle off is dropped quietly, by design.
+      { id: 'get-body', type: 'http', data: { method: 'GET', url: 'https://api.example.com', sendBody: true, body: '{"ignored":true}' } },
     ],
     edges: [
       { id: 'e1', source: 'trigger', target: 'bad-url' },

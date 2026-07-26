@@ -17,6 +17,7 @@ import { outputModule } from './output-body'
 import { triggerModule } from './trigger-body'
 import { agentModule } from './agent-body'
 import { httpModule } from './http-body'
+import { codeModule } from './code-body'
 import { toolModule } from './tool-body'
 import { variableModule } from './variable-body'
 import { dataModule } from './data-body'
@@ -52,6 +53,7 @@ export const NODE_BODIES: Record<FlowNode['type'], NodeBodyModule> = {
   trigger: triggerModule,
   agent: agentModule,
   http: httpModule,
+  code: codeModule,
   tool: toolModule,
   variable: variableModule,
   data: dataModule,
