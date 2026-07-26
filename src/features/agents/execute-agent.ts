@@ -46,6 +46,7 @@ import { approvalQuestion, isApprovalReply, toolNeedsApproval, type PendingAppro
 import { serializeToolResult } from '@/lib/agents/tool-result'
 import { recordToolCallEvents } from '@/lib/behavior/record-event'
 import { createRunBudget, chargeRunBudget, type RunBudget } from '@/lib/agents/run-budget'
+import { goalGroundingBlock } from '@/lib/goals/grounding'
 
 export type AgentExecutionJob = {
   executionId?: string
@@ -661,6 +662,8 @@ export async function runAgentExecution(
     // complex tasks are told to plan before acting.
     const goalBlock = goalSection((agent as { goal?: string | null }).goal)
     if (goalBlock) system += `\n\n${goalBlock}`
+    const organizationGoals = await goalGroundingBlock(organizationId)
+    if (organizationGoals) system += `\n\n${organizationGoals}`
     const strategize = shouldStrategize({ objective: agent.objective, metadata: agentMetadata, toolCount: tools.length })
     if (strategize) system += `\n\n${strategizeSection()}`
 

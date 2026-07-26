@@ -97,3 +97,17 @@ export class EmailToolClient {
     throw new Error(`Unknown Email tool: ${name}`)
   }
 }
+
+/** Direct product-email helper built on the same Resend client as the agent
+ * tool. Callers remain responsible for best-effort error handling. */
+export async function sendEmail(input: {
+  to: string
+  subject: string
+  body: string
+}): Promise<unknown> {
+  return new EmailToolClient().executeTool(
+    'https://api.resend.com',
+    'send',
+    input,
+  )
+}

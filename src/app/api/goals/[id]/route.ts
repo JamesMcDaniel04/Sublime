@@ -7,12 +7,14 @@ import { ApiError, withAuthenticatedApi } from '@/lib/server/api-handler'
 export const runtime = 'nodejs'
 
 const HOUR_MS = 60 * 60 * 1000
+const RECURRENCES = ['monthly', 'quarterly', 'yearly'] as const
 const patchSchema = z
   .object({
     name: z.string().min(1).max(120).optional(),
     description: z.string().max(2000).nullable().optional(),
     targetValue: z.number().finite().optional(),
     targetDate: z.coerce.date().optional(),
+    recurrence: z.enum(RECURRENCES).nullable().optional(),
     status: z.enum(['active', 'paused', 'achieved', 'missed']).optional(),
   })
   .refine((body) => Object.keys(body).length > 0, { message: 'No changes supplied.' })
@@ -41,6 +43,17 @@ export const GET = withAuthenticatedApi(async (request, auth) => {
             take: 400,
             select: { value: true, capturedAt: true, origin: true },
           },
+        },
+      },
+      periods: {
+        orderBy: { periodEnd: 'desc' },
+        take: 12,
+        select: {
+          periodStart: true,
+          periodEnd: true,
+          targetValue: true,
+          finalValue: true,
+          outcome: true,
         },
       },
     },
@@ -80,6 +93,7 @@ export const GET = withAuthenticatedApi(async (request, auth) => {
       targetValue: goal.targetValue,
       startAt: goal.startAt,
       targetDate: goal.targetDate,
+      recurrence: goal.recurrence,
       status: goal.status,
       riskLevel: goal.riskLevel,
       personal: goal.ownerUserId !== null,
@@ -112,6 +126,7 @@ export const GET = withAuthenticatedApi(async (request, auth) => {
               personal: child.ownerUserId !== null,
             },
       ),
+      periods: goal.periods,
     },
   }
 })
@@ -135,7 +150,12 @@ export const PATCH = withAuthenticatedApi(async (request, auth) => {
   // Re-evaluate when the target moved or the goal was un-paused — the cron
   // sweep skips paused goals, so without this the badge stays stale until the
   // next tick after resume.
-  if (input.targetValue !== undefined || input.targetDate !== undefined || input.status === 'active') {
+  if (
+    input.targetValue !== undefined ||
+    input.targetDate !== undefined ||
+    input.recurrence !== undefined ||
+    input.status === 'active'
+  ) {
     await evaluateAndPersistGoal(goal.id, auth.organizationId)
   }
   return { success: true }

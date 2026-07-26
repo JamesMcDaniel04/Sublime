@@ -30,6 +30,11 @@ export function GoalCard({ goal }: { readonly goal: GoalSummary }) {
               of {fmtValue(goal.targetValue, goal.unit)} by{' '}
               {new Date(goal.targetDate).toLocaleDateString()}
             </p>
+            {goal.recurrence && (
+              <p className="mt-1 text-xs text-muted-foreground">
+                ↻ {goal.recurrence}
+              </p>
+            )}
           </div>
           <Sparkline points={goal.sparkline} />
         </div>

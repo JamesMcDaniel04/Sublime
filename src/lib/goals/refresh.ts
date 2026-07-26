@@ -6,10 +6,12 @@
 import { prisma, systemPrisma } from '@/lib/prisma'
 import { apiLogger } from '@/lib/logger'
 import { recordUserEvent } from '@/lib/behavior/record-event'
+import { notify } from '@/lib/notifications/service'
 import { getMetricSource } from '@/lib/metrics/registry'
 import type { MetricReading, MetricSourceContext } from '@/lib/metrics/types'
 import { evaluateGoal, settleStatus, type Evaluation } from './evaluate'
 import { emitGoalRecommendation } from './emit-recommendation'
+import { addPeriod, type GoalRecurrence } from './recurrence'
 
 const MAX_METRICS_PER_TICK = 200
 const EVAL_WINDOW_POINTS = 400
@@ -132,13 +134,14 @@ export async function evaluateAndPersistGoal(
   organizationId: string,
   now: Date = new Date(),
 ): Promise<boolean> {
-  const goal = await prisma.goal.findFirst({
+  const foundGoal = await prisma.goal.findFirst({
     where: { id: goalId, organizationId },
     include: {
       metrics: { select: { id: true, refreshIntervalHours: true, lastError: true } },
     },
   })
-  if (!goal || goal.status === 'archived' || goal.status === 'paused') return false
+  if (!foundGoal || foundGoal.status === 'archived' || foundGoal.status === 'paused') return false
+  let goal = foundGoal
   const metric = goal.metrics[0]
   const descending = metric
     ? await prisma.metricDatapoint.findMany({
@@ -150,12 +153,125 @@ export async function evaluateAndPersistGoal(
     : []
   const points = descending.reverse()
   const staleAfterMs = 2 * (metric?.refreshIntervalHours ?? 24) * HOUR_MS
+  let rolledOver = false
+
+  // A recurring Goal row advances in place. Each elapsed window settles in
+  // its own transaction so a crash can resume from the still-expired
+  // targetDate without creating a half-advanced period.
+  while (
+    goal.recurrence &&
+    goal.status === 'active' &&
+    now.getTime() > goal.targetDate.getTime()
+  ) {
+    const recurrence = goal.recurrence as GoalRecurrence
+    const inWindow = points.filter(
+      (point) =>
+        point.capturedAt.getTime() >= goal.startAt.getTime() &&
+        point.capturedAt.getTime() <= goal.targetDate.getTime(),
+    )
+    const finalValue: number = inWindow.at(-1)?.value ?? goal.startValue
+    const outcome =
+      goal.direction === 'decrease'
+        ? finalValue <= goal.targetValue
+          ? 'achieved'
+          : 'missed'
+        : finalValue >= goal.targetValue
+          ? 'achieved'
+          : 'missed'
+    const periodStart = goal.startAt
+    const periodEnd: Date = goal.targetDate
+    const nextTargetDate = addPeriod(periodEnd, recurrence)
+    const nextPoints = [
+      { value: finalValue, capturedAt: periodEnd },
+      ...points.filter(
+        (point) =>
+          point.capturedAt.getTime() > periodEnd.getTime() &&
+          point.capturedAt.getTime() <= nextTargetDate.getTime(),
+      ),
+    ]
+    const nextEvaluation = evaluateGoal(
+      {
+        ...goal,
+        startAt: periodEnd,
+        targetDate: nextTargetDate,
+        startValue: finalValue,
+        direction: goal.direction as 'increase' | 'decrease',
+      },
+      nextPoints,
+      now,
+      staleAfterMs,
+    )
+
+    await prisma.$transaction(async (tx) => {
+      await tx.goalPeriod.create({
+        data: {
+          organizationId,
+          goalId: goal.id,
+          periodStart,
+          periodEnd,
+          startValue: goal.startValue,
+          targetValue: goal.targetValue,
+          finalValue,
+          outcome,
+        },
+      })
+      await tx.goal.update({
+        where: { id: goal.id, organizationId },
+        data: {
+          startAt: periodEnd,
+          targetDate: nextTargetDate,
+          startValue: finalValue,
+          status: 'active',
+          riskLevel: nextEvaluation.riskLevel,
+          lastEvaluatedAt: now,
+        },
+      })
+    })
+
+    const recipient = goal.ownerUserId ?? goal.createdByUserId
+    if (recipient) {
+      await recordUserEvent({
+        organizationId,
+        userId: recipient,
+        kind: outcome === 'achieved' ? 'goal_achieved' : 'goal_off_track',
+        resourceType: 'goal',
+        resourceId: goal.id,
+        context: { periodEnd: periodEnd.toISOString(), outcome },
+      })
+    }
+    await notify({
+      organizationId,
+      ...(goal.ownerUserId ? { userId: goal.ownerUserId } : {}),
+      type: 'goal.period',
+      level: outcome === 'achieved' ? 'success' : 'action',
+      title: `${goal.name}: ${outcome === 'achieved' ? 'achieved ✓' : 'missed'}`,
+      body: `The period ending ${periodEnd.toLocaleDateString()} settled at ${finalValue.toLocaleString()} against a ${goal.targetValue.toLocaleString()} target.`,
+      executionId: goal.id,
+      link: `/goals/${goal.id}`,
+    })
+    goal = {
+      ...goal,
+      startAt: periodEnd,
+      targetDate: nextTargetDate,
+      startValue: finalValue,
+      riskLevel: nextEvaluation.riskLevel,
+      lastEvaluatedAt: now,
+    }
+    rolledOver = true
+  }
+
+  const evaluationPoints = goal.recurrence
+    ? [
+        { value: goal.startValue, capturedAt: goal.startAt },
+        ...points.filter((point) => point.capturedAt.getTime() > goal.startAt.getTime()),
+      ]
+    : points
   const evaluated = evaluateGoal(
     {
       ...goal,
       direction: goal.direction as 'increase' | 'decrease',
     },
-    points,
+    evaluationPoints,
     now,
     staleAfterMs,
   )
@@ -206,5 +322,5 @@ export async function evaluateAndPersistGoal(
       })
     }
   }
-  return changed
+  return changed || rolledOver
 }

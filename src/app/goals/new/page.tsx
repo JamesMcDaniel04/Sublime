@@ -25,6 +25,7 @@ import { fmtValue } from '@/components/goals/chart-math'
 type Step = 1 | 2 | 3
 type GoalKind = GoalSummary['kind']
 type GoalUnit = GoalSummary['unit']
+type GoalRecurrence = GoalSummary['recurrence']
 type Source = {
   source: string
   metrics: Array<{ key: string; label: string; unit: GoalUnit }>
@@ -55,6 +56,12 @@ const tomorrow = () => {
   return date.toISOString().slice(0, 10)
 }
 
+const defaultRecurrence = (kind: GoalKind): GoalRecurrence => {
+  if (kind === 'quota') return 'quarterly'
+  if (kind === 'mrr') return 'monthly'
+  return null
+}
+
 export default function NewGoalPage() {
   const router = useRouter()
   const [step, setStep] = useState<Step>(1)
@@ -74,6 +81,7 @@ export default function NewGoalPage() {
     unit: 'usd' as GoalUnit,
     targetValue: '',
     targetDate: '',
+    recurrence: null as GoalRecurrence,
     personal: false,
     parentGoalId: '',
     source: '',
@@ -220,6 +228,7 @@ export default function NewGoalPage() {
           startValue,
           targetValue,
           targetDate: new Date(`${state.targetDate}T23:59:59`).toISOString(),
+          recurrence: state.recurrence,
           personal: state.personal,
           ...(state.personal && state.parentGoalId
             ? { parentGoalId: state.parentGoalId }
@@ -291,6 +300,7 @@ export default function NewGoalPage() {
                     ...current,
                     kind: value as GoalKind,
                     direction: value === 'savings' ? 'decrease' : 'increase',
+                    recurrence: defaultRecurrence(value as GoalKind),
                   }))
                 }
               >
@@ -342,6 +352,27 @@ export default function NewGoalPage() {
                   setState((current) => ({ ...current, targetDate: event.target.value }))
                 }
               />
+            </label>
+            <label className="space-y-1.5 text-sm">
+              <span className="font-medium">Recurrence</span>
+              <Select
+                value={state.recurrence ?? 'none'}
+                onValueChange={(value) =>
+                  setState((current) => ({
+                    ...current,
+                    recurrence:
+                      value === 'none' ? null : (value as Exclude<GoalRecurrence, null>),
+                  }))
+                }
+              >
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">One-time</SelectItem>
+                  <SelectItem value="monthly">Monthly</SelectItem>
+                  <SelectItem value="quarterly">Quarterly</SelectItem>
+                  <SelectItem value="yearly">Yearly</SelectItem>
+                </SelectContent>
+              </Select>
             </label>
           </div>
           {state.kind === 'savings' && (

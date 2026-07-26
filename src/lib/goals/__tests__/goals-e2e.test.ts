@@ -168,6 +168,84 @@ if (TEST_DB) {
     })
     assert.equal(accepted?.status, 'accepted')
   })
+
+  test('recurring goal catches up elapsed windows without duplicate periods', async () => {
+    const recurring = await prisma.goal.create({
+      data: {
+        organizationId: seeded.organizationId,
+        name: 'Quarterly quota',
+        kind: 'quota',
+        direction: 'increase',
+        unit: 'usd',
+        startValue: 100,
+        targetValue: 150,
+        startAt: new Date('2026-01-01T00:00:00Z'),
+        targetDate: new Date('2026-04-01T00:00:00Z'),
+        recurrence: 'quarterly',
+        createdByUserId: seeded.userId,
+        metrics: {
+          create: {
+            organizationId: seeded.organizationId,
+            source: 'manual',
+            metricKey: 'manual.value',
+            datapoints: {
+              create: {
+                organizationId: seeded.organizationId,
+                value: 120,
+                capturedAt: new Date('2026-03-31T00:00:00Z'),
+                bucketKey: '2026-03-31',
+                origin: 'manual',
+              },
+            },
+          },
+        },
+      },
+    })
+    const catchupNow = new Date('2026-09-01T00:00:00Z')
+    const { evaluateAndPersistGoal } = await import('../refresh')
+    await evaluateAndPersistGoal(recurring.id, seeded.organizationId, catchupNow)
+
+    const advanced = await prisma.goal.findFirst({
+      where: { id: recurring.id, organizationId: seeded.organizationId },
+    })
+    assert.equal(advanced.status, 'active')
+    assert.equal(advanced.startValue, 120)
+    assert.equal(advanced.startAt.toISOString(), '2026-07-01T00:00:00.000Z')
+    assert.equal(advanced.targetDate.toISOString(), '2026-10-01T00:00:00.000Z')
+    const periods = await prisma.goalPeriod.findMany({
+      where: { organizationId: seeded.organizationId, goalId: recurring.id },
+      orderBy: { periodEnd: 'asc' },
+    })
+    assert.equal(periods.length, 2)
+    assert.deepEqual(periods.map((period: any) => period.outcome), ['missed', 'missed'])
+    assert.deepEqual(periods.map((period: any) => period.finalValue), [120, 120])
+
+    await evaluateAndPersistGoal(recurring.id, seeded.organizationId, catchupNow)
+    assert.equal(
+      await prisma.goalPeriod.count({
+        where: { organizationId: seeded.organizationId, goalId: recurring.id },
+      }),
+      2,
+    )
+  })
+
+  test('weekly digest claim prevents a retry from double-sending', async () => {
+    const digestNow = new Date('2026-07-27T14:05:00Z')
+    const { sendWeeklyGoalDigests } = await import('../digest')
+    const before = await prisma.notification.count({
+      where: { organizationId: seeded.organizationId, type: 'goal.digest' },
+    })
+    const first = await sendWeeklyGoalDigests(digestNow)
+    const second = await sendWeeklyGoalDigests(digestNow)
+    assert.equal(first.sent, 1)
+    assert.equal(second.sent, 0)
+    assert.equal(
+      await prisma.notification.count({
+        where: { organizationId: seeded.organizationId, type: 'goal.digest' },
+      }),
+      before + 1,
+    )
+  })
 } else {
   test('goals e2e (skipped: TEST_DATABASE_URL not set)', { skip: true }, () => {})
 }

@@ -45,6 +45,7 @@ export interface GoalSummary {
   targetValue: number
   startAt: string
   targetDate: string
+  recurrence: 'monthly' | 'quarterly' | 'yearly' | null
   status: 'active' | 'paused' | 'achieved' | 'missed' | 'archived'
   riskLevel: 'on_track' | 'at_risk' | 'off_track' | 'no_data'
   personal: boolean

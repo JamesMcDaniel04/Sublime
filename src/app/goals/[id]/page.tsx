@@ -20,6 +20,13 @@ import { EmptyState } from '@/components/ui/empty-state'
 import { Input } from '@/components/ui/input'
 import { PageHeader } from '@/components/ui/page-header'
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
+import {
   Table,
   TableBody,
   TableCell,
@@ -32,6 +39,7 @@ import { fmtValue } from '@/components/goals/chart-math'
 import { GoalTrendChart, RiskBadge } from '@/components/goals/goal-viz'
 import type { GoalSummary } from '@/lib/types'
 import type { ImpactTiers } from '@/components/goals/impact-strip'
+import { periodLabel } from '@/lib/goals/recurrence'
 
 type Datapoint = {
   id: string
@@ -49,6 +57,13 @@ type Detail = Omit<GoalSummary, 'sparkline'> & {
     name: string
     riskLevel: GoalSummary['riskLevel']
     personal: boolean
+  }>
+  periods: Array<{
+    periodStart: string
+    periodEnd: string
+    targetValue: number
+    finalValue: number
+    outcome: 'achieved' | 'missed'
   }>
 }
 
@@ -68,7 +83,12 @@ export default function GoalDetailPage() {
   const [editOpen, setEditOpen] = useState(false)
   const [archiveOpen, setArchiveOpen] = useState(false)
   const [recordOpen, setRecordOpen] = useState(false)
-  const [edit, setEdit] = useState({ name: '', targetValue: '', targetDate: '' })
+  const [edit, setEdit] = useState({
+    name: '',
+    targetValue: '',
+    targetDate: '',
+    recurrence: null as GoalSummary['recurrence'],
+  })
   const [record, setRecord] = useState({ value: '', capturedAt: '' })
 
   const load = useCallback(async () => {
@@ -102,6 +122,7 @@ export default function GoalDetailPage() {
         name: goalBody.goal.name,
         targetValue: String(goalBody.goal.targetValue),
         targetDate: String(goalBody.goal.targetDate).slice(0, 10),
+        recurrence: goalBody.goal.recurrence,
       })
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Could not load goal.')
@@ -134,6 +155,7 @@ export default function GoalDetailPage() {
         name: edit.name,
         targetValue: Number(edit.targetValue),
         targetDate: new Date(`${edit.targetDate}T23:59:59`).toISOString(),
+        recurrence: edit.recurrence,
       }),
     })
     const body = await response.json()
@@ -233,6 +255,35 @@ export default function GoalDetailPage() {
                     }
                   />
                 </label>
+                <label className="space-y-1.5 text-sm">
+                  <span>Recurrence</span>
+                  <Select
+                    value={edit.recurrence ?? 'none'}
+                    onValueChange={(value) =>
+                      setEdit({
+                        ...edit,
+                        recurrence:
+                          value === 'none'
+                            ? null
+                            : (value as Exclude<GoalSummary['recurrence'], null>),
+                      })
+                    }
+                  >
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">One-time</SelectItem>
+                      <SelectItem value="monthly">Monthly</SelectItem>
+                      <SelectItem value="quarterly">Quarterly</SelectItem>
+                      <SelectItem value="yearly">Yearly</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </label>
+                {goal.recurrence && (
+                  <p className="text-xs text-muted-foreground">
+                    Target edits apply to the current window only; future windows copy
+                    the target active when they open.
+                  </p>
+                )}
                 <DialogFooter><Button onClick={saveEdit}>Save</Button></DialogFooter>
               </DialogContent>
             </Dialog>
@@ -256,6 +307,31 @@ export default function GoalDetailPage() {
           </>
         }
       />
+
+      {goal.recurrence && (
+        <div className="flex flex-wrap items-center gap-2" aria-label="Goal period history">
+          {[...goal.periods].reverse().map((period) => (
+            <span
+              key={period.periodEnd}
+              title={`${fmtValue(period.finalValue, goal.unit)} final vs ${fmtValue(period.targetValue, goal.unit)} target`}
+              className={`rounded-full border px-3 py-1 text-xs font-medium ${
+                period.outcome === 'achieved'
+                  ? 'border-success/30 bg-success/10 text-success'
+                  : 'border-destructive/30 bg-destructive/10 text-destructive'
+              }`}
+            >
+              {periodLabel(
+                new Date(period.periodEnd),
+                goal.recurrence as Exclude<GoalSummary['recurrence'], null>,
+              )}{' '}
+              {period.outcome === 'achieved' ? '✓' : '✗'}
+            </span>
+          ))}
+          <span className="rounded-full border border-horizon-500/30 bg-horizon-500/10 px-3 py-1 text-xs font-medium text-horizon-600">
+            Current
+          </span>
+        </div>
+      )}
 
       <Card className="p-5">
         <div className="mb-3">

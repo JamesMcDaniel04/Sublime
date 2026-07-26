@@ -23,6 +23,7 @@ const METRIC_SOURCES = [
   'google_sheets',
   'manual',
 ] as const
+const RECURRENCES = ['monthly', 'quarterly', 'yearly'] as const
 const HOUR_MS = 60 * 60 * 1000
 const SPARKLINE_POINTS = 30
 
@@ -36,6 +37,7 @@ const createSchema = z
     startValue: z.number().finite(),
     targetValue: z.number().finite(),
     targetDate: z.coerce.date(),
+    recurrence: z.enum(RECURRENCES).nullable().default(null),
     personal: z.boolean().default(false),
     parentGoalId: z.string().optional(),
     metric: z.object({
@@ -105,6 +107,7 @@ export const GET = withAuthenticatedApi(async (_request, auth) => {
         targetValue: goal.targetValue,
         startAt: goal.startAt,
         targetDate: goal.targetDate,
+        recurrence: goal.recurrence,
         status: goal.status,
         riskLevel: goal.riskLevel,
         personal: goal.ownerUserId !== null,
@@ -162,6 +165,7 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
       startValue: input.startValue,
       targetValue: input.targetValue,
       targetDate: input.targetDate,
+      recurrence: input.recurrence,
       createdByUserId: auth.dbUser.id,
       metrics: {
         create: {

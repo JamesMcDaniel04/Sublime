@@ -6,6 +6,7 @@ import { outputFieldsFromJsonSchema } from '@/lib/flows/schema-fields'
 import { inputParamsFromGraph, outputFieldsFromGraph, flowToolGroundingLine } from '@/lib/flows/flow-tool'
 import { flowGraphSchema } from '@/lib/flows/graph'
 import { listEligiblePatterns } from '@/lib/behavior/eligibility'
+import { goalGroundingBlock } from '@/lib/goals/grounding'
 
 function toolInputHint(schema: unknown): string {
   if (!schema || typeof schema !== 'object') return ''
@@ -95,7 +96,10 @@ export async function buildCopilotGrounding(
     .filter((line): line is string => Boolean(line))
   // Evidence-gated behavior patterns (spec §5.2): generated flows should match
   // how this user actually works. Best-effort — listEligiblePatterns never throws.
-  const userPatterns = await listEligiblePatterns(organizationId, userId)
+  const [userPatterns, goalsBlock] = await Promise.all([
+    listEligiblePatterns(organizationId, userId),
+    goalGroundingBlock(organizationId, userId),
+  ])
   const patternLines = userPatterns.slice(0, 6).map((p) => `- ${p.summary} (observed ${p.occurrenceCount}x)`)
   const patternsBlock = patternLines.length
     ? ['', '', 'How this user actually works (observed, evidence-gated — prefer flows that match these habits):', ...patternLines].join('\n')
@@ -106,6 +110,6 @@ export async function buildCopilotGrounding(
     `Tools:\n${tools.map((tool) => `- ${tool.connectionName}: ${tool.name} (connectionId: ${tool.connectionId})${tool.inputHint ? ` args: ${tool.inputHint}` : ''}${tool.outputHint ? ` outputs: ${tool.outputHint}` : ''}${tool.description ? ` — ${tool.description}` : ''}`).join('\n') || '- None available'}`,
     '',
     `Callable flows (agent -> flow, subflow):\n${flowLines.join('\n') || '- None available'}`,
-  ].join('\n') + patternsBlock
+  ].join('\n') + patternsBlock + (goalsBlock ? `\n\n${goalsBlock}` : '')
   return { roster, toolCatalog, contextBlock, graphRules }
 }

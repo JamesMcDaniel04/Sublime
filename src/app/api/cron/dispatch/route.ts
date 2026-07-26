@@ -409,6 +409,14 @@ export async function GET(request: Request) {
       }
     }
 
+    // Weekly goal tending: per-user atomic claims prevent retries in this
+    // 15-minute Monday window from double-sending.
+    if (now.getUTCDay() === 1 && now.getUTCHours() === 14 && now.getUTCMinutes() < 15) {
+      void import('@/lib/goals/digest')
+        .then(({ sendWeeklyGoalDigests }) => sendWeeklyGoalDigests(now))
+        .catch(() => undefined)
+    }
+
     // Live knowledge sync, periodic leg: once a day (first 15-min tick after
     // 05:00 UTC), re-scan connections whose captured usage profile is stale so
     // knowledge tracks how connected tools are actually used — not just their
