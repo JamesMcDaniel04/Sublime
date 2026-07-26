@@ -232,6 +232,8 @@ if (TEST_DB) {
             origin: 'suggestion',
             seedKey,
             estimatedMinutesSavedPerRun: estimate,
+            // Provenance: only human-edited rows feed calibration.
+            estimateEdited: true,
           },
         })
       }

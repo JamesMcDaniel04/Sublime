@@ -429,10 +429,11 @@ export async function GET(request: Request) {
 
     // Weekly goal tending: per-user atomic claims prevent retries in this
     // 15-minute Monday window from double-sending.
-    if (now.getUTCDay() === 1 && now.getUTCHours() === 14 && now.getUTCMinutes() < 15) {
-      void import('@/lib/goals/digest')
-        .then(({ sendWeeklyGoalDigests }) => sendWeeklyGoalDigests(now))
-        .catch(() => undefined)
+    {
+      const digest = await import('@/lib/goals/digest')
+      if (digest.shouldRunWeeklyGoalDigest(now)) {
+        void digest.sendWeeklyGoalDigests(now).catch(() => undefined)
+      }
     }
 
     // Live knowledge sync, periodic leg: once a day (first 15-min tick after

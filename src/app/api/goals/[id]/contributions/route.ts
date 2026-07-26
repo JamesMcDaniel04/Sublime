@@ -264,9 +264,34 @@ export const PATCH = withAuthenticatedApi(async (request, auth) => {
   if (!contribution) {
     throw new ApiError('Contribution not found', 404, 'CONTRIBUTION_NOT_FOUND')
   }
+  // Symmetric with POST: editing an estimate requires the same resource
+  // visibility as linking it — a goal viewer can't retune a private
+  // automation's numbers.
+  const resourceVisible =
+    contribution.resourceType === 'flow'
+      ? await prisma.flow.findFirst({
+          where: {
+            id: contribution.resourceId,
+            organizationId: auth.organizationId,
+            ...flowReadScope(auth.dbUser.id),
+          },
+          select: { id: true },
+        })
+      : await prisma.agentTask.findFirst({
+          where: {
+            id: contribution.resourceId,
+            organizationId: auth.organizationId,
+            status: { not: 'DELETED' },
+            ...agentReadScope(auth.dbUser.id),
+          },
+          select: { id: true },
+        })
+  if (!resourceVisible) throw new ApiError('Automation not found', 404, 'RESOURCE_NOT_FOUND')
   await prisma.goalContribution.update({
     where: { id: contribution.id, organizationId: auth.organizationId },
-    data: { estimatedMinutesSavedPerRun: input.estimatedMinutesSavedPerRun },
+    // estimateEdited is the calibration provenance flag: only human edits
+    // (this route) ever set it.
+    data: { estimatedMinutesSavedPerRun: input.estimatedMinutesSavedPerRun, estimateEdited: true },
   })
   await recordUserEvent({
     organizationId: auth.organizationId,

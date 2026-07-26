@@ -1,7 +1,6 @@
 import { systemPrisma } from '@/lib/prisma'
 import { apiLogger } from '@/lib/logger'
 import { captureError } from '@/lib/observability/sentry'
-import { getSeedByKey } from '@/lib/templates/catalogue'
 
 export const MIN_CALIBRATION_ORGS = 3
 
@@ -33,15 +32,19 @@ export function effectiveTemplateEstimate(
   return calibration?.medianMinutes ?? shippedDefault ?? 30
 }
 
+/**
+ * Callers pass ONLY human-edited links (estimateEdited: true). Provenance —
+ * not value comparison — decides what counts: a provision seeded with a
+ * calibrated median is NOT an edit (that comparison-based rule created a
+ * self-reinforcing loop), while a human re-confirming the shipped default IS
+ * a signal and keeps its weight in the median.
+ */
 export function selectEstimateCalibrations(
   links: EstimateEdit[],
-  shippedDefaults: ReadonlyMap<string, number>,
   minOrgs = MIN_CALIBRATION_ORGS,
 ): EstimateCalibration[] {
   const grouped = new Map<string, EstimateEdit[]>()
   for (const link of links) {
-    const shippedDefault = shippedDefaults.get(link.seedKey)
-    if (shippedDefault === undefined || link.estimatedMinutesSavedPerRun === shippedDefault) continue
     const group = grouped.get(link.seedKey) ?? []
     group.push(link)
     grouped.set(link.seedKey, group)
@@ -69,21 +72,16 @@ export async function calibrateTemplateEstimates(
 ): Promise<{ calibrations: number } | { skipped: string }> {
   try {
     const links = await db.goalContribution.findMany({
-      where: { seedKey: { not: null } },
+      // Provenance filter: only rows a human actually edited participate.
+      where: { seedKey: { not: null }, estimateEdited: true },
       select: {
         seedKey: true,
         organizationId: true,
         estimatedMinutesSavedPerRun: true,
       },
+      orderBy: { createdAt: 'desc' },
       take: 10_000,
     })
-    const seedKeys = [...new Set(links.flatMap((link) => (link.seedKey ? [link.seedKey] : [])))]
-    const shippedDefaults = new Map(
-      seedKeys.flatMap((seedKey) => {
-        const seed = getSeedByKey(seedKey)
-        return seed ? [[seedKey, seed.estimatedMinutesSaved ?? 30] as const] : []
-      }),
-    )
     const rows = selectEstimateCalibrations(
       links.flatMap((link) =>
         link.seedKey
@@ -94,7 +92,6 @@ export async function calibrateTemplateEstimates(
             }]
           : [],
       ),
-      shippedDefaults,
     )
     for (const row of rows) {
       await db.templateEstimateCalibration.upsert({

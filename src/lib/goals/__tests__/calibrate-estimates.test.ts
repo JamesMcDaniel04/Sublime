@@ -19,29 +19,25 @@ test('new links consume calibration without rewriting the shipped fallback', () 
   assert.equal(effectiveTemplateEstimate(undefined, null), 30)
 })
 
-test('calibration applies the distinct-org floor and ignores shipped defaults', () => {
-  const defaults = new Map([['weekly-brief', 30]])
-  const below = selectEstimateCalibrations(
-    [
-      { seedKey: 'weekly-brief', organizationId: 'a', estimatedMinutesSavedPerRun: 40 },
-      { seedKey: 'weekly-brief', organizationId: 'b', estimatedMinutesSavedPerRun: 50 },
-      { seedKey: 'weekly-brief', organizationId: 'c', estimatedMinutesSavedPerRun: 30 },
-    ],
-    defaults,
-  )
+test('calibration applies the distinct-org floor over human-edited links only', () => {
+  // Callers pass provenance-filtered rows (estimateEdited: true) — the
+  // function itself no longer compares against shipped defaults, so a human
+  // re-confirming the default (org c, 30) still counts as a signal, while
+  // provision-time calibrated values never reach this function at all.
+  const below = selectEstimateCalibrations([
+    { seedKey: 'weekly-brief', organizationId: 'a', estimatedMinutesSavedPerRun: 40 },
+    { seedKey: 'weekly-brief', organizationId: 'b', estimatedMinutesSavedPerRun: 50 },
+  ])
   assert.deepEqual(below, [])
 
-  const qualified = selectEstimateCalibrations(
-    [
-      { seedKey: 'weekly-brief', organizationId: 'a', estimatedMinutesSavedPerRun: 40 },
-      { seedKey: 'weekly-brief', organizationId: 'b', estimatedMinutesSavedPerRun: 50 },
-      { seedKey: 'weekly-brief', organizationId: 'c', estimatedMinutesSavedPerRun: 60 },
-      { seedKey: 'weekly-brief', organizationId: 'd', estimatedMinutesSavedPerRun: 30 },
-    ],
-    defaults,
-  )
+  const qualified = selectEstimateCalibrations([
+    { seedKey: 'weekly-brief', organizationId: 'a', estimatedMinutesSavedPerRun: 40 },
+    { seedKey: 'weekly-brief', organizationId: 'b', estimatedMinutesSavedPerRun: 50 },
+    { seedKey: 'weekly-brief', organizationId: 'b', estimatedMinutesSavedPerRun: 60 },
+    { seedKey: 'weekly-brief', organizationId: 'c', estimatedMinutesSavedPerRun: 30 },
+  ])
   assert.deepEqual(qualified, [
-    { seedKey: 'weekly-brief', medianMinutes: 50, orgCount: 3 },
+    { seedKey: 'weekly-brief', medianMinutes: 45, orgCount: 3 },
   ])
 })
 

@@ -1333,6 +1333,10 @@ model GoalContribution {
   origin                      String // 'suggestion' | 'manual'
   seedKey                     String?
   estimatedMinutesSavedPerRun Int      @default(30)
+  /// True ONLY when a human changed the estimate (PATCH contributions).
+  /// Calibration counts exactly these rows — provision-time calibrated
+  /// defaults must never feed back into the median (self-reinforcement).
+  estimateEdited              Boolean  @default(false)
   createdAt                   DateTime @default(now()) @db.Timestamptz(6)
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
@@ -1340,6 +1344,7 @@ model GoalContribution {
 
   @@unique([goalId, resourceType, resourceId])
   @@index([organizationId, goalId])
+  @@index([seedKey])
   @@map("goal_contributions")
 }
 
