@@ -2,11 +2,13 @@ import type { MetricSource } from './types'
 import { stripeMetricSource } from './sources/stripe'
 import { hubspotMetricSource } from './sources/hubspot'
 import { salesforceMetricSource } from './sources/salesforce'
+import { googleSheetsMetricSource } from './sources/google-sheets'
 
 const SOURCES: Record<string, MetricSource> = {
   [stripeMetricSource.source]: stripeMetricSource,
   [hubspotMetricSource.source]: hubspotMetricSource,
   [salesforceMetricSource.source]: salesforceMetricSource,
+  [googleSheetsMetricSource.source]: googleSheetsMetricSource,
 }
 
 export function getMetricSource(source: string): MetricSource | null {
