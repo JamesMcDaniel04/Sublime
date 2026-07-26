@@ -1,36 +1,15 @@
 'use client'
 
-import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { Target } from 'lucide-react'
-import { getCachedJson } from '@/lib/client/use-cached-json'
 import type { GoalSummary } from '@/lib/types'
 import { GoalProgressBar, RiskBadge } from './goal-viz'
 
-export function GoalStatusStrip() {
-  const [goals, setGoals] = useState<GoalSummary[] | null>(null)
-
-  useEffect(() => {
-    let cancelled = false
-    getCachedJson<{ goals?: GoalSummary[] }>('/api/goals', 60_000)
-      .then((data) => {
-        if (!cancelled) {
-          setGoals(
-            (data.goals ?? [])
-              .filter((goal) => !goal.personal && goal.status === 'active')
-              .slice(0, 3),
-          )
-        }
-      })
-      .catch(() => {
-        if (!cancelled) setGoals([])
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [])
-
-  if (!goals?.length) return null
+export function GoalStatusStrip({ goals }: { readonly goals: GoalSummary[] | null }) {
+  const visible = (goals ?? [])
+    .filter((goal) => !goal.personal && goal.status === 'active')
+    .slice(0, 3)
+  if (!visible.length) return null
 
   return (
     <div className="mb-4 rounded-2xl border bg-card p-3 shadow-1">
@@ -41,7 +20,7 @@ export function GoalStatusStrip() {
         </p>
       </div>
       <div className="grid gap-1 sm:grid-cols-3">
-        {goals.map((goal) => (
+        {visible.map((goal) => (
           <Link
             key={goal.id}
             href={`/goals/${goal.id}`}

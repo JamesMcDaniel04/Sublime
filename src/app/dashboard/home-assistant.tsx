@@ -16,6 +16,7 @@ import {
   Paperclip,
   Play,
   Plus,
+  Target,
   X,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -25,6 +26,10 @@ import { LearningProgressCard } from '@/components/intelligence/learning-progres
 import { GoalStatusStrip } from '@/components/goals/goal-status-strip'
 import { useAuth } from '@/hooks/use-auth'
 import { cn } from '@/lib/utils'
+import { getCachedJson } from '@/lib/client/use-cached-json'
+import type { GoalSummary } from '@/lib/types'
+import type { OrgImpact } from '@/components/goals/impact-strip'
+import { goalPresets, impactSentence } from '@/lib/goals/dashboard-copy'
 
 /**
  * Home — the workspace-level assistant. A Claude/ChatGPT-style chat surface:
@@ -216,6 +221,27 @@ export function HomeAssistant() {
   // visitor's local clock.
   const [salutation, setSalutation] = useState('Welcome back')
   useEffect(() => setSalutation(salutationForHour(new Date().getHours())), [])
+  // Goals drive the empty-state hero: strip, chips, and the no-goals CTA.
+  const [goals, setGoals] = useState<GoalSummary[] | null>(null)
+  const [impact, setImpact] = useState<OrgImpact | null>(null)
+  useEffect(() => {
+    let cancelled = false
+    getCachedJson<{ goals?: GoalSummary[] }>('/api/goals', 60_000)
+      .then((data) => {
+        if (!cancelled) setGoals(data.goals ?? [])
+      })
+      .catch(() => {
+        if (!cancelled) setGoals([])
+      })
+    getCachedJson<{ impact?: OrgImpact }>('/api/goals/impact', 60_000)
+      .then((data) => {
+        if (!cancelled) setImpact(data.impact ?? null)
+      })
+      .catch(() => undefined)
+    return () => {
+      cancelled = true
+    }
+  }, [])
   const scrollRef = useRef<HTMLDivElement>(null)
   const historyRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -399,7 +425,7 @@ export function HomeAssistant() {
     }
   }
 
-  const applyPreset = (preset: (typeof PRESETS)[number]) => {
+  const applyPreset = (preset: { prompt: string; sendNow: boolean }) => {
     if (preset.sendNow) {
       void send(preset.prompt)
       return
@@ -519,6 +545,11 @@ export function HomeAssistant() {
     </div>
   )
 
+  const goalChips = goals ? goalPresets(goals) : null
+  const chips = goalChips ? goalChips.map((preset) => ({ ...preset, icon: Target })) : PRESETS
+  const hasGoals = Boolean(goals?.some((goal) => !goal.personal && goal.status === 'active'))
+  const proofLine = impactSentence(impact)
+
   return (
     <div className="flex h-screen min-h-0 flex-col bg-background">
       {/* Header: new chat + history, mirroring the per-agent panel. */}
@@ -584,20 +615,38 @@ export function HomeAssistant() {
         /* Hero: greeting + composer + presets, vertically centered. */
         <div className="flex min-h-0 flex-1 items-center justify-center p-4">
           <div className="w-full max-w-4xl">
+            <GoalStatusStrip goals={goals} />
+            {hasGoals && proofLine && (
+              <p className="mb-4 text-center text-sm text-muted-foreground">{proofLine}</p>
+            )}
             <p className="eyebrow text-center">
               <span className="text-indigo-400">{'///'}</span> {salutation}
               {user?.firstName ? `, ${user.firstName}` : ''}
             </p>
-            <div className="mt-2">
-              <TypedHeadline phrases={HEADLINE_CTAS} />
-            </div>
+            {goals !== null && !hasGoals ? (
+              <div className="mt-2 text-center">
+                <h1 className="text-2xl font-semibold tracking-tight">
+                  What are you trying to achieve this quarter?
+                </h1>
+                <p className="mx-auto mt-2 max-w-md text-sm text-muted-foreground">
+                  Set a goal — quota, ARR, a launch date — and Sublime deploys specialized
+                  agents against it.
+                </p>
+                <Button className="mt-4" onClick={() => router.push('/goals/new')}>
+                  <Target className="mr-1.5 h-4 w-4" /> Set your first goal
+                </Button>
+              </div>
+            ) : (
+              <div className="mt-2">
+                <TypedHeadline phrases={HEADLINE_CTAS} />
+              </div>
+            )}
             <div className="mt-6">
               <LearningProgressCard />
-              <GoalStatusStrip />
               {composer}
             </div>
             <div className="mt-4 flex flex-wrap justify-center gap-2">
-              {PRESETS.map((preset) => (
+              {chips.map((preset) => (
                 <button
                   key={preset.label}
                   type="button"
