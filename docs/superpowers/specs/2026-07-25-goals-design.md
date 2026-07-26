@@ -30,7 +30,9 @@ subsystem has: declared intent, not inferred intent.
 4. **Architecture: goal spine + metric subsystem** — first-class `Goal` /
    `GoalMetric` / `MetricDatapoint` models, a `src/lib/metrics/` connector registry
    modeled on the `ActivitySource` pattern, evaluation as pure math on the cron
-   tick, recommendations emitted into `UserSuggestion` / `AgentMemory`.
+   tick, and transition-gated recommendations emitted as `goal_action`
+   `UserSuggestion` rows. Org-goal suggestions address the creator and notify the
+   organization; they do not use agent-scoped `AgentMemory`.
 5. **Proof layer** — the product claim is *"the only AI that can prove ROI from
    day 1."* Attribution is captured at the moment of adoption (accepting a
    goal-sourced suggestion links the provisioned automation to the goal), and the
