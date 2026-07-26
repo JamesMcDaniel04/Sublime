@@ -337,8 +337,13 @@ export function GoalTrendChart({
           fill="transparent"
           onMouseMove={(event) => {
             if (sorted.length === 0) return
+            // The rect spans only the plot area, so its client width maps to
+            // the plot's SVG width — offsetting from chart.left, not 0.
             const bounds = event.currentTarget.getBoundingClientRect()
-            const svgX = ((event.clientX - bounds.left) / bounds.width) * chart.width
+            const svgX =
+              chart.left +
+              ((event.clientX - bounds.left) / bounds.width) *
+                (chart.width - chart.left - chart.right)
             let nearest = 0
             let distance = Number.POSITIVE_INFINITY
             sorted.forEach((point, index) => {
@@ -365,6 +370,13 @@ export function GoalTrendChart({
           <div className="text-muted-foreground">
             {new Date(hover.capturedAt).toLocaleDateString()}
           </div>
+          {markers
+            .filter((marker) => Math.abs(chart.x(Date.parse(marker.at)) - hoverX) < 14)
+            .map((marker) => (
+              <div key={`${marker.at}-${marker.label}`} className="mt-1 text-muted-foreground">
+                ▲ {marker.label}
+              </div>
+            ))}
         </div>
       )}
     </div>

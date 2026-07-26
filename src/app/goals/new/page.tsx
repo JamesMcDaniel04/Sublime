@@ -112,13 +112,23 @@ export default function NewGoalPage() {
     const selectable = source.source === 'manual' || source.connections.length > 0
     if (!selectable) return
     const firstMetric = source.metrics[0]
+    // A metric reports in its own unit. If that contradicts the unit the
+    // target was entered under, silently reinterpreting the number would lie
+    // (0.12 "percent" is not 0.12 USD) — clear the target and say so.
+    const unitChanged = firstMetric !== undefined && firstMetric.unit !== state.unit
     setState((current) => ({
       ...current,
       source: source.source,
       metricKey: firstMetric?.key ?? (source.source === 'manual' ? 'manual.value' : ''),
       connectionRef: source.connections.length === 1 ? source.connections[0].ref : '',
       ...(firstMetric ? { unit: firstMetric.unit } : {}),
+      ...(unitChanged ? { targetValue: '' } : {}),
     }))
+    if (unitChanged) {
+      toast.info(
+        `This metric reports in ${firstMetric.unit === 'usd' ? 'USD' : firstMetric.unit} — re-enter your target in step 1.`,
+      )
+    }
     setPreview({ status: 'idle' })
   }
 
@@ -191,6 +201,8 @@ export default function NewGoalPage() {
   }, [preview.status, runPreview, state.source, step])
 
   const create = async () => {
+    // Number('') is 0 — an empty baseline must not silently become one.
+    if (state.startValue.trim() === '') return toast.error('Enter a baseline value.')
     const startValue = Number(state.startValue)
     const targetValue = Number(state.targetValue)
     if (!Number.isFinite(startValue)) return toast.error('Enter a valid baseline.')
@@ -596,6 +608,7 @@ export default function NewGoalPage() {
             onClick={create}
             disabled={
               creating ||
+              state.startValue.trim() === '' ||
               !Number.isFinite(Number(state.startValue)) ||
               (state.source !== 'manual' && preview.status !== 'success')
             }

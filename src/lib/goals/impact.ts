@@ -9,6 +9,7 @@ export interface ImpactTiers {
     aiCostUsd: number
     roiMultiple: number | null
     hourlyRateUsd: number
+    aiCostPerMTokensUsd: number
   }
   correlated: { paceDeltaPct: number | null }
 }
@@ -43,6 +44,7 @@ export function computeImpact(inputs: {
       aiCostUsd,
       roiMultiple,
       hourlyRateUsd: inputs.hourlyRateUsd,
+      aiCostPerMTokensUsd: inputs.aiCostPerMTokensUsd,
     },
     correlated: { paceDeltaPct },
   }
@@ -201,10 +203,14 @@ export async function goalImpact(
 
 export async function orgImpact(
   organizationId: string,
+  viewerUserId: string,
 ): Promise<ImpactTiers & { goalsTracked: number; contributionsLinked: number }> {
+  // Same visibility rule as every goals read: org goals plus the viewer's own
+  // personal goals — other users' personal goals stay out of the aggregates.
+  const visibleGoal = { OR: [{ ownerUserId: null }, { ownerUserId: viewerUserId }] }
   const [contributions, goalsTracked, settings] = await Promise.all([
     prisma.goalContribution.findMany({
-      where: { organizationId },
+      where: { organizationId, goal: visibleGoal },
       select: {
         resourceType: true,
         resourceId: true,
@@ -212,7 +218,7 @@ export async function orgImpact(
         createdAt: true,
       },
     }),
-    prisma.goal.count({ where: { organizationId, status: { not: 'archived' } } }),
+    prisma.goal.count({ where: { organizationId, status: { not: 'archived' }, ...visibleGoal } }),
     settingsFor(organizationId),
   ])
   const stats = await contributionStats(organizationId, contributions)

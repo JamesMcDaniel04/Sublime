@@ -154,8 +154,9 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
         })
   if (!exists) throw new ApiError('Automation not found', 404, 'RESOURCE_NOT_FOUND')
 
+  let contribution: { id: string }
   try {
-    const contribution = await prisma.goalContribution.create({
+    contribution = await prisma.goalContribution.create({
       data: {
         organizationId: auth.organizationId,
         goalId,
@@ -166,28 +167,30 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
       },
       select: { id: true },
     })
-    await recordUserEvent({
-      organizationId: auth.organizationId,
-      userId: auth.dbUser.id,
-      kind: 'goal_contribution_linked',
-      resourceType: input.resourceType,
-      resourceId: input.resourceId,
-      context: { goalId, origin: 'manual' },
-    })
-    return { success: true, contribution }
   } catch (error) {
+    // Only the create's unique violation means "already linked" — the event
+    // write below must never be misreported as a duplicate.
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
       throw new ApiError('Already linked', 409, 'DUPLICATE_LINK')
     }
     throw error
   }
+  await recordUserEvent({
+    organizationId: auth.organizationId,
+    userId: auth.dbUser.id,
+    kind: 'goal_contribution_linked',
+    resourceType: input.resourceType,
+    resourceId: input.resourceId,
+    context: { goalId, origin: 'manual' },
+  })
+  return { success: true, contribution }
 })
 
 export const DELETE = withAuthenticatedApi(async (request, auth) => {
   const goalId = goalIdFrom(request.nextUrl.pathname)
   await requireGoal(auth.organizationId, auth.dbUser.id, goalId)
   const contributionId = request.nextUrl.searchParams.get('contributionId') ?? ''
-  if (!contributionId) throw new ApiError('Contribution id is required')
+  if (!contributionId) throw new ApiError('Contribution id is required', 400, 'MISSING_CONTRIBUTION_ID')
   const deleted = await prisma.goalContribution.deleteMany({
     where: {
       id: contributionId,

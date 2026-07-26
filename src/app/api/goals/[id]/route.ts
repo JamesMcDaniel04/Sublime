@@ -16,6 +16,9 @@ const patchSchema = z
     status: z.enum(['active', 'paused', 'achieved', 'missed']).optional(),
   })
   .refine((body) => Object.keys(body).length > 0, { message: 'No changes supplied.' })
+  .refine((body) => body.targetDate === undefined || body.targetDate.getTime() > Date.now(), {
+    message: 'Target date must be in the future.',
+  })
 
 const idFrom = (pathname: string) => decodeURIComponent(pathname.split('/').at(-1) ?? '')
 const visibleWhere = (organizationId: string, userId: string, id: string) => ({
@@ -30,6 +33,8 @@ export const GET = withAuthenticatedApi(async (request, auth) => {
     where: visibleWhere(auth.organizationId, auth.dbUser.id, id),
     include: {
       metrics: {
+        orderBy: { createdAt: 'asc' },
+        take: 1,
         include: {
           datapoints: {
             orderBy: { capturedAt: 'desc' },
@@ -50,11 +55,14 @@ export const GET = withAuthenticatedApi(async (request, auth) => {
     new Date(),
     2 * (metric?.refreshIntervalHours ?? 24) * HOUR_MS,
   )
+  // Deliberately NOT visibility-filtered: teammates' personal goals that
+  // support this org goal appear counted-but-anonymized (masked below) —
+  // "count it, never name it", same k-anon spirit as peer practices.
   const children = await prisma.goal.findMany({
     where: {
       organizationId: auth.organizationId,
       parentGoalId: id,
-      OR: [{ ownerUserId: null }, { ownerUserId: auth.dbUser.id }],
+      status: { not: 'archived' },
     },
     select: { id: true, name: true, riskLevel: true, ownerUserId: true },
   })
@@ -124,7 +132,10 @@ export const PATCH = withAuthenticatedApi(async (request, auth) => {
     where: { id: goal.id, organizationId: auth.organizationId },
     data: input,
   })
-  if (input.targetValue !== undefined || input.targetDate !== undefined) {
+  // Re-evaluate when the target moved or the goal was un-paused — the cron
+  // sweep skips paused goals, so without this the badge stays stale until the
+  // next tick after resume.
+  if (input.targetValue !== undefined || input.targetDate !== undefined || input.status === 'active') {
     await evaluateAndPersistGoal(goal.id, auth.organizationId)
   }
   return { success: true }

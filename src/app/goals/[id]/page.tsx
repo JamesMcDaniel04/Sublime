@@ -31,7 +31,7 @@ import { ContributionPanel, type Contribution } from '@/components/goals/contrib
 import { fmtValue } from '@/components/goals/chart-math'
 import { GoalTrendChart, RiskBadge } from '@/components/goals/goal-viz'
 import type { GoalSummary } from '@/lib/types'
-import type { OrgImpact } from '@/components/goals/impact-strip'
+import type { ImpactTiers } from '@/components/goals/impact-strip'
 
 type Datapoint = {
   id: string
@@ -56,7 +56,7 @@ type Loaded = {
   goal: Detail
   datapoints: Datapoint[]
   contributions: Contribution[]
-  impact: OrgImpact
+  impact: ImpactTiers
 }
 
 export default function GoalDetailPage() {
@@ -283,9 +283,17 @@ export default function GoalDetailPage() {
           <ImpactFigure tier="Estimated" value={impact.estimated.roiMultiple === null ? '—' : `${impact.estimated.roiMultiple.toFixed(1)}×`} label="ROI on AI cost" />
         </div>
         {impact.correlated.paceDeltaPct !== null && (
-          <p className="mt-4 text-sm font-medium text-success">
-            Closing the gap {Math.abs(impact.correlated.paceDeltaPct).toFixed(0)}% faster
-            since AI started helping.
+          // Signed: negative means pace SLOWED after linking — reporting that
+          // as an improvement would falsify the proof layer's honesty rule.
+          <p
+            className={`mt-4 text-sm font-medium ${impact.correlated.paceDeltaPct >= 0 ? 'text-success' : 'text-warning'}`}
+          >
+            {impact.correlated.paceDeltaPct >= 0
+              ? `Closing the gap ${impact.correlated.paceDeltaPct.toFixed(0)}% faster since AI started helping.`
+              : `Pace is ${Math.abs(impact.correlated.paceDeltaPct).toFixed(0)}% slower since automations were linked — worth a look.`}
+            <span className="ml-2 text-xs font-normal uppercase tracking-wide text-muted-foreground">
+              correlation
+            </span>
           </p>
         )}
       </Card>
@@ -359,13 +367,21 @@ export default function GoalDetailPage() {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {[...datapoints].reverse().map((point) => (
-              <TableRow key={point.id}>
-                <TableCell>{new Date(point.capturedAt).toLocaleDateString()}</TableCell>
-                <TableCell className="font-mono">{fmtValue(point.value, goal.unit)}</TableCell>
-                <TableCell><Badge variant="outline">{point.origin}</Badge></TableCell>
+            {datapoints.length === 0 ? (
+              <TableRow>
+                <TableCell colSpan={3} className="text-sm text-muted-foreground">
+                  No readings yet — record one or wait for the next sync.
+                </TableCell>
               </TableRow>
-            ))}
+            ) : (
+              [...datapoints].reverse().map((point) => (
+                <TableRow key={point.id}>
+                  <TableCell>{new Date(point.capturedAt).toLocaleDateString()}</TableCell>
+                  <TableCell className="font-mono">{fmtValue(point.value, goal.unit)}</TableCell>
+                  <TableCell><Badge variant="outline">{point.origin}</Badge></TableCell>
+                </TableRow>
+              ))
+            )}
           </TableBody>
         </Table>
       </Card>

@@ -65,6 +65,8 @@ export const GET = withAuthenticatedApi(async (_request, auth) => {
     orderBy: [{ ownerUserId: 'asc' }, { createdAt: 'desc' }],
     include: {
       metrics: {
+        orderBy: { createdAt: 'asc' },
+        take: 1,
         select: {
           source: true,
           metricKey: true,

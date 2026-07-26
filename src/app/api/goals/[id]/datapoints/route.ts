@@ -19,7 +19,7 @@ async function visibleGoal(
       organizationId,
       OR: [{ ownerUserId: null }, { ownerUserId: userId }],
     },
-    include: { metrics: { select: { id: true }, take: 1 } },
+    include: { metrics: { select: { id: true }, orderBy: { createdAt: 'asc' as const }, take: 1 } },
   })
   if (!goal) throw new ApiError('Goal not found', 404, 'GOAL_NOT_FOUND')
   const metric = goal.metrics[0]
@@ -30,13 +30,15 @@ async function visibleGoal(
 export const GET = withAuthenticatedApi(async (request, auth) => {
   const goalId = idFrom(request.nextUrl.pathname)
   const metric = await visibleGoal(auth.organizationId, auth.dbUser.id, goalId)
-  const datapoints = await prisma.metricDatapoint.findMany({
+  // Newest 400, then ascending for the chart — oldest-first take would pin a
+  // long-lived goal's chart to its earliest window.
+  const descending = await prisma.metricDatapoint.findMany({
     where: { organizationId: auth.organizationId, goalMetricId: metric.id },
-    orderBy: { capturedAt: 'asc' },
+    orderBy: { capturedAt: 'desc' },
     take: 400,
     select: { id: true, value: true, capturedAt: true, origin: true },
   })
-  return { success: true, datapoints }
+  return { success: true, datapoints: descending.reverse() }
 })
 
 export const POST = withAuthenticatedApi(async (request, auth) => {

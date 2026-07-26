@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { Prisma } from '@prisma/client'
 import { prisma, systemPrisma } from '@/lib/prisma'
 import { DEFAULT_AGENT_MODEL } from '@/lib/llm/model-runner'
 import { ApiError, withAuthenticatedApi } from '@/lib/server/api-handler'
@@ -262,6 +263,34 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
     resourceType: 'agent' | 'flow',
     resourceId: string,
   ): Promise<void> => {
+    // The suggestion flip must NOT depend on attribution succeeding: the
+    // client skips the normal accept POST on this path, so a goal that was
+    // archived (or otherwise not visible) between emission and accept would
+    // otherwise leave the suggestion open forever — and an open goal_action
+    // suggestion permanently mutes that goal's future recommendations.
+    if (suggestionId) {
+      const accepted = await prisma.userSuggestion.updateMany({
+        where: {
+          id: suggestionId,
+          organizationId,
+          userId,
+          kind: 'goal_action',
+          status: 'open',
+        },
+        data: { status: 'accepted' },
+      })
+      if (accepted.count > 0) {
+        await recordUserEvent({
+          organizationId,
+          userId,
+          kind: 'suggestion_accepted',
+          resourceType: 'suggestion',
+          resourceId: suggestionId,
+          context: { goalId: goalId ?? null },
+        })
+      }
+    }
+
     if (!goalId) return
     const goal = await prisma.goal.findFirst({
       where: {
@@ -273,8 +302,12 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
     })
     if (!goal) return
 
-    await prisma.goalContribution
-      .create({
+    // Duplicate link (re-deploy) keeps the original createdAt; only P2002 is
+    // expected here — anything else should surface, and the 'linked' event
+    // fires only when a row was actually created.
+    let linked = false
+    try {
+      await prisma.goalContribution.create({
         data: {
           organizationId,
           goalId: goal.id,
@@ -284,39 +317,19 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
           estimatedMinutesSavedPerRun: seed?.estimatedMinutesSaved ?? 30,
         },
       })
-      .catch(() => undefined)
-    await recordUserEvent({
-      organizationId,
-      userId,
-      kind: 'goal_contribution_linked',
-      resourceType,
-      resourceId,
-      context: { goalId: goal.id, origin: suggestionId ? 'suggestion' : 'manual' },
-    })
-
-    if (suggestionId) {
-      const accepted = await prisma.userSuggestion.updateMany({
-        where: {
-          id: suggestionId,
-          organizationId,
-          userId,
-          kind: 'goal_action',
-          status: 'open',
-          targetType: 'goal',
-          targetId: goal.id,
-        },
-        data: { status: 'accepted' },
+      linked = true
+    } catch (error) {
+      if (!(error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002')) throw error
+    }
+    if (linked) {
+      await recordUserEvent({
+        organizationId,
+        userId,
+        kind: 'goal_contribution_linked',
+        resourceType,
+        resourceId,
+        context: { goalId: goal.id, origin: suggestionId ? 'suggestion' : 'manual' },
       })
-      if (accepted.count > 0) {
-        await recordUserEvent({
-          organizationId,
-          userId,
-          kind: 'suggestion_accepted',
-          resourceType: 'suggestion',
-          resourceId: suggestionId,
-          context: { goalId: goal.id },
-        })
-      }
     }
   }
 

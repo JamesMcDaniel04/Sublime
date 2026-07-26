@@ -62,9 +62,12 @@ export const GET = withAuthenticatedApi(async (_request, auth) => {
 
   const source = (name: string) => ({
     source: name,
+    // The manual descriptor belongs ONLY to the manual source — a registry
+    // gap for a connector source must yield no metrics, not a mislabeled one.
     metrics:
-      getMetricSource(name)?.availableMetrics('custom_kpi') ??
-      [{ key: 'manual.value', label: 'Manually recorded value', unit: 'usd' as const }],
+      name === 'manual'
+        ? [{ key: 'manual.value', label: 'Manually recorded value', unit: 'usd' as const }]
+        : (getMetricSource(name)?.availableMetrics('custom_kpi') ?? []),
     connections:
       name === 'stripe'
         ? credentials.map((credential) => ({

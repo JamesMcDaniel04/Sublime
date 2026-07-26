@@ -79,7 +79,7 @@ export default function GoalsPage() {
 
       {state && (
         <>
-          <ImpactStrip impact={state.impact} onSaved={load} />
+          {state.goals.length > 0 && <ImpactStrip impact={state.impact} onSaved={load} />}
           {state.goals.length === 0 ? (
             <EmptyState
               icon={Target}

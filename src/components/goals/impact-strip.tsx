@@ -15,7 +15,7 @@ import {
 import { Input } from '@/components/ui/input'
 import { StatTile } from '@/components/ui/stat-tile'
 
-export type OrgImpact = {
+export type ImpactTiers = {
   measured: { runsCompleted: number; tokens: number }
   estimated: {
     hoursSaved: number
@@ -23,8 +23,12 @@ export type OrgImpact = {
     aiCostUsd: number
     roiMultiple: number | null
     hourlyRateUsd: number
+    aiCostPerMTokensUsd: number
   }
   correlated: { paceDeltaPct: number | null }
+}
+
+export type OrgImpact = ImpactTiers & {
   goalsTracked: number
   contributionsLinked: number
 }
@@ -39,13 +43,7 @@ export function ImpactStrip({
   const [open, setOpen] = useState(false)
   const [saving, setSaving] = useState(false)
   const [hourlyRate, setHourlyRate] = useState(String(impact.estimated.hourlyRateUsd))
-  const [aiCost, setAiCost] = useState(
-    impact.measured.tokens > 0
-      ? String(
-          (impact.estimated.aiCostUsd / (impact.measured.tokens / 1_000_000)).toFixed(2),
-        )
-      : '10',
-  )
+  const [aiCost, setAiCost] = useState(String(impact.estimated.aiCostPerMTokensUsd))
 
   const save = async () => {
     setSaving(true)
