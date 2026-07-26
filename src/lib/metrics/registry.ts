@@ -4,6 +4,9 @@ import { hubspotMetricSource } from './sources/hubspot'
 import { salesforceMetricSource } from './sources/salesforce'
 import { googleSheetsMetricSource } from './sources/google-sheets'
 import { postgresMetricSource } from './sources/postgres'
+import { urlMetricSource } from './sources/url'
+import { slackAssistedMetricSource } from './sources/slack-assisted'
+import { gmailAssistedMetricSource } from './sources/gmail-assisted'
 
 const SOURCES: Record<string, MetricSource> = {
   [stripeMetricSource.source]: stripeMetricSource,
@@ -11,6 +14,9 @@ const SOURCES: Record<string, MetricSource> = {
   [salesforceMetricSource.source]: salesforceMetricSource,
   [googleSheetsMetricSource.source]: googleSheetsMetricSource,
   [postgresMetricSource.source]: postgresMetricSource,
+  [urlMetricSource.source]: urlMetricSource,
+  [slackAssistedMetricSource.source]: slackAssistedMetricSource,
+  [gmailAssistedMetricSource.source]: gmailAssistedMetricSource,
 }
 
 export function getMetricSource(source: string): MetricSource | null {
