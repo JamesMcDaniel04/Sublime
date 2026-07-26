@@ -249,6 +249,7 @@ const BASE_SEED_CATALOGUE: SeedTemplate[] = [
     description: 'Monday morning: rolls up HubSpot campaign and funnel metrics for the week, appends them to a Google Sheet, and posts a highlights digest to Slack.',
     departments: ['marketing'], requiredIntegrations: ['hubspot', 'google_sheets'], recommendedIntegrations: ['slack'],
     kind: 'flow', icon: '📊',
+    goalKinds: ['lead_gen', 'revenue'], estimatedMinutesSaved: 35,
     trigger: schedule('0 13 * * 1'),
     agents: [{
       ref: 'mkt-analyst', title: 'Marketing Performance Analyst',
