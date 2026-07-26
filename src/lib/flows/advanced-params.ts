@@ -1,9 +1,15 @@
 import type { FlowNode } from '@/lib/flows/graph'
 
 /**
- * The single source of truth for which optional "advanced" parameters each
- * node type supports. Powers the MS-style "Advanced parameters — Showing N of
- * M" section on step cards and in the settings drawer.
+ * Which optional "advanced" parameters each node type supports, for the
+ * "Advanced parameters — Showing N of M" section on step cards and in the
+ * settings drawer.
+ *
+ * NOT the http node: it uses the n8n-style Options / Add option panel in
+ * components/flows/nodes/http-options instead. Listing http here again would
+ * resurrect the bug that motivated the split — two panels editing `bodyMode`
+ * with different option sets, where touching the advanced one silently
+ * rewrote a GraphQL body to JSON.
  */
 export type AdvancedParamKey =
   | 'onError'
@@ -27,7 +33,6 @@ export type AdvancedParamKey =
 const BY_TYPE: Partial<Record<FlowNode['type'], AdvancedParamKey[]>> = {
   agent: ['includeUpstream', 'onError', 'retries', 'timeoutMs', 'disabled', 'mockOutput'],
   tool: ['excludeFromContext', 'onError', 'retries', 'timeoutMs', 'disabled', 'mockOutput'],
-  http: ['excludeFromContext', 'bodyMode', 'responseType', 'failOnHttpError', 'onError', 'retries', 'retryDelayMs', 'timeoutMs', 'followRedirects', 'maxRedirects', 'queryArrayFormat', 'disabled', 'mockOutput'],
   loop: ['concurrency'],
 }
 

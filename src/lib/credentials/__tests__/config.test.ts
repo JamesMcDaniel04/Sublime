@@ -197,7 +197,7 @@ test('a re-typed custom value replaces the stored one', async () => {
 })
 
 test('a new entry with no value is not stored as a blank secret', async () => {
-  const { buildCredentialConfig, mergeCredentialConfig, decryptCredentialConfig } = await fresh()
+  const { buildCredentialConfig, decryptCredentialConfig } = await fresh()
   const config = buildCredentialConfig({
     type: 'custom',
     headers: [{ name: 'X-Filled', value: 'a' }, { name: 'X-Empty' }],
