@@ -26,6 +26,13 @@ export function medianMinutes(values: number[]): number | null {
     : Math.round((sorted[middle - 1] + sorted[middle]) / 2)
 }
 
+export function effectiveTemplateEstimate(
+  shippedDefault: number | null | undefined,
+  calibration: { medianMinutes: number } | null,
+): number {
+  return calibration?.medianMinutes ?? shippedDefault ?? 30
+}
+
 export function selectEstimateCalibrations(
   links: EstimateEdit[],
   shippedDefaults: ReadonlyMap<string, number>,

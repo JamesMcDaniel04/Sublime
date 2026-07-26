@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import {
   medianMinutes,
+  effectiveTemplateEstimate,
   selectEstimateCalibrations,
   shouldRunEstimateCalibration,
 } from '@/lib/goals/calibrate-estimates'
@@ -10,6 +11,12 @@ test('median handles odd values and even ties deterministically', () => {
   assert.equal(medianMinutes([45, 15, 30]), 30)
   assert.equal(medianMinutes([10, 20, 30, 40]), 25)
   assert.equal(medianMinutes([]), null)
+})
+
+test('new links consume calibration without rewriting the shipped fallback', () => {
+  assert.equal(effectiveTemplateEstimate(30, { medianMinutes: 52 }), 52)
+  assert.equal(effectiveTemplateEstimate(30, null), 30)
+  assert.equal(effectiveTemplateEstimate(undefined, null), 30)
 })
 
 test('calibration applies the distinct-org floor and ignores shipped defaults', () => {

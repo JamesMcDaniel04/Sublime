@@ -16,6 +16,7 @@ import type { FlowGraph } from '@/lib/flows/graph'
 import { withTemplateOutputStandard } from '@/lib/templates/output-standard'
 import { assertAgentCapacity, assertFlowCapacity, assertSpecialistAreaCapacity } from '@/lib/billing/enforce'
 import { DEPARTMENTS, departmentsForTools, type Department } from '@/lib/templates/departments'
+import { effectiveTemplateEstimate } from '@/lib/goals/calibrate-estimates'
 
 const bodySchema = z
   .object({
@@ -321,8 +322,10 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
           resourceId,
           origin: suggestionId ? 'suggestion' : 'manual',
           seedKey: seed?.seedKey ?? null,
-          estimatedMinutesSavedPerRun:
-            estimateCalibration?.medianMinutes ?? seed?.estimatedMinutesSaved ?? 30,
+          estimatedMinutesSavedPerRun: effectiveTemplateEstimate(
+            seed?.estimatedMinutesSaved,
+            estimateCalibration,
+          ),
         },
       })
       linked = true

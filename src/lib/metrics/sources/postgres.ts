@@ -98,7 +98,18 @@ function clientConfig(connectionString: string, caCert?: string): ClientConfig {
 
 function safeError(error: unknown, connectionString: string): Error {
   const raw = error instanceof Error ? error.message : 'Postgres metric query failed.'
-  const message = raw.split(connectionString).join('[redacted]')
+  let message = raw
+    .split(connectionString)
+    .join('[redacted]')
+    .replace(/postgres(?:ql)?:\/\/[^\s'"]+/gi, 'postgres://[redacted]')
+  try {
+    const parsed = new URL(connectionString)
+    for (const secret of [parsed.username, parsed.password]) {
+      if (secret) message = message.split(decodeURIComponent(secret)).join('[redacted]')
+    }
+  } catch {
+    // Invalid URLs have no safely-addressable username/password components.
+  }
   const tlsHint = /certificate|self.signed|unable to verify|tls|ssl/i.test(message)
     ? ' Supply the issuing CA certificate in the vault credential; TLS verification cannot be disabled.'
     : ''

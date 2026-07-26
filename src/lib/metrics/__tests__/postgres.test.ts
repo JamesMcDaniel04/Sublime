@@ -61,3 +61,48 @@ test('adapter enforces read-only session options, timeout, and one statement', a
   assert.deepEqual(configs[0].ssl, { rejectUnauthorized: true, ca: 'PRIVATE CA' })
   assert.equal(ended, true)
 })
+
+test('adapter rejects disabled TLS and redacts connection secrets from errors', async () => {
+  const disabled = makePostgresMetricSource({
+    resolve: async () => ({
+      connectionString: 'postgres://reader:super-secret@db.example.com/app?sslmode=disable',
+    }),
+  })
+  await assert.rejects(
+    disabled.fetchValue(
+      {
+        organizationId: 'org',
+        connectionRef: 'credential:cred',
+        config: { query: 'SELECT 42' },
+      },
+      'postgres.query',
+    ),
+    /cannot disable TLS verification/,
+  )
+
+  const connectionString = 'postgres://reader:super-secret@db.example.com/app'
+  const failing = makePostgresMetricSource({
+    resolve: async () => ({ connectionString }),
+    createClient: () => ({
+      connect: async () => {
+        throw new Error(`could not connect using ${connectionString}`)
+      },
+      query: async () => ({ rows: [] }) as never,
+      end: async () => undefined,
+    }),
+  })
+  await assert.rejects(
+    failing.fetchValue(
+      {
+        organizationId: 'org',
+        connectionRef: 'credential:cred',
+        config: { query: 'SELECT 42' },
+      },
+      'postgres.query',
+    ),
+    (error: unknown) =>
+      error instanceof Error &&
+      !error.message.includes('super-secret') &&
+      !error.message.includes(connectionString),
+  )
+})

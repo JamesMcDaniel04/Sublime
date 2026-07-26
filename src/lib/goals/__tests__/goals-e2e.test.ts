@@ -4,6 +4,7 @@
  */
 import { test, before, after } from 'node:test'
 import assert from 'node:assert/strict'
+import crypto from 'node:crypto'
 import { NextRequest } from 'next/server'
 
 const TEST_DB = process.env.TEST_DATABASE_URL
@@ -17,6 +18,7 @@ if (TEST_DB) {
   let seeded: any
   let goalId: string
   let metricId: string
+  let contributionId: string
   let now: Date
 
   before(async () => {
@@ -163,10 +165,89 @@ if (TEST_DB) {
       },
     })
     assert.equal(contribution?.origin, 'suggestion')
+    contributionId = contribution.id
     const accepted = await prisma.userSuggestion.findFirst({
       where: { id: suggestion.id, organizationId: seeded.organizationId },
     })
     assert.equal(accepted?.status, 'accepted')
+  })
+
+  test('contribution estimate edit persists and records provenance-safe behavior', async () => {
+    const request = new NextRequest(
+      `http://test/api/goals/${goalId}/contributions`,
+      {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          contributionId,
+          estimatedMinutesSavedPerRun: 45,
+        }),
+      },
+    )
+    const response = await (
+      await import('@/app/api/goals/[id]/contributions/route')
+    ).PATCH(request)
+    assert.equal(response.status, 200, await response.clone().text())
+    const contribution = await prisma.goalContribution.findFirst({
+      where: { id: contributionId, organizationId: seeded.organizationId },
+    })
+    assert.equal(contribution.estimatedMinutesSavedPerRun, 45)
+    assert.equal(
+      await prisma.userEvent.count({
+        where: {
+          organizationId: seeded.organizationId,
+          kind: 'goal_estimate_edited',
+          resourceId: contribution.resourceId,
+        },
+      }),
+      1,
+    )
+  })
+
+  test('estimate calibration requires edits from three distinct organizations', async () => {
+    const orgIds: string[] = []
+    const seedKey = 'sales-new-lead-to-sf-opportunity'
+    try {
+      for (const [index, estimate] of [40, 50, 60].entries()) {
+        const org = await prisma.organization.create({
+          data: { name: `Calibration ${index}`, slug: `cal-${crypto.randomUUID()}` },
+        })
+        orgIds.push(org.id)
+        const goal = await prisma.goal.create({
+          data: {
+            organizationId: org.id,
+            name: 'Calibration goal',
+            kind: 'mrr',
+            startValue: 1,
+            targetValue: 2,
+            targetDate: new Date('2027-01-01T00:00:00Z'),
+          },
+        })
+        await prisma.goalContribution.create({
+          data: {
+            organizationId: org.id,
+            goalId: goal.id,
+            resourceType: 'flow',
+            resourceId: `flow-${index}`,
+            origin: 'suggestion',
+            seedKey,
+            estimatedMinutesSavedPerRun: estimate,
+          },
+        })
+      }
+      const { calibrateTemplateEstimates } = await import('../calibrate-estimates')
+      await calibrateTemplateEstimates()
+      const calibration = await prisma.templateEstimateCalibration.findUnique({
+        where: { seedKey },
+      })
+      assert.equal(calibration?.orgCount, 3)
+      assert.equal(calibration?.medianMinutes, 50)
+    } finally {
+      await Promise.all(
+        orgIds.map((id) => prisma.organization.delete({ where: { id } }).catch(() => null)),
+      )
+      await prisma.templateEstimateCalibration.deleteMany({ where: { seedKey } })
+    }
   })
 
   test('recurring goal catches up elapsed windows without duplicate periods', async () => {
@@ -245,6 +326,114 @@ if (TEST_DB) {
       }),
       before + 1,
     )
+  })
+
+  test('Postgres metric reads a real scalar through the credential vault', async () => {
+    process.env.ENCRYPTION_KEY = process.env.ENCRYPTION_KEY ?? 'goals-e2e-key'
+    const { buildCredentialConfig } = await import('@/lib/credentials/config')
+    const credential = await prisma.credential.create({
+      data: {
+        organizationId: seeded.organizationId,
+        userId: seeded.userId,
+        name: 'QA Postgres',
+        type: 'bearer',
+        authConfig: buildCredentialConfig({ type: 'bearer', token: TEST_DB }),
+        createdById: seeded.userId,
+      },
+    })
+    const { postgresMetricSource } = await import('@/lib/metrics/sources/postgres')
+    const reading = await postgresMetricSource.fetchValue(
+      {
+        organizationId: seeded.organizationId,
+        userId: seeded.userId,
+        connectionRef: `credential:${credential.id}`,
+        config: { query: 'SELECT 42' },
+      },
+      'postgres.query',
+    )
+    assert.equal(reading.value, 42)
+  })
+
+  test('benchmark surfaces at five organizations and stays hidden at four', async () => {
+    const peerOrgIds: string[] = []
+    try {
+      for (let index = 0; index < 5; index += 1) {
+        const org = await prisma.organization.create({
+          data: { name: `MRR peer ${index}`, slug: `mrr-peer-${crypto.randomUUID()}` },
+        })
+        peerOrgIds.push(org.id)
+        await prisma.goal.create({
+          data: {
+            organizationId: org.id,
+            name: 'Settled MRR',
+            kind: 'mrr',
+            startValue: 10,
+            targetValue: 20,
+            targetDate: new Date('2026-06-01T00:00:00Z'),
+            status: index < 3 ? 'achieved' : 'missed',
+          },
+        })
+      }
+      for (let index = 0; index < 4; index += 1) {
+        const org = await prisma.organization.create({
+          data: { name: `CARR peer ${index}`, slug: `carr-peer-${crypto.randomUUID()}` },
+        })
+        peerOrgIds.push(org.id)
+        await prisma.goal.create({
+          data: {
+            organizationId: org.id,
+            name: 'Settled CARR',
+            kind: 'carr',
+            startValue: 10,
+            targetValue: 20,
+            targetDate: new Date('2026-06-01T00:00:00Z'),
+            status: 'achieved',
+          },
+        })
+      }
+      const target = async (kind: 'mrr' | 'carr') =>
+        prisma.goal.create({
+          data: {
+            organizationId: seeded.organizationId,
+            name: `${kind.toUpperCase()} target`,
+            kind,
+            startValue: 10,
+            targetValue: 20,
+            targetDate: new Date('2027-01-01T00:00:00Z'),
+            createdByUserId: seeded.userId,
+          },
+        })
+      const [mrrTarget, carrTarget] = await Promise.all([target('mrr'), target('carr')])
+      const { aggregateGoalBenchmarks } = await import('../aggregate-benchmarks')
+      await aggregateGoalBenchmarks()
+      const route = await import('@/app/api/goals/[id]/route')
+      const [mrrResponse, carrResponse] = await Promise.all([
+        route.GET(new NextRequest(`http://test/api/goals/${mrrTarget.id}`)),
+        route.GET(new NextRequest(`http://test/api/goals/${carrTarget.id}`)),
+      ])
+      const [mrrBody, carrBody] = await Promise.all([
+        mrrResponse.json(),
+        carrResponse.json(),
+      ])
+      assert.equal(mrrBody.goal.benchmark.orgCount, 5)
+      assert.equal(mrrBody.goal.benchmark.achievedRate, 60)
+      assert.equal(carrBody.goal.benchmark, null)
+    } finally {
+      await Promise.all(
+        peerOrgIds.map((id) => prisma.organization.delete({ where: { id } }).catch(() => null)),
+      )
+    }
+  })
+
+  test('ROI report route streams non-empty PDF bytes', async () => {
+    const response = await (
+      await import('@/app/api/goals/report/route')
+    ).GET(new NextRequest('http://test/api/goals/report?months=3'))
+    assert.equal(response.status, 200, await response.clone().text())
+    assert.equal(response.headers.get('content-type'), 'application/pdf')
+    const bytes = Buffer.from(await response.arrayBuffer())
+    assert.ok(bytes.length > 1_000)
+    assert.equal(bytes.subarray(0, 4).toString(), '%PDF')
   })
 } else {
   test('goals e2e (skipped: TEST_DATABASE_URL not set)', { skip: true }, () => {})

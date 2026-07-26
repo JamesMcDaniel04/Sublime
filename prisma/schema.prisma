@@ -1280,7 +1280,7 @@ model GoalMetric {
   id                   String    @id @default(cuid())
   organizationId       String    @db.Uuid
   goalId               String    @unique
-  source               String // 'stripe' | 'hubspot' | 'salesforce' | 'google_sheets' | 'manual'
+  source               String // 'stripe' | 'hubspot' | 'salesforce' | 'google_sheets' | 'postgres' | 'manual'
   metricKey            String // e.g. 'stripe.mrr' | 'hubspot.pipeline_value' | 'sheets.range'
   connectionRef        String?
   config               Json      @default("{}")

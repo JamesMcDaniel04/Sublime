@@ -72,9 +72,9 @@ export function redactCredential(type: string, authConfig: unknown): RedactedCre
     case 'basic':
       return { type: t, ...(cfg.username !== undefined && { username: String(cfg.username) }), hasPassword: Boolean(cfg.password) }
     case 'bearer':
-      return { type: t, hasToken: Boolean(cfg.token), ...(cfg.caCert && { hasCaCert: true }) }
+      return { type: t, hasToken: Boolean(cfg.token), ...(cfg.caCert ? { hasCaCert: true as const } : {}) }
     case 'apiKeyHeader':
-      return { type: t, ...(cfg.headerName !== undefined && { headerName: String(cfg.headerName) }), hasKey: Boolean(cfg.key), ...(cfg.caCert && { hasCaCert: true }) }
+      return { type: t, ...(cfg.headerName !== undefined && { headerName: String(cfg.headerName) }), hasKey: Boolean(cfg.key), ...(cfg.caCert ? { hasCaCert: true as const } : {}) }
     case 'apiKeyQuery':
       return { type: t, ...(cfg.queryParam !== undefined && { queryParam: String(cfg.queryParam) }), hasKey: Boolean(cfg.key) }
     case 'custom':
