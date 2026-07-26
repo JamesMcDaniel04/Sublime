@@ -16,6 +16,11 @@ if (TEST_DB) {
     ;({ prisma } = await import('@/lib/prisma'))
     const { seedTestOrg, installTestAuth } = await import('@/lib/server/__tests__/test-auth')
     seeded = await seedTestOrg(prisma)
+    await prisma.user.update({
+      where: { id: seeded.userId, organizationId: seeded.organizationId },
+      data: { role: 'ADMIN' },
+    })
+    seeded.auth.dbUser.role = 'ADMIN'
     installTestAuth(seeded.auth)
     // Stub Slack auth.test — no live network in tests.
     global.fetch = (async (url: any, init?: any) => {

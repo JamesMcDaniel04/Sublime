@@ -35,6 +35,18 @@ if (TEST_DB) {
         data: { organizationId: org.id, name: `conn-${i}`, serverUrl: 'https://example.com/mcp', isActive: true },
       })
     }
+    if (connectionCount >= 3) {
+      await prisma.userEvent.createMany({
+        data: Array.from({ length: 10 }, (_, index) => ({
+          organizationId: org.id,
+          userId: 'synthesis-test-user',
+          kind: 'tool_call',
+          resourceType: 'tool',
+          resourceId: `tool-${index}`,
+          context: {},
+        })),
+      })
+    }
     return org
   }
 
