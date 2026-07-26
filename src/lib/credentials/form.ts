@@ -58,6 +58,7 @@ export type CredentialDraft = {
   key: string
   headers: CustomAuthEntry[]
   query: CustomAuthEntry[]
+  caCert: string
 }
 
 export const emptyDraft = (): CredentialDraft => ({
@@ -73,6 +74,7 @@ export const emptyDraft = (): CredentialDraft => ({
   key: '',
   headers: [{ name: '', value: '' }],
   query: [{ name: '', value: '' }],
+  caCert: '',
 })
 
 /**
@@ -141,6 +143,7 @@ export function saveBody(draft: CredentialDraft, editing: boolean): CredentialIn
     personal: draft.personal,
     allowedDomains: parseAllowedDomains(draft.allowedDomains),
   }
+  if (draft.caCert.trim()) body.caCert = draft.caCert
   const put = (field: CredentialField, value: string) => {
     const trimmed = value.trim()
     if (SECRET_FIELDS.has(field)) {

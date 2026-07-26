@@ -21,6 +21,7 @@ const METRIC_SOURCES = [
   'hubspot',
   'salesforce',
   'google_sheets',
+  'postgres',
   'manual',
 ] as const
 const RECURRENCES = ['monthly', 'quarterly', 'yearly'] as const

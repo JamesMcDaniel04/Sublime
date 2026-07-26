@@ -26,6 +26,7 @@ export const credentialInputSchema = z.object({
   key: z.string().optional(),
   headers: z.array(entrySchema).optional(),
   query: z.array(entrySchema).optional(),
+  caCert: z.string().max(100_000).optional(),
 })
 
 const createSchema = credentialInputSchema.extend({

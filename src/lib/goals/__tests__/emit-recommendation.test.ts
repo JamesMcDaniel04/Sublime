@@ -52,6 +52,7 @@ function deps(overrides: Record<string, unknown> = {}) {
       return null
     },
     adoptionScores: async () => ({}),
+    benchmark: async () => null,
     seeds,
     ...overrides,
   }
@@ -106,4 +107,19 @@ test('personal goal addresses the owner, not the creator', async () => {
   const d = deps()
   await emitGoalRecommendation({ ...goal, ownerUserId: 'user-9' }, offTrack, d as never)
   assert.equal((d.calls.create[0] as { userId: string }).userId, 'user-9')
+})
+
+test('surfaced benchmark is appended as anonymous evidence', async () => {
+  const d = deps({
+    benchmark: async () => ({
+      orgCount: 5,
+      settledCount: 8,
+      achievedCount: 5,
+      topSeedKeys: [],
+    }),
+  })
+  await emitGoalRecommendation(goal, offTrack, d as never)
+  const created = d.calls.create[0] as { evidence: string[] }
+  assert.ok(created.evidence.some((line) => line.includes('Across 5 teams')))
+  assert.ok(created.evidence.some((line) => line.includes('63%')))
 })

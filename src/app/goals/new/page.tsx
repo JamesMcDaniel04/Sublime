@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { ArrowLeft, ArrowRight, Check, Link2, Target } from 'lucide-react'
+import { ArrowLeft, ArrowRight, Check, Database, Link2, Target } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
@@ -18,6 +18,7 @@ import {
 } from '@/components/ui/select'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Switch } from '@/components/ui/switch'
+import { Textarea } from '@/components/ui/textarea'
 import { cn } from '@/lib/utils'
 import type { GoalSummary } from '@/lib/types'
 import { fmtValue } from '@/components/goals/chart-math'
@@ -47,6 +48,7 @@ const SOURCE_LABELS: Record<string, string> = {
   hubspot: 'HubSpot',
   salesforce: 'Salesforce',
   google_sheets: 'Google Sheets',
+  postgres: 'Postgres / SQL',
   manual: "I'll record values myself",
 }
 
@@ -89,6 +91,7 @@ export default function NewGoalPage() {
     connectionRef: '',
     spreadsheetId: '',
     range: '',
+    query: '',
     startValue: '',
   })
 
@@ -112,8 +115,10 @@ export default function NewGoalPage() {
     () =>
       state.source === 'google_sheets'
         ? { spreadsheetId: state.spreadsheetId, range: state.range }
+        : state.source === 'postgres'
+          ? { query: state.query }
         : {},
-    [state.range, state.source, state.spreadsheetId],
+    [state.query, state.range, state.source, state.spreadsheetId],
   )
 
   const chooseSource = (source: Source) => {
@@ -123,13 +128,16 @@ export default function NewGoalPage() {
     // A metric reports in its own unit. If that contradicts the unit the
     // target was entered under, silently reinterpreting the number would lie
     // (0.12 "percent" is not 0.12 USD) — clear the target and say so.
-    const unitChanged = firstMetric !== undefined && firstMetric.unit !== state.unit
+    const unitChanged =
+      source.source !== 'postgres' &&
+      firstMetric !== undefined &&
+      firstMetric.unit !== state.unit
     setState((current) => ({
       ...current,
       source: source.source,
       metricKey: firstMetric?.key ?? (source.source === 'manual' ? 'manual.value' : ''),
       connectionRef: source.connections.length === 1 ? source.connections[0].ref : '',
-      ...(firstMetric ? { unit: firstMetric.unit } : {}),
+      ...(firstMetric && source.source !== 'postgres' ? { unit: firstMetric.unit } : {}),
       ...(unitChanged ? { targetValue: '' } : {}),
     }))
     if (unitChanged) {
@@ -168,6 +176,9 @@ export default function NewGoalPage() {
       (!state.spreadsheetId.trim() || !state.range.trim())
     ) {
       return toast.error('Enter a spreadsheet id and A1 range.')
+    }
+    if (state.source === 'postgres' && !state.query.trim()) {
+      return toast.error('Enter a single SELECT query.')
     }
     setPreview({ status: 'idle' })
     setStep(3)
@@ -461,7 +472,8 @@ export default function NewGoalPage() {
                   >
                     <div className="flex items-center justify-between gap-3">
                       <div>
-                        <p className="font-medium">
+                        <p className="flex items-center gap-2 font-medium">
+                          {source.source === 'postgres' && <Database className="h-4 w-4" />}
                           {SOURCE_LABELS[source.source] ?? source.source}
                         </p>
                         {!available && (
@@ -476,6 +488,7 @@ export default function NewGoalPage() {
                           <Link
                             href={
                               source.source === 'stripe'
+                                || source.source === 'postgres'
                                 ? '/integrations?tab=credentials'
                                 : '/integrations'
                             }
@@ -555,6 +568,24 @@ export default function NewGoalPage() {
                 />
               </label>
             </div>
+          )}
+          {state.source === 'postgres' && (
+            <label className="block space-y-1.5 text-sm">
+              <span className="font-medium">Read-only SQL query</span>
+              <Textarea
+                value={state.query}
+                onChange={(event) =>
+                  setState((current) => ({ ...current, query: event.target.value }))
+                }
+                className="min-h-36 font-mono text-sm"
+                placeholder="SELECT count(*) FROM completed_orders"
+                maxLength={10_000}
+              />
+              <span className="text-xs text-muted-foreground">
+                Single SELECT returning one numeric value. Store the connection string as a
+                Bearer credential token.
+              </span>
+            </label>
           )}
         </Card>
       )}

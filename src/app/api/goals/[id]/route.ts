@@ -2,6 +2,7 @@ import { z } from 'zod'
 import { prisma } from '@/lib/prisma'
 import { evaluateGoal } from '@/lib/goals/evaluate'
 import { evaluateAndPersistGoal } from '@/lib/goals/refresh'
+import { surfaceGoalBenchmark } from '@/lib/goals/aggregate-benchmarks'
 import { ApiError, withAuthenticatedApi } from '@/lib/server/api-handler'
 
 export const runtime = 'nodejs'
@@ -79,6 +80,17 @@ export const GET = withAuthenticatedApi(async (request, auth) => {
     },
     select: { id: true, name: true, riskLevel: true, ownerUserId: true },
   })
+  const benchmark = surfaceGoalBenchmark(
+    await prisma.goalBenchmark.findUnique({
+      where: { kind: goal.kind },
+      select: {
+        orgCount: true,
+        settledCount: true,
+        achievedCount: true,
+        topSeedKeys: true,
+      },
+    }),
+  )
 
   return {
     success: true,
@@ -127,6 +139,7 @@ export const GET = withAuthenticatedApi(async (request, auth) => {
             },
       ),
       periods: goal.periods,
+      benchmark,
     },
   }
 })

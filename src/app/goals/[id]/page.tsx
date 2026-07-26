@@ -65,6 +65,11 @@ type Detail = Omit<GoalSummary, 'sparkline'> & {
     finalValue: number
     outcome: 'achieved' | 'missed'
   }>
+  benchmark: {
+    orgCount: number
+    achievedRate: number
+    topSeeds: Array<{ seedKey: string; name: string; deploys: number }>
+  } | null
 }
 
 type Loaded = {
@@ -387,6 +392,22 @@ export default function GoalDetailPage() {
       </Card>
 
       <ContributionPanel goalId={goalId} contributions={contributions} onChanged={load} />
+
+      {goal.benchmark && (
+        <Card className="border-muted bg-muted/30 p-5">
+          <h2 className="font-semibold">How teams like yours do</h2>
+          <p className="mt-2 text-sm text-muted-foreground">
+            {goal.benchmark.achievedRate}% of {goal.benchmark.orgCount} orgs tracking{' '}
+            {goal.kind.toUpperCase()} targets hit their last period.
+            {goal.benchmark.topSeeds[0]
+              ? ` Most-adopted play: ${goal.benchmark.topSeeds[0].name}.`
+              : ''}
+          </p>
+          <p className="mt-2 text-xs text-muted-foreground">
+            Anonymous, cross-workspace counts · no goal values or workspace names shared
+          </p>
+        </Card>
+      )}
 
       <Card className="space-y-4 p-5">
         <div className="flex items-center justify-between gap-3">

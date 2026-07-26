@@ -26,6 +26,7 @@ export interface CredentialInput {
   key?: string
   headers?: CustomAuthEntry[]
   query?: CustomAuthEntry[]
+  caCert?: string
 }
 
 export interface DecryptedCredential {
@@ -38,6 +39,7 @@ export interface DecryptedCredential {
   key?: string
   headers?: CustomAuthEntry[]
   query?: CustomAuthEntry[]
+  caCert?: string
 }
 
 export interface RedactedCredential {
@@ -50,6 +52,7 @@ export interface RedactedCredential {
   hasKey?: boolean
   headers?: Array<{ name: string; hasValue: boolean }>
   query?: Array<{ name: string; hasValue: boolean }>
+  hasCaCert?: boolean
 }
 
 /**

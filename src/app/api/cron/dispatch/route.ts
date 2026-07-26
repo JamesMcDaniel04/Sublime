@@ -418,6 +418,15 @@ export async function GET(request: Request) {
       }
     }
 
+    // Weekly anonymous outcome counts by goal kind. Rows are global aggregates
+    // and stay invisible until the five-organization floor is met.
+    {
+      const benchmarks = await import('@/lib/goals/aggregate-benchmarks')
+      if (benchmarks.shouldRunGoalBenchmarkSweep(now)) {
+        void benchmarks.aggregateGoalBenchmarks().catch(() => undefined)
+      }
+    }
+
     // Weekly goal tending: per-user atomic claims prevent retries in this
     // 15-minute Monday window from double-sending.
     if (now.getUTCDay() === 1 && now.getUTCHours() === 14 && now.getUTCMinutes() < 15) {

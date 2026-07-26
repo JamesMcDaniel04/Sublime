@@ -69,7 +69,7 @@ export const GET = withAuthenticatedApi(async (_request, auth) => {
         ? [{ key: 'manual.value', label: 'Manually recorded value', unit: 'usd' as const }]
         : (getMetricSource(name)?.availableMetrics('custom_kpi') ?? []),
     connections:
-      name === 'stripe'
+      name === 'stripe' || name === 'postgres'
         ? credentials.map((credential) => ({
             ref: `credential:${credential.id}`,
             label: credential.name,
@@ -86,6 +86,6 @@ export const GET = withAuthenticatedApi(async (_request, auth) => {
 
   return {
     success: true,
-    sources: ['stripe', 'hubspot', 'salesforce', 'google_sheets', 'manual'].map(source),
+    sources: ['stripe', 'hubspot', 'salesforce', 'google_sheets', 'postgres', 'manual'].map(source),
   }
 })

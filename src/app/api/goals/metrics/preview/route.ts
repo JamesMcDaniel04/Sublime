@@ -5,7 +5,7 @@ import { ApiError, withAuthenticatedApi } from '@/lib/server/api-handler'
 export const runtime = 'nodejs'
 
 const bodySchema = z.object({
-  source: z.enum(['stripe', 'hubspot', 'salesforce', 'google_sheets', 'manual']),
+  source: z.enum(['stripe', 'hubspot', 'salesforce', 'google_sheets', 'postgres', 'manual']),
   metricKey: z.string().min(1),
   connectionRef: z.string().nullable().optional(),
   config: z.record(z.string(), z.unknown()).default({}),

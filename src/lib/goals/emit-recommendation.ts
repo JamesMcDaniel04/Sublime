@@ -12,6 +12,7 @@ import { loadTemplateAdoptionScores, sortByAdoption } from '@/lib/templates/adop
 import { goalTemplatesFor } from '@/lib/templates/goal-fit'
 import { SEED_CATALOGUE, type SeedTemplate } from '@/lib/templates/catalogue'
 import type { Evaluation } from './evaluate'
+import { surfaceGoalBenchmark } from './aggregate-benchmarks'
 
 export type EmitGoal = {
   id: string
@@ -33,6 +34,12 @@ export type EmitDeps = {
   notifyFn: typeof notify
   adoptionScores: typeof loadTemplateAdoptionScores
   seeds: SeedTemplate[]
+  benchmark: (kind: string) => Promise<{
+    orgCount: number
+    settledCount: number
+    achievedCount: number
+    topSeedKeys: unknown
+  } | null>
 }
 
 const defaultDeps: EmitDeps = {
@@ -52,6 +59,16 @@ const defaultDeps: EmitDeps = {
   notifyFn: notify,
   adoptionScores: loadTemplateAdoptionScores,
   seeds: SEED_CATALOGUE,
+  benchmark: (kind) =>
+    prisma.goalBenchmark.findUnique({
+      where: { kind },
+      select: {
+        orgCount: true,
+        settledCount: true,
+        achievedCount: true,
+        topSeedKeys: true,
+      },
+    }),
 }
 
 function fmt(value: number, unit: string): string {
@@ -99,7 +116,10 @@ export async function emitGoalRecommendation(
   if (!recipient) return { emitted: false, reason: 'no-recipient' }
 
   const candidates = goalTemplatesFor(goal.kind, deps.seeds)
-  const scores = await deps.adoptionScores()
+  const [scores, benchmarkRow] = await Promise.all([
+    deps.adoptionScores(),
+    deps.benchmark(goal.kind),
+  ])
   const [best] = sortByAdoption(candidates, (seed) => `seed:${seed.seedKey}`, scores)
 
   const expectedValue =
@@ -113,6 +133,12 @@ export async function emitGoalRecommendation(
     projectedValue: evaluation.projectedValue,
     targetDate: goal.targetDate,
   })
+  const benchmark = surfaceGoalBenchmark(benchmarkRow)
+  if (benchmark) {
+    evidence.push(
+      `Across ${benchmark.orgCount} teams tracking this kind of goal, ${benchmark.achievedRate}% hit their last target.`,
+    )
+  }
 
   const title = `${goal.name} is ${evaluation.riskLevel === 'off_track' ? 'off track' : 'at risk'}`
   const description = best

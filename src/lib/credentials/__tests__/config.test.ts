@@ -22,6 +22,18 @@ test('bearer: token is encrypted, redaction hides it, decrypt round-trips', asyn
   assert.equal(decryptCredentialConfig('bearer', cfg).token, 'sk-abc')
 })
 
+test('private CA trust material is encrypted and never returned by redaction', async () => {
+  const { buildCredentialConfig, redactCredential, decryptCredentialConfig } = await fresh()
+  const cfg = buildCredentialConfig({ type: 'bearer', token: 'postgres://db', caCert: 'PRIVATE CA' })
+  assert.notEqual(cfg.caCert, 'PRIVATE CA')
+  assert.deepEqual(redactCredential('bearer', cfg), {
+    type: 'bearer',
+    hasToken: true,
+    hasCaCert: true,
+  })
+  assert.equal(decryptCredentialConfig('bearer', cfg).caCert, 'PRIVATE CA')
+})
+
 test('basic: username plaintext, password encrypted', async () => {
   const { buildCredentialConfig, redactCredential, decryptCredentialConfig } = await fresh()
   const cfg = buildCredentialConfig({ type: 'basic', username: 'joe', password: 'pw' })

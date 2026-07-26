@@ -21,6 +21,7 @@ const encEntries = (entries: CustomAuthEntry[] | undefined) =>
 
 /** Encrypt secret fields, keep metadata plaintext. Only provided fields are set. */
 export function buildCredentialConfig(input: CredentialInput): Record<string, unknown> {
+  const caCert = input.caCert !== undefined ? { caCert: encryptSecret(input.caCert) } : {}
   switch (input.type) {
     case 'basic':
       return {
@@ -28,11 +29,12 @@ export function buildCredentialConfig(input: CredentialInput): Record<string, un
         ...(input.password !== undefined && { password: encryptSecret(input.password) }),
       }
     case 'bearer':
-      return { ...(input.token !== undefined && { token: encryptSecret(input.token) }) }
+      return { ...(input.token !== undefined && { token: encryptSecret(input.token) }), ...caCert }
     case 'apiKeyHeader':
       return {
         ...(input.headerName !== undefined && { headerName: input.headerName }),
         ...(input.key !== undefined && { key: encryptSecret(input.key) }),
+        ...caCert,
       }
     case 'apiKeyQuery':
       return {
@@ -70,9 +72,9 @@ export function redactCredential(type: string, authConfig: unknown): RedactedCre
     case 'basic':
       return { type: t, ...(cfg.username !== undefined && { username: String(cfg.username) }), hasPassword: Boolean(cfg.password) }
     case 'bearer':
-      return { type: t, hasToken: Boolean(cfg.token) }
+      return { type: t, hasToken: Boolean(cfg.token), ...(cfg.caCert && { hasCaCert: true }) }
     case 'apiKeyHeader':
-      return { type: t, ...(cfg.headerName !== undefined && { headerName: String(cfg.headerName) }), hasKey: Boolean(cfg.key) }
+      return { type: t, ...(cfg.headerName !== undefined && { headerName: String(cfg.headerName) }), hasKey: Boolean(cfg.key), ...(cfg.caCert && { hasCaCert: true }) }
     case 'apiKeyQuery':
       return { type: t, ...(cfg.queryParam !== undefined && { queryParam: String(cfg.queryParam) }), hasKey: Boolean(cfg.key) }
     case 'custom':
@@ -99,9 +101,9 @@ export function decryptCredentialConfig(type: string, authConfig: unknown): Decr
     case 'basic':
       return { type: t, username: cfg.username as string | undefined, password: dec(cfg.password) }
     case 'bearer':
-      return { type: t, token: dec(cfg.token) }
+      return { type: t, token: dec(cfg.token), caCert: dec(cfg.caCert) }
     case 'apiKeyHeader':
-      return { type: t, headerName: cfg.headerName as string | undefined, key: dec(cfg.key) }
+      return { type: t, headerName: cfg.headerName as string | undefined, key: dec(cfg.key), caCert: dec(cfg.caCert) }
     case 'apiKeyQuery':
       return { type: t, queryParam: cfg.queryParam as string | undefined, key: dec(cfg.key) }
     case 'custom':

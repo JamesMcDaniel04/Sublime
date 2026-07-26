@@ -175,6 +175,24 @@ export function CredentialEditor({
 
       {fieldsForType(draft.type).map(fieldInput)}
 
+      {(draft.type === 'bearer' || draft.type === 'apiKeyHeader') && (
+        <div className="grid gap-1.5">
+          <label className={labelClass} htmlFor="cred-ca-cert">
+            Private CA certificate (optional)
+          </label>
+          <textarea
+            id="cred-ca-cert"
+            value={draft.caCert}
+            onChange={(event) => set('caCert', event.target.value)}
+            placeholder={editing ? 'Unchanged — leave blank to keep it' : '-----BEGIN CERTIFICATE-----'}
+            className={`${controlClass} min-h-28 py-2 font-mono`}
+          />
+          <p className="text-[11px] leading-4 text-muted-foreground">
+            Trust material for database connections signed by a private CA. TLS verification stays enabled.
+          </p>
+        </div>
+      )}
+
       <div className="grid gap-1.5">
         <label className={labelClass} htmlFor="cred-domains">Allowed domains</label>
         <input
