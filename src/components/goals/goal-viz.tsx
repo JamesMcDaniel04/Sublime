@@ -323,7 +323,14 @@ export function GoalTrendChart({
         {chart.projection !== null && (
           <text
             x={chart.width - chart.right + 6}
-            y={chart.y(chart.projection) + 3}
+            // Collision avoidance: the Target/Pace labels occupy
+            // [y(target)-7, y(target)+16]; a projection landing near the
+            // target would overlap, so its label slides below that band.
+            y={
+              Math.abs(chart.y(chart.projection) - chart.y(goal.targetValue)) < 26
+                ? chart.y(goal.targetValue) + 29
+                : chart.y(chart.projection) + 3
+            }
             className="fill-muted-foreground text-[10px]"
           >
             Projected

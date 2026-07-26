@@ -83,7 +83,8 @@ export function ImpactStrip({
             AI impact
           </h2>
           <p className="text-xs text-muted-foreground">
-            Measured activity, honest estimates, and correlated goal movement.
+            Measured activity and honest estimates, org-wide. The third tier —
+            correlated goal movement — is shown per goal on each goal&apos;s page.
           </p>
         </div>
         <Dialog open={open} onOpenChange={setOpen}>

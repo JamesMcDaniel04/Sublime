@@ -1,9 +1,23 @@
 import { prisma } from '@/lib/prisma'
 import { credentialScope } from '@/lib/credentials/resolve'
+import { decryptCredentialConfig } from '@/lib/credentials/config'
 import { getMetricSource } from '@/lib/metrics/registry'
 import { withAuthenticatedApi } from '@/lib/server/api-handler'
 
 export const runtime = 'nodejs'
+
+/** Which metric card a vault secret belongs to, WITHOUT exposing the secret:
+ *  a connection string is a Postgres binding, anything else is offered to
+ *  Stripe. Decryption is local AES — the value never leaves this function. */
+function credentialSourceOf(type: string, authConfig: unknown): 'postgres' | 'stripe' {
+  try {
+    const decrypted = decryptCredentialConfig(type, authConfig) as { token?: string; key?: string }
+    const secret = decrypted.token ?? decrypted.key ?? ''
+    return /^postgres(ql)?:\/\//i.test(secret.trim()) ? 'postgres' : 'stripe'
+  } catch {
+    return 'stripe'
+  }
+}
 
 export const GET = withAuthenticatedApi(async (_request, auth) => {
   const [credentials, nangoConnections, googleConnections] = await Promise.all([
@@ -12,7 +26,7 @@ export const GET = withAuthenticatedApi(async (_request, auth) => {
         ...credentialScope(auth.organizationId, auth.dbUser.id),
         type: { in: ['bearer', 'apiKeyHeader'] },
       },
-      select: { id: true, name: true },
+      select: { id: true, name: true, type: true, authConfig: true },
       orderBy: { name: 'asc' },
     }),
     prisma.nangoConnection.findMany({
@@ -70,10 +84,12 @@ export const GET = withAuthenticatedApi(async (_request, auth) => {
         : (getMetricSource(name)?.availableMetrics('custom_kpi') ?? []),
     connections:
       name === 'stripe' || name === 'postgres'
-        ? credentials.map((credential) => ({
-            ref: `credential:${credential.id}`,
-            label: credential.name,
-          }))
+        ? credentials
+            .filter((credential) => credentialSourceOf(credential.type, credential.authConfig) === name)
+            .map((credential) => ({
+              ref: `credential:${credential.id}`,
+              label: credential.name,
+            }))
         : name === 'hubspot' || name === 'salesforce'
           ? connectionsFor(name)
           : name === 'google_sheets'

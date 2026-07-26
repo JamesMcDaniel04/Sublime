@@ -453,7 +453,7 @@ export default function NewGoalPage() {
               <Skeleton className="h-20" />
             </div>
           ) : (
-            <div className="space-y-3">
+            <div className="space-y-3" role="radiogroup" aria-label="Metric source">
               {sources.map((source) => {
                 const available =
                   source.source === 'manual' || source.connections.length > 0
@@ -463,12 +463,22 @@ export default function NewGoalPage() {
                     key={source.source}
                     className={cn(
                       'rounded-xl border p-4 transition-colors',
-                      available ? 'cursor-pointer hover:border-foreground/30' : 'bg-muted/40',
+                      available
+                        ? 'cursor-pointer hover:border-foreground/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring'
+                        : 'bg-muted/40',
                       selected && 'border-horizon-500 bg-horizon-500/5',
                     )}
                     onClick={() => chooseSource(source)}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter' || event.key === ' ') {
+                        event.preventDefault()
+                        chooseSource(source)
+                      }
+                    }}
                     role={available ? 'radio' : undefined}
                     aria-checked={available ? selected : undefined}
+                    aria-disabled={available ? undefined : true}
+                    tabIndex={available ? 0 : undefined}
                   >
                     <div className="flex items-center justify-between gap-3">
                       <div>
@@ -626,7 +636,9 @@ export default function NewGoalPage() {
                 <p className="mt-1 font-mono text-2xl font-bold">
                   {fmtValue(preview.value, state.unit)}
                 </p>
-                <p className="text-xs text-muted-foreground">Current source value</p>
+                <p className="text-xs text-muted-foreground">
+                  Current source value · as of {new Date(preview.asOf).toLocaleString()}
+                </p>
               </div>
               <label className="block space-y-1.5 text-sm">
                 <span className="font-medium">Baseline override (optional)</span>
