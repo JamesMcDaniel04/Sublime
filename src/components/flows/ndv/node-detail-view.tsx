@@ -34,8 +34,8 @@ const CONTAINER_REASON = 'This step contains other steps — test the steps insi
 export type NodeTestState =
   | { status: 'idle' }
   | { status: 'running' }
-  | { status: 'succeeded' }
-  | { status: 'failed'; error: string }
+  | { status: 'succeeded'; logs?: string[] }
+  | { status: 'failed'; error: string; logs?: string[] }
 
 export function NodeDetailView({
   node,
@@ -233,7 +233,14 @@ export function NodeDetailView({
             />
           </div>
           <div className="min-w-0">
-            <OutputPane lastOutput={lastOutput} pinned={pinned} onPin={onPin} onUnpin={onUnpin} error={testState?.status === 'failed' ? testState.error : undefined} />
+            <OutputPane
+              lastOutput={lastOutput}
+              pinned={pinned}
+              onPin={onPin}
+              onUnpin={onUnpin}
+              error={testState?.status === 'failed' ? testState.error : undefined}
+              logs={testState?.status === 'succeeded' || testState?.status === 'failed' ? testState.logs : undefined}
+            />
           </div>
         </div>
       </div>

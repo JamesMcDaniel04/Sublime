@@ -220,6 +220,19 @@ if (!TEST_DB) {
     assert.deepEqual(body.run.output, [2, 10])
   })
 
+  test('print() output rides the test-node response as logs', async () => {
+    await saveGraph(
+      [
+        { id: 't', type: 'trigger', data: { trigger: { type: 'manual' } } },
+        { id: 'c1', type: 'code', data: { language: 'python', mode: 'allItems', code: 'print("checking", len(_items))\nreturn len(_items)' } },
+      ],
+      [{ id: 'e1', source: 't', target: 'c1' }],
+    )
+    const { body } = await testNode('c1', [1, 2, 3])
+    assert.equal(body.run.status, 'succeeded', JSON.stringify(body))
+    assert.deepEqual(body.run.logs, ['checking 3'], 'captured print lines reach the caller')
+  })
+
   test('a failing code step surfaces the engine error on the run', async () => {
     await saveGraph(
       [

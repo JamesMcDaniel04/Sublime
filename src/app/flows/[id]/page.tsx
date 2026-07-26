@@ -884,7 +884,7 @@ function FlowBuilder() {
     [ndvNodeId, graph],
   )
 
-  /** POST one node to /test-node; returns its output or throws with the run error. */
+  /** POST one node to /test-node; returns its outcome or throws on route errors. */
   const postTestNode = useCallback(async (nodeId: string, mockOutputs: Record<string, unknown>) => {
     const response = await fetch(`/api/flows/${id}/test-node`, {
       method: 'POST',
@@ -893,8 +893,13 @@ function FlowBuilder() {
     })
     const body = await response.json().catch(() => ({}))
     if (!response.ok) throw new Error(body.error || 'Step test failed.')
-    if (body.run?.status === 'failed') throw new Error(body.run?.error || 'Step test failed.')
-    return body.run?.output as unknown
+    return {
+      output: body.run?.output as unknown,
+      error: body.run?.status === 'failed' ? String(body.run?.error || 'Step test failed.') : undefined,
+      // Code steps: captured print()/console.log() lines — shown win or lose,
+      // since a failure's logs are precisely the ones worth reading.
+      logs: Array.isArray(body.run?.logs) ? (body.run.logs as string[]) : undefined,
+    }
   }, [id, testInput])
 
   // Test exactly the open node. Missing ancestors are materialised first, in
@@ -907,11 +912,17 @@ function FlowBuilder() {
     try {
       const accumulated = { ...ndvResolved.mockOutputs }
       for (const ref of topoSortByGraph(ndvResolved.missing, graph)) {
-        accumulated[ref.id] = await postTestNode(ref.id, accumulated)
+        const ancestor = await postTestNode(ref.id, accumulated)
+        if (ancestor.error) throw new Error(ancestor.error)
+        accumulated[ref.id] = ancestor.output
       }
-      const output = await postTestNode(ndvNodeId, accumulated)
-      setNodeTestOutput((previous) => ({ ...previous, ...accumulated, [ndvNodeId]: output }))
-      setNodeTestState({ status: 'succeeded' })
+      const result = await postTestNode(ndvNodeId, accumulated)
+      if (result.error) {
+        setNodeTestState({ status: 'failed', error: result.error, logs: result.logs })
+        return
+      }
+      setNodeTestOutput((previous) => ({ ...previous, ...accumulated, [ndvNodeId]: result.output }))
+      setNodeTestState({ status: 'succeeded', logs: result.logs })
     } catch (error) {
       setNodeTestState({ status: 'failed', error: error instanceof Error ? error.message : 'Step test failed.' })
     }

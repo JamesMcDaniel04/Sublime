@@ -74,7 +74,7 @@ function CodeBody({ node, update }: { node: CodeNode; update: (node: FlowNode) =
           <>
             Your code runs with <code className="font-mono">_items</code> (all input items)
             {mode === 'eachItem' && <> and <code className="font-mono">_item</code> (the current item)</>};
-            end with a <code className="font-mono">return</code>. Debug with print() — its output appears in the step logs.
+            end with a <code className="font-mono">return</code>. Debug with print() — its output appears under Logs when you test the step.
             Python runs sandboxed without <code className="font-mono">await</code> or package imports.
           </>
         ) : (
@@ -82,8 +82,8 @@ function CodeBody({ node, update }: { node: CodeNode; update: (node: FlowNode) =
             Your code runs with <code className="font-mono">$input.all()</code>
             {mode === 'eachItem' && <>, <code className="font-mono">$input.item</code></>} and plain{' '}
             <code className="font-mono">items</code>{mode === 'eachItem' && <> / <code className="font-mono">item</code></>};
-            end with a <code className="font-mono">return</code>. Debug with console.log() — its output appears in the
-            step logs. <code className="font-mono">await</code> is supported.
+            end with a <code className="font-mono">return</code>. Debug with console.log() — its output appears under
+            Logs when you test the step. <code className="font-mono">await</code> is supported.
           </>
         )}
       </p>

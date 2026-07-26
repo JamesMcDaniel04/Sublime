@@ -105,3 +105,22 @@ test('everything the editor writes survives the graph schema parse', (t) => {
   const parsed = flowGraphSchema.parse({ nodes: [{ id: 'c1', type: 'code', data }], edges: [] })
   assert.deepEqual(parsed.nodes[0].data, data)
 })
+
+test('the output pane renders captured logs after a test, win or lose', (t) => {
+  t.after(cleanup)
+  const succeeded = render(React.createElement(NodeDetailView, {
+    node: codeNode(), agents: [], toolCatalog: [], dataFields: [], lastOutput: { ok: 1 },
+    testState: { status: 'succeeded', logs: ['checking 3', 'done'] },
+    onChange: () => {}, onClose: () => {},
+  }))
+  assert.match(succeeded.container.textContent ?? '', /Logs/)
+  assert.match(succeeded.container.textContent ?? '', /checking 3\ndone/)
+  cleanup()
+  const failed = render(React.createElement(NodeDetailView, {
+    node: codeNode(), agents: [], toolCatalog: [], dataFields: [], lastOutput: undefined,
+    testState: { status: 'failed', error: 'ValueError: bad', logs: ['made it here'] },
+    onChange: () => {}, onClose: () => {},
+  }))
+  assert.match(failed.container.textContent ?? '', /ValueError: bad/)
+  assert.match(failed.container.textContent ?? '', /made it here/, 'failure logs render too')
+})

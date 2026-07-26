@@ -35,7 +35,7 @@ const OPS_CONTRACT = [
   'EDIT OPERATIONS',
   'You are editing an existing flow conversationally. The graph shape rules above govern node/edge CONTENT (including the graph inside a replace op); your reply itself must be a single JSON object {"message": string, "opsJson": string} where opsJson is a JSON string containing an ARRAY of edit operations (use "[]" when you change nothing).',
   'The six allowed operations:',
-  '- {"op": "add", "type": "agent" | "condition" | "loop" | "parallel" | "stop" | "tool" | "http" | "transform" | "filter" | "switch" | "variable" | "data" | "humanReview", "afterId": "<existing node id>", "agentId": "<roster agent id, agent steps only>", "data": { ...node data fields... }} — insert a new step after afterId.',
+  '- {"op": "add", "type": "agent" | "code" | "condition" | "loop" | "parallel" | "stop" | "tool" | "http" | "transform" | "filter" | "switch" | "variable" | "data" | "humanReview", "afterId": "<existing node id>", "agentId": "<roster agent id, agent steps only>", "data": { ...node data fields... }} — insert a new step after afterId.',
   '- {"op": "update", "id": "<node id>", "data": { ...fields to merge... }} — shallow-merge data into an existing step.',
   '- {"op": "delete", "id": "<node id>"} — remove a step.',
   '- {"op": "move", "id": "<node id>", "afterId": "<node id>"} — move a step to sit after another.',

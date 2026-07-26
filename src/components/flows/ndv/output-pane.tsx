@@ -14,6 +14,7 @@ export function OutputPane({
   onPin,
   onUnpin,
   error,
+  logs,
 }: {
   lastOutput: unknown
   pinned: boolean
@@ -21,6 +22,8 @@ export function OutputPane({
   onUnpin?: () => void
   /** The last node test's failure — shown above the (stale) output. */
   error?: string
+  /** Code steps: print()/console.log() lines from the last test, win or lose. */
+  logs?: string[]
 }) {
   const hasOutput = lastOutput !== undefined && lastOutput !== null
   return (
@@ -37,6 +40,14 @@ export function OutputPane({
         <p className="break-words border-b border-red-200 bg-red-50 px-4 py-2.5 font-mono text-[11px] leading-relaxed text-red-700 dark:border-red-900/40 dark:bg-red-950/30 dark:text-red-300">
           {error}
         </p>
+      )}
+      {logs && logs.length > 0 && (
+        <div className="border-b border-border bg-muted/40">
+          <p className="px-4 pt-2 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Logs</p>
+          <pre className="max-h-40 overflow-auto px-4 pb-2 pt-1 font-mono text-[11px] leading-relaxed text-muted-foreground">
+            {logs.join('\n')}
+          </pre>
+        </div>
       )}
       {hasOutput ? (
         <>
