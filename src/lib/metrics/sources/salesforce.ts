@@ -32,7 +32,11 @@ type ResolveConnection = (ctx: MetricSourceContext) => Promise<Connection | null
 const defaultResolve: ResolveConnection = async (ctx) => {
   const connectionId = refId(ctx.connectionRef, 'nango')
   return prisma.nangoConnection.findFirst({
-    where: { organizationId: ctx.organizationId, connectionId },
+    where: {
+      organizationId: ctx.organizationId,
+      connectionId,
+      OR: [{ userId: null }, ...(ctx.userId ? [{ userId: ctx.userId }] : [])],
+    },
     select: { connectionId: true, providerConfigKey: true },
   })
 }

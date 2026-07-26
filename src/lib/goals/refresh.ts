@@ -54,6 +54,7 @@ export async function refreshGoalMetrics(
       config: true,
       refreshIntervalHours: true,
       lastSyncAt: true,
+      goal: { select: { ownerUserId: true, createdByUserId: true } },
     },
     take: MAX_METRICS_PER_TICK,
   })
@@ -74,6 +75,7 @@ export async function refreshGoalMetrics(
         metric.source,
         {
           organizationId: metric.organizationId,
+          userId: metric.goal.ownerUserId ?? metric.goal.createdByUserId ?? undefined,
           connectionRef: metric.connectionRef,
           config: (metric.config ?? {}) as Record<string, unknown>,
         },

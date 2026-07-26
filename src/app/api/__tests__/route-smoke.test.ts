@@ -74,6 +74,8 @@ if (TEST_DB) {
     { name: 'GET /api/usage', run: async () => (await import('../usage/route')).GET(req('/api/usage')) },
     { name: 'GET /api/knowledge', run: async () => (await import('../knowledge/route')).GET(req('/api/knowledge')) },
     { name: 'GET /api/goals', run: async () => (await import('../goals/route')).GET(req('/api/goals')) },
+    { name: 'GET /api/goals/impact', run: async () => (await import('../goals/impact/route')).GET(req('/api/goals/impact')) },
+    { name: 'GET /api/goals/metrics/sources', run: async () => (await import('../goals/metrics/sources/route')).GET(req('/api/goals/metrics/sources')) },
     // Dynamic [id] routes — real seeded ids.
     { name: 'GET /api/agents/[id]/knowledge', run: async () => (await import('../agents/[id]/knowledge/route')).GET(req(`/api/agents/${agentId}/knowledge`)) },
     { name: 'GET /api/agents/[id]/memories', run: async () => (await import('../agents/[id]/memories/route')).GET(req(`/api/agents/${agentId}/memories`)) },
@@ -95,6 +97,7 @@ if (TEST_DB) {
     { name: 'GET /api/flows/[id]/comments', run: async () => (await import('../flows/[id]/comments/route')).GET(req('/api/flows/no-such-id/comments')) },
     { name: 'GET /api/goals/[id]', run: async () => (await import('../goals/[id]/route')).GET(req('/api/goals/no-such-id')) },
     { name: 'GET /api/goals/[id]/datapoints', run: async () => (await import('../goals/[id]/datapoints/route')).GET(req('/api/goals/no-such-id/datapoints')) },
+    { name: 'GET /api/goals/[id]/contributions', run: async () => (await import('../goals/[id]/contributions/route')).GET(req('/api/goals/no-such-id/contributions')) },
     // Export moved to POST (it can mint a trigger secret as a side effect).
     { name: 'POST /api/flows/[id]/export', run: async () => (await import('../flows/[id]/export/route')).POST(new NextRequest(new URL('http://test/api/flows/no-such-id/export'), { method: 'POST', body: '{}', headers: { 'content-type': 'application/json' } } as never)) },
     { name: 'GET /api/flows/[id]/jam', run: async () => (await import('../flows/[id]/jam/route')).GET(req('/api/flows/no-such-id/jam')) },

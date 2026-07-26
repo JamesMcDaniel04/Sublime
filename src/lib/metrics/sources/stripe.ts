@@ -53,7 +53,9 @@ const METRICS: MetricDescriptor[] = [
 
 async function stripeKey(ctx: MetricSourceContext): Promise<string> {
   const id = refId(ctx.connectionRef, 'credential')
-  const cred = await prisma.credential.findFirst({ where: { id, ...credentialScope(ctx.organizationId) } })
+  const cred = await prisma.credential.findFirst({
+    where: { id, ...credentialScope(ctx.organizationId, ctx.userId) },
+  })
   if (!cred) throw new Error('Stripe credential is unavailable — check Settings → Credentials.')
   const dec = decryptCredentialConfig(cred.type, cred.authConfig)
   const key = ('token' in dec ? dec.token : undefined) ?? ('key' in dec ? dec.key : undefined)

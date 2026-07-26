@@ -3,6 +3,8 @@
  * raw tokens beyond the call. */
 export interface MetricSourceContext {
   organizationId: string
+  /** User who authorized the binding. Required for personal credentials. */
+  userId?: string
   /** 'credential:<id>' | 'nango:<connectionId>' | 'google:<id>' | null */
   connectionRef: string | null
   config: Record<string, unknown>
