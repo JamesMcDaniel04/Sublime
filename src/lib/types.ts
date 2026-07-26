@@ -35,6 +35,17 @@ export type Activity = {
   completedAt?: string | null
 }
 
+/** Human labels for goal kinds — raw enum text ("CUSTOM_KPI") never renders. */
+export const GOAL_KIND_LABELS: Record<GoalSummary['kind'], string> = {
+  arr: 'ARR',
+  mrr: 'MRR',
+  carr: 'CARR',
+  revenue: 'Revenue',
+  quota: 'Quota',
+  savings: 'Savings',
+  custom_kpi: 'Custom KPI',
+}
+
 export interface GoalSummary {
   id: string
   name: string

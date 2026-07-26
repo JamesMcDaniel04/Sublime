@@ -37,7 +37,7 @@ import {
 import { ContributionPanel, type Contribution } from '@/components/goals/contribution-panel'
 import { fmtValue } from '@/components/goals/chart-math'
 import { GoalTrendChart, RiskBadge } from '@/components/goals/goal-viz'
-import type { GoalSummary } from '@/lib/types'
+import { GOAL_KIND_LABELS, type GoalSummary } from '@/lib/types'
 import type { ImpactTiers } from '@/components/goals/impact-strip'
 import { periodLabel } from '@/lib/goals/recurrence'
 
@@ -223,7 +223,7 @@ export default function GoalDetailPage() {
         actions={
           <>
             <RiskBadge riskLevel={goal.riskLevel} />
-            <Badge variant="outline">{goal.kind.toUpperCase()}</Badge>
+            <Badge variant="outline">{GOAL_KIND_LABELS[goal.kind]}</Badge>
             <Dialog open={editOpen} onOpenChange={setEditOpen}>
               <DialogTrigger asChild>
                 <Button variant="outline" size="sm">
@@ -398,7 +398,7 @@ export default function GoalDetailPage() {
           <h2 className="font-semibold">How teams like yours do</h2>
           <p className="mt-2 text-sm text-muted-foreground">
             {goal.benchmark.achievedRate}% of {goal.benchmark.orgCount} orgs tracking{' '}
-            {goal.kind.toUpperCase()} targets hit their last period.
+            {GOAL_KIND_LABELS[goal.kind]} targets hit their last period.
             {goal.benchmark.topSeeds[0]
               ? ` Most-adopted play: ${goal.benchmark.topSeeds[0].name}.`
               : ''}
