@@ -265,7 +265,7 @@ export const PATCH = withAuthenticatedApi(async (request, auth) => {
     throw new ApiError('Contribution not found', 404, 'CONTRIBUTION_NOT_FOUND')
   }
   await prisma.goalContribution.update({
-    where: { id: contribution.id },
+    where: { id: contribution.id, organizationId: auth.organizationId },
     data: { estimatedMinutesSavedPerRun: input.estimatedMinutesSavedPerRun },
   })
   await recordUserEvent({
