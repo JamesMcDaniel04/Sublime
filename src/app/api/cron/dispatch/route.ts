@@ -452,6 +452,13 @@ export async function GET(request: Request) {
       void runBehaviorIntelligence(organizationId).catch(() => undefined)
     }
 
+    // Goal metric freshness + evaluation: per-metric throttling happens
+    // inside; source failures land on GoalMetric.lastError and never fail the
+    // CRON_SECRET-gated tick.
+    void import('@/lib/goals/refresh')
+      .then(({ refreshGoalMetrics }) => refreshGoalMetrics())
+      .catch(() => undefined)
+
     return Response.json({
       success: true,
       due: dueCount,
