@@ -21,6 +21,7 @@ import { Switch } from '@/components/ui/switch'
 import { Textarea } from '@/components/ui/textarea'
 import { cn } from '@/lib/utils'
 import { GOAL_KIND_UNITS, type GoalSummary } from '@/lib/types'
+import { goalTemplateByKey } from '@/lib/goals/goal-templates'
 import { fmtValue } from '@/components/goals/chart-math'
 
 type Step = 1 | 2 | 3
@@ -94,6 +95,24 @@ export default function NewGoalPage() {
     query: '',
     startValue: '',
   })
+
+  // Template prefill (?template=<key>): window.location instead of
+  // useSearchParams so the page needs no Suspense boundary at build time.
+  useEffect(() => {
+    const key = new URLSearchParams(window.location.search).get('template')
+    const entry = key ? goalTemplateByKey(key) : null
+    if (!entry) return
+    setState((current) => ({
+      ...current,
+      name: entry.name,
+      kind: entry.kind,
+      direction: entry.direction,
+      unit: entry.unit,
+      recurrence: entry.recurrence,
+      personal: entry.scope === 'personal',
+    }))
+    toast.info(`Template applied — set your target${entry.scope === 'personal' ? '' : ' for the org'} and pick a source.`)
+  }, [])
 
   useEffect(() => {
     Promise.all([

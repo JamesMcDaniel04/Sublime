@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button'
 import { EmptyState } from '@/components/ui/empty-state'
 import { PageHeader } from '@/components/ui/page-header'
 import { GoalCard } from '@/components/goals/goal-card'
+import { GoalTemplateGallery } from '@/components/goals/goal-template-gallery'
 import {
   ExportRoiReport,
   ImpactStrip,
@@ -90,18 +91,22 @@ export default function GoalsPage() {
           </div>
           {state.goals.length > 0 && <ImpactStrip impact={state.impact} onSaved={load} />}
           {state.goals.length === 0 ? (
-            <EmptyState
-              icon={Target}
-              title="Set your first goal"
-              description="Set a goal and Sublime will track it, watch for risk, and recommend what to do about it."
-              action={
-                <Button asChild>
-                  <Link href="/goals/new">Create a goal</Link>
-                </Button>
-              }
-            />
+            <div className="space-y-8">
+              <EmptyState
+                icon={Target}
+                title="Set your first goal"
+                description="Set a goal and Sublime will track it, watch for risk, and recommend what to do about it."
+                action={
+                  <Button asChild>
+                    <Link href="/goals/new">Create a goal</Link>
+                  </Button>
+                }
+              />
+              <GoalTemplateGallery />
+            </div>
           ) : (
             <div className="space-y-8">
+              <GoalTemplateGallery />
               {organizationGoals.length > 0 && (
                 <section className="space-y-3">
                   <h2 className="text-lg font-semibold">Organization goals</h2>
