@@ -534,3 +534,48 @@ test('a digest challenge round-trip counts both fetches against batch throttling
   assert.equal(fetches, 6, 'three pages of a challenge + authenticated pair')
   assert.equal(sleeps, 2, 'a batch of 2 should pause before pages 2 and 3')
 })
+
+// ── WS1 hardening probes: every method actually callable ────────────────────
+
+test('every HTTP method reaches the wire with its body where permitted', async () => {
+  const cases: Array<{ method: string; expectBody: boolean }> = [
+    { method: 'GET', expectBody: false },
+    { method: 'HEAD', expectBody: false },
+    { method: 'POST', expectBody: true },
+    { method: 'PUT', expectBody: true },
+    { method: 'PATCH', expectBody: true },
+    { method: 'DELETE', expectBody: true },
+    { method: 'OPTIONS', expectBody: true },
+  ]
+  for (const { method, expectBody } of cases) {
+    const request = prepareHttpRequest({
+      method,
+      url: 'https://api.example.com/things',
+      // GET/HEAD leave Send Body off, as the editor does for a body-less method.
+      ...(expectBody ? { sendBody: true, bodyMode: 'json' as const, body: '{"a":1}' } : {}),
+      query: '{"q":"x"}',
+      headers: '{"x-probe":"1"}',
+    })
+    let seenMethod = ''
+    let seenBody: unknown
+    let seenHeader = ''
+    const output = await performHttpRequest(request, {}, {
+      fetchImpl: (async (url, init) => {
+        seenMethod = String(init?.method)
+        seenBody = init?.body
+        seenHeader = new Headers(init?.headers).get('x-probe') ?? ''
+        // HEAD responses have no body, like the real network.
+        return new Response(method === 'HEAD' ? null : '{"ok":true}', {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        })
+      }) as typeof fetch,
+    })
+    assert.equal(seenMethod, method)
+    assert.equal(seenHeader, '1', `${method} carries headers`)
+    assert.equal(request.url.includes('q=x'), true, `${method} carries query params`)
+    if (expectBody) assert.equal(seenBody, '{"a":1}', `${method} carries its body`)
+    else assert.equal(seenBody, undefined, `${method} sends no body`)
+    assert.equal('status' in output && output.status, 200, `${method} parses its response`)
+  }
+})
