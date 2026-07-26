@@ -178,13 +178,15 @@ would fabricate a number nobody owns.
 
 Goals feed the existing pipeline; nothing parallel is built.
 
-- **Risk transition on an org goal** → `AgentMemory` suggestion
-  (`kind: 'suggestion'`, `sourceRef: 'goal:<id>'`) + `notify()` — the surface
-  org-level workflow suggestions already use.
-- **Risk transition on a personal goal** → `UserSuggestion` with new kind
-  `'goal_action'` and rendered evidence lines (e.g. *"MRR $41.2k is $6.8k behind
-  pace; projected $52k vs $60k target by Oct 31"*), flowing through the existing
-  suggestion-approval dialog.
+- **Risk transition** (either level) → `UserSuggestion` with new kind
+  `'goal_action'`, rendered evidence lines (e.g. *"MRR $41.2k is $6.8k behind
+  pace; projected $52k vs $60k target by Oct 31"*), and a new
+  `metadata Json` column carrying `{ goalId, seedKey }`, flowing through the
+  existing suggestion-approval dialog. Personal goals address the owner; org
+  goals address the goal's creator **plus an org-wide `notify()`**.
+  (Implementation note: the spec originally routed org goals through
+  `AgentMemory`, but `AgentMemory.agentId` is a required FK to `AgentTask` —
+  there is no agent to attach a goal suggestion to.)
 - **Action selection, deterministic first:** catalogue templates
   (`src/lib/templates/catalogue.ts`) gain a `goalKinds: GoalKind[]` tag. An
   off-track goal pulls matching templates ranked by existing relevance +
