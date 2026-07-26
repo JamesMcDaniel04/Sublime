@@ -81,3 +81,26 @@ test('the code node output lands in step context for downstream tokens', async (
   const done = result.steps.find((step) => step.nodeId === 'c1' && step.status === 'succeeded')
   assert.deepEqual(done?.output, { total: 99 })
 })
+
+test('engine logs ride the step outcome on success and on failure', async () => {
+  // The editor's hint promises print()/console.log() output "in the step
+  // logs" — so the outcome must actually carry them, in both directions.
+  const good: RunCodeFn = async () => ({ ok: true, output: 1, logs: ['line one', 'line two'] })
+  const ok = await interpretFlow(graphWith({}), 'go', { runAgent: echoAgent, runCode: good })
+  const okStep = ok.steps.find((step) => step.nodeId === 'c1' && step.status === 'succeeded')
+  assert.deepEqual(okStep?.logs, ['line one', 'line two'])
+
+  const bad: RunCodeFn = async () => ({ ok: false, error: 'boom', logs: ['made it here'] })
+  const failed = await interpretFlow(graphWith({}), 'go', { runAgent: echoAgent, runCode: bad })
+  const failedStep = failed.steps.find((step) => step.nodeId === 'c1' && step.status === 'failed')
+  assert.deepEqual(failedStep?.logs, ['made it here'])
+})
+
+test('eachItem mode concatenates logs across items in order', async () => {
+  const runCode: RunCodeFn = async (params) => ({ ok: true, output: null, logs: [`saw ${JSON.stringify(params.item)}`] })
+  const graph = graphWith({ mode: 'eachItem' }, { value: '[1, 2]' })
+  ;(graph.nodes[2].data as Record<string, unknown>).input = '{{step.up.output.n}}'
+  const result = await interpretFlow(graph, 'go', { runAgent: echoAgent, runCode })
+  const step = result.steps.find((candidate) => candidate.nodeId === 'c1' && candidate.status === 'succeeded')
+  assert.deepEqual(step?.logs, ['saw 1', 'saw 2'])
+})

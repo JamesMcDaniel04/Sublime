@@ -14,6 +14,8 @@ export type StepOutcome = {
   status: 'succeeded' | 'failed' | 'skipped' | 'waiting' | 'stopped'
   output?: unknown
   error?: string
+  /** Code steps: captured print()/console.log() lines, success or failure. */
+  logs?: string[]
   // Present when this step ran inside a loop body — see FlowContext.iterationPath.
   iterationPath?: number[]
 }
@@ -671,8 +673,11 @@ export async function interpretFlow(graph: FlowGraph, input: unknown, opts: Opts
       }
       const items = Array.isArray(itemsSource) ? itemsSource : itemsSource == null ? [] : [itemsSource]
 
+      // Captured print()/console.log() lines travel on the outcome in BOTH
+      // directions — a failure's logs are precisely the ones worth reading.
+      const logs: string[] = []
       const fail = (error: string) => {
-        emit({ nodeId: node.id, status: 'failed', error, iterationPath: ctx.iterationPath })
+        emit({ nodeId: node.id, status: 'failed', error, ...(logs.length ? { logs } : {}), iterationPath: ctx.iterationPath })
         if ((node.data.onError ?? 'stop') === 'continue') return { kind: 'ok' as const, output: undefined }
         return { kind: 'fail' as const, error }
       }
@@ -682,17 +687,19 @@ export async function interpretFlow(graph: FlowGraph, input: unknown, opts: Opts
         const collected: unknown[] = []
         for (const item of items) {
           const result = await opts.runCode({ ...base, items, item })
+          logs.push(...result.logs)
           if (!result.ok) return fail(result.error)
           collected.push(result.output)
         }
         output = collected
       } else {
         const result = await opts.runCode({ ...base, items })
+        logs.push(...result.logs)
         if (!result.ok) return fail(result.error)
         output = result.output
       }
       ctx.step[node.id] = { output }
-      emit({ nodeId: node.id, status: 'succeeded', output, iterationPath: ctx.iterationPath })
+      emit({ nodeId: node.id, status: 'succeeded', output, ...(logs.length ? { logs } : {}), iterationPath: ctx.iterationPath })
       return { kind: 'ok', output }
     }
 

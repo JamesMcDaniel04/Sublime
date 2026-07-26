@@ -369,7 +369,11 @@ export async function runFlowExecution(
   // persist them so runs are fully inspectable. Agent/tool/http steps are
   // persisted by their adapters because they need started/running rows.
   const pending: Promise<unknown>[] = []
-  const onStep = (outcome: { nodeId: string; status: string; output?: unknown; error?: string; iterationPath?: number[] }) => {
+  // Code steps' captured print()/console.log() lines, keyed by node — surfaced
+  // on the run result for the single-node test path (the NDV's Logs section).
+  const stepLogs: Record<string, string[]> = {}
+  const onStep = (outcome: { nodeId: string; status: string; output?: unknown; error?: string; logs?: string[]; iterationPath?: number[] }) => {
+    if (outcome.logs?.length) stepLogs[outcome.nodeId] = outcome.logs
     if (!shouldPersistInterpreterStep(nodeTypeById.get(outcome.nodeId))) return
     pending.push(
       prisma.flowRunStep
@@ -992,6 +996,9 @@ export async function runFlowExecution(
     status,
     output: result.output,
     error: runError ?? undefined,
+    // The tested node's print()/console.log() lines — only meaningful when
+    // this run targeted a single node, which is when a caller reads them.
+    logs: job.onlyNodeId ? stepLogs[job.onlyNodeId] : undefined,
     // Pause detail for callers that park on this run (the subflow adapter):
     // the question a reply must answer, or the wake time of a durable Wait.
     waiting: status === 'waiting' && result.waiting ? result.waiting : undefined,
