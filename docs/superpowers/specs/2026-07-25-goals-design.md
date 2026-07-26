@@ -31,6 +31,11 @@ subsystem has: declared intent, not inferred intent.
    `GoalMetric` / `MetricDatapoint` models, a `src/lib/metrics/` connector registry
    modeled on the `ActivitySource` pattern, evaluation as pure math on the cron
    tick, recommendations emitted into `UserSuggestion` / `AgentMemory`.
+5. **Proof layer** — the product claim is *"the only AI that can prove ROI from
+   day 1."* Attribution is captured at the moment of adoption (accepting a
+   goal-sourced suggestion links the provisioned automation to the goal), and the
+   Goals tab reports impact in three honesty tiers: measured, estimated,
+   correlated.
 
 ## Data model
 
@@ -87,12 +92,31 @@ One per goal in v1 (schema permits more later).
 | `bucketKey` | String | day bucket (`YYYY-MM-DD`); `@@unique([goalMetricId, bucketKey])` — re-syncs upsert, never double-write (activity-ledger dedupe discipline) |
 | `origin` | String | `'sync' \| 'manual' \| 'backfill'` |
 
+### `GoalContribution` — the attribution link (proof layer)
+
+Created automatically when a goal-sourced suggestion is accepted and provisioned,
+or manually when a user links an existing automation to a goal.
+
+| Field | Type | Notes |
+| --- | --- | --- |
+| `goalId` | uuid FK | cascade |
+| `organizationId` | uuid FK | cascade |
+| `resourceType` | String | `'flow' \| 'agent'` |
+| `resourceId` | uuid | the linked Flow / AgentTask |
+| `origin` | String | `'suggestion'` (accepted goal recommendation) \| `'manual'` (linked from goal detail) |
+| `estimatedMinutesSavedPerRun` | Int | seeded from the template's `estimatedMinutesSaved` tag; editable per link |
+| `createdAt` | Timestamptz | attribution starts here — runs before link time never count |
+
+No per-run impact rows: impact is computed by joining `FlowRun` /
+`AgentExecution` (completed, after link time) through the contribution links.
+Run counts and token costs already exist on those tables.
+
 ### Behavioral events
 
 New `UserEvent` kinds in `src/lib/behavior/record-event.ts`: `goal_created`,
 `goal_off_track`, `goal_achieved`, `goal_suggestion_accepted`,
-`goal_suggestion_dismissed`. References only, never values — consistent with the
-existing privacy contract.
+`goal_suggestion_dismissed`, `goal_contribution_linked`. References only, never
+values — consistent with the existing privacy contract.
 
 ## Metric connectors & sync
 
@@ -173,7 +197,7 @@ Goals feed the existing pipeline; nothing parallel is built.
   actions are scored against both goals, org weight first; an action that
   conflicts with the org goal doesn't surface.
 - **Template relevance** (`src/lib/templates/relevance.ts`): new tier boost for
-  "advances an active goal", with an *"Advances: <goal name>"* chip on template
+  "advances an active goal", with an *"Advances: {goal name}"* chip on template
   cards.
 - **Outcome feedback:** goal-sourced suggestions get their own lane in
   `eligibility.ts` / `outcome-weights.ts`, so repeated dismissals throttle them
@@ -181,6 +205,41 @@ Goals feed the existing pipeline; nothing parallel is built.
 - **Home assistant:** compact goal-status strip (progress + risk badges) on the
   dashboard home; active goals join the assistant's grounding so chat answers
   are goal-aware.
+
+## Proof layer — "AI impact" / ROI attribution
+
+The product claim: *"Our AI is the only AI that can prove ROI from day 1."* What
+makes it true from day 1 is that attribution is captured **at the moment of
+adoption** — accepting a goal-sourced suggestion creates the `GoalContribution`
+link as a side effect of provisioning — so every attributed run is born
+attributed, and proof starts with the first run rather than waiting for metric
+movement. The recommendation engine is the provenance chain: goal → risk
+transition → suggestion → accepted → provisioned → attributed runs.
+
+### Impact math (computed on read; `src/lib/goals/impact.ts`, pure + unit-tested)
+
+Three honesty tiers, and **every number in the UI carries its tier** — this is
+the rule that keeps the marketing claim defensible:
+
+| Tier | Numbers | Source |
+| --- | --- | --- |
+| **Measured** | attributed runs completed, outputs produced, actual token cost of those runs | joins over `FlowRun` / `AgentExecution` through `GoalContribution`; usage accounting already exists per-execution |
+| **Estimated** | hours saved = runs × `estimatedMinutesSavedPerRun`; labor value = hours × org labor rate; **ROI multiple** = labor value ÷ AI cost | labor rate from `Organization.settings.laborHourlyRate`, default 50 USD/hr, editable in settings |
+| **Correlated** | pace-delta: goal pace in the window before the first contribution vs after ("closing the gap X% faster since AI started helping") | deterministic math over `MetricDatapoint`; labeled correlation, never claimed as causation |
+
+Catalogue templates (`SeedTemplate`) gain an `estimatedMinutesSaved` field to
+seed the per-link estimate.
+
+### Proof-layer UI (on the Goals tab)
+
+- **`/goals` AI Impact strip** at the top: actions completed, hours saved,
+  dollar value, ROI multiple — org-wide, since day 1, tier-labeled.
+- **`/goals/[id]` impact panel**: the same figures scoped to the goal, plus
+  **event markers on the trendline** showing when attributed automations were
+  adopted and ran — the visual "AI showed up here, line bent there" story.
+- **Link existing automation**: goal detail page lets a user attach an existing
+  flow/agent as a contribution (`origin: 'manual'`) with an editable per-run
+  estimate.
 
 ## UI
 
@@ -202,8 +261,8 @@ Goals feed the existing pipeline; nothing parallel is built.
   3. Metric binding with a **live preview fetch** ("Current value: $41,203 — use
      as baseline?") so misconfigured bindings die in the wizard, not on the
      chart.
-- **Charting:** no chart library exists in the repo and needs are one line chart
-  + sparklines — hand-rolled small SVG components, no new dependency.
+- **Charting:** no chart library exists in the repo and the needs are one line
+  chart plus sparklines — hand-rolled small SVG components, no new dependency.
 
 ## API
 
@@ -215,6 +274,8 @@ All under `src/app/api/goals/`, `withAuthenticatedApi`, tenant-guard compliant:
 | `/api/goals/[id]` | GET, PATCH, DELETE | detail (with evaluation + series summary), edit, archive/delete |
 | `/api/goals/[id]/datapoints` | GET, POST | series for charts; manual datapoint entry |
 | `/api/goals/metrics/preview` | POST | wizard live fetch: given source + binding config, return current value |
+| `/api/goals/[id]/contributions` | GET, POST, DELETE | list contributions with computed impact; link/unlink an existing flow/agent |
+| `/api/goals/impact` | GET | org-wide AI Impact strip figures (tier-labeled) |
 
 Every new authenticated GET is registered in the route-smoke coverage guard
 (`src/app/api/__tests__/route-smoke.test.ts`) — CI fails otherwise, by design.
@@ -238,6 +299,9 @@ Every new authenticated GET is registered in the route-smoke coverage guard
 - Unit: evaluation math edges (decreasing goals, sparse series, day-one goals,
   past-deadline settlement), connector adapters against recorded fixtures,
   day-bucket dedupe on re-sync, org-priority action scoring.
+- Impact math: runs-before-link excluded, ROI multiple with zero token cost,
+  pace-delta with no pre-contribution window, estimate edits reflected without
+  rewriting history.
 - Route smoke: all new GETs registered in the coverage guard.
 - `goals-e2e.test.ts` following the `behavior-e2e` pattern: seed org → create
   goal → inject datapoints below pace → run refresh/evaluate tick → assert
