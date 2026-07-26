@@ -243,15 +243,17 @@ export function LandingPage({ fontClassName = '' }: { fontClassName?: string }) 
             {/* Left column — text */}
             <div className="relative z-[3] flex-1 min-w-0 max-w-[540px]">
               <h1 className="text-[clamp(2rem,4vw,3.2rem)] font-[500] leading-[1.08] tracking-[-0.04em] text-foreground max-w-[540px]">
-                AI that knows your business
+                AI that proves its ROI
               </h1>
               <p className="mt-6 text-base leading-relaxed text-muted-foreground max-w-[420px]">
-                Connect the tools your team already uses. Sublime reconstructs how work gets done, then powers agents and workflows that deliver useful outcomes from day one.
+                Sublime connects to your tech stack, connects the dots, and deploys specialized
+                agents against the goals that matter — quota, ARR, launch dates. Every run shows
+                its work. Every goal shows its progress.
               </p>
               <div className="mt-10 flex items-center gap-4">
                 <Link href="/auth/signup">
                   <button className="group relative inline-flex items-center gap-2 px-6 py-3 text-[14px] font-medium bg-foreground text-background transition-all duration-200 hover:bg-foreground/90">
-                    Start building
+                    Set your first goal
                     <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
                   </button>
                 </Link>
@@ -443,10 +445,11 @@ export function LandingPage({ fontClassName = '' }: { fontClassName?: string }) 
                 Connections
               </p>
               <h2 className="text-[clamp(1.8rem,3vw,2.5rem)] font-[500] tracking-[-0.03em] leading-[1.15]">
-                All your tools in <span className="text-primary">one place.</span>
+                Connected to everything.<br />Accountable to <span className="text-primary">your goals.</span>
               </h2>
               <p className="mt-4 text-[15px] text-white/60">
-                One connected knowledge layer across the systems your team already trusts.
+                Sublime plugs into the stack you already run and connects the dots across it,
+                so every agent starts with full context.
               </p>
             </div>
           </div>
@@ -491,25 +494,25 @@ export function LandingPage({ fontClassName = '' }: { fontClassName?: string }) 
             What you get
           </p>
           <h2 className="text-[clamp(1.8rem,3vw,2.5rem)] font-[500] tracking-[-0.03em] text-foreground max-w-[500px] leading-[1.15]">
-            Builds immediately.<br />Delivers from day one.
+            Three ways it<br />pays for itself.
           </h2>
 
           <div className="mt-16 border border-border">
             <div className="grid grid-cols-1 md:grid-cols-3">
               {[
                 {
-                  title: 'Build agents in minutes',
-                  desc: 'Describe the outcome in plain language. Sublime creates the agent, its instructions, delivery format, integrations, and schedule.',
+                  title: 'Automate the repetitive',
+                  desc: 'Specialized agents take over the recurring work — digests, triage, follow-ups — so your people stop doing robot work.',
                   graphic: 'bars',
                 },
                 {
-                  title: 'Connect the tools you already use',
-                  desc: 'Historical backfill and live events build a practical understanding of customers, projects, decisions, bottlenecks, and ownership.',
+                  title: 'Cut the cost',
+                  desc: 'Agents run in minutes for cents, and every run is logged — so you can see exactly what got done and what it replaced.',
                   graphic: 'flow',
                 },
                 {
-                  title: 'Read every run',
-                  desc: 'Every run shows its evidence, tool calls, decisions, errors, and finished artifact, so teams can trust the work and improve it.',
+                  title: 'Find the process wins',
+                  desc: 'Connected across your stack, Sublime spots bottlenecks and leaks, then proposes specialized agents to fix them.',
                   graphic: 'chart',
                 },
               ].map((feature, i) => (
@@ -581,7 +584,8 @@ export function LandingPage({ fontClassName = '' }: { fontClassName?: string }) 
               Not another chatbot.<br />A system that <span className="italic">does the work.</span>
             </h2>
             <p className="mt-5 text-[15px] text-muted-foreground max-w-[480px] mx-auto">
-              Build agents, connect your stack, and orchestrate flows. Every run shows its evidence and finished artifact.
+              Build specialized agents, connect your stack, and orchestrate flows — all
+              reporting into the goals you set. Every run shows its evidence and finished artifact.
             </p>
           </div>
 
@@ -649,7 +653,9 @@ export function LandingPage({ fontClassName = '' }: { fontClassName?: string }) 
         <div className="mx-auto max-w-[1200px] relative">
           <div className="border border-border bg-background p-10 max-w-[720px] mx-auto">
             <blockquote className="text-[20px] font-[400] leading-[1.5] tracking-[-0.01em] text-foreground/85">
-              &ldquo;Sublime plugged into our stack in an afternoon and shipped a weekly pipeline digest that actually surfaces at-risk deals. It&rsquo;s not another chatbot. It does the work.&rdquo;
+              &ldquo;We pointed Sublime&rsquo;s agents at our quarterly pipeline goal. They ship the
+              digests and follow-ups nobody had time for — and for the first time I have an ROI
+              number I can show in the QBR.&rdquo;
             </blockquote>
             <div className="mt-6 flex items-center gap-3">
               <img src={testimonialAvatar} alt="Jamie Kim" className="h-8 w-8 rounded-full object-cover" />
@@ -678,8 +684,8 @@ export function LandingPage({ fontClassName = '' }: { fontClassName?: string }) 
           <div className="mt-16"><PricingGrid /></div>
           <p className="mt-4 text-[12px] text-muted-foreground">
             Subscriptions start when you check out and can be canceled anytime. 1 credit = 1,000 AI
-            tokens; credits are shared across your workspace. Checkout and invoicing are handled
-            securely by Stripe.
+            tokens; credits are shared across your workspace — cost you can see per run. Checkout
+            and invoicing are handled securely by Stripe.
           </p>
         </div>
       </section>
@@ -691,17 +697,17 @@ export function LandingPage({ fontClassName = '' }: { fontClassName?: string }) 
       <section className="relative z-10 pt-32 pb-40 px-6 overflow-hidden">
         <div className="mx-auto max-w-[1200px] text-center relative">
           <h2 className="text-[clamp(2rem,4vw,3.2rem)] font-[500] tracking-[-0.035em] text-foreground leading-[1.1] mx-auto max-w-[560px]">
-            Start using AI that actually works.
+            Set a goal. See the ROI.
           </h2>
           <p className="mt-5 text-[15px] text-muted-foreground max-w-[400px] mx-auto">
-            Connect your tools and deploy your first<br />business-ready agent today.
+            Connect your stack and deploy specialized<br />agents against your goals today.
           </p>
           <div className="mt-10 flex justify-center">
             <Link href="/auth/signup">
               <button
                 className="group relative inline-flex items-center gap-2.5 px-8 py-3.5 text-[15px] font-medium transition-all duration-200 border border-foreground/40 text-foreground hover:bg-foreground hover:text-background hover:border-foreground"
               >
-                Create an account
+                Set your first goal
                 <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-1" />
               </button>
             </Link>

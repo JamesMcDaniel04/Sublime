@@ -15,14 +15,14 @@ export const dynamic = 'force-dynamic'
 
 export const metadata: Metadata = {
   metadataBase: new URL('https://trysublime.io'),
-  title: 'Sublime — AI that knows your business',
+  title: 'Sublime — AI that proves its ROI',
   description:
-    'Connect the tools your team already uses. Sublime reconstructs how work gets done, then powers agents and workflows that deliver useful outcomes from day one.',
+    'Sublime is the goal-based AI platform. It connects to your tech stack, connects the dots, and deploys specialized agents that automate repetitive work, cut costs, and find process wins — measured against the goals your org runs on.',
   alternates: { canonical: '/' },
   openGraph: {
-    title: 'Sublime — AI that knows your business',
+    title: 'Sublime — AI that proves its ROI',
     description:
-      'Connect the tools your team already uses. Sublime powers agents and workflows that deliver useful outcomes from day one.',
+      'The goal-based AI platform: connect your stack, and Sublime deploys specialized agents measured against the goals your org runs on.',
     url: 'https://trysublime.io',
     siteName: 'Sublime',
     type: 'website',
