@@ -622,7 +622,7 @@ model Credential {
   organizationId String    @db.Uuid
   userId         String?
   name           String
-  type           String // basic | bearer | apiKeyHeader | apiKeyQuery | custom
+  type           String // basic | bearer | custom | digest | apiKeyHeader | oauth1 | oauth2 | apiKeyQuery
   authConfig     Json      @default("{}")
   allowedDomains String[]  @default([])
   isActive       Boolean   @default(true)

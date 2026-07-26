@@ -24,6 +24,7 @@ export function buildCredentialConfig(input: CredentialInput): Record<string, un
   const caCert = input.caCert !== undefined ? { caCert: encryptSecret(input.caCert) } : {}
   switch (input.type) {
     case 'basic':
+    case 'digest':
       return {
         ...(input.username !== undefined && { username: input.username }),
         ...(input.password !== undefined && { password: encryptSecret(input.password) }),
@@ -45,6 +46,25 @@ export function buildCredentialConfig(input: CredentialInput): Record<string, un
       return {
         ...(input.headers !== undefined && { headers: encEntries(input.headers) }),
         ...(input.query !== undefined && { query: encEntries(input.query) }),
+      }
+    case 'oauth1':
+      return {
+        ...(input.consumerKey !== undefined && { consumerKey: input.consumerKey }),
+        ...(input.consumerSecret !== undefined && { consumerSecret: encryptSecret(input.consumerSecret) }),
+        ...(input.accessToken !== undefined && { accessToken: encryptSecret(input.accessToken) }),
+        ...(input.tokenSecret !== undefined && { tokenSecret: encryptSecret(input.tokenSecret) }),
+        ...(input.signatureMethod !== undefined && { signatureMethod: input.signatureMethod }),
+      }
+    case 'oauth2':
+      return {
+        ...(input.grantType !== undefined && { grantType: input.grantType }),
+        ...(input.accessToken !== undefined && { accessToken: encryptSecret(input.accessToken) }),
+        ...(input.tokenUrl !== undefined && { tokenUrl: input.tokenUrl }),
+        ...(input.clientId !== undefined && { clientId: input.clientId }),
+        ...(input.clientSecret !== undefined && { clientSecret: encryptSecret(input.clientSecret) }),
+        ...(input.scope !== undefined && { scope: input.scope }),
+        ...(input.audience !== undefined && { audience: input.audience }),
+        ...(input.clientAuth !== undefined && { clientAuth: input.clientAuth }),
       }
     default:
       return {}
@@ -70,6 +90,7 @@ export function redactCredential(type: string, authConfig: unknown): RedactedCre
   const t = type as CredentialType
   switch (t) {
     case 'basic':
+    case 'digest':
       return { type: t, ...(cfg.username !== undefined && { username: String(cfg.username) }), hasPassword: Boolean(cfg.password) }
     case 'bearer':
       return { type: t, hasToken: Boolean(cfg.token), ...(cfg.caCert ? { hasCaCert: true as const } : {}) }
@@ -79,6 +100,27 @@ export function redactCredential(type: string, authConfig: unknown): RedactedCre
       return { type: t, ...(cfg.queryParam !== undefined && { queryParam: String(cfg.queryParam) }), hasKey: Boolean(cfg.key) }
     case 'custom':
       return { type: t, headers: redactEntries(cfg.headers), query: redactEntries(cfg.query) }
+    case 'oauth1':
+      return {
+        type: t,
+        ...(cfg.consumerKey !== undefined && { consumerKey: String(cfg.consumerKey) }),
+        hasConsumerSecret: Boolean(cfg.consumerSecret),
+        hasAccessToken: Boolean(cfg.accessToken),
+        hasTokenSecret: Boolean(cfg.tokenSecret),
+        signatureMethod: cfg.signatureMethod === 'HMAC-SHA1' ? 'HMAC-SHA1' : 'HMAC-SHA256',
+      }
+    case 'oauth2':
+      return {
+        type: t,
+        grantType: cfg.grantType === 'clientCredentials' ? 'clientCredentials' : 'staticToken',
+        hasAccessToken: Boolean(cfg.accessToken),
+        ...(cfg.tokenUrl !== undefined && { tokenUrl: String(cfg.tokenUrl) }),
+        ...(cfg.clientId !== undefined && { clientId: String(cfg.clientId) }),
+        hasClientSecret: Boolean(cfg.clientSecret),
+        ...(cfg.scope !== undefined && { scope: String(cfg.scope) }),
+        ...(cfg.audience !== undefined && { audience: String(cfg.audience) }),
+        clientAuth: cfg.clientAuth === 'body' ? 'body' : 'header',
+      }
     default:
       return { type: t }
   }
@@ -99,6 +141,7 @@ export function decryptCredentialConfig(type: string, authConfig: unknown): Decr
   const dec = (value: unknown) => (value == null ? undefined : decryptSecret(String(value)))
   switch (t) {
     case 'basic':
+    case 'digest':
       return { type: t, username: cfg.username as string | undefined, password: dec(cfg.password) }
     case 'bearer':
       return { type: t, token: dec(cfg.token), caCert: dec(cfg.caCert) }
@@ -108,6 +151,27 @@ export function decryptCredentialConfig(type: string, authConfig: unknown): Decr
       return { type: t, queryParam: cfg.queryParam as string | undefined, key: dec(cfg.key) }
     case 'custom':
       return { type: t, headers: decEntries(cfg.headers), query: decEntries(cfg.query) }
+    case 'oauth1':
+      return {
+        type: t,
+        consumerKey: cfg.consumerKey as string | undefined,
+        consumerSecret: dec(cfg.consumerSecret),
+        accessToken: dec(cfg.accessToken),
+        tokenSecret: dec(cfg.tokenSecret),
+        signatureMethod: cfg.signatureMethod === 'HMAC-SHA1' ? 'HMAC-SHA1' : 'HMAC-SHA256',
+      }
+    case 'oauth2':
+      return {
+        type: t,
+        grantType: cfg.grantType === 'clientCredentials' ? 'clientCredentials' : 'staticToken',
+        accessToken: dec(cfg.accessToken),
+        tokenUrl: cfg.tokenUrl as string | undefined,
+        clientId: cfg.clientId as string | undefined,
+        clientSecret: dec(cfg.clientSecret),
+        scope: cfg.scope as string | undefined,
+        audience: cfg.audience as string | undefined,
+        clientAuth: cfg.clientAuth === 'body' ? 'body' : 'header',
+      }
     default:
       return { type: t }
   }

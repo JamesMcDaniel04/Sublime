@@ -5,7 +5,26 @@
  */
 import type { CredentialInput, CredentialType, CustomAuthEntry, RedactedCredential } from './types'
 
-export type CredentialField = 'username' | 'password' | 'token' | 'headerName' | 'queryParam' | 'key' | 'entries'
+export type CredentialField =
+  | 'username'
+  | 'password'
+  | 'token'
+  | 'headerName'
+  | 'queryParam'
+  | 'key'
+  | 'entries'
+  | 'consumerKey'
+  | 'consumerSecret'
+  | 'accessToken'
+  | 'tokenSecret'
+  | 'signatureMethod'
+  | 'grantType'
+  | 'tokenUrl'
+  | 'clientId'
+  | 'clientSecret'
+  | 'scope'
+  | 'audience'
+  | 'clientAuth'
 
 /** Which inputs a type shows, in display order. */
 export function fieldsForType(type: CredentialType): CredentialField[] {
@@ -14,25 +33,42 @@ export function fieldsForType(type: CredentialType): CredentialField[] {
       return ['username', 'password']
     case 'bearer':
       return ['token']
+    case 'digest':
+      return ['username', 'password']
     case 'apiKeyHeader':
       return ['headerName', 'key']
     case 'apiKeyQuery':
       return ['queryParam', 'key']
     case 'custom':
       return ['entries']
+    case 'oauth1':
+      return ['consumerKey', 'consumerSecret', 'accessToken', 'tokenSecret', 'signatureMethod']
+    case 'oauth2':
+      return ['grantType', 'accessToken', 'tokenUrl', 'clientId', 'clientSecret', 'scope', 'audience', 'clientAuth']
     default:
       return []
   }
 }
 
-export const SECRET_FIELDS: ReadonlySet<CredentialField> = new Set(['password', 'token', 'key'])
+export const SECRET_FIELDS: ReadonlySet<CredentialField> = new Set([
+  'password',
+  'token',
+  'key',
+  'consumerSecret',
+  'accessToken',
+  'tokenSecret',
+  'clientSecret',
+])
 
 export const TYPE_LABELS: Record<CredentialType, string> = {
-  basic: 'Basic auth (username + password)',
-  bearer: 'Bearer token',
-  apiKeyHeader: 'API key in a header',
-  apiKeyQuery: 'API key in a query parameter',
-  custom: 'Custom headers / query params',
+  basic: 'Basic Auth',
+  bearer: 'Bearer Auth',
+  custom: 'Custom Auth',
+  digest: 'Digest Auth',
+  apiKeyHeader: 'Header Auth',
+  oauth1: 'OAuth1 API',
+  oauth2: 'OAuth2 API',
+  apiKeyQuery: 'Query Auth',
 }
 
 export const FIELD_LABELS: Record<CredentialField, string> = {
@@ -43,6 +79,18 @@ export const FIELD_LABELS: Record<CredentialField, string> = {
   queryParam: 'Query parameter',
   key: 'Key',
   entries: 'Headers and query parameters',
+  consumerKey: 'Consumer key',
+  consumerSecret: 'Consumer secret',
+  accessToken: 'Access token',
+  tokenSecret: 'Access token secret',
+  signatureMethod: 'Signature method',
+  grantType: 'Grant type',
+  tokenUrl: 'Access token URL',
+  clientId: 'Client ID',
+  clientSecret: 'Client secret',
+  scope: 'Scope',
+  audience: 'Audience',
+  clientAuth: 'Client authentication',
 }
 
 export type CredentialDraft = {
@@ -59,12 +107,24 @@ export type CredentialDraft = {
   headers: CustomAuthEntry[]
   query: CustomAuthEntry[]
   caCert: string
+  consumerKey: string
+  consumerSecret: string
+  accessToken: string
+  tokenSecret: string
+  signatureMethod: 'HMAC-SHA1' | 'HMAC-SHA256'
+  grantType: 'staticToken' | 'clientCredentials'
+  tokenUrl: string
+  clientId: string
+  clientSecret: string
+  scope: string
+  audience: string
+  clientAuth: 'header' | 'body'
 }
 
 export const emptyDraft = (): CredentialDraft => ({
   name: '',
   type: 'bearer',
-  personal: false,
+  personal: true,
   allowedDomains: '',
   username: '',
   password: '',
@@ -75,6 +135,18 @@ export const emptyDraft = (): CredentialDraft => ({
   headers: [{ name: '', value: '' }],
   query: [{ name: '', value: '' }],
   caCert: '',
+  consumerKey: '',
+  consumerSecret: '',
+  accessToken: '',
+  tokenSecret: '',
+  signatureMethod: 'HMAC-SHA256',
+  grantType: 'staticToken',
+  tokenUrl: '',
+  clientId: '',
+  clientSecret: '',
+  scope: '',
+  audience: '',
+  clientAuth: 'header',
 })
 
 /**
@@ -104,6 +176,14 @@ export function draftFromRedacted(row: {
     query: row.config.query?.length
       ? row.config.query.map((entry) => ({ name: entry.name, value: '' }))
       : [{ name: '', value: '' }],
+    consumerKey: row.config.consumerKey ?? '',
+    signatureMethod: row.config.signatureMethod ?? 'HMAC-SHA256',
+    grantType: row.config.grantType ?? 'staticToken',
+    tokenUrl: row.config.tokenUrl ?? '',
+    clientId: row.config.clientId ?? '',
+    scope: row.config.scope ?? '',
+    audience: row.config.audience ?? '',
+    clientAuth: row.config.clientAuth ?? 'header',
   }
 }
 
@@ -119,6 +199,11 @@ export function draftProblems(draft: CredentialDraft, editing: boolean): string[
   const problems: string[] = []
   if (!draft.name.trim()) problems.push('Give this credential a name.')
   for (const field of fieldsForType(draft.type)) {
+    if (draft.type === 'oauth2') {
+      if (draft.grantType === 'staticToken' && field !== 'grantType' && field !== 'accessToken') continue
+      if (draft.grantType === 'clientCredentials' && field === 'accessToken') continue
+      if ((field === 'scope' || field === 'audience') && !draft[field].trim()) continue
+    }
     if (field === 'entries') {
       const named = [...draft.headers, ...draft.query].filter((entry) => entry.name.trim())
       if (named.length === 0) problems.push('Add at least one header or query parameter.')
@@ -155,6 +240,11 @@ export function saveBody(draft: CredentialDraft, editing: boolean): CredentialIn
     if (trimmed || !editing) body[field] = value
   }
   for (const field of fieldsForType(draft.type)) {
+    if (draft.type === 'oauth2') {
+      if (draft.grantType === 'staticToken' && field !== 'grantType' && field !== 'accessToken') continue
+      if (draft.grantType === 'clientCredentials' && field === 'accessToken') continue
+      if ((field === 'scope' || field === 'audience') && !draft[field].trim()) continue
+    }
     if (field === 'entries') {
       const keep = (entries: CustomAuthEntry[]) => entries.filter((entry) => entry.name.trim() && entry.value.trim())
       const headers = keep(draft.headers)

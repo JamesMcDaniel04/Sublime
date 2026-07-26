@@ -39,7 +39,7 @@ export function CredentialEditor({
 }: Readonly<{
   initial?: CredentialDraft
   credentialId?: string
-  onSaved: () => void
+  onSaved: (credential: { id: string; name: string; type: string; allowedDomains: string[] }) => void
   onCancel: () => void
 }>) {
   const editing = Boolean(credentialId)
@@ -65,7 +65,7 @@ export function CredentialEditor({
       const body = await response.json().catch(() => ({}))
       if (!response.ok) throw new Error(body.error || 'Could not save the credential.')
       toast.success(editing ? 'Credential updated.' : 'Credential saved.')
-      onSaved()
+      onSaved(body.credential)
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Could not save the credential.')
     } finally {
@@ -123,6 +123,27 @@ export function CredentialEditor({
         <div key="entries" className="grid gap-3">
           {entryRows('headers')}
           {entryRows('query')}
+        </div>
+      )
+    }
+    if (field === 'signatureMethod' || field === 'grantType' || field === 'clientAuth') {
+      const options =
+        field === 'signatureMethod'
+          ? [['HMAC-SHA256', 'HMAC-SHA256'], ['HMAC-SHA1', 'HMAC-SHA1']]
+          : field === 'grantType'
+            ? [['staticToken', 'Access token'], ['clientCredentials', 'Client credentials']]
+            : [['header', 'HTTP Basic header'], ['body', 'Request body']]
+      return (
+        <div key={field} className="grid gap-1.5">
+          <label className={labelClass} htmlFor={`cred-${field}`}>{FIELD_LABELS[field]}</label>
+          <select
+            id={`cred-${field}`}
+            value={String(draft[field])}
+            onChange={(event) => set(field, event.target.value as CredentialDraft[typeof field])}
+            className={controlClass}
+          >
+            {options.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+          </select>
         </div>
       )
     }

@@ -16,6 +16,10 @@ export function credentialInjectionPlan(dec: DecryptedCredential): InjectionPlan
   switch (dec.type) {
     case 'bearer':
       return dec.token ? { headers: { authorization: `Bearer ${dec.token}` } } : {}
+    case 'oauth2':
+      return dec.grantType !== 'clientCredentials' && dec.accessToken
+        ? { headers: { authorization: `Bearer ${dec.accessToken}` } }
+        : {}
     case 'basic': {
       const token = Buffer.from(`${dec.username ?? ''}:${dec.password ?? ''}`).toString('base64')
       return { headers: { authorization: `Basic ${token}` } }

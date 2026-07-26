@@ -27,6 +27,18 @@ export const credentialInputSchema = z.object({
   headers: z.array(entrySchema).optional(),
   query: z.array(entrySchema).optional(),
   caCert: z.string().max(100_000).optional(),
+  consumerKey: z.string().optional(),
+  consumerSecret: z.string().optional(),
+  accessToken: z.string().optional(),
+  tokenSecret: z.string().optional(),
+  signatureMethod: z.enum(['HMAC-SHA1', 'HMAC-SHA256']).optional(),
+  grantType: z.enum(['staticToken', 'clientCredentials']).optional(),
+  tokenUrl: z.string().optional(),
+  clientId: z.string().optional(),
+  clientSecret: z.string().optional(),
+  scope: z.string().optional(),
+  audience: z.string().optional(),
+  clientAuth: z.enum(['header', 'body']).optional(),
 })
 
 const createSchema = credentialInputSchema.extend({

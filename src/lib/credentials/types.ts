@@ -7,9 +7,27 @@
  *   - `RedactedCredential`   what an API response may carry (hasX booleans)
  *   - `DecryptedCredential`  server-side, transient, never persisted or returned
  */
-export type CredentialType = 'basic' | 'bearer' | 'apiKeyHeader' | 'apiKeyQuery' | 'custom'
+export type CredentialType =
+  | 'basic'
+  | 'bearer'
+  | 'custom'
+  | 'digest'
+  | 'apiKeyHeader'
+  | 'oauth1'
+  | 'oauth2'
+  | 'apiKeyQuery'
 
-export const CREDENTIAL_TYPES: readonly CredentialType[] = ['basic', 'bearer', 'apiKeyHeader', 'apiKeyQuery', 'custom']
+/** n8n's Generic Credential Type order, kept stable in every picker. */
+export const CREDENTIAL_TYPES: readonly CredentialType[] = [
+  'basic',
+  'bearer',
+  'custom',
+  'digest',
+  'apiKeyHeader',
+  'oauth1',
+  'oauth2',
+  'apiKeyQuery',
+]
 
 export interface CustomAuthEntry {
   name: string
@@ -27,6 +45,18 @@ export interface CredentialInput {
   headers?: CustomAuthEntry[]
   query?: CustomAuthEntry[]
   caCert?: string
+  consumerKey?: string
+  consumerSecret?: string
+  accessToken?: string
+  tokenSecret?: string
+  signatureMethod?: 'HMAC-SHA1' | 'HMAC-SHA256'
+  grantType?: 'staticToken' | 'clientCredentials'
+  tokenUrl?: string
+  clientId?: string
+  clientSecret?: string
+  scope?: string
+  audience?: string
+  clientAuth?: 'header' | 'body'
 }
 
 export interface DecryptedCredential {
@@ -40,6 +70,18 @@ export interface DecryptedCredential {
   headers?: CustomAuthEntry[]
   query?: CustomAuthEntry[]
   caCert?: string
+  consumerKey?: string
+  consumerSecret?: string
+  accessToken?: string
+  tokenSecret?: string
+  signatureMethod?: 'HMAC-SHA1' | 'HMAC-SHA256'
+  grantType?: 'staticToken' | 'clientCredentials'
+  tokenUrl?: string
+  clientId?: string
+  clientSecret?: string
+  scope?: string
+  audience?: string
+  clientAuth?: 'header' | 'body'
 }
 
 export interface RedactedCredential {
@@ -53,6 +95,18 @@ export interface RedactedCredential {
   headers?: Array<{ name: string; hasValue: boolean }>
   query?: Array<{ name: string; hasValue: boolean }>
   hasCaCert?: boolean
+  consumerKey?: string
+  hasConsumerSecret?: boolean
+  hasAccessToken?: boolean
+  hasTokenSecret?: boolean
+  signatureMethod?: 'HMAC-SHA1' | 'HMAC-SHA256'
+  grantType?: 'staticToken' | 'clientCredentials'
+  tokenUrl?: string
+  clientId?: string
+  hasClientSecret?: boolean
+  scope?: string
+  audience?: string
+  clientAuth?: 'header' | 'body'
 }
 
 /**
