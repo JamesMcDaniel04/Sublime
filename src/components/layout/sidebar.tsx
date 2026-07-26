@@ -23,6 +23,7 @@ import {
   Search,
   Settings,
   Sparkles,
+  Target,
   Trash2,
   Workflow,
 } from 'lucide-react'
@@ -80,6 +81,7 @@ export function notifyAgentsChanged() {
 // (/agents?view=templates), toggled at the top of that page.
 const navigation = [
   { name: 'Home', href: '/dashboard', icon: Sparkles },
+  { name: 'Goals', href: '/goals', icon: Target },
   { name: 'Agents', href: '/agents', icon: Bot },
   { name: 'Integrations', href: '/integrations', icon: Plug },
   { name: 'Flows', href: '/flows', icon: Workflow },

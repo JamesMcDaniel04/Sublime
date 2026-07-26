@@ -34,3 +34,29 @@ export type Activity = {
   startedAt: string
   completedAt?: string | null
 }
+
+export interface GoalSummary {
+  id: string
+  name: string
+  kind: 'arr' | 'mrr' | 'carr' | 'revenue' | 'quota' | 'savings' | 'custom_kpi'
+  direction: 'increase' | 'decrease'
+  unit: 'usd' | 'count' | 'percent'
+  startValue: number
+  targetValue: number
+  startAt: string
+  targetDate: string
+  status: 'active' | 'paused' | 'achieved' | 'missed' | 'archived'
+  riskLevel: 'on_track' | 'at_risk' | 'off_track' | 'no_data'
+  personal: boolean
+  parentGoalId: string | null
+  metric: {
+    source: string
+    metricKey: string
+    lastSyncAt: string | null
+    lastError: string | null
+  } | null
+  currentValue: number | null
+  progress: number | null
+  expectedProgress: number
+  sparkline: Array<{ value: number; capturedAt: string }>
+}
