@@ -36,6 +36,10 @@ const bodySchema = z
     // Multi-account workspaces: pin a provider slug to a specific connection
     // id instead of the deterministic default.
     connectionOverrides: z.record(z.string(), z.string()).default({}),
+    // Goal-sourced recommendation provenance. Both ids are re-authorized
+    // server-side before attribution or suggestion state changes.
+    goalId: z.string().min(1).optional(),
+    suggestionId: z.string().min(1).optional(),
   })
   .refine((body) => Boolean(body.seedKey) !== Boolean(body.templateId), {
     message: 'Provide exactly one of seedKey or templateId',
@@ -210,7 +214,16 @@ async function loadDbTemplateRecipe(templateId: string, organizationId: string):
 // front with a structured 409 (nothing is created); with `activate: true`
 // a valid flow goes live in the same call.
 export const POST = withAuthenticatedApi(async (request, auth) => {
-  const { seedKey, templateId, targetKind, activate, delivery: deliveryOverride, connectionOverrides } =
+  const {
+    seedKey,
+    templateId,
+    targetKind,
+    activate,
+    delivery: deliveryOverride,
+    connectionOverrides,
+    goalId,
+    suggestionId,
+  } =
     bodySchema.parse(await request.json())
 
   const organizationId = auth.organizationId
@@ -244,6 +257,68 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
       kind: 'template_used', resourceType, resourceId,
       context: { seedKey: seedKey ?? null, templateId: templateId ?? null, targetKind: desiredKind, ...extra },
     })
+
+  const attributeProvision = async (
+    resourceType: 'agent' | 'flow',
+    resourceId: string,
+  ): Promise<void> => {
+    if (!goalId) return
+    const goal = await prisma.goal.findFirst({
+      where: {
+        id: goalId,
+        organizationId,
+        OR: [{ ownerUserId: null }, { ownerUserId: userId }],
+      },
+      select: { id: true },
+    })
+    if (!goal) return
+
+    await prisma.goalContribution
+      .create({
+        data: {
+          organizationId,
+          goalId: goal.id,
+          resourceType,
+          resourceId,
+          origin: suggestionId ? 'suggestion' : 'manual',
+          estimatedMinutesSavedPerRun: seed?.estimatedMinutesSaved ?? 30,
+        },
+      })
+      .catch(() => undefined)
+    await recordUserEvent({
+      organizationId,
+      userId,
+      kind: 'goal_contribution_linked',
+      resourceType,
+      resourceId,
+      context: { goalId: goal.id, origin: suggestionId ? 'suggestion' : 'manual' },
+    })
+
+    if (suggestionId) {
+      const accepted = await prisma.userSuggestion.updateMany({
+        where: {
+          id: suggestionId,
+          organizationId,
+          userId,
+          kind: 'goal_action',
+          status: 'open',
+          targetType: 'goal',
+          targetId: goal.id,
+        },
+        data: { status: 'accepted' },
+      })
+      if (accepted.count > 0) {
+        await recordUserEvent({
+          organizationId,
+          userId,
+          kind: 'suggestion_accepted',
+          resourceType: 'suggestion',
+          resourceId: suggestionId,
+          context: { goalId: goal.id },
+        })
+      }
+    }
+  }
 
   const templateName = seed ? seed.name : dbRecipe!.name
   const templateDescription = seed ? seed.description : dbRecipe!.description
@@ -388,6 +463,7 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
       const agentId = await materializeAgent(spec, organizationId, userId, schedule, specialistArea)
       await syncAgentConnectors(agentId, organizationId, userId, spec.integrations)
       recordTemplateUsed('agent', agentId)
+      await attributeProvision('agent', agentId)
       return { success: true, kind: 'agent' as const, agentId }
     }
 
@@ -417,6 +493,7 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
         specialistArea,
       )
       recordTemplateUsed('agent', agentId, { backedByFlowId: flowResult.flowId })
+      await attributeProvision('agent', agentId)
       return {
         success: true,
         kind: 'agent' as const,
@@ -430,6 +507,7 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
     // desiredKind === 'flow'
     const flowResult = await provisionAsFlow(activate)
     recordTemplateUsed('flow', flowResult.flowId, { activated: flowResult.activated })
+    await attributeProvision('flow', flowResult.flowId)
     return {
       success: true,
       kind: 'flow' as const,

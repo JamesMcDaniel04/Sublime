@@ -4,6 +4,7 @@
  */
 import { test, before, after } from 'node:test'
 import assert from 'node:assert/strict'
+import { NextRequest } from 'next/server'
 
 const TEST_DB = process.env.TEST_DATABASE_URL
 
@@ -107,6 +108,65 @@ if (TEST_DB) {
       where: { id: goalId, organizationId: seeded.organizationId },
     })
     assert.equal(recovered.riskLevel, 'on_track')
+  })
+
+  test('provisioning an accepted goal action is born attributed', async () => {
+    const template = await prisma.agentTemplate.create({
+      data: {
+        name: 'Goal recovery helper',
+        description: 'Prepare a weekly recovery brief.',
+        type: 'agent',
+        userId: seeded.userId,
+        organizationId: seeded.organizationId,
+        configuration: {
+          kind: 'agent',
+          instructions: 'Prepare a weekly recovery brief grounded in the available evidence.',
+          integrations: [],
+          requiredIntegrations: [],
+          departments: ['sales'],
+        },
+      },
+    })
+    const suggestion = await prisma.userSuggestion.create({
+      data: {
+        organizationId: seeded.organizationId,
+        userId: seeded.userId,
+        kind: 'goal_action',
+        title: 'Recover the goal',
+        description: 'Deploy the recovery helper.',
+        targetType: 'goal',
+        targetId: goalId,
+        metadata: { goalId, seedKey: null },
+      },
+    })
+    const request = new NextRequest('http://test/api/templates/provision', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        templateId: template.id,
+        targetKind: 'agent',
+        goalId,
+        suggestionId: suggestion.id,
+      }),
+    })
+    const response = await (await import('@/app/api/templates/provision/route')).POST(request)
+    assert.equal(response.status, 200, await response.clone().text())
+    const body = await response.json()
+    assert.equal(body.kind, 'agent')
+
+    const contribution = await prisma.goalContribution.findFirst({
+      where: {
+        organizationId: seeded.organizationId,
+        goalId,
+        resourceType: 'agent',
+        resourceId: body.agentId,
+      },
+    })
+    assert.equal(contribution?.origin, 'suggestion')
+    const accepted = await prisma.userSuggestion.findFirst({
+      where: { id: suggestion.id, organizationId: seeded.organizationId },
+    })
+    assert.equal(accepted?.status, 'accepted')
   })
 } else {
   test('goals e2e (skipped: TEST_DATABASE_URL not set)', { skip: true }, () => {})
