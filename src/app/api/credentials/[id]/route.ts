@@ -4,6 +4,7 @@ import { ApiError, withAuthenticatedApi } from '@/lib/server/api-handler'
 import { recordAudit } from '@/lib/audit'
 import { mergeCredentialConfig, redactCredential } from '@/lib/credentials/config'
 import { credentialScope } from '@/lib/credentials/resolve'
+import { invalidateOAuth2Token } from '@/lib/credentials/oauth2'
 import type { CredentialType } from '@/lib/credentials/types'
 import { credentialInputSchema } from '../route'
 
@@ -89,6 +90,9 @@ export const PUT = withAuthenticatedApi(async (request, auth) => {
       authConfig,
     },
   })
+  // An OAuth2 client-credentials token minted from the OLD secret must not
+  // keep authorizing requests until it happens to expire.
+  invalidateOAuth2Token(id)
   await recordAudit({
     organizationId: auth.organizationId,
     actorUserId: auth.dbUser.id,
@@ -105,6 +109,7 @@ export const DELETE = withAuthenticatedApi(async (request, auth) => {
   if (!id) throw new ApiError('Credential id is required')
   const existing = await ownedCredential(id, auth.organizationId, auth.dbUser.id)
   await prisma.credential.deleteMany({ where: { id, organizationId: auth.organizationId } })
+  invalidateOAuth2Token(id)
   await recordAudit({
     organizationId: auth.organizationId,
     actorUserId: auth.dbUser.id,

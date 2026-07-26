@@ -11,13 +11,44 @@
  * row, a log line, or a client response.
  */
 import { encryptSecret, decryptSecret } from '@/lib/crypto/secrets'
-import type { CredentialType, CredentialInput, DecryptedCredential, RedactedCredential, CustomAuthEntry } from './types'
+import type { CredentialType, CredentialInput, DecryptedCredential, RedactedCredential, CustomAuthEntry, CustomAuthEntryInput } from './types'
 
 const asRecord = (value: unknown): Record<string, unknown> =>
   value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : {}
 
-const encEntries = (entries: CustomAuthEntry[] | undefined) =>
-  (entries ?? []).filter((entry) => entry.name.trim()).map((entry) => ({ name: entry.name, value: encryptSecret(entry.value) }))
+/**
+ * Encrypt the rows that carry a value. A row with no value is a
+ * "keep the stored one" marker, which only `mergeEntries` can resolve — on
+ * create there is nothing to keep, so it is dropped rather than stored as an
+ * encrypted empty string that would inject a blank header at request time.
+ */
+const encEntries = (entries: CustomAuthEntryInput[] | undefined) =>
+  (entries ?? [])
+    .filter((entry) => entry.name.trim() && entry.value)
+    .map((entry) => ({ name: entry.name, value: encryptSecret(entry.value as string) }))
+
+/**
+ * Resolve an update's rows against what is stored.
+ *
+ * The submitted list is AUTHORITATIVE: a row the editor no longer sends is
+ * deleted. A row with no value inherits the stored ciphertext, looked up by
+ * `originalName` so a rename keeps its secret — matching on the new name would
+ * silently orphan the value the editor can never repopulate.
+ */
+function mergeEntries(existing: unknown, submitted: CustomAuthEntryInput[] | undefined) {
+  if (!submitted) return existing
+  const stored = new Map(
+    (Array.isArray(existing) ? existing : []).map((entry) => [String((entry as CustomAuthEntry).name), (entry as CustomAuthEntry).value]),
+  )
+  return submitted
+    .filter((entry) => entry.name.trim())
+    .map((entry) => {
+      if (entry.value) return { name: entry.name, value: encryptSecret(entry.value) }
+      const kept = stored.get(entry.originalName ?? entry.name)
+      return kept === undefined ? null : { name: entry.name, value: kept }
+    })
+    .filter((entry): entry is { name: string; value: string } => entry !== null)
+}
 
 /** Encrypt secret fields, keep metadata plaintext. Only provided fields are set. */
 export function buildCredentialConfig(input: CredentialInput): Record<string, unknown> {
@@ -76,7 +107,15 @@ export function buildCredentialConfig(input: CredentialInput): Record<string, un
  * the rest, so editing a header name doesn't require re-typing the key.
  */
 export function mergeCredentialConfig(existing: Record<string, unknown>, input: CredentialInput): Record<string, unknown> {
-  return { ...existing, ...buildCredentialConfig(input) }
+  const merged = { ...existing, ...buildCredentialConfig(input) }
+  if (input.type !== 'custom') return merged
+  // Custom rows can't use the plain spread: the submitted list is the whole
+  // truth (so deletions stick) and blank values must inherit from `existing`.
+  return {
+    ...merged,
+    ...(input.headers !== undefined && { headers: mergeEntries(existing.headers, input.headers) }),
+    ...(input.query !== undefined && { query: mergeEntries(existing.query, input.query) }),
+  }
 }
 
 const redactEntries = (value: unknown) =>

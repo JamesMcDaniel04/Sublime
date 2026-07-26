@@ -40,7 +40,11 @@ test('a supplied secret IS sent verbatim, including surrounding characters', () 
   assert.equal(saveBody(draft, false).token, ' sk-1 ')
 })
 
-test('custom entries drop rows missing a name or a value', () => {
+test('custom entries drop nameless rows but keep valueless ones as markers', () => {
+  // A nameless row is nothing but an empty form line. A NAMED row with no
+  // value is meaningful — on edit it means "keep the stored secret" — so it
+  // has to survive serialization; dropping it is what made renames and
+  // removals impossible. draftProblems is what rejects it on create.
   const draft = {
     ...emptyDraft(),
     type: 'custom' as const,
@@ -49,7 +53,7 @@ test('custom entries drop rows missing a name or a value', () => {
     query: [{ name: '', value: '' }],
   }
   const body = saveBody(draft, false)
-  assert.deepEqual(body.headers, [{ name: 'X-A', value: 'a' }])
+  assert.deepEqual(body.headers, [{ name: 'X-A', value: 'a' }, { name: 'X-B' }])
   assert.equal('query' in body, false)
 })
 
@@ -87,8 +91,9 @@ test('seeding custom entries keeps the names and blanks the values', () => {
     allowedDomains: [],
     config: { type: 'custom', headers: [{ name: 'X-A', hasValue: true }], query: [] },
   })
-  assert.deepEqual(draft.headers, [{ name: 'X-A', value: '' }])
-  // An empty query list still yields one blank row to type into.
+  assert.deepEqual(draft.headers, [{ name: 'X-A', value: '', originalName: 'X-A' }])
+  // An empty query list still yields one blank row to type into — and that row
+  // has no originalName, marking it as new rather than stored.
   assert.deepEqual(draft.query, [{ name: '', value: '' }])
 })
 
@@ -96,4 +101,78 @@ test('the personal flag and domains always travel', () => {
   const body = saveBody({ ...emptyDraft(), name: 'A', token: 't', personal: true, allowedDomains: 'acme.com' }, false)
   assert.equal(body.personal, true)
   assert.deepEqual(body.allowedDomains, ['acme.com'])
+})
+
+// ── Custom entries must be editable, not just creatable ─────────────────────
+
+test('a named custom entry with no value is rejected on create', () => {
+  const draft = {
+    ...emptyDraft(),
+    name: 'Acme',
+    type: 'custom' as const,
+    headers: [{ name: 'X-Api-Key', value: '' }],
+    query: [{ name: '', value: '' }],
+  }
+  assert.deepEqual(draftProblems(draft, false), ['Give “X-Api-Key” a value.'])
+})
+
+test('a stored custom entry may keep its value blank while editing', () => {
+  const draft = {
+    ...emptyDraft(),
+    name: 'Acme',
+    type: 'custom' as const,
+    headers: [{ name: 'X-Api-Key', value: '', originalName: 'X-Api-Key' }],
+    query: [{ name: '', value: '' }],
+  }
+  assert.deepEqual(draftProblems(draft, true), [])
+})
+
+test('a newly added custom entry still needs a value while editing', () => {
+  const draft = {
+    ...emptyDraft(),
+    name: 'Acme',
+    type: 'custom' as const,
+    headers: [
+      { name: 'X-Old', value: '', originalName: 'X-Old' },
+      { name: 'X-New', value: '' },
+    ],
+    query: [{ name: '', value: '' }],
+  }
+  assert.deepEqual(draftProblems(draft, true), ['Give “X-New” a value.'])
+})
+
+test('editing sends every surviving entry so renames and removals persist', () => {
+  const draft = {
+    ...emptyDraft(),
+    name: 'Acme',
+    type: 'custom' as const,
+    headers: [{ name: 'X-Renamed', value: '', originalName: 'X-Old' }],
+    query: [{ name: '', value: '' }],
+  }
+  // X-Delete-Me is absent from the draft, so it must be absent from the body.
+  assert.deepEqual(saveBody(draft, true).headers, [{ name: 'X-Renamed', originalName: 'X-Old' }])
+})
+
+test('a re-typed value travels instead of the keep-existing marker', () => {
+  const draft = {
+    ...emptyDraft(),
+    name: 'Acme',
+    type: 'custom' as const,
+    headers: [{ name: 'X-Api-Key', value: 'fresh-secret', originalName: 'X-Api-Key' }],
+    query: [{ name: '', value: '' }],
+  }
+  assert.deepEqual(saveBody(draft, true).headers, [
+    { name: 'X-Api-Key', value: 'fresh-secret', originalName: 'X-Api-Key' },
+  ])
+})
+
+test('seeding from a redacted credential records each entry’s original name', () => {
+  const draft = draftFromRedacted({
+    name: 'Acme',
+    type: 'custom',
+    personal: true,
+    allowedDomains: [],
+    config: { type: 'custom', headers: [{ name: 'X-Api-Key', hasValue: true }], query: [] },
+  })
+  assert.deepEqual(draft.headers, [{ name: 'X-Api-Key', value: '', originalName: 'X-Api-Key' }])
 })

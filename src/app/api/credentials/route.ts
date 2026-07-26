@@ -16,7 +16,14 @@ export const runtime = 'nodejs'
 // through the server-side resolver at fetch time. No route ever returns a
 // decrypted value.
 
-const entrySchema = z.object({ name: z.string(), value: z.string() })
+// `value` is optional on update — a blank one means "keep the stored secret",
+// resolved against `originalName` so a renamed row keeps its value. The list
+// itself is authoritative, so an omitted row is a deletion.
+const entrySchema = z.object({
+  name: z.string(),
+  value: z.string().optional(),
+  originalName: z.string().optional(),
+})
 
 export const credentialInputSchema = z.object({
   type: z.enum(CREDENTIAL_TYPES as unknown as [CredentialType, ...CredentialType[]]),

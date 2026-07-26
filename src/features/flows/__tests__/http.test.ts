@@ -1,6 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { performHttpRequest, prepareHttpRequest, responseOutput, withBearerAuthorization, redactAuthHeaders, redactHttpStepInput } from '../http'
+import { createHmac } from 'node:crypto'
+import { performHttpRequest, prepareHttpRequest, responseOutput, withBearerAuthorization, redactAuthHeaders, redactHttpStepInput, oauth1SignatureBase } from '../http'
 
 test('prepareHttpRequest appends query params and sends JSON bodies', () => {
   const request = prepareHttpRequest({
@@ -373,4 +374,163 @@ test('responseOutput can force text or JSON parsing', async () => {
   const text = await responseOutput(new Response('{"ok":true}', { headers: { 'content-type': 'application/json' } }), 'text')
   assert.equal(text.body, '{"ok":true}')
   await assert.rejects(() => responseOutput(new Response('not-json'), 'json'), /not valid JSON/)
+})
+
+// ── Body / method parity (n8n sends a body on any method fetch permits) ──────
+
+test('a body on DELETE and OPTIONS is sent, not dropped', () => {
+  for (const method of ['DELETE', 'OPTIONS']) {
+    const request = prepareHttpRequest({
+      method, url: 'https://api.example.com/x', sendBody: true, bodyMode: 'json', body: '{"a":1}',
+    })
+    assert.equal(request.init.body, '{"a":1}', `${method} should carry a body`)
+  }
+})
+
+test('an explicit body on GET fails loudly instead of being dropped', () => {
+  assert.throws(
+    () => prepareHttpRequest({
+      method: 'GET', url: 'https://api.example.com/x', sendBody: true, bodyMode: 'json', body: '{"a":1}',
+    }),
+    /GET requests cannot send a body/,
+  )
+})
+
+test('a GraphQL body on GET fails loudly rather than sending an empty request', () => {
+  assert.throws(
+    () => prepareHttpRequest({
+      method: 'GET', url: 'https://api.example.com/gql', sendBody: true, bodyMode: 'graphql', body: '{ me { id } }',
+    }),
+    /GET requests cannot send a body/,
+  )
+})
+
+test('a leftover body from a method switch is dropped silently when Send Body is off', () => {
+  const request = prepareHttpRequest({
+    method: 'GET', url: 'https://api.example.com/x', sendBody: false, bodyMode: 'json', body: '{"a":1}',
+  })
+  assert.equal(request.init.body, undefined)
+})
+
+test('a raw body defaults to text/plain rather than sending no Content-Type', () => {
+  const request = prepareHttpRequest({
+    method: 'POST', url: 'https://api.example.com/x', sendBody: true, bodyMode: 'raw', body: '<xml/>',
+  })
+  assert.equal((request.init.headers as Record<string, string>)['content-type'], 'text/plain')
+})
+
+test('an explicit raw Content-Type still wins over the default', () => {
+  const request = prepareHttpRequest({
+    method: 'POST', url: 'https://api.example.com/x', sendBody: true, bodyMode: 'raw',
+    bodyContentType: 'application/xml', body: '<xml/>',
+  })
+  assert.equal((request.init.headers as Record<string, string>)['content-type'], 'application/xml')
+})
+
+// ── URL errors name the field instead of surfacing a bare TypeError ──────────
+
+test('an empty URL with query params names the URL field', () => {
+  assert.throws(
+    () => prepareHttpRequest({ method: 'GET', url: '', sendQuery: true, query: '{"a":"1"}' }),
+    /URL is required/,
+  )
+})
+
+test('a schemeless URL says so instead of throwing a bare Invalid URL', () => {
+  assert.throws(
+    () => prepareHttpRequest({ method: 'GET', url: 'api.example.com/x', sendQuery: true, query: '{"a":"1"}' }),
+    /is not a valid URL.*https:\/\//s,
+  )
+})
+
+// ── OAuth1 signature base string (RFC 5849 §3.4.1.1) ────────────────────────
+// Signing only the query params produces valid-looking but rejected signatures
+// on POST form requests, which is most of the OAuth1 API surface in the wild.
+
+test('the OAuth1 signature base string matches the RFC 5849 worked example', () => {
+  const base = oauth1SignatureBase(
+    'POST',
+    'http://example.com/request?b5=%3D%253D&a3=a&c%40=&a2=r%20b',
+    {
+      oauth_consumer_key: '9djdj82h48djs9d2',
+      oauth_token: 'kkk9d7dh3k39sjv7',
+      oauth_signature_method: 'HMAC-SHA1',
+      oauth_timestamp: '137131201',
+      oauth_nonce: '7d8f3e4a',
+    },
+    [['c2', ''], ['a3', '2 q']],
+  )
+  assert.equal(
+    base,
+    'POST&http%3A%2F%2Fexample.com%2Frequest&a2%3Dr%2520b%26a3%3D2%2520q%26a3%3Da%26b5%3D%253D%25253D'
+      + '%26c%2540%3D%26c2%3D%26oauth_consumer_key%3D9djdj82h48djs9d2%26oauth_nonce%3D7d8f3e4a'
+      + '%26oauth_signature_method%3DHMAC-SHA1%26oauth_timestamp%3D137131201%26oauth_token%3Dkkk9d7dh3k39sjv7',
+  )
+})
+
+test('a signed OAuth1 form request includes its body params in the signature', async () => {
+  // The nonce is random, so comparing two signatures proves nothing. Instead
+  // recompute the signature from the header the code actually sent, using a
+  // base string that DOES include the body — it can only match if the
+  // implementation included the body too.
+  let sent = ''
+  const request = prepareHttpRequest({
+    method: 'POST', url: 'https://api.example.com/statuses?include=1', sendBody: true,
+    bodyMode: 'formUrlencoded', body: '{"status":"hello world","trim":"1"}',
+  })
+  request.runtimeAuth = {
+    type: 'oauth1', consumerKey: 'ck', consumerSecret: 'cs',
+    accessToken: 'at', tokenSecret: 'ts', signatureMethod: 'HMAC-SHA1',
+  }
+  await performHttpRequest(request, {}, {
+    fetchImpl: async (_url, init) => {
+      sent = new Headers((init as RequestInit).headers).get('authorization') ?? ''
+      return new Response('{}', { status: 200, headers: { 'content-type': 'application/json' } })
+    },
+  })
+
+  const fields = [...sent.matchAll(/(\w+)="([^"]*)"/g)]
+    .map(([, key, value]) => [key, decodeURIComponent(value)] as const)
+  const signature = fields.find(([key]) => key === 'oauth_signature')?.[1]
+  const oauthParams = Object.fromEntries(fields.filter(([key]) => key !== 'oauth_signature'))
+  const expected = createHmac('sha1', 'cs&ts')
+    .update(oauth1SignatureBase(
+      'POST',
+      'https://api.example.com/statuses?include=1',
+      oauthParams,
+      [['status', 'hello world'], ['trim', '1']],
+    ))
+    .digest('base64')
+
+  assert.ok(signature, 'the request should carry an oauth_signature')
+  assert.equal(signature, expected)
+})
+
+test('a digest challenge round-trip counts both fetches against batch throttling', async () => {
+  // Digest sends an unauthenticated probe, reads the challenge, then sends the
+  // real request — two calls on the wire. A batch throttle exists to respect a
+  // remote rate limit, so counting the pair as one request sends twice the
+  // traffic the user asked for between pauses.
+  let fetches = 0
+  let sleeps = 0
+  const request = prepareHttpRequest({ method: 'GET', url: 'https://api.example.com/items' })
+  request.runtimeAuth = { type: 'digest', username: 'u', password: 'p' }
+
+  await performHttpRequest(
+    request,
+    { pagination: { mode: 'page', maxPages: 3 }, batch: { size: 2, delayMs: 5 } },
+    {
+      sleep: async () => { sleeps += 1 },
+      fetchImpl: async (_url, init) => {
+        fetches += 1
+        if (!new Headers((init as RequestInit).headers).has('authorization')) {
+          return new Response('', { status: 401, headers: { 'www-authenticate': 'Digest realm="r", nonce="n", qop="auth"' } })
+        }
+        return new Response('[{"id":1}]', { status: 200, headers: { 'content-type': 'application/json' } })
+      },
+    },
+  )
+
+  assert.equal(fetches, 6, 'three pages of a challenge + authenticated pair')
+  assert.equal(sleeps, 2, 'a batch of 2 should pause before pages 2 and 3')
 })

@@ -32,8 +32,30 @@ export type FlowHttpOutput = {
   bodyText: string
 }
 
-const BODY_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE'])
+// fetch forbids a body on GET/HEAD (undici throws); every other method may
+// carry one. n8n shows the Send Body toggle on all methods, so rather than
+// dropping a configured body silently we send it wherever fetch allows and
+// raise a named error where it doesn't.
+const BODYLESS_METHODS = new Set(['GET', 'HEAD'])
+/** What a raw body declares when the editor's Content-Type field is left alone. */
+export const RAW_BODY_CONTENT_TYPE = 'text/plain'
 const JSON_RE = /^(?:\{|\[|true|false|null|-?\d|")/
+
+/**
+ * Parse a request URL, naming the field on failure. `new URL` throws a bare
+ * `Invalid URL`, which surfaces in a run's error with no clue which of the
+ * step's fields is wrong — especially confusing when the URL came from a
+ * token that resolved to '' or to a schemeless host.
+ */
+function requestUrl(value: string): URL {
+  const trimmed = value.trim()
+  if (!trimmed) throw new Error('URL is required — set the step’s URL field.')
+  try {
+    return new URL(trimmed)
+  } catch {
+    throw new Error(`“${trimmed}” is not a valid URL — include the scheme, e.g. https://api.example.com/path.`)
+  }
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === 'object' && !Array.isArray(value))
@@ -76,7 +98,7 @@ function queryArrayFormatFrom(value: unknown): QueryArrayFormat {
 function queryUrl(url: string, query: unknown, arrayFormat: QueryArrayFormat = 'repeat'): string {
   const params = parseObjectInput(query, 'Query params')
   if (!Object.keys(params).length) return url
-  const next = new URL(url)
+  const next = requestUrl(url)
   for (const [key, value] of Object.entries(params)) {
     if (!key.trim() || value == null || value === '') continue
     if (Array.isArray(value)) {
@@ -184,8 +206,16 @@ export function prepareHttpRequest(config: FlowHttpConfig): { url: string; init:
   if (typeof config.cookie === 'string' && config.cookie.trim() !== '' && !Object.keys(headers).some((key) => key.toLowerCase() === 'cookie')) {
     headers.cookie = config.cookie
   }
-  const mode = explicitBodyMode(config.bodyMode) ?? inferBodyMode(config.body)
-  const bodyAllowed = BODY_METHODS.has(method) && config.sendBody !== false
+  const explicitMode = explicitBodyMode(config.bodyMode)
+  const mode = explicitMode ?? inferBodyMode(config.body)
+  const bodyless = BODYLESS_METHODS.has(method)
+  // Only an explicit "Send Body" complains. A body left behind by switching
+  // the method back to GET is still dropped quietly — the user turned the
+  // toggle off (or never turned it on), so there is nothing to warn about.
+  if (bodyless && config.sendBody === true && mode !== 'none' && config.body != null && config.body !== '') {
+    throw new Error(`${method} requests cannot send a body. Switch the method to POST, or turn Send Body off.`)
+  }
+  const bodyAllowed = !bodyless && config.sendBody !== false
   let body: BodyInit | undefined
   if (bodyAllowed && mode !== 'none') {
     if (mode === 'json') body = jsonBody(config.body)
@@ -214,8 +244,15 @@ export function prepareHttpRequest(config: FlowHttpConfig): { url: string; init:
       headers['content-type'] = 'application/json'
     }
     if (mode === 'formUrlencoded' && !Object.keys(headers).some((key) => key.toLowerCase() === 'content-type')) headers['content-type'] = 'application/x-www-form-urlencoded'
-    if ((mode === 'raw' || mode === 'text') && typeof config.bodyContentType === 'string' && config.bodyContentType.trim() && !Object.keys(headers).some((key) => key.toLowerCase() === 'content-type')) {
-      headers['content-type'] = config.bodyContentType.trim()
+    // A raw body always declares a Content-Type. The editor shows `text/plain`
+    // as the default, so send exactly that when the field is left untouched —
+    // otherwise the panel advertises a header the request never carries.
+    // Only 'raw' defaults: 'text' is the legacy mode the retired Advanced panel
+    // wrote, and existing flows using it must keep going out header-less.
+    if ((mode === 'raw' || mode === 'text') && !Object.keys(headers).some((key) => key.toLowerCase() === 'content-type')) {
+      const declared = typeof config.bodyContentType === 'string' ? config.bodyContentType.trim() : ''
+      if (declared) headers['content-type'] = declared
+      else if (mode === 'raw') headers['content-type'] = RAW_BODY_CONTENT_TYPE
     }
   }
   const timeoutMs = typeof config.timeoutMs === 'number' && Number.isFinite(config.timeoutMs)
@@ -262,8 +299,56 @@ const defaultSleep = (ms: number) => new Promise<void>((resolve) => setTimeout(r
 const oauthEncode = (value: string) =>
   encodeURIComponent(value).replace(/[!'()*]/g, (character) => `%${character.charCodeAt(0).toString(16).toUpperCase()}`)
 
-function oauth1Authorization(urlValue: string, method: string, auth: Extract<RuntimeCredentialAuth, { type: 'oauth1' }>) {
-  const url = new URL(urlValue)
+/**
+ * The RFC 5849 §3.4.1 signature base string.
+ *
+ * Two details matter and both were wrong before: an
+ * `application/x-www-form-urlencoded` body's params are part of the signature
+ * (§3.4.1.3.1) — omitting them yields signatures every OAuth1 provider
+ * rejects on POST — and the parameter sort is by BYTE order, not locale
+ * collation, which reorders punctuation like `c%40` vs `c2`.
+ */
+export function oauth1SignatureBase(
+  method: string,
+  urlValue: string,
+  oauthParams: Record<string, string>,
+  bodyParams: Array<[string, string]> = [],
+): string {
+  const url = requestUrl(urlValue)
+  const pairs: Array<[string, string]> = []
+  url.searchParams.forEach((value, key) => pairs.push([key, value]))
+  bodyParams.forEach(([key, value]) => pairs.push([key, value]))
+  Object.entries(oauthParams).forEach(([key, value]) => pairs.push([key, value]))
+  const byBytes = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0)
+  pairs.sort(([aKey, aValue], [bKey, bValue]) =>
+    byBytes(oauthEncode(aKey), oauthEncode(bKey)) || byBytes(oauthEncode(aValue), oauthEncode(bValue)))
+  const normalized = pairs.map(([key, value]) => `${oauthEncode(key)}=${oauthEncode(value)}`).join('&')
+  const baseUrl = `${url.protocol}//${url.host}${url.pathname}`
+  return [method.toUpperCase(), oauthEncode(baseUrl), oauthEncode(normalized)].join('&')
+}
+
+/**
+ * Form params that belong in the signature base. Only a urlencoded body
+ * qualifies — JSON, multipart, and raw bodies are signed by URL alone.
+ */
+function oauth1BodyParams(init: RequestInit): Array<[string, string]> {
+  const contentType = new Headers(init.headers).get('content-type') ?? ''
+  if (!contentType.toLowerCase().includes('application/x-www-form-urlencoded')) return []
+  const source = init.body instanceof URLSearchParams
+    ? init.body
+    : typeof init.body === 'string' ? new URLSearchParams(init.body) : null
+  if (!source) return []
+  const params: Array<[string, string]> = []
+  source.forEach((value, key) => params.push([key, value]))
+  return params
+}
+
+function oauth1Authorization(
+  urlValue: string,
+  method: string,
+  auth: Extract<RuntimeCredentialAuth, { type: 'oauth1' }>,
+  init: RequestInit,
+) {
   const oauth: Record<string, string> = {
     oauth_consumer_key: auth.consumerKey,
     oauth_nonce: randomBytes(16).toString('hex'),
@@ -272,14 +357,7 @@ function oauth1Authorization(urlValue: string, method: string, auth: Extract<Run
     oauth_token: auth.accessToken,
     oauth_version: '1.0',
   }
-  const pairs: Array<[string, string]> = []
-  url.searchParams.forEach((value, key) => pairs.push([key, value]))
-  Object.entries(oauth).forEach(([key, value]) => pairs.push([key, value]))
-  pairs.sort(([aKey, aValue], [bKey, bValue]) =>
-    oauthEncode(aKey).localeCompare(oauthEncode(bKey)) || oauthEncode(aValue).localeCompare(oauthEncode(bValue)))
-  const normalized = pairs.map(([key, value]) => `${oauthEncode(key)}=${oauthEncode(value)}`).join('&')
-  const baseUrl = `${url.protocol}//${url.host}${url.pathname}`
-  const base = [method.toUpperCase(), oauthEncode(baseUrl), oauthEncode(normalized)].join('&')
+  const base = oauth1SignatureBase(method, urlValue, oauth, oauth1BodyParams(init))
   const key = `${oauthEncode(auth.consumerSecret)}&${oauthEncode(auth.tokenSecret)}`
   const algorithm = auth.signatureMethod === 'HMAC-SHA1' ? 'sha1' : 'sha256'
   oauth.oauth_signature = createHmac(algorithm, key).update(base).digest('base64')
@@ -328,26 +406,37 @@ function digestAuthorization(
   return `Digest ${fields.map(([name, value, quoted]) => `${name}=${quoted ? `"${value.replace(/"/g, '\\"')}"` : value}`).join(', ')}`
 }
 
+/**
+ * `onFetch` fires once per call that actually reaches the wire, so throttling
+ * counts a digest challenge round-trip as the two requests it really is. A
+ * batch pause exists to respect a remote rate limit; counting the pair as one
+ * would send twice the traffic the user configured between pauses.
+ */
 async function fetchWithRuntimeAuth(
   fetchImpl: typeof fetch,
   url: string,
   init: RequestInit,
   auth: RuntimeCredentialAuth | undefined,
+  onFetch: () => void,
 ): Promise<Response> {
-  if (!auth) return fetchImpl(url, init)
+  const send = (target: string, request: RequestInit) => {
+    onFetch()
+    return fetchImpl(target, request)
+  }
+  if (!auth) return send(url, init)
   const method = String(init.method ?? 'GET')
   if (auth.type === 'oauth1') {
     const headers = new Headers(init.headers)
-    if (!headers.has('authorization')) headers.set('authorization', oauth1Authorization(url, method, auth))
-    return fetchImpl(url, { ...init, headers })
+    if (!headers.has('authorization')) headers.set('authorization', oauth1Authorization(url, method, auth, init))
+    return send(url, { ...init, headers })
   }
-  const first = await fetchImpl(url, init)
+  const first = await send(url, init)
   if (first.status !== 401) return first
   const challenge = digestChallenge(first.headers.get('www-authenticate') ?? '')
   if (!challenge) return first
   const headers = new Headers(init.headers)
   if (!headers.has('authorization')) headers.set('authorization', digestAuthorization(url, method, auth, challenge))
-  return fetchImpl(url, { ...init, headers })
+  return send(url, { ...init, headers })
 }
 
 const atPath = (value: unknown, path: unknown) =>
@@ -388,12 +477,12 @@ export async function performHttpRequest(
     let url = initialUrl
     for (let redirects = 0; ; redirects += 1) {
       await deps.assertUrlAllowed?.(url)
-      requestCount += 1
       const response = await fetchWithRuntimeAuth(
         fetchImpl,
         url,
         { ...request.init, ...(deps.signal ? { signal: deps.signal } : {}) },
         request.runtimeAuth,
+        () => { requestCount += 1 },
       )
       if (response.status >= 300 && response.status < 400 && response.headers.get('location')) {
         if (!request.followRedirects) throw new Error(`HTTP ${response.status}: redirect blocked (enable Follow redirects to allow it).`)

@@ -3,7 +3,17 @@
  * decisions — which fields a type needs, what a save payload looks like, when a
  * secret is intentionally omitted — are unit-testable without a DOM.
  */
-import type { CredentialInput, CredentialType, CustomAuthEntry, RedactedCredential } from './types'
+import type { CredentialInput, CredentialType, CustomAuthEntryInput, RedactedCredential } from './types'
+
+/**
+ * A custom-auth row in the editor. `originalName` is present exactly when the
+ * row came from a stored credential — it tracks the row's identity across a
+ * rename so the stored secret stays attached, and its absence is what marks a
+ * row as new (and therefore required to carry a value).
+ */
+export type CredentialDraftEntry = { name: string; value: string; originalName?: string }
+
+const namedEntries = (entries: CredentialDraftEntry[]) => entries.filter((entry) => entry.name.trim())
 
 export type CredentialField =
   | 'username'
@@ -104,8 +114,8 @@ export type CredentialDraft = {
   headerName: string
   queryParam: string
   key: string
-  headers: CustomAuthEntry[]
-  query: CustomAuthEntry[]
+  headers: CredentialDraftEntry[]
+  query: CredentialDraftEntry[]
   caCert: string
   consumerKey: string
   consumerSecret: string
@@ -170,11 +180,13 @@ export function draftFromRedacted(row: {
     username: row.config.username ?? '',
     headerName: row.config.headerName ?? '',
     queryParam: row.config.queryParam ?? '',
+    // originalName pins each row to its stored secret, so renaming a header
+    // here doesn't orphan the value the editor can never repopulate.
     headers: row.config.headers?.length
-      ? row.config.headers.map((entry) => ({ name: entry.name, value: '' }))
+      ? row.config.headers.map((entry) => ({ name: entry.name, value: '', originalName: entry.name }))
       : [{ name: '', value: '' }],
     query: row.config.query?.length
-      ? row.config.query.map((entry) => ({ name: entry.name, value: '' }))
+      ? row.config.query.map((entry) => ({ name: entry.name, value: '', originalName: entry.name }))
       : [{ name: '', value: '' }],
     consumerKey: row.config.consumerKey ?? '',
     signatureMethod: row.config.signatureMethod ?? 'HMAC-SHA256',
@@ -194,19 +206,30 @@ export function parseAllowedDomains(value: string): string[] {
     .filter(Boolean)
 }
 
+/**
+ * Which fields actually apply to a draft, after the type's own conditionals.
+ * Shared by validation and serialization so the two can't disagree about
+ * whether a field is in play — they previously carried duplicate copies of
+ * this logic.
+ */
+export function activeFields(draft: CredentialDraft): CredentialField[] {
+  const fields = fieldsForType(draft.type)
+  if (draft.type !== 'oauth2') return fields
+  return fields.filter((field) => {
+    if (draft.grantType === 'staticToken') return field === 'grantType' || field === 'accessToken'
+    if (field === 'accessToken') return false
+    // Scope and audience are genuinely optional on a client-credentials grant.
+    return !((field === 'scope' || field === 'audience') && !draft[field].trim())
+  })
+}
+
 /** What the editor can't submit yet, in plain language. Empty = ready. */
 export function draftProblems(draft: CredentialDraft, editing: boolean): string[] {
   const problems: string[] = []
   if (!draft.name.trim()) problems.push('Give this credential a name.')
-  for (const field of fieldsForType(draft.type)) {
-    if (draft.type === 'oauth2') {
-      if (draft.grantType === 'staticToken' && field !== 'grantType' && field !== 'accessToken') continue
-      if (draft.grantType === 'clientCredentials' && field === 'accessToken') continue
-      if ((field === 'scope' || field === 'audience') && !draft[field].trim()) continue
-    }
+  for (const field of activeFields(draft)) {
     if (field === 'entries') {
-      const named = [...draft.headers, ...draft.query].filter((entry) => entry.name.trim())
-      if (named.length === 0) problems.push('Add at least one header or query parameter.')
+      problems.push(...entryProblems(draft, editing))
       continue
     }
     // A secret may be blank when editing — that means "keep the stored one".
@@ -214,6 +237,19 @@ export function draftProblems(draft: CredentialDraft, editing: boolean): string[
     if (!String(draft[field] ?? '').trim()) problems.push(`${FIELD_LABELS[field]} is required.`)
   }
   return problems
+}
+
+/**
+ * Custom-auth rows. A blank value is only meaningful for a row that already
+ * exists server-side (`originalName`) — for a new row it would silently save a
+ * credential that injects nothing, which used to pass validation.
+ */
+function entryProblems(draft: CredentialDraft, editing: boolean): string[] {
+  const named = namedEntries([...draft.headers, ...draft.query])
+  if (named.length === 0) return ['Add at least one header or query parameter.']
+  return named
+    .filter((entry) => !entry.value.trim() && !(editing && entry.originalName))
+    .map((entry) => `Give “${entry.name.trim()}” a value.`)
 }
 
 /**
@@ -240,16 +276,15 @@ export function saveBody(draft: CredentialDraft, editing: boolean): CredentialIn
     }
     if (trimmed || !editing) writable[field] = value
   }
-  for (const field of fieldsForType(draft.type)) {
-    if (draft.type === 'oauth2') {
-      if (draft.grantType === 'staticToken' && field !== 'grantType' && field !== 'accessToken') continue
-      if (draft.grantType === 'clientCredentials' && field === 'accessToken') continue
-      if ((field === 'scope' || field === 'audience') && !draft[field].trim()) continue
-    }
+  for (const field of activeFields(draft)) {
     if (field === 'entries') {
-      const keep = (entries: CustomAuthEntry[]) => entries.filter((entry) => entry.name.trim() && entry.value.trim())
-      const headers = keep(draft.headers)
-      const query = keep(draft.query)
+      // Send EVERY surviving row, not just the ones carrying a value. The
+      // server treats the list as authoritative, so a row the user deleted is
+      // deleted and a renamed row keeps its stored secret via originalName.
+      // Filtering by value here is what used to make custom credentials
+      // un-editable: renames and removals were silently dropped.
+      const headers = namedEntries(draft.headers).map(entryInput)
+      const query = namedEntries(draft.query).map(entryInput)
       if (headers.length) body.headers = headers
       if (query.length) body.query = query
       continue
@@ -257,4 +292,13 @@ export function saveBody(draft: CredentialDraft, editing: boolean): CredentialIn
     put(field, String(draft[field] ?? ''))
   }
   return body
+}
+
+/** A draft row as the API takes it: blank value omitted, never sent as ''. */
+function entryInput(entry: CredentialDraftEntry): CustomAuthEntryInput {
+  return {
+    name: entry.name.trim(),
+    ...(entry.value.trim() ? { value: entry.value } : {}),
+    ...(entry.originalName ? { originalName: entry.originalName } : {}),
+  }
 }

@@ -155,3 +155,59 @@ test('OAuth2 client credentials redact secrets and keep endpoint metadata', asyn
   })
   assert.equal(decryptCredentialConfig('oauth2', cfg).clientSecret, 'client-secret')
 })
+
+// ── Custom entries: the input list is authoritative on update ───────────────
+
+test('renaming a custom entry keeps the stored secret attached', async () => {
+  const { buildCredentialConfig, mergeCredentialConfig, decryptCredentialConfig } = await fresh()
+  const stored = buildCredentialConfig({
+    type: 'custom',
+    headers: [{ name: 'X-Old', value: 'super-secret' }],
+  })
+  const merged = mergeCredentialConfig(stored, {
+    type: 'custom',
+    headers: [{ name: 'X-Renamed', originalName: 'X-Old' }],
+  })
+  assert.deepEqual(decryptCredentialConfig('custom', merged).headers, [
+    { name: 'X-Renamed', value: 'super-secret' },
+  ])
+})
+
+test('an entry left out of the update is removed', async () => {
+  const { buildCredentialConfig, mergeCredentialConfig, decryptCredentialConfig } = await fresh()
+  const stored = buildCredentialConfig({
+    type: 'custom',
+    headers: [{ name: 'X-Keep', value: 'a' }, { name: 'X-Drop', value: 'b' }],
+  })
+  const merged = mergeCredentialConfig(stored, {
+    type: 'custom',
+    headers: [{ name: 'X-Keep', originalName: 'X-Keep' }],
+  })
+  assert.deepEqual(decryptCredentialConfig('custom', merged).headers, [{ name: 'X-Keep', value: 'a' }])
+})
+
+test('a re-typed custom value replaces the stored one', async () => {
+  const { buildCredentialConfig, mergeCredentialConfig, decryptCredentialConfig } = await fresh()
+  const stored = buildCredentialConfig({ type: 'custom', headers: [{ name: 'X-Key', value: 'old' }] })
+  const merged = mergeCredentialConfig(stored, {
+    type: 'custom',
+    headers: [{ name: 'X-Key', value: 'new', originalName: 'X-Key' }],
+  })
+  assert.deepEqual(decryptCredentialConfig('custom', merged).headers, [{ name: 'X-Key', value: 'new' }])
+})
+
+test('a new entry with no value is not stored as a blank secret', async () => {
+  const { buildCredentialConfig, mergeCredentialConfig, decryptCredentialConfig } = await fresh()
+  const config = buildCredentialConfig({
+    type: 'custom',
+    headers: [{ name: 'X-Filled', value: 'a' }, { name: 'X-Empty' }],
+  })
+  assert.deepEqual(decryptCredentialConfig('custom', config).headers, [{ name: 'X-Filled', value: 'a' }])
+})
+
+test('omitting the entry lists entirely leaves the stored ones alone', async () => {
+  const { buildCredentialConfig, mergeCredentialConfig, decryptCredentialConfig } = await fresh()
+  const stored = buildCredentialConfig({ type: 'custom', headers: [{ name: 'X-Key', value: 'a' }] })
+  const merged = mergeCredentialConfig(stored, { type: 'custom' })
+  assert.deepEqual(decryptCredentialConfig('custom', merged).headers, [{ name: 'X-Key', value: 'a' }])
+})

@@ -34,6 +34,22 @@ export interface CustomAuthEntry {
   value: string
 }
 
+/**
+ * A custom-auth row as the editor submits it.
+ *
+ * `value` is optional because a redacted credential can't prefill secrets: a
+ * blank value on edit means "keep the stored one". `originalName` is what that
+ * row was called when the editor loaded it, and it is the only way to keep the
+ * stored secret attached across a RENAME — matching on `name` alone would drop
+ * the value the moment a user corrects a typo in a header name. A row with no
+ * `originalName` is new, so it must carry a value.
+ */
+export interface CustomAuthEntryInput {
+  name: string
+  value?: string
+  originalName?: string
+}
+
 export interface CredentialInput {
   type: CredentialType
   username?: string
@@ -42,8 +58,8 @@ export interface CredentialInput {
   headerName?: string
   queryParam?: string
   key?: string
-  headers?: CustomAuthEntry[]
-  query?: CustomAuthEntry[]
+  headers?: CustomAuthEntryInput[]
+  query?: CustomAuthEntryInput[]
   caCert?: string
   consumerKey?: string
   consumerSecret?: string

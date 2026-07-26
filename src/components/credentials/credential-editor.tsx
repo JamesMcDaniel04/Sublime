@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { Plus, Trash2 } from 'lucide-react'
+import { AlertTriangle, CheckCircle2, Plus, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Switch } from '@/components/ui/switch'
@@ -10,14 +10,23 @@ import {
   FIELD_LABELS,
   SECRET_FIELDS,
   TYPE_LABELS,
+  activeFields,
   draftProblems,
   emptyDraft,
-  fieldsForType,
   saveBody,
   type CredentialDraft,
   type CredentialField,
 } from '@/lib/credentials/form'
-import { CREDENTIAL_TYPES, type CredentialType, type CustomAuthEntry } from '@/lib/credentials/types'
+import { CREDENTIAL_TYPES, type CredentialType } from '@/lib/credentials/types'
+
+export type SavedCredential = {
+  id: string
+  name: string
+  type: string
+  allowedDomains: string[]
+}
+
+type VerifyState = { state: 'verified'; status?: number } | { state: 'failed'; error: string }
 
 const controlClass =
   'h-10 w-full rounded-md border border-border bg-background px-3 text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground focus:border-blue-500 focus:ring-2 focus:ring-blue-100'
@@ -37,20 +46,54 @@ export function CredentialEditor({
   onSaved,
   onCancel,
   verifyAgainst,
+  context = 'vault',
 }: Readonly<{
   initial?: CredentialDraft
   credentialId?: string
-  onSaved: (credential: { id: string; name: string; type: string; allowedDomains: string[] }) => void
+  onSaved: (credential: SavedCredential) => void
   onCancel: () => void
   verifyAgainst?: string
+  /**
+   * Where the editor is mounted. 'http' hides fields an HTTP request can't
+   * act on — today that is the private CA cert, which only the Postgres
+   * source consumes. Offering it here would collect trust material that the
+   * request path silently ignores.
+   */
+  context?: 'http' | 'vault'
 }>) {
   const editing = Boolean(credentialId)
   const [draft, setDraft] = useState<CredentialDraft>(initial ?? emptyDraft())
   const [saving, setSaving] = useState(false)
   const [showProblems, setShowProblems] = useState(false)
+  // Survives the save so a failed check stays on screen instead of vanishing
+  // with its toast — and so the credential is not attached behind the user's
+  // back. `saved` holds the row awaiting an explicit "attach anyway".
+  const [verification, setVerification] = useState<VerifyState | null>(null)
+  const [saved, setSaved] = useState<SavedCredential | null>(null)
   const problems = draftProblems(draft, editing)
-  const set = <K extends keyof CredentialDraft>(key: K, value: CredentialDraft[K]) =>
+  const set = <K extends keyof CredentialDraft>(key: K, value: CredentialDraft[K]) => {
+    // Any edit invalidates the previous check — it described different values.
+    setVerification(null)
+    setSaved(null)
     setDraft((previous) => ({ ...previous, [key]: value }))
+  }
+
+  const verify = async (credential: SavedCredential): Promise<VerifyState | null> => {
+    if (!verifyAgainst || !/^https?:\/\//i.test(verifyAgainst)) return null
+    try {
+      const response = await fetch(`/api/credentials/${credential.id}/verify`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ url: verifyAgainst, method: 'GET' }),
+      })
+      const body = await response.json().catch(() => ({}))
+      return response.ok
+        ? { state: 'verified', status: body.status }
+        : { state: 'failed', error: body.error || 'The endpoint rejected this credential.' }
+    } catch (error) {
+      return { state: 'failed', error: error instanceof Error ? error.message : 'Verification could not run.' }
+    }
+  }
 
   const save = async () => {
     if (problems.length > 0) {
@@ -67,15 +110,15 @@ export function CredentialEditor({
       const body = await response.json().catch(() => ({}))
       if (!response.ok) throw new Error(body.error || 'Could not save the credential.')
       toast.success(editing ? 'Credential updated.' : 'Credential saved.')
-      if (verifyAgainst && /^https?:\/\//i.test(verifyAgainst)) {
-        const verification = await fetch(`/api/credentials/${body.credential.id}/verify`, {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ url: verifyAgainst, method: 'GET' }),
-        })
-        const verificationBody = await verification.json().catch(() => ({}))
-        if (verification.ok) toast.success('Credential verified against this endpoint.')
-        else toast.error(verificationBody.error || 'Credential saved, but verification failed.')
+
+      const result = await verify(body.credential)
+      setVerification(result)
+      // A credential that failed its check is saved but NOT attached: wiring it
+      // into the step silently would hand the user a step that cannot work and
+      // a green-looking editor that closed itself.
+      if (result?.state === 'failed') {
+        setSaved(body.credential)
+        return
       }
       onSaved(body.credential)
     } catch (error) {
@@ -94,7 +137,9 @@ export function CredentialEditor({
             value={entry.name}
             placeholder={which === 'headers' ? 'X-Api-Key' : 'api_key'}
             onChange={(event) =>
-              set(which, draft[which].map((row, i) => (i === index ? { ...row, name: event.target.value } : row)) as CustomAuthEntry[])
+              // Spreading `row` preserves originalName, which is what keeps a
+              // renamed row attached to its stored secret.
+              set(which, draft[which].map((row, i) => (i === index ? { ...row, name: event.target.value } : row)))
             }
             className={controlClass}
             aria-label={`${which === 'headers' ? 'Header' : 'Query'} name ${index + 1}`}
@@ -104,14 +149,14 @@ export function CredentialEditor({
             value={entry.value}
             placeholder={editing ? 'Unchanged' : 'Value'}
             onChange={(event) =>
-              set(which, draft[which].map((row, i) => (i === index ? { ...row, value: event.target.value } : row)) as CustomAuthEntry[])
+              set(which, draft[which].map((row, i) => (i === index ? { ...row, value: event.target.value } : row)))
             }
             className={controlClass}
             aria-label={`${which === 'headers' ? 'Header' : 'Query'} value ${index + 1}`}
           />
           <button
             type="button"
-            onClick={() => set(which, draft[which].filter((_, i) => i !== index) as CustomAuthEntry[])}
+            onClick={() => set(which, draft[which].filter((_, i) => i !== index))}
             className="flex h-10 w-10 items-center justify-center rounded-md text-muted-foreground hover:bg-red-50 hover:text-red-600"
             aria-label={`Remove ${which === 'headers' ? 'header' : 'query parameter'} ${index + 1}`}
           >
@@ -121,7 +166,8 @@ export function CredentialEditor({
       ))}
       <button
         type="button"
-        onClick={() => set(which, [...draft[which], { name: '', value: '' }] as CustomAuthEntry[])}
+        // A row added here has no originalName, so it is new and must carry a value.
+        onClick={() => set(which, [...draft[which], { name: '', value: '' }])}
         className="flex items-center gap-1.5 text-xs font-semibold text-blue-700 hover:text-blue-900"
       >
         <Plus className="h-3.5 w-3.5" /> Add {which === 'headers' ? 'header' : 'query parameter'}
@@ -179,11 +225,9 @@ export function CredentialEditor({
     )
   }
 
-  const visibleFields = fieldsForType(draft.type).filter((field) => {
-    if (draft.type !== 'oauth2') return true
-    if (draft.grantType === 'staticToken') return field === 'grantType' || field === 'accessToken'
-    return field !== 'accessToken'
-  })
+  // activeFields is the same helper validation and serialization use, so the
+  // form can't show a field the save body would drop (or vice versa).
+  const visibleFields = activeFields(draft)
 
   return (
     <div className="grid gap-4">
@@ -214,7 +258,7 @@ export function CredentialEditor({
 
       {visibleFields.map(fieldInput)}
 
-      {(draft.type === 'bearer' || draft.type === 'apiKeyHeader') && (
+      {context === 'vault' && (draft.type === 'bearer' || draft.type === 'apiKeyHeader') && (
         <div className="grid gap-1.5">
           <label className={labelClass} htmlFor="cred-ca-cert">
             Private CA certificate (optional)
@@ -264,10 +308,35 @@ export function CredentialEditor({
         </ul>
       )}
 
+      {verification?.state === 'verified' && (
+        <p className="flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-xs text-emerald-900 dark:border-emerald-900/40 dark:bg-emerald-950/30 dark:text-emerald-300">
+          <CheckCircle2 className="h-4 w-4 shrink-0" />
+          Verified against {verifyAgainst}{verification.status ? ` — HTTP ${verification.status}` : ''}.
+        </p>
+      )}
+
+      {verification?.state === 'failed' && (
+        <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-xs text-red-900 dark:border-red-900/40 dark:bg-red-950/30 dark:text-red-300">
+          <p className="flex items-center gap-2 font-semibold">
+            <AlertTriangle className="h-4 w-4 shrink-0" /> Saved, but the endpoint rejected it
+          </p>
+          <p className="mt-1.5 break-words font-mono text-[11px] leading-relaxed">{verification.error}</p>
+          <p className="mt-2">
+            The credential is stored. Fix it here, or attach it anyway if the check itself is wrong — some endpoints
+            refuse a bare GET even with valid credentials.
+          </p>
+          {saved && (
+            <Button size="sm" variant="outline" className="mt-2" onClick={() => onSaved(saved)}>
+              Attach anyway
+            </Button>
+          )}
+        </div>
+      )}
+
       <div className="flex justify-end gap-2">
         <Button variant="outline" size="sm" onClick={onCancel} disabled={saving}>Cancel</Button>
         <Button size="sm" onClick={save} loading={saving} disabled={saving} className={cn(problems.length > 0 && showProblems && 'opacity-80')}>
-          {editing ? 'Save changes' : verifyAgainst ? 'Save & verify' : 'Save credential'}
+          {saved ? 'Save & re-check' : editing ? 'Save changes' : verifyAgainst ? 'Save & verify' : 'Save credential'}
         </Button>
       </div>
     </div>

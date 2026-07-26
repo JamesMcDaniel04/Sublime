@@ -38,6 +38,12 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
       failOnHttpError: true,
       responseType: 'text',
       timeoutMs: 15_000,
+      // Plenty of APIs answer a bare GET with a 301/302 (http→https, trailing
+      // slash, regional host). Without this the hop reads as "redirect
+      // blocked" and a perfectly good credential is reported as failed. Every
+      // hop is re-checked by assertUrlAllowed below.
+      followRedirects: true,
+      maxRedirects: 3,
     })
     const resolved = await resolveHttpCredential({
       credentialId,
