@@ -334,7 +334,7 @@ export const PATCH = withAuthenticatedApi(async (request, auth) => {
       ? (row.metadata as Record<string, unknown>)
       : {}
   const updated = await prisma.assistantChatMessage.update({
-    where: { id: row.id },
+    where: { id: row.id, organizationId: auth.organizationId },
     data: { metadata: { ...metadata, executedRun } as unknown as Prisma.InputJsonValue },
   })
   return { success: true, message: serializeMessage(updated) }
