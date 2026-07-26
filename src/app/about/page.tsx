@@ -10,7 +10,7 @@ const geist = Geist({ subsets: ['latin'], display: 'swap' })
 export const metadata: Metadata = {
   title: 'About — Sublime',
   description:
-    'Sublime is an AI-agent workspace that connects to the tools your team already uses and delivers useful outcomes from day one.',
+    'Sublime is the goal-based AI platform: it connects to your tech stack and deploys specialized agents measured against the goals your org runs on.',
 }
 
 const principles = [
@@ -23,8 +23,8 @@ const principles = [
     desc: 'Connections are explicitly authorized, scoped, and revocable, and we never train models on your data.',
   },
   {
-    title: 'Useful on day one',
-    desc: 'Templates and integrations are designed so the first agent you deploy does real work, not a toy demo.',
+    title: 'ROI over demos',
+    desc: 'The first agent you deploy does real, attributable work against a goal you set — not a toy demo.',
   },
 ]
 
@@ -36,13 +36,13 @@ export default function AboutPage() {
         <div className="mx-auto max-w-[1200px] pt-20 pb-16">
           <p className="text-[12px] uppercase tracking-[0.15em] text-muted-foreground">About</p>
           <h1 className="mt-4 max-w-[640px] text-[clamp(2rem,4vw,3.2rem)] font-[500] leading-[1.08] tracking-[-0.04em] text-foreground">
-            AI that knows your business.
+            The goal-based AI platform.
           </h1>
           <p className="mt-6 max-w-[560px] text-base leading-relaxed text-muted-foreground">
-            Sublime is an AI-agent workspace. You connect the tools your team already uses: code,
-            chat, docs, and project management. Sublime reconstructs how work actually gets
-            done. From there it powers agents and workflows that deliver useful, evidence-backed
-            outcomes from day one.
+            Sublime connects to the tools your team already uses: code, chat, docs, and
+            project management. It connects the dots across them, then deploys specialized
+            agents that automate repetitive work, cut costs, and surface process
+            improvements — measured against the goals your org actually runs on.
           </p>
         </div>
       </section>
@@ -55,15 +55,15 @@ export default function AboutPage() {
           </p>
           <div className="mt-4 lg:mt-0 max-w-[640px] space-y-4">
             <p className="text-[15px] leading-[1.7] text-muted-foreground">
-              Most AI tools demo well and then stall, because they don&apos;t understand the
-              business they&apos;re dropped into. Instead of a chatbot that starts from zero every
-              conversation, Sublime agents start with your context: your repositories, your
-              discussions, your processes.
+              Most AI tools demo well and then stall, because nobody can say what they
+              actually moved. Instead of a chatbot with no scoreboard, Sublime agents are
+              deployed against goals — quota, ARR, a launch date — so their work is
+              measured, not assumed.
             </p>
             <p className="text-[15px] leading-[1.7] text-muted-foreground">
-              We believe the missing ingredient isn&apos;t a bigger model. It&apos;s context.
-              Sublime exists to close that gap: to make AI that plugs into real work, shows its
-              evidence, and earns trust run by run.
+              We believe the missing ingredient isn&apos;t a bigger model. It&apos;s
+              accountability to outcomes. Sublime exists to close that gap: AI that plugs
+              into real work, shows its evidence, and proves its ROI goal by goal.
             </p>
           </div>
         </div>

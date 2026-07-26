@@ -1,10 +1,11 @@
 # Sublime
 
-Sublime is a focused AI-agent workspace: create agents, connect tools, run tasks, inspect live tool calls and errors, and ask follow-up questions about an execution.
+Sublime is the goal-based AI platform: connect your tech stack, and Sublime connects the dots and deploys specialized agents — measured against the goals your org runs on — with every run's tool calls, evidence, and errors inspectable.
 
 ## Product Surface
 
 - `/dashboard`: agent list, grouped run activity, output, tool calls, errors, per-agent run history, and follow-up chat
+- `/goals`: organization goals, progress and risk tracking, and AI impact/ROI reporting
 - `/integrations`: Nango accounts, Slack, Granola, MCP servers, and service configuration
 - `/connections`: custom per-user MCP server connections
 - `/templates`: reusable agent templates and skills

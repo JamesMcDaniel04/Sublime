@@ -79,7 +79,7 @@ export default function SignUpPage() {
     <AuthShell
       eyebrow="Get started"
       title="Create your account"
-      subtitle="Create your workspace, choose a plan, and start immediately. Cancel anytime."
+      subtitle="Create your workspace and set your first goal in minutes. Cancel anytime."
     >
       <div className="space-y-4">
             {error && (
