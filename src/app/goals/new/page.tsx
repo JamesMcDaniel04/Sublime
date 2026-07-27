@@ -22,6 +22,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { cn } from '@/lib/utils'
 import { GOAL_KIND_UNITS, type GoalSummary } from '@/lib/types'
 import { goalTemplateByKey } from '@/lib/goals/goal-templates'
+import { NO_CONNECTION_SOURCES } from '@/lib/goals/metric-sources'
 import { fmtValue } from '@/components/goals/chart-math'
 import {
   SOURCE_HINTS,
@@ -215,7 +216,7 @@ export default function NewGoalPage() {
 
   const nextFromSource = () => {
     if (!selectedSource) return toast.error('Choose a metric source.')
-    const needsConnection = !['manual', 'url', 'slack_assisted'].includes(state.source)
+    const needsConnection = !NO_CONNECTION_SOURCES.has(state.source)
     if (needsConnection && !state.connectionRef) {
       return toast.error('Choose a connected account.')
     }
@@ -305,7 +306,7 @@ export default function NewGoalPage() {
           metric: {
             source: state.source,
             metricKey: state.metricKey,
-            connectionRef: ['manual', 'url', 'slack_assisted'].includes(state.source)
+            connectionRef: NO_CONNECTION_SOURCES.has(state.source)
               ? null
               : state.connectionRef,
             config,

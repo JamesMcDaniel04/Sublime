@@ -14,6 +14,7 @@ import {
   sourceIsAvailable,
   type MetricSourceOption,
 } from '@/lib/metrics/source-options'
+import { NO_CONNECTION_SOURCES } from '@/lib/goals/metric-sources'
 
 export type MetricBinding = {
   label: string
@@ -25,9 +26,6 @@ export type MetricBinding = {
   config: Record<string, unknown>
 }
 
-/** Sources that carry no connectionRef (mirrors NO_CONNECTION_SOURCES in the
- * create route). */
-const NO_CONNECTION_SOURCES = new Set(['manual', 'url', 'slack_assisted'])
 
 /** Why this binding would fail the create route, or null when it is ready.
  * Mirrors the server's per-source zod checks so the Copilot preview can gate
