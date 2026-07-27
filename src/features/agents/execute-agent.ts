@@ -21,6 +21,7 @@ import {
   type ToolBinding,
   type ToolPlaneGroup,
 } from './tool-planes'
+import type { GoalResource } from '@/lib/integrations/goals-port'
 import { resolveAgentConnectorKeys } from '@/lib/connectors/agent-connectors'
 import { agentReadScope } from '@/lib/server/visibility'
 import { notify } from '@/lib/notifications/service'
@@ -242,7 +243,7 @@ async function loadTools(
   providers: string[],
   ownerUserId?: string | null,
   query?: string,
-  flowOptions?: { allowFlows?: boolean; flowIds?: string[] },
+  flowOptions?: { allowFlows?: boolean; flowIds?: string[]; resource?: GoalResource },
 ) {
   // Every plane contributes to one list; the cap/priority policy is applied once
   // at the end (capDiscoveredTools) so write tools aren't crowded out. Plane
@@ -272,7 +273,10 @@ async function loadTools(
 
   // ---- Native built-ins (Granola / Slack / HTTP / Email) --------------------
   // Each gated on its availability AND a matching providers entry.
-  for (const group of await loadNativePlaneGroups(organizationId, { providers })) pushGroup(group)
+  for (const group of await loadNativePlaneGroups(organizationId, {
+    providers,
+    resource: flowOptions?.resource,
+  })) pushGroup(group)
 
   // ---- Nango delivery (outbound writes as the acting user) -----------------
   // Slack/Gmail/Salesforce writes through the org's Nango connections,
@@ -621,6 +625,7 @@ export async function runAgentExecution(
     const { tools, bindings } = await loadTools(organizationId, providers, userId, toolQuery, {
       allowFlows: agentMetadata.allowFlows === true,
       flowIds: Array.isArray(agentMetadata.flowIds) ? agentMetadata.flowIds.map(String) : [],
+      resource: { type: 'agent', id: agent.id },
     })
     // Cross-tool ledger (behavior spec §2): providers this run actually
     // touched, deduped to one tool_call event per (execution, provider).

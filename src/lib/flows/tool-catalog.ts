@@ -23,6 +23,7 @@ import {
   loadNativePlaneGroups,
   type ToolPlaneGroup,
 } from '@/features/agents/tool-planes'
+import type { GoalResource } from '@/lib/integrations/goals-port'
 import { createHash } from 'crypto'
 import { planesForConnectionIds } from '@/lib/flows/tool-connection-id'
 import { loadVerifications } from '@/lib/connections/record-verification'
@@ -35,7 +36,15 @@ export type FlowToolCatalogConnection = { id: string; name: string; tools: FlowT
 
 export async function loadFlowToolCatalog(
   organizationId: string,
-  options: { userId?: string; takeConnections?: number; takeTools?: number; connectionIds?: string[] } = {},
+  options: {
+    userId?: string
+    takeConnections?: number
+    takeTools?: number
+    connectionIds?: string[]
+    /** The flow being run/validated. Omitted by the builder's tool picker, so
+     *  the goals plane stays absent there until a flow is linked to a goal. */
+    resource?: GoalResource
+  } = {},
 ): Promise<FlowToolCatalogConnection[]> {
   // When the caller only needs specific connections (run/publish validation),
   // load just the planes those ids reference.
@@ -49,7 +58,11 @@ export async function loadFlowToolCatalog(
           take: options.takeConnections ?? 25,
         }).catch(() => [] as ToolPlaneGroup[])
       : [],
-    wantPlane('native') ? loadNativePlaneGroups(organizationId).catch(() => [] as ToolPlaneGroup[]) : [],
+    wantPlane('native')
+      ? loadNativePlaneGroups(organizationId, { resource: options.resource }).catch(
+          () => [] as ToolPlaneGroup[],
+        )
+      : [],
     wantPlane('nango') ? loadNangoPlaneGroups(organizationId, options.userId).catch(() => [] as ToolPlaneGroup[]) : [],
   ])
 
