@@ -52,6 +52,23 @@ test('maps sheets endpoints to sheets.googleapis.com; drive/calendar stay on www
   assert.equal(urls[2], 'https://www.googleapis.com/calendar/v3/calendars/primary/events')
 })
 
+test('maps GA4 endpoints: reports to analyticsdata, account summaries to analyticsadmin', async () => {
+  const urls: string[] = []
+  __testHooks.set({
+    loadConnection: async () => RECORD,
+    refresh: async () => ({ accessToken: 'at-1', expiresIn: 3600 }),
+    fetchImpl: async (url) => {
+      urls.push(String(url))
+      return new Response(JSON.stringify({ ok: true }), { status: 200, headers: { 'Content-Type': 'application/json' } })
+    },
+  })
+  const proxy = googleProxy(CONN)
+  await proxy({ method: 'POST', endpoint: '/v1beta/properties/123:runReport', connectionId: 'c1', providerConfigKey: 'google-analytics', data: {} })
+  await proxy({ method: 'GET', endpoint: '/v1beta/accountSummaries', connectionId: 'c1', providerConfigKey: 'google-analytics' })
+  assert.equal(urls[0], 'https://analyticsdata.googleapis.com/v1beta/properties/123:runReport')
+  assert.equal(urls[1], 'https://analyticsadmin.googleapis.com/v1beta/accountSummaries')
+})
+
 test('string data uploads as a raw body with the declared content type', async () => {
   const calls: Array<{ init: RequestInit }> = []
   __testHooks.set({

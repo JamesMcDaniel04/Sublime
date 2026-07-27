@@ -176,6 +176,28 @@ test('drive tools list, download, and upload via the Drive v3 endpoints', async 
   assert.equal(uploads[1].contentType, 'text/plain')
 })
 
+test('analytics tools proxy the GA4 Admin and Data API endpoints', async () => {
+  const google = { connectionId: 'g1', providerConfigKey: 'google-analytics', scope: 'org' as const }
+  const list = recordingProxy()
+  await DELIVERY_TOOLS.find((t) => t.name === 'analytics_list_properties')!.run(google, {}, list.proxy)
+  assert.equal(list.calls[0].method, 'GET')
+  assert.equal(list.calls[0].endpoint, '/v1beta/accountSummaries')
+
+  const report = recordingProxy()
+  // "properties/123" (Admin API shape) must normalize to the bare id.
+  await DELIVERY_TOOLS.find((t) => t.name === 'analytics_run_report')!.run(
+    google,
+    { property_id: 'properties/123', metrics: ['activeUsers'], dimensions: ['date'], start_date: '2026-07-01', end_date: '2026-07-25' },
+    report.proxy,
+  )
+  assert.equal(report.calls[0].method, 'POST')
+  assert.equal(report.calls[0].endpoint, '/v1beta/properties/123:runReport')
+  const body = report.calls[0].data as { metrics: Array<{ name: string }>; dimensions: Array<{ name: string }>; dateRanges: Array<{ startDate: string; endDate: string }> }
+  assert.deepEqual(body.metrics, [{ name: 'activeUsers' }])
+  assert.deepEqual(body.dimensions, [{ name: 'date' }])
+  assert.deepEqual(body.dateRanges, [{ startDate: '2026-07-01', endDate: '2026-07-25' }])
+})
+
 test('deliverySpecByName finds a capability tool by name for multi-tool capabilities', async () => {
   const { deliverySpecByName } = await import('../delivery')
   assert.equal(deliverySpecByName('sheets', 'sheets_append_rows')?.name, 'sheets_append_rows')

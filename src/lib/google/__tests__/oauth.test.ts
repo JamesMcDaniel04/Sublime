@@ -56,6 +56,15 @@ test('calendar scope set covers event read/write plus the readonly ActivitySourc
   assert.ok(!scopes.includes('https://www.googleapis.com/auth/calendar'))
 })
 
+test('analytics scope set is read-only plus userinfo.email', () => {
+  const scopes: readonly string[] = GOOGLE_SERVICE_SCOPES['google-analytics']
+  assert.ok(scopes.includes('https://www.googleapis.com/auth/analytics.readonly'))
+  assert.ok(scopes.includes('https://www.googleapis.com/auth/userinfo.email'))
+  // The write scopes (analytics.edit, plain analytics, user/manage scopes)
+  // widen the grant beyond any shipped feature.
+  assert.ok(!scopes.some((s) => /\/auth\/analytics(\.edit|\.manage\.users(\.readonly)?|\.provision)?$/.test(s)))
+})
+
 test('auth url strips stray whitespace from env values', () => {
   // A trailing newline pasted into the deployment env encodes as %0A in the
   // redirect_uri, which Google rejects with a secure-response-handling

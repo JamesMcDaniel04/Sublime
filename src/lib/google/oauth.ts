@@ -45,6 +45,14 @@ export const GOOGLE_SERVICE_SCOPES = {
     'https://www.googleapis.com/auth/drive.file',
     'https://www.googleapis.com/auth/userinfo.email',
   ],
+  // analytics.readonly is a "sensitive" scope (same verification class as the
+  // services above — no CASA assessment). Read-only is all the GA4 Data and
+  // Admin APIs need; the write scope (analytics.edit) stays out until a
+  // feature ships that mutates GA config.
+  'google-analytics': [
+    'https://www.googleapis.com/auth/analytics.readonly',
+    'https://www.googleapis.com/auth/userinfo.email',
+  ],
 } as const
 
 export type GoogleOAuthService = keyof typeof GOOGLE_SERVICE_SCOPES

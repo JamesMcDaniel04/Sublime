@@ -40,6 +40,8 @@ const SIMPLE_ICON_SLUGS: Record<string, string> = {
   launchdarkly: 'launchdarkly',
   'launch-darkly': 'launchdarkly',
   googlecalendar: 'googlecalendar',
+  'google-analytics': 'googleanalytics',
+  googleanalytics: 'googleanalytics',
   googledocs: 'googledocs',
   googleforms: 'googleforms',
   googlecloud: 'googlecloud',

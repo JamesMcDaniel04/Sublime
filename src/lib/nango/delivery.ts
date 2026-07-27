@@ -32,6 +32,7 @@ export const DELIVERY_PROVIDERS = {
   sheets: ['google-sheets'],
   drive: ['google-drive'],
   calendar: ['google-calendar'],
+  analytics: ['google-analytics'],
   salesforce: ['salesforce', 'salesforce-sandbox'],
   asana: ['asana'],
   clickup: ['clickup'],
@@ -476,6 +477,46 @@ export async function driveUploadFile(
   return created.data
 }
 
+export async function analyticsListProperties(
+  connection: DeliveryConnection,
+  args: { maxResults?: number },
+  proxy: NangoProxy = defaultProxy(),
+): Promise<unknown> {
+  // Account summaries nest each account's property list — one call covers
+  // discovery, so the Admin API surface stays at this single endpoint.
+  const response = await proxy({
+    method: 'GET',
+    endpoint: '/v1beta/accountSummaries',
+    connectionId: connection.connectionId,
+    providerConfigKey: connection.providerConfigKey,
+    params: { pageSize: Math.max(1, Math.min(200, Number(args.maxResults ?? 50))) },
+  })
+  return response.data
+}
+
+export async function analyticsRunReport(
+  connection: DeliveryConnection,
+  args: { propertyId: string; metrics: string[]; dimensions?: string[]; startDate?: string; endDate?: string; maxResults?: number },
+  proxy: NangoProxy = defaultProxy(),
+): Promise<unknown> {
+  // GA property ids are numeric; accept "properties/123" too since that is
+  // how the Admin API returns them.
+  const propertyId = args.propertyId.replace(/^properties\//, '')
+  const response = await proxy({
+    method: 'POST',
+    endpoint: `/v1beta/properties/${encodeURIComponent(propertyId)}:runReport`,
+    connectionId: connection.connectionId,
+    providerConfigKey: connection.providerConfigKey,
+    data: {
+      metrics: args.metrics.map((name) => ({ name })),
+      ...(args.dimensions?.length ? { dimensions: args.dimensions.map((name) => ({ name })) } : {}),
+      dateRanges: [{ startDate: args.startDate || '28daysAgo', endDate: args.endDate || 'today' }],
+      limit: Math.max(1, Math.min(1000, Number(args.maxResults ?? 100))),
+    },
+  })
+  return response.data
+}
+
 // ── Tool descriptors for the agent runtime ───────────────────────────────────
 
 export interface DeliveryToolSpec {
@@ -692,6 +733,53 @@ export const DELIVERY_TOOLS: DeliveryToolSpec[] = [
           content: String(args.content),
           ...(args.mime_type ? { mimeType: String(args.mime_type) } : {}),
           ...(args.folder_id ? { folderId: String(args.folder_id) } : {}),
+        },
+        proxy,
+      ),
+  },
+  {
+    capability: 'analytics',
+    name: 'analytics_list_properties',
+    description: 'List the GA4 accounts and properties visible to the connected Google Analytics account.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        max_results: { type: 'number', description: 'Max account summaries to return (default 50, cap 200).' },
+      },
+    },
+    run: (connection, args, proxy) =>
+      analyticsListProperties(
+        connection,
+        { ...(args.max_results !== undefined ? { maxResults: Number(args.max_results) } : {}) },
+        proxy,
+      ),
+  },
+  {
+    capability: 'analytics',
+    name: 'analytics_run_report',
+    description: 'Run a GA4 report: pick metrics (e.g. activeUsers, sessions) and optional dimensions (e.g. date, country) over a date range.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        property_id: { type: 'string', description: 'GA4 property id (numeric, or "properties/123").' },
+        metrics: { type: 'array', items: { type: 'string' }, description: 'GA4 metric names, e.g. activeUsers, sessions, screenPageViews.' },
+        dimensions: { type: 'array', items: { type: 'string' }, description: 'Optional GA4 dimension names, e.g. date, country, pagePath.' },
+        start_date: { type: 'string', description: 'Start date (YYYY-MM-DD or NdaysAgo); defaults to 28daysAgo.' },
+        end_date: { type: 'string', description: 'End date (YYYY-MM-DD or today); defaults to today.' },
+        max_results: { type: 'number', description: 'Max rows to return (default 100, cap 1000).' },
+      },
+      required: ['property_id', 'metrics'],
+    },
+    run: (connection, args, proxy) =>
+      analyticsRunReport(
+        connection,
+        {
+          propertyId: String(args.property_id),
+          metrics: ((args.metrics as unknown[]) ?? []).map(String),
+          ...(Array.isArray(args.dimensions) && args.dimensions.length ? { dimensions: args.dimensions.map(String) } : {}),
+          ...(args.start_date ? { startDate: String(args.start_date) } : {}),
+          ...(args.end_date ? { endDate: String(args.end_date) } : {}),
+          ...(args.max_results !== undefined ? { maxResults: Number(args.max_results) } : {}),
         },
         proxy,
       ),

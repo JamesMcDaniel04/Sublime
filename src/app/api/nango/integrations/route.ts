@@ -32,7 +32,7 @@ const CACHE_TTL_MS = 10 * 60 * 1000
  *  (the google_calendar ActivitySource). */
 function withNativeGoogle(integrations: IntegrationChip[]): IntegrationChip[] {
   if (!googleOAuthConfigured()) return integrations
-  const nativeCapabilities: DeliveryCapability[] = ['gmail', 'calendar', 'sheets', 'drive']
+  const nativeCapabilities: DeliveryCapability[] = ['gmail', 'calendar', 'sheets', 'drive', 'analytics']
   const withoutNangoGoogle = integrations.filter((integration) => {
     const capability = capabilityForProviderConfigKey(integration.id)
     return !(capability && nativeCapabilities.includes(capability))
@@ -65,6 +65,13 @@ function withNativeGoogle(integrations: IntegrationChip[]): IntegrationChip[] {
       provider: 'google-drive',
       name: 'Google Drive',
       capability: 'drive' as DeliveryCapability,
+      native: true,
+    },
+    {
+      id: 'google-analytics',
+      provider: 'google-analytics',
+      name: 'Google Analytics',
+      capability: 'analytics' as DeliveryCapability,
       native: true,
     },
     ...withoutNangoGoogle,

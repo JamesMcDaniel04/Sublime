@@ -61,7 +61,7 @@ if (TEST_DB) {
 
   test('start route accepts every registered Google service', async () => {
     const { GET } = await import('../google/oauth/start/route')
-    for (const service of ['google-calendar', 'google-sheets', 'google-drive']) {
+    for (const service of ['google-calendar', 'google-sheets', 'google-drive', 'google-analytics']) {
       const response = await GET(new NextRequest(new URL(`http://test/api/google/oauth/start?service=${service}`)))
       assert.ok(response.status >= 300 && response.status < 400, `${service}: expected redirect, got ${response.status}`)
       assert.equal(new URL(response.headers.get('location') ?? '').hostname, 'accounts.google.com', service)

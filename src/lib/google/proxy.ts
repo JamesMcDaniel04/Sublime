@@ -49,6 +49,11 @@ function baseUrlFor(endpoint: string): string {
   if (endpoint.startsWith('/gmail/')) return 'https://gmail.googleapis.com'
   // Sheets v4 lives on its own host; Drive (incl. /upload) and Calendar ride www.
   if (endpoint.startsWith('/v4/spreadsheets')) return 'https://sheets.googleapis.com'
+  // GA4 splits across two hosts that share the /v1beta prefix: property
+  // discovery rides the Admin API (accountSummaries only), reports ride the
+  // Data API (properties/{id}:runReport et al.).
+  if (endpoint.startsWith('/v1beta/accountSummaries')) return 'https://analyticsadmin.googleapis.com'
+  if (endpoint.startsWith('/v1beta/properties')) return 'https://analyticsdata.googleapis.com'
   return 'https://www.googleapis.com'
 }
 

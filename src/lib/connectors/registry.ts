@@ -135,6 +135,16 @@ export const BUILTIN_CONNECTORS: ConnectorDescriptor[] = [
     available: () => true,
   },
   {
+    key: 'analytics',
+    label: 'Google Analytics',
+    slug: 'googleanalytics',
+    kind: 'nango',
+    isWrite: true,
+    providerId: 'nango:analytics',
+    matches: has('analytic'),
+    available: () => true,
+  },
+  {
     key: 'salesforce',
     label: 'Salesforce',
     slug: 'salesforce',
@@ -247,6 +257,7 @@ export function fromNangoProviderKey(providerConfigKey: string): { key: string; 
   if (k.includes('sheet')) return { key: 'sheets', label: 'Google Sheets', slug: 'googlesheets' }
   if (k.includes('drive')) return { key: 'drive', label: 'Google Drive', slug: 'googledrive' }
   if (k.includes('calendar')) return { key: 'calendar', label: 'Google Calendar', slug: 'googlecalendar' }
+  if (k.includes('analytic')) return { key: 'analytics', label: 'Google Analytics', slug: 'googleanalytics' }
   if (k.includes('mail') || k.includes('gmail')) return { key: 'gmail', label: 'Gmail', slug: 'gmail' }
   if (k.includes('salesforce')) return { key: 'salesforce', label: 'Salesforce', slug: 'salesforce' }
   if (k.includes('github')) return { key: 'github', label: 'GitHub', slug: 'github' }
