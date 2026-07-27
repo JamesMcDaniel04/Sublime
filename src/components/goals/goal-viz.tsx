@@ -47,6 +47,11 @@ export function RiskBadge({
   )
 }
 
+/** Validated chart data hue (see tailwind.config.js `chart`): horizon's
+ *  chroma reads gray at chart weights, so data marks carry chart-blue. */
+const DATA_BLUE = '#0284C7'
+const DATA_VIOLET = '#7C3AED'
+
 export function GoalProgressBar({
   progress,
   expectedProgress,
@@ -58,16 +63,16 @@ export function GoalProgressBar({
   const pacePct = Math.min(1, Math.max(0, expectedProgress)) * 100
   return (
     <div
-      className="relative h-1.5 w-full rounded-full bg-muted"
+      className="relative h-2.5 w-full rounded-full bg-muted shadow-inner"
       role="img"
       aria-label={`Progress ${Math.round(pct)}%, pace ${Math.round(pacePct)}%`}
     >
       <div
-        className="absolute inset-y-0 left-0 rounded-full bg-horizon-500"
+        className="absolute inset-y-0 left-0 rounded-full bg-gradient-to-r from-chart-blue/80 to-chart-blue"
         style={{ width: `${pct}%` }}
       />
       <div
-        className="absolute top-1/2 h-3 w-0.5 -translate-y-1/2 rounded bg-foreground/60"
+        className="absolute top-1/2 h-4 w-[3px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-foreground/70 ring-2 ring-background"
         style={{ left: `${pacePct}%` }}
         title="Expected pace"
       />
@@ -84,31 +89,136 @@ export function Sparkline({
   readonly width?: number
   readonly height?: number
 }) {
-  const d = useMemo(() => {
-    if (points.length < 2) return ''
+  const gradientId = useId().replace(/:/g, '')
+  const paths = useMemo(() => {
+    if (points.length < 2) return null
     const xs = points.map((point) => Date.parse(point.capturedAt))
     const ys = points.map((point) => point.value)
     const x = scaleLinear([Math.min(...xs), Math.max(...xs)], [2, width - 2])
-    const y = scaleLinear([Math.min(...ys), Math.max(...ys)], [height - 2, 2])
-    return linePath(
-      points.map((point) => ({
-        x: x(Date.parse(point.capturedAt)),
-        y: y(point.value),
-      })),
-    )
+    const y = scaleLinear([Math.min(...ys), Math.max(...ys)], [height - 3, 3])
+    const coords = points.map((point) => ({
+      x: x(Date.parse(point.capturedAt)),
+      y: y(point.value),
+    }))
+    const line = linePath(coords)
+    const first = coords[0]
+    const last = coords.at(-1)!
+    return {
+      line,
+      // Area closes to the bottom edge so the fill gives the line a body.
+      area: `${line} L ${last.x} ${height - 1} L ${first.x} ${height - 1} Z`,
+      last,
+    }
   }, [points, width, height])
-  if (!d) return null
+  if (!paths) return null
   return (
-    <svg width={width} height={height} aria-hidden className="text-horizon-500">
+    <svg width={width} height={height} aria-hidden className="text-chart-blue">
+      <defs>
+        <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor={DATA_BLUE} stopOpacity={0.28} />
+          <stop offset="100%" stopColor={DATA_BLUE} stopOpacity={0} />
+        </linearGradient>
+      </defs>
+      <path d={paths.area} fill={`url(#${gradientId})`} />
       <path
-        d={d}
+        d={paths.line}
         fill="none"
         stroke="currentColor"
         strokeWidth={2}
         strokeLinecap="round"
         strokeLinejoin="round"
       />
+      <circle
+        cx={paths.last.x}
+        cy={paths.last.y}
+        r={2.5}
+        className="fill-chart-blue stroke-background"
+        strokeWidth={1.5}
+      />
     </svg>
+  )
+}
+
+/**
+ * Progress ring — the KPI widget's centerpiece. The arc is the progress made,
+ * the notch on the track is where pace says you should be, so ahead/behind is
+ * read as arc-past-notch at a glance.
+ */
+export function ProgressRing({
+  progress,
+  expectedProgress,
+  size = 96,
+}: {
+  readonly progress: number | null
+  readonly expectedProgress: number
+  readonly size?: number
+}) {
+  const gradientId = useId().replace(/:/g, '')
+  const stroke = 8
+  const radius = (size - stroke) / 2
+  const circumference = 2 * Math.PI * radius
+  const pct = progress === null ? 0 : Math.min(1, Math.max(0, progress))
+  const pace = Math.min(1, Math.max(0, expectedProgress))
+  const paceAngle = pace * 360 - 90
+  const paceX = size / 2 + radius * Math.cos((paceAngle * Math.PI) / 180)
+  const paceY = size / 2 + radius * Math.sin((paceAngle * Math.PI) / 180)
+  return (
+    <div className="relative shrink-0" style={{ width: size, height: size }}>
+      <svg
+        width={size}
+        height={size}
+        role="img"
+        aria-label={
+          progress === null
+            ? 'Progress not yet measured'
+            : `Progress ${Math.round(pct * 100)}%, expected ${Math.round(pace * 100)}%`
+        }
+      >
+        <defs>
+          <linearGradient id={gradientId} x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0%" stopColor={DATA_BLUE} />
+            <stop offset="100%" stopColor={DATA_VIOLET} />
+          </linearGradient>
+        </defs>
+        <circle
+          cx={size / 2}
+          cy={size / 2}
+          r={radius}
+          fill="none"
+          strokeWidth={stroke}
+          className="stroke-muted"
+        />
+        <circle
+          cx={size / 2}
+          cy={size / 2}
+          r={radius}
+          fill="none"
+          stroke={`url(#${gradientId})`}
+          strokeWidth={stroke}
+          strokeLinecap="round"
+          strokeDasharray={circumference}
+          strokeDashoffset={circumference * (1 - pct)}
+          transform={`rotate(-90 ${size / 2} ${size / 2})`}
+          className="transition-[stroke-dashoffset] duration-700 ease-out"
+        />
+        {/* Pace notch: where the arc should reach today. */}
+        <circle
+          cx={paceX}
+          cy={paceY}
+          r={3}
+          className="fill-foreground/70 stroke-background"
+          strokeWidth={1.5}
+        />
+      </svg>
+      <div className="absolute inset-0 flex flex-col items-center justify-center">
+        <span className="font-mono text-xl font-bold leading-none">
+          {progress === null ? '—' : `${Math.round((progress ?? 0) * 100)}%`}
+        </span>
+        <span className="mt-0.5 text-[10px] uppercase tracking-wide text-muted-foreground">
+          of target
+        </span>
+      </div>
+    </div>
   )
 }
 
@@ -167,9 +277,14 @@ export function GoalTrendChart({
     const yMax = ticks.at(-1) ?? Math.max(...values)
     const x = scaleLinear([startMs, targetMs], [left, width - right])
     const y = scaleLinear([yMin, yMax], [height - bottom, top])
-    const actualPath = linePath(
-      sorted.map((point) => ({ x: x(Date.parse(point.capturedAt)), y: y(point.value) })),
-    )
+    const coords = sorted.map((point) => ({ x: x(Date.parse(point.capturedAt)), y: y(point.value) }))
+    const actualPath = linePath(coords)
+    // Close the actual line to the x-axis: the gradient body under the line
+    // is what keeps the chart from reading as a wireframe.
+    const areaPath = coords.length >= 2
+      ? `${actualPath} L ${coords.at(-1)!.x} ${height - bottom} L ${coords[0].x} ${height - bottom} Z`
+      : ''
+    const lastCoord = coords.at(-1) ?? null
     return {
       width,
       height,
@@ -184,6 +299,8 @@ export function GoalTrendChart({
       x,
       y,
       actualPath,
+      areaPath,
+      lastCoord,
     }
   }, [goal, sorted])
 
@@ -209,6 +326,10 @@ export function GoalTrendChart({
               height={chart.height - chart.top - chart.bottom}
             />
           </clipPath>
+          <linearGradient id={`${clipId}-fill`} x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor={DATA_BLUE} stopOpacity={0.22} />
+            <stop offset="100%" stopColor={DATA_BLUE} stopOpacity={0} />
+          </linearGradient>
         </defs>
         {chart.ticks.map((tick) => (
           <g key={tick}>
@@ -252,28 +373,45 @@ export function GoalTrendChart({
                 x2={chart.x(Date.parse(marker.at))}
                 y1={chart.top}
                 y2={chart.height - chart.bottom}
-                className="stroke-border"
+                stroke={DATA_VIOLET}
+                strokeOpacity={0.35}
+                strokeDasharray="2 3"
               >
                 <title>{marker.label}</title>
               </line>
-              <text
-                x={chart.x(Date.parse(marker.at))}
-                y={chart.height - chart.bottom + 11}
-                textAnchor="middle"
-                className="fill-muted-foreground text-[9px]"
+              {/* AI-contribution marker: a violet diamond on the baseline. */}
+              <rect
+                x={chart.x(Date.parse(marker.at)) - 3}
+                y={chart.height - chart.bottom - 3}
+                width={6}
+                height={6}
+                fill={DATA_VIOLET}
+                className="stroke-background"
+                strokeWidth={1}
+                transform={`rotate(45 ${chart.x(Date.parse(marker.at))} ${chart.height - chart.bottom})`}
               >
-                ▲
-              </text>
+                <title>{marker.label}</title>
+              </rect>
             </g>
           ))}
+          {chart.areaPath && <path d={chart.areaPath} fill={`url(#${clipId}-fill)`} />}
           {chart.actualPath && (
             <path
               d={chart.actualPath}
               fill="none"
-              className="stroke-horizon-500"
-              strokeWidth={2}
+              className="stroke-chart-blue"
+              strokeWidth={2.5}
               strokeLinecap="round"
               strokeLinejoin="round"
+            />
+          )}
+          {chart.lastCoord && !hover && (
+            <circle
+              cx={chart.lastCoord.x}
+              cy={chart.lastCoord.y}
+              r={4}
+              className="fill-chart-blue stroke-background"
+              strokeWidth={2}
             />
           )}
           {chart.projection !== null && sorted.length >= 2 && (
@@ -282,7 +420,7 @@ export function GoalTrendChart({
               y1={chart.y(sorted.at(-1)!.value)}
               x2={chart.x(chart.targetMs)}
               y2={chart.y(chart.projection)}
-              className="stroke-horizon-500/70"
+              className="stroke-chart-blue/60"
               strokeWidth={2}
               strokeDasharray="2 4"
             />
@@ -299,8 +437,14 @@ export function GoalTrendChart({
               <circle
                 cx={hoverX}
                 cy={hoverY}
-                r={5}
-                className="fill-horizon-500 stroke-background"
+                r={7}
+                className="fill-chart-blue/20"
+              />
+              <circle
+                cx={hoverX}
+                cy={hoverY}
+                r={4.5}
+                className="fill-chart-blue stroke-background"
                 strokeWidth={2}
               />
             </>

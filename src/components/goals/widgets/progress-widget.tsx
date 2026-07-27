@@ -8,9 +8,9 @@ export function ProgressWidget({ data }: WidgetProps) {
   if (data.goal.progress === null && !data.preview) return null
   return (
     <Card className="space-y-2 p-5">
-      <div className="flex justify-between text-sm">
+      <div className="flex items-baseline justify-between text-sm">
         <span className="font-medium">Progress</span>
-        <span className="text-muted-foreground">
+        <span className="font-mono font-semibold text-chart-blue">
           {Math.round((data.goal.progress ?? 0) * 100)}%
         </span>
       </div>

@@ -30,19 +30,37 @@ function AnimatedNumber({ value }: { value: number }) {
   return <span ref={ref} className="tabular-nums" />
 }
 
+/** Chart-token accents (validated data palette) for the icon chip. */
+const ACCENTS = {
+  blue: "bg-chart-blue/10 text-chart-blue",
+  amber: "bg-chart-amber/10 text-chart-amber",
+  violet: "bg-chart-violet/10 text-chart-violet",
+  emerald: "bg-chart-emerald/10 text-chart-emerald",
+} as const
+
 interface StatTileProps extends React.HTMLAttributes<HTMLDivElement> {
   label: string
   value: number | string
   hint?: string
   icon?: LucideIcon
+  /** Tints the icon chip with a chart-palette hue; omit for the plain mark. */
+  accent?: keyof typeof ACCENTS
 }
 
-function StatTile({ label, value, hint, icon: Icon, className, ...props }: StatTileProps) {
+function StatTile({ label, value, hint, icon: Icon, accent, className, ...props }: StatTileProps) {
   return (
     <Card variant="raised" className={cn("p-5", className)} {...props}>
       <div className="flex items-start justify-between gap-3">
         <p className="eyebrow">{label}</p>
-        {Icon && <Icon className="h-4 w-4 text-horizon-500" aria-hidden="true" />}
+        {Icon && (
+          accent ? (
+            <span className={cn("flex h-7 w-7 shrink-0 items-center justify-center rounded-lg", ACCENTS[accent])}>
+              <Icon className="h-4 w-4" aria-hidden="true" />
+            </span>
+          ) : (
+            <Icon className="h-4 w-4 text-horizon-500" aria-hidden="true" />
+          )
+        )}
       </div>
       <p className="mt-2 font-mono text-3xl font-bold text-foreground">
         {typeof value === "number" ? <AnimatedNumber value={value} /> : value}

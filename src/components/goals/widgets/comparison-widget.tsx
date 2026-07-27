@@ -9,7 +9,9 @@ import {
 import { normalizeSeries, sampleSeries } from '@/lib/goals/series-math'
 import { resolveMetric, type WidgetProps } from './goal-dashboard'
 
-const COLORS = ['#6366f1', '#0ea5e9', '#f59e0b', '#10b981']
+// Validated categorical palette (tailwind `chart` tokens) in FIXED assignment
+// order — series keep their color as filters change, never re-painted by rank.
+const COLORS = ['#0284C7', '#D97706', '#7C3AED', '#059669']
 const W = 640
 const H = 180
 const PAD = 12
@@ -69,20 +71,35 @@ export function ComparisonWidget({ config, data }: WidgetProps) {
         role="img"
         aria-label="Comparison of tracked series"
       >
-        {lines.map((line, index) => (
-          <path
-            key={line.metric.id}
-            d={linePath(
-              line.norm.map((point) => ({
-                x: x(new Date(point.capturedAt).getTime()),
-                y: y(point.t),
-              })),
-            )}
-            fill="none"
-            stroke={COLORS[index % COLORS.length]}
-            strokeWidth={2}
-          />
-        ))}
+        {lines.map((line, index) => {
+          const coords = line.norm.map((point) => ({
+            x: x(new Date(point.capturedAt).getTime()),
+            y: y(point.t),
+          }))
+          const last = coords.at(-1)
+          return (
+            <g key={line.metric.id}>
+              <path
+                d={linePath(coords)}
+                fill="none"
+                stroke={COLORS[index % COLORS.length]}
+                strokeWidth={2}
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+              {last && (
+                <circle
+                  cx={last.x}
+                  cy={last.y}
+                  r={3.5}
+                  fill={COLORS[index % COLORS.length]}
+                  className="stroke-background"
+                  strokeWidth={1.5}
+                />
+              )}
+            </g>
+          )
+        })}
       </svg>
       <div className="mt-2 flex flex-wrap gap-4">
         {lines.map((line, index) => (

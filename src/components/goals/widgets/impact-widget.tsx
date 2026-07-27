@@ -9,6 +9,13 @@ function formatDuration(seconds: number) {
   return `${(seconds / 3600).toFixed(seconds < 36_000 ? 1 : 0)}h`
 }
 
+/** Tier hairline: measured facts carry the data blue, estimates the violet —
+ *  the same encoding the trend chart uses for actuals vs AI annotations. */
+const TIER_EDGE: Record<string, string> = {
+  Measured: 'border-chart-blue',
+  Estimated: 'border-chart-violet',
+}
+
 function ImpactFigure({
   tier,
   value,
@@ -19,9 +26,9 @@ function ImpactFigure({
   label: string
 }) {
   return (
-    <div>
-      <p className="text-xs text-muted-foreground">{tier}</p>
-      <p className="font-mono text-2xl font-bold">{value}</p>
+    <div className={`border-l-2 pl-3 ${TIER_EDGE[tier] ?? 'border-border'}`}>
+      <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{tier}</p>
+      <p className="mt-0.5 font-mono text-2xl font-bold">{value}</p>
       <p className="text-xs text-muted-foreground">{label}</p>
     </div>
   )

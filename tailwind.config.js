@@ -31,6 +31,18 @@ const themedNeutral = {
   950: 'hsl(var(--foreground) / <alpha-value>)',
 }
 
+// Chart data palette — validated categorical set (six-checks, light AND dark
+// surfaces): fixed assignment order blue → amber → violet → emerald. Horizon
+// stays the brand accent for chrome; these carry DATA. Chosen because
+// horizon-500's chroma (0.069 OKLCH) sits below the "reads gray" floor —
+// the reason charts felt flat.
+const chart = {
+  blue: '#0284C7',
+  amber: '#D97706',
+  violet: '#7C3AED',
+  emerald: '#059669',
+}
+
 module.exports = {
   darkMode: 'class',
   content: [
@@ -44,6 +56,7 @@ module.exports = {
         // Brand scales, available by name.
         horizon,
         graphite,
+        chart,
         ember: graphite,
         // Bring existing utility classes onto theme tokens with zero per-file
         // churn. Neutral utilities (`slate-500`, `gray-200`, …) resolve to the

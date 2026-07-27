@@ -6,10 +6,26 @@ import type { GoalSummary } from '@/lib/types'
 import { fmtValue } from './chart-math'
 import { GoalProgressBar, RiskBadge, Sparkline } from './goal-viz'
 
+/** Risk → the card's top hairline gradient. Status is still named by the
+ *  RiskBadge (icon + label); the hairline just lets a wall of cards scan. */
+const RISK_BAR: Record<GoalSummary['riskLevel'], string> = {
+  on_track: 'from-emerald-500 to-teal-400',
+  at_risk: 'from-amber-500 to-orange-400',
+  off_track: 'from-rose-500 to-red-400',
+  no_data: 'from-border to-border',
+}
+
 export function GoalCard({ goal }: { readonly goal: GoalSummary }) {
   return (
     <Link href={`/goals/${goal.id}`} className="block h-full">
-      <Card variant="interactive" className="flex h-full flex-col gap-4 p-5">
+      <Card
+        variant="interactive"
+        className="relative flex h-full flex-col gap-4 overflow-hidden p-5 pt-6"
+      >
+        <div
+          aria-hidden
+          className={`absolute inset-x-0 top-0 h-1 bg-gradient-to-r ${RISK_BAR[goal.riskLevel]}`}
+        />
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
             <h3 className="truncate font-semibold">{goal.name}</h3>

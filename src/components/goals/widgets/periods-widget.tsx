@@ -30,7 +30,7 @@ export function PeriodsWidget({ data }: WidgetProps) {
           {period.outcome === 'achieved' ? '✓' : '✗'}
         </span>
       ))}
-      <span className="rounded-full border border-horizon-500/30 bg-horizon-500/10 px-3 py-1 text-xs font-medium text-horizon-600">
+      <span className="rounded-full border border-chart-blue/30 bg-chart-blue/10 px-3 py-1 text-xs font-medium text-chart-blue">
         Current
       </span>
     </div>

@@ -54,11 +54,13 @@ export const CATEGORY_ACCENTS: Record<GoalTemplateCategory, CategoryAccent> = {
     badge: 'border-violet-200 bg-violet-50 text-violet-700 dark:border-violet-500/30 dark:bg-violet-500/10 dark:text-violet-300',
     ring: 'hover:ring-violet-300/70 dark:hover:ring-violet-500/40',
   },
+  // Cyan, not indigo: tailwind.config.js remaps `indigo-*` to neutral theme
+  // tokens (the retired accent), so an indigo accent silently renders GRAY.
   Quality: {
-    bar: 'from-indigo-500 to-blue-400',
-    tile: 'bg-indigo-100 text-indigo-600 dark:bg-indigo-500/15 dark:text-indigo-300',
-    badge: 'border-indigo-200 bg-indigo-50 text-indigo-700 dark:border-indigo-500/30 dark:bg-indigo-500/10 dark:text-indigo-300',
-    ring: 'hover:ring-indigo-300/70 dark:hover:ring-indigo-500/40',
+    bar: 'from-cyan-500 to-teal-400',
+    tile: 'bg-cyan-100 text-cyan-600 dark:bg-cyan-500/15 dark:text-cyan-300',
+    badge: 'border-cyan-200 bg-cyan-50 text-cyan-700 dark:border-cyan-500/30 dark:bg-cyan-500/10 dark:text-cyan-300',
+    ring: 'hover:ring-cyan-300/70 dark:hover:ring-cyan-500/40',
   },
   Demand: {
     bar: 'from-fuchsia-500 to-purple-400',

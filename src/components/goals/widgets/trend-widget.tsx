@@ -49,7 +49,8 @@ export function TrendWidget({ config, data }: WidgetProps) {
           {metric.label ? `${metric.label} trend` : 'Trend and pace'}
         </h2>
         <p className="text-xs text-muted-foreground">
-          Solid is actual, dashed is target pace, dotted is projection.
+          Solid blue is actual, gray dashes are target pace, dotted is the
+          projection — violet diamonds mark AI contributions.
         </p>
       </div>
       <GoalTrendChart

@@ -41,7 +41,7 @@ const byReadiness = (templates: readonly GoalTemplate[], connected: Set<string>)
  * until the wizard, where the target and source stay the user's.
  *
  * Presentation deliberately matches the agent/flow starter catalogue — same
- * card shell, same gap-6 stagger grid, same indigo department pills — so the
+ * card shell, same gap-6 stagger grid, same horizon department pills — so the
  * two catalogues read as one system rather than two.
  *
  * Page state is deliberately component-local rather than in the URL: the
@@ -88,7 +88,7 @@ export function GoalTemplateGallery() {
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="space-y-1">
           <h2 id="goal-templates-heading" className="flex items-center gap-2 text-lg font-semibold">
-            <Sparkles className="h-4 w-4 text-indigo-500" />
+            <Sparkles className="h-4 w-4 text-chart-violet" />
             Start from a template
           </h2>
           <p className="text-sm text-muted-foreground">
@@ -107,8 +107,10 @@ export function GoalTemplateGallery() {
               onClick={() => { setDepartment(key); setPage(1) }}
               className={cn(
                 'rounded-full border px-2.5 py-1 text-xs font-medium transition-colors',
+                // Horizon explicitly, not `indigo-*` — the config remaps
+                // indigo to neutral tokens, so the active pill rendered gray.
                 department === key
-                  ? 'border-indigo-300 bg-indigo-50 text-indigo-700 dark:border-indigo-500/40 dark:bg-indigo-500/10 dark:text-indigo-300'
+                  ? 'border-horizon-300 bg-horizon-50 text-horizon-700 dark:border-horizon-500/40 dark:bg-horizon-500/15 dark:text-horizon-200'
                   : 'border-border/60 bg-card text-muted-foreground hover:bg-accent hover:text-foreground',
               )}
             >

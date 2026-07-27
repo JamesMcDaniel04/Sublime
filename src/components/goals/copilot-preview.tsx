@@ -258,7 +258,7 @@ export function CopilotPreview({
 
   return (
     <div className="space-y-6">
-      <Card className="space-y-5 border-horizon-500/30 p-6">
+      <Card className="space-y-5 border-chart-violet/30 p-6">
         <div className="flex flex-wrap items-center gap-3">
           <Badge variant="secondary">
             {GOAL_KIND_LABELS[draft.kind]}

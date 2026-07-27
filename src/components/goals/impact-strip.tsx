@@ -132,18 +132,21 @@ export function ImpactStrip({
           value={impact.measured.runsCompleted}
           hint={`${formatDuration(impact.measured.aiRunSecondsTotal)} measured AI run time`}
           icon={Bot}
+          accent="blue"
         />
         <StatTile
           label="Hours saved"
           value={Number(impact.estimated.hoursSaved.toFixed(1))}
           hint="estimated · minutes saved per run"
           icon={Clock3}
+          accent="violet"
         />
         <StatTile
           label="Value created"
           value={`$${Math.round(impact.estimated.laborValueUsd).toLocaleString()}`}
           hint={`estimated · $${impact.estimated.hourlyRateUsd}/hr`}
           icon={DollarSign}
+          accent="emerald"
         />
         <StatTile
           label="ROI multiple"
@@ -154,6 +157,7 @@ export function ImpactStrip({
           }
           hint="estimated · value divided by AI cost"
           icon={TrendingUp}
+          accent="amber"
         />
       </div>
     </section>

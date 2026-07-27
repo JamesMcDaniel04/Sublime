@@ -51,9 +51,9 @@ export function GoalCopilot({
   }
 
   return (
-    <Card className="space-y-4 border-horizon-500/30 bg-horizon-500/5 p-6">
+    <Card className="space-y-4 border-chart-violet/30 bg-chart-violet/5 p-6">
       <div className="flex items-center gap-2">
-        <Sparkles className="h-5 w-5 text-horizon-600" />
+        <Sparkles className="h-5 w-5 text-chart-violet" />
         <div>
           <h2 className="font-semibold">Describe your goal</h2>
           <p className="text-sm text-muted-foreground">
