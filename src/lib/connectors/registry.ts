@@ -83,6 +83,16 @@ export const BUILTIN_CONNECTORS: ConnectorDescriptor[] = [
     matches: has('http'),
     available: () => true, // no credentials required; SSRF-guarded at call time
   },
+  {
+    key: 'goals',
+    label: 'Goals',
+    slug: 'sublime',
+    kind: 'builtin',
+    isWrite: true, // can record datapoints on AI/human-owned metrics
+    providerId: 'sublime-goals',
+    matches: has('goal'),
+    available: () => true, // no credentials; scoped by GoalContribution at load time
+  },
   // Nango delivery planes (outbound as the acting user). One per capability.
   {
     key: 'slack',
