@@ -17,9 +17,6 @@ import { PricingGrid } from '@/components/billing/pricing-grid'
 const Logo3D = dynamic(() => import('./logo3d').then((m) => m.Logo3D), { ssr: false })
 
 const testimonialAvatar = '/landing/testimonial-avatar.jpg'
-const agentsShot = '/landing/sublime-agents.png'
-const integrationsShot = '/landing/sublime-integrations.png'
-const flowsShot = '/landing/sublime-flows.png'
 
 // Slack/Salesforce/Teams/Amplitude were delisted from the Simple Icons CDN
 // (brand takedowns) — bundled or dropped rather than 404ing in the marquee.
@@ -56,125 +53,6 @@ const CUBE_OFFSET_X = -140
 const CUBE_OFFSET_Y = -80
 
 const THEME_STORAGE_KEY = 'sublime-landing-theme'
-
-type Shot = { src: string; alt: string; label: string }
-
-function CollaborationCursors() {
-  const cursors = [
-    { name: 'Maya', color: '#7c3aed', left: '43%', top: '48%', rotate: '-8deg' },
-    { name: 'Alex', color: '#ea580c', left: '67%', top: '65%', rotate: '7deg' },
-  ]
-  return (
-    <div className="pointer-events-none absolute inset-x-0 bottom-0 top-7 z-20" aria-hidden="true">
-      {cursors.map((cursor) => (
-        <div
-          key={cursor.name}
-          className="absolute flex items-start drop-shadow-[0_3px_6px_rgba(0,0,0,0.3)]"
-          style={{ left: cursor.left, top: cursor.top, transform: `rotate(${cursor.rotate})` }}
-        >
-          <svg width="22" height="27" viewBox="0 0 22 27" fill="none" className="h-5 w-4 md:h-7 md:w-[22px]">
-            <path d="M2 1.8V22l5.4-5.1 3.7 8.1 3.5-1.7-3.8-7.8H20L2 1.8Z" fill={cursor.color} stroke="white" strokeWidth="1.7" strokeLinejoin="round" />
-          </svg>
-          <span className="-ml-0.5 mt-4 whitespace-nowrap rounded px-1.5 py-0.5 text-[7px] font-semibold text-white md:mt-5 md:px-2 md:text-[10px]" style={{ backgroundColor: cursor.color }}>
-            {cursor.name}
-          </span>
-        </div>
-      ))}
-    </div>
-  )
-}
-
-const InteractiveShowcase = ({ shots }: { shots: Shot[] }) => {
-  const [tilt, setTilt] = useState({ x: 0, y: 0 })
-  const [active, setActive] = useState<string>(shots[0]?.label ?? '')
-
-  const handleMove = (e: React.MouseEvent<HTMLDivElement>) => {
-    const rect = e.currentTarget.getBoundingClientRect()
-    const px = (e.clientX - rect.left) / rect.width - 0.5
-    const py = (e.clientY - rect.top) / rect.height - 0.5
-    setTilt({ x: px, y: py })
-  }
-  const reset = () => setTilt({ x: 0, y: 0 })
-
-  return (
-    <div
-      className="relative mt-20 h-[760px] hidden md:block"
-      style={{ perspective: '2400px', perspectiveOrigin: '50% 50%' }}
-      onMouseMove={handleMove}
-      onMouseLeave={reset}
-    >
-      <div
-        className="absolute inset-0 flex items-center justify-center"
-        style={{
-          transformStyle: 'preserve-3d',
-          transform: `rotateY(${tilt.x * 4}deg) rotateX(${-tilt.y * 3}deg)`,
-          transition: 'transform 260ms cubic-bezier(0.2, 0.8, 0.2, 1)',
-        }}
-      >
-        {shots.map((shot, i) => {
-          const isActive = active === shot.label
-          const activeIndex = shots.findIndex((s) => s.label === active)
-          // position non-active shots to the sides based on their relative index
-          const rel = i - activeIndex
-          const sideOffset = rel === 0 ? 0 : rel < 0 ? -1 : 1
-          // among non-active, stack by distance
-          const sideDepth = Math.abs(rel)
-          const baseX = sideOffset * 520 + (rel !== 0 && sideDepth > 1 ? sideOffset * 40 : 0)
-          const baseRotY = sideOffset * -28
-          const parallaxX = tilt.x * 18
-          const parallaxY = tilt.y * 12
-
-          return (
-            <div
-              key={shot.label}
-              onClick={() => setActive(shot.label)}
-              className="absolute rounded-xl border border-border bg-card overflow-hidden cursor-pointer"
-              style={{
-                width: isActive ? 1080 : 520,
-                zIndex: isActive ? 30 : 10 - sideDepth,
-                transformOrigin: 'center center',
-                transform: isActive
-                  ? `translate3d(${parallaxX * 0.4}px, ${parallaxY * 0.4}px, 260px) rotateY(0deg) rotateX(0deg)`
-                  : `translate3d(${baseX + parallaxX}px, ${parallaxY}px, ${-sideDepth * 80}px) rotateY(${baseRotY}deg) rotateX(4deg) scale(0.85)`,
-                transformStyle: 'preserve-3d',
-                transition: 'transform 600ms cubic-bezier(0.2, 0.8, 0.2, 1), width 600ms cubic-bezier(0.2, 0.8, 0.2, 1), opacity 400ms, filter 400ms, box-shadow 400ms',
-                opacity: isActive ? 1 : 0.5,
-                filter: isActive ? 'none' : 'blur(1.5px)',
-                boxShadow: isActive
-                  ? '0 100px 160px -30px rgba(0,0,0,0.7), 0 0 0 1px hsl(var(--primary) / 0.5)'
-                  : '0 40px 80px -20px rgba(0,0,0,0.4), 0 0 0 1px hsl(var(--border))',
-              }}
-            >
-              <div className="flex items-center gap-1.5 px-3 h-7 border-b border-border bg-muted/40">
-                <div className="h-2.5 w-2.5 rounded-full bg-destructive/60" />
-                <div className="h-2.5 w-2.5 rounded-full bg-warning/60" />
-                <div className="h-2.5 w-2.5 rounded-full bg-success/60" />
-                <span className="ml-3 text-[10px] uppercase tracking-[0.12em] text-muted-foreground">{shot.label}</span>
-              </div>
-              <img src={shot.src} alt={shot.alt} className="w-full h-auto block pointer-events-none" loading="lazy" draggable={false} />
-              {shot.label === 'Collaborative Flows' && <CollaborationCursors />}
-            </div>
-          )
-        })}
-      </div>
-      <div className="absolute -bottom-2 left-1/2 -translate-x-1/2 flex items-center gap-2">
-        {shots.map((s) => (
-          <button
-            key={s.label}
-            onClick={() => setActive(s.label)}
-            className={`px-3 py-1.5 text-[11px] uppercase tracking-[0.15em] border transition-colors ${
-              active === s.label
-                ? 'border-foreground text-foreground'
-                : 'border-border text-muted-foreground hover:text-foreground'
-            }`}
-          >
-            {s.label}
-          </button>
-        ))}
-      </div>
-    </div>
-  )
-}
 
 export function LandingPage({ fontClassName = '' }: { fontClassName?: string }) {
   const [theme, setThemeState] = useState<'light' | 'dark'>('dark')
@@ -566,67 +444,6 @@ export function LandingPage({ fontClassName = '' }: { fontClassName?: string }) 
                 </div>
               ))}
             </div>
-          </div>
-        </div>
-      </section>
-
-      {/* Full-width divider */}
-      <div className="relative z-10 w-full border-t border-border" />
-
-      {/* Product 3D showcase */}
-      <section className="relative z-10 py-28 px-6 overflow-hidden">
-        <div className="mx-auto max-w-[1200px] relative">
-          <div className="text-center max-w-[640px] mx-auto">
-            <p className="text-[13px] uppercase tracking-[0.15em] text-muted-foreground mb-4">
-              See it in action
-            </p>
-            <h2 className="text-[clamp(1.8rem,3vw,2.5rem)] font-[500] tracking-[-0.03em] text-foreground leading-[1.15]">
-              Not another chatbot.<br />A system that <span className="italic">does the work.</span>
-            </h2>
-            <p className="mt-5 text-[15px] text-muted-foreground max-w-[480px] mx-auto">
-              Build specialized agents, connect your stack, and orchestrate flows — all
-              reporting into the goals you set. Every run shows its evidence and finished artifact.
-            </p>
-          </div>
-
-          <InteractiveShowcase
-            shots={[
-              { src: flowsShot, alt: 'Two teammates collaborating on a Sublime flow canvas', label: 'Collaborative Flows' },
-              { src: agentsShot, alt: 'Sublime agents workspace', label: 'Agents' },
-              { src: integrationsShot, alt: 'Sublime integrations catalog', label: 'Integrations' },
-            ]}
-          />
-
-          {/* Mobile: swipeable snap carousel. Near-full-width cards (the next
-              one peeks in as the swipe affordance), the desktop active-state
-              glow, and a zoomed 4:3 crop so the product UI is actually
-              readable at phone size instead of a shrunken desktop screenshot. */}
-          <div className="md:hidden mt-12 -mx-6">
-            <div className="flex snap-x snap-mandatory gap-4 overflow-x-auto px-6 pb-4 [-webkit-overflow-scrolling:touch] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-              {[
-                { src: flowsShot, alt: 'Two teammates collaborating on a Sublime flow canvas', label: 'Collaborative Flows' },
-                { src: agentsShot, alt: 'Sublime agents workspace', label: 'Agents' },
-                { src: integrationsShot, alt: 'Sublime integrations catalog', label: 'Integrations' },
-              ].map((shot) => (
-                <div
-                  key={shot.label}
-                  className="relative w-[85%] shrink-0 snap-center overflow-hidden rounded-xl border border-border bg-card"
-                  style={{ boxShadow: '0 40px 80px -24px rgba(0,0,0,0.6), 0 0 0 1px hsl(var(--primary) / 0.4)' }}
-                >
-                  <div className="flex h-8 items-center gap-1.5 border-b border-border bg-muted/40 px-3">
-                    <div className="h-2.5 w-2.5 rounded-full bg-destructive/60" />
-                    <div className="h-2.5 w-2.5 rounded-full bg-warning/60" />
-                    <div className="h-2.5 w-2.5 rounded-full bg-success/60" />
-                    <span className="ml-3 text-[11px] font-medium uppercase tracking-[0.12em] text-foreground/70">{shot.label}</span>
-                  </div>
-                  <img src={shot.src} alt={shot.alt} className="block aspect-[4/3] w-full object-cover object-center" loading="lazy" />
-                  {shot.label === 'Collaborative Flows' && <CollaborationCursors />}
-                </div>
-              ))}
-            </div>
-            <p className="mt-1 text-center text-[11px] uppercase tracking-[0.15em] text-muted-foreground">
-              Swipe to explore
-            </p>
           </div>
         </div>
       </section>
