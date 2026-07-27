@@ -153,26 +153,37 @@ export default function GoalsPage() {
           ) : (
             <div className="space-y-8">
               <GoalTemplateGallery />
-              {organizationGoals.length > 0 && (
-                <section className="space-y-3">
-                  <h2 className="text-lg font-semibold">Organization goals</h2>
+              {/* Both sections always render once any goal exists. Hiding an
+                  empty one made a freshly created goal look lost when it
+                  landed in the section the user wasn't watching. */}
+              <section className="space-y-3">
+                <h2 className="text-lg font-semibold">Organization goals</h2>
+                {organizationGoals.length > 0 ? (
                   <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
                     {organizationGoals.map((goal) => (
                       <GoalCard key={goal.id} goal={goal} />
                     ))}
                   </div>
-                </section>
-              )}
-              {personalGoals.length > 0 && (
-                <section className="space-y-3">
-                  <h2 className="text-lg font-semibold">My goals</h2>
+                ) : (
+                  <p className="text-sm text-muted-foreground">
+                    No organization goals yet — these are visible across your workspace.
+                  </p>
+                )}
+              </section>
+              <section className="space-y-3">
+                <h2 className="text-lg font-semibold">My goals</h2>
+                {personalGoals.length > 0 ? (
                   <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
                     {personalGoals.map((goal) => (
                       <GoalCard key={goal.id} goal={goal} />
                     ))}
                   </div>
-                </section>
-              )}
+                ) : (
+                  <p className="text-sm text-muted-foreground">
+                    No personal goals yet — personal goals are visible only to you.
+                  </p>
+                )}
+              </section>
             </div>
           )}
         </>

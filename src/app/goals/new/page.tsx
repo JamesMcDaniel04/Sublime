@@ -336,7 +336,10 @@ export default function NewGoalPage() {
           ? 'Goal created.'
           : 'Goal created — first sync lands within the hour.',
       )
-      router.push('/goals')
+      // Land on the goal itself, not the list: an org-scoped goal renders in
+      // a section above "My goals", so /goals could look like nothing was
+      // created at all.
+      router.push(`/goals/${body.goal.id}`)
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Could not create goal.')
     } finally {
