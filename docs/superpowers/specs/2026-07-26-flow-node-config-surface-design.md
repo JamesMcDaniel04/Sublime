@@ -228,19 +228,33 @@ and the list refetch on save. The `/api/credentials` fetch moves inside it.
 this step is a pure refactor, and `http-curl-auth.test.tsx` must keep passing
 untouched as the proof.
 
-### Tool node
+### Tool node — corrected 2026-07-26
 
-The tool node gains a third auth option beside its existing OAuth/MCP
-connections: choose or create a stored credential. Selecting one writes
-`credentialId` (and `credentialType`) onto the node's data, and the tool
-connection id becomes `credential:<id>` — the form `ConnectionVerification` and
-`parseFlowToolConnectionId` already recognize.
+An earlier draft of this section proposed a `credential:<id>` tool connection,
+claiming `parseFlowToolConnectionId` already recognized that form. **It does
+not.** The parser knows four planes — `mcp`, `native`, `nango`, `flow`
+(`src/lib/flows/tool-connection-id.ts:19-23`) — and `credential:` appears only
+as a verification key (`src/lib/connections/verification.ts:81`) and a metrics
+`connectionRef`. The idea was also architecturally wrong: a tool step's
+connection resolves to an executor with a tool catalog and an `execute()`
+(`src/features/agents/tool-planes.ts:476-536`), and a stored credential has
+neither, so no Action could ever be picked from one.
 
-**This is the only backend work in the spec.** `src/lib/credentials/resolve.ts`
-and the tool executor must resolve a `credential:<id>` tool connection into
-request auth the same way the HTTP path does via `src/lib/credentials/apply.ts`.
-Verification for a tool credential has no URL to probe, so `verifyAgainst` is
-omitted and the picker shows the unverified state until a real run writes one.
+The corrected design puts the credential one level down, where auth actually
+lives: **an MCP connection's `api_key` auth is backed by a stored Credential.**
+`McpConnection.authConfig` becomes `{ credentialId }` instead of an inline
+encrypted `{ apiKey, headerName }`, so one saved key serves several MCP servers
+and HTTP nodes. The MCP connection dialog uses `CredentialPicker` for it.
+
+Resolution reuses the existing pipeline rather than adding one:
+`mcpConfigFromConnection` stays pure and synchronous, and a new async
+`mcpCredentialPlan` resolves the reference into an `InjectionPlan` at the three
+sites that build an `McpClient`. `applyCredentialPlan` then injects it with the
+same user-value-wins precedence the HTTP path uses.
+
+**This is the only backend work in the spec.** It needs no data migration:
+rows holding an inline `apiKey` keep working through the untouched
+`authHeaders()` path, and only newly saved rows use the vault form.
 
 ---
 
@@ -273,5 +287,5 @@ New tests:
 | Container reordering is lost with `NodeConfigPanel` | `ContainerChildren` ships in the same change, with a test asserting the reorder callback. |
 | Deleting `DataTree` removes a discovery affordance for users who never learned token syntax | `JsonTokenView` keeps click-to-insert on the same data; only the tree presentation goes. |
 | Shortcut rebinding breaks muscle memory for users who select-then-delete | Delete/Duplicate also appear as NDV header buttons. |
-| Tool credential resolution is real backend surface | Sequenced last; the UI work in §1-4 does not depend on it and can land first. |
+| MCP credential resolution is real backend surface | Sequenced last; the UI work in §1-4 does not depend on it and can land first. No data migration — inline-`apiKey` rows keep working. |
 | In-place type conversion is gone for good | Accepted explicitly by the user. |
