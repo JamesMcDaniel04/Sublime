@@ -1,12 +1,38 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { firstRunSteps, goalPresets, impactSentence } from '../dashboard-copy'
+import { activeGoals, activeOrgGoals, firstRunSteps, goalPresets, impactSentence } from '../dashboard-copy'
 
 const goal = (name: string, overrides: Partial<{ personal: boolean; status: 'active' | 'paused' }> = {}) => ({
   name,
   personal: false,
   status: 'active' as const,
   ...overrides,
+})
+
+test('activeOrgGoals keeps only non-personal, active goals', () => {
+  const mixed = [
+    goal('Q3 ARR'),
+    goal('My personal quota', { personal: true }),
+    goal('Paused org goal', { status: 'paused' }),
+    goal('Paused personal goal', { personal: true, status: 'paused' }),
+    goal('Launch v2'),
+  ]
+  assert.deepEqual(activeOrgGoals(mixed).map((g) => g.name), ['Q3 ARR', 'Launch v2'])
+  assert.deepEqual(activeOrgGoals([]), [])
+  assert.deepEqual(activeOrgGoals([goal('Personal only', { personal: true })]), [])
+})
+
+test('activeGoals counts any active goal regardless of personal/org — onboarding must not dead-end on a personal-only goal', () => {
+  assert.deepEqual(activeGoals([goal('Personal quota', { personal: true })]).map((g) => g.name), ['Personal quota'])
+  assert.deepEqual(activeGoals([goal('Org goal')]).map((g) => g.name), ['Org goal'])
+  assert.deepEqual(activeGoals([goal('Paused personal', { personal: true, status: 'paused' })]), [])
+  const mixed = [
+    goal('Active personal', { personal: true }),
+    goal('Active org'),
+    goal('Paused org', { status: 'paused' }),
+  ]
+  assert.deepEqual(activeGoals(mixed).map((g) => g.name), ['Active personal', 'Active org'])
+  assert.deepEqual(activeGoals([]), [])
 })
 
 test('goalPresets returns null when there are no active org goals', () => {
@@ -33,6 +59,22 @@ test('goalPresets with a single goal yields three chips', () => {
   const presets = goalPresets([goal('Q3 ARR')])
   assert.ok(presets)
   assert.equal(presets.length, 3)
+})
+
+test('goalPresets ignores personal goals even when mixed with org goals — the strip and chips stay org-scoped', () => {
+  const presets = goalPresets([
+    goal('Personal quota', { personal: true }),
+    goal('Q3 ARR'),
+    goal('Paused org goal', { status: 'paused' }),
+  ])
+  assert.ok(presets)
+  assert.equal(presets.length, 3)
+  assert.equal(presets[0].label, 'What moved on Q3 ARR this week?')
+})
+
+test('goalPresets returns null for an org with only personal or only paused goals', () => {
+  assert.equal(goalPresets([goal('Personal only', { personal: true })]), null)
+  assert.equal(goalPresets([goal('Personal', { personal: true }), goal('Paused org', { status: 'paused' })]), null)
 })
 
 test('impactSentence summarizes runs and goals, and hides when empty', () => {
@@ -64,4 +106,18 @@ test('firstRunSteps marks progress and hides once everything exists', () => {
 
   const done = firstRunSteps({ connections: 1, goals: 1, agents: 1 })
   assert.equal(done.showGuide, false)
+})
+
+test('firstRunSteps "goal" step completes on a count of one — callers pass activeGoals(goals).length, so a personal-only goal counts', () => {
+  const personalOnly = activeGoals([goal('My personal quota', { personal: true })]).length
+  const result = firstRunSteps({ connections: 0, goals: personalOnly, agents: 0 })
+  assert.equal(result.steps[1].done, true)
+  assert.ok(result.steps[1].detail.includes('1'))
+})
+
+test('firstRunSteps "goal" step stays open when the only goal is paused', () => {
+  const pausedOnly = activeGoals([goal('Paused goal', { status: 'paused' })]).length
+  const result = firstRunSteps({ connections: 0, goals: pausedOnly, agents: 0 })
+  assert.equal(result.steps[1].done, false)
+  assert.equal(result.showGuide, true)
 })

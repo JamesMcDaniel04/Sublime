@@ -12,6 +12,11 @@ const g = globalThis as unknown as Record<string, unknown>
 // (navigator) are read-only on Node 22 — define them non-fatally.
 const keys = ['window', 'document', 'Element', 'HTMLElement', 'HTMLInputElement', 'HTMLTextAreaElement', 'SVGElement', 'Node', 'NodeFilter', 'Event', 'CustomEvent', 'KeyboardEvent', 'InputEvent', 'MouseEvent', 'getComputedStyle', 'DocumentFragment', 'Range', 'Text', 'MutationObserver', 'requestAnimationFrame', 'cancelAnimationFrame', 'ResizeObserver']
 g.window = dom.window
+// Browser code (e.g. next/link's viewport-prefetch, which reads
+// `self.requestIdleCallback`) assumes `self` exists as an alias for
+// `window`. jsdom doesn't set a global `self`, so leaving it undefined
+// throws a ReferenceError the first time such code runs.
+g.self = dom.window
 for (const key of keys) {
   if (key === 'window') continue
   try { g[key] = win[key] } catch { /* read-only global, skip */ }
