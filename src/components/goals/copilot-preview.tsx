@@ -16,10 +16,8 @@ import {
 } from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
 import { invalidateCachedJson } from '@/lib/client/use-cached-json'
-import {
-  GoalDashboard,
-  type DashboardData,
-} from '@/components/goals/widgets/goal-dashboard'
+import { GoalDashboard } from '@/components/goals/widgets/goal-dashboard'
+import { buildPreviewDashboardData } from '@/lib/goals/preview-data'
 import {
   MetricBindingFields,
   metricBindingIssue,
@@ -31,7 +29,7 @@ import {
 } from '@/lib/goals/dashboard'
 import type { CopilotDraft } from '@/lib/goals/copilot'
 import type { MetricSourceOption } from '@/lib/metrics/source-options'
-import { GOAL_KIND_LABELS, type GoalDetail } from '@/lib/types'
+import { GOAL_KIND_LABELS } from '@/lib/types'
 
 const tomorrow = () => {
   const date = new Date()
@@ -136,93 +134,46 @@ export function CopilotPreview({
     }
   }
 
-  const previewIds = metrics.map((_, index) => `draft-${index}`)
-  const previewLayout = draft.layout
-    ? resolveLayoutMetricRefs(draft.layout, previewIds)
-    : defaultLayoutForGoal()
-  const previewData = useMemo<DashboardData>(() => {
-    const startAt = new Date().toISOString()
-    const fallback = new Date()
-    fallback.setDate(fallback.getDate() + 90)
-    const goalTargetDate = targetDate
-      ? `${targetDate}T23:59:59`
-      : fallback.toISOString()
-    const previewMetrics = metrics.map((binding, index) => ({
-      id: previewIds[index],
-      label: binding.label,
-      role: binding.role,
-      unit: binding.unit,
-      source: binding.source,
-      metricKey: binding.metricKey,
-      lastSyncAt: null,
-      lastError: null,
-      datapoints: [],
-    }))
-    const goal: GoalDetail = {
-      id: 'preview',
-      name: name || draft.name,
-      description: draft.description,
-      kind: draft.kind,
-      direction: draft.direction,
-      unit: draft.unit,
-      startValue: Number(startValue || 0),
-      targetValue: Number(targetValue || 0),
-      startAt,
-      targetDate: goalTargetDate,
-      recurrence,
-      status: 'active',
-      riskLevel: 'no_data',
+  const preview = useMemo(
+    () =>
+      buildPreviewDashboardData({
+        name: name || draft.name,
+        description: draft.description,
+        kind: draft.kind,
+        direction: draft.direction,
+        unit: draft.unit,
+        startValue: Number(startValue || 0),
+        targetValue: Number(targetValue || 0),
+        targetDate: targetDate || null,
+        recurrence,
+        personal,
+        metrics: metrics.map((binding) => ({
+          label: binding.label,
+          role: binding.role,
+          unit: binding.unit,
+          source: binding.source,
+          metricKey: binding.metricKey,
+        })),
+      }),
+    [
+      draft.description,
+      draft.direction,
+      draft.kind,
+      draft.name,
+      draft.unit,
+      metrics,
+      name,
       personal,
-      parentGoalId: null,
-      metric: null,
-      metrics: previewMetrics,
-      dashboardLayout: null,
-      currentValue: startValue ? Number(startValue) : null,
-      progress: null,
-      expectedProgress: 0,
-      projectedValue: null,
-      children: [],
-      periods: [],
-      benchmark: null,
-    }
-    return {
-      goal,
-      metrics: previewMetrics,
-      contributions: [],
-      impact: {
-        measured: {
-          runsCompleted: 0,
-          tokens: 0,
-          aiRunSecondsTotal: 0,
-        },
-        estimated: {
-          hoursSaved: 0,
-          laborValueUsd: 0,
-          aiCostUsd: 0,
-          roiMultiple: null,
-          hourlyRateUsd: 0,
-          aiCostPerMTokensUsd: 0,
-        },
-        correlated: { paceDeltaPct: null },
-      },
-      preview: true,
-      onReload: () => {},
-    }
-  }, [
-    draft.description,
-    draft.direction,
-    draft.kind,
-    draft.name,
-    draft.unit,
-    metrics,
-    name,
-    personal,
-    previewIds,
-    recurrence,
-    startValue,
-    targetDate,
-    targetValue,
-  ])
+      recurrence,
+      startValue,
+      targetDate,
+      targetValue,
+    ],
+  )
+  const previewData = preview.data
+  const previewLayout = draft.layout
+    ? resolveLayoutMetricRefs(draft.layout, preview.metricIds)
+    : defaultLayoutForGoal()
 
   const target = Number(targetValue)
   const start = Number(startValue)
