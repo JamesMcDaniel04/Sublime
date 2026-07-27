@@ -699,14 +699,16 @@ function FlowBuilder() {
     document.querySelector(`[data-node-id="${nodeId}"]`)?.scrollIntoView({ behavior: 'smooth', block: 'center' })
   }, [viewingVersion])
   const inputFields = useMemo(() => triggerInputFields(graph), [graph])
-  const selectedNode = graph.nodes.find((n) => n.id === selectedId) ?? null
 
+  // Shortcuts follow the OPEN node: a click opens the config surface directly,
+  // so there is no selected-but-unopened state left for them to act on.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const el = e.target as HTMLElement | null
       // isContentEditable covers the TokenTextEditor chip fields (tagName DIV):
       // without it, Backspace inside a chip editor would delete the whole step.
       if (el && (['INPUT', 'TEXTAREA', 'SELECT'].includes(el.tagName) || el.isContentEditable)) return
+      const openNode = ndvNodeId ? graph.nodes.find((node) => node.id === ndvNodeId) ?? null : null
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'z') {
         e.preventDefault()
         if (e.shiftKey) redo()
@@ -715,18 +717,18 @@ function FlowBuilder() {
       }
       if ((e.key === 'Delete' || e.key === 'Backspace') && !e.metaKey && !e.ctrlKey && !e.altKey) {
         if (viewingVersion) return
-        if (selectedId && selectedId !== 'trigger') {
+        if (openNode && openNode.id !== 'trigger') {
           e.preventDefault()
-          commitGraph(deleteNode(graph, selectedId))
-          setSelectedId(null)
+          commitGraph(deleteNode(graph, openNode.id))
+          setNdvNodeId(null)
           toast.success('Step deleted — ⌘Z to undo.')
         }
         return
       }
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'c') {
-        if (selectedNode && selectedNode.type !== 'trigger') {
+        if (openNode && openNode.type !== 'trigger') {
           e.preventDefault()
-          writeFlowClipboard(selectedNode)
+          writeFlowClipboard(openNode)
           toast.success('Step copied.')
         }
         return
@@ -737,16 +739,16 @@ function FlowBuilder() {
         if (!copied) return
         e.preventDefault()
         const ids = spineIds(graph)
-        const afterId = selectedId && selectedId !== 'trigger' ? selectedId : ids[ids.length - 1] ?? 'trigger'
+        const afterId = openNode && openNode.id !== 'trigger' ? openNode.id : ids[ids.length - 1] ?? 'trigger'
         const { graph: next, nodeId } = pasteNodeAfter(graph, afterId, copied)
         commitGraph(next)
-        setSelectedId(nodeId)
+        openNdv(nodeId)
         toast.success('Step pasted.')
       }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [undo, redo, selectedId, selectedNode, graph, commitGraph, viewingVersion])
+  }, [undo, redo, ndvNodeId, graph, commitGraph, viewingVersion, openNdv])
 
   const loopContext = useMemo(() => parentLoop(graph, selectedId), [graph, selectedId])
   const parallelContext = useMemo(() => parentParallelBranch(graph, selectedId), [graph, selectedId])
@@ -2144,6 +2146,16 @@ function FlowBuilder() {
           downstreamWrites={ndvDownstreamWrites}
           onChange={(node) => setGraph((g) => updateNode(g, node))}
           onRefreshAgents={refreshAgents}
+          onDeleteNode={() => {
+            commitGraph(deleteNode(graph, ndvNode.id))
+            setNdvNodeId(null)
+            toast.success('Step deleted — ⌘Z to undo.')
+          }}
+          onDuplicateNode={() => {
+            const { graph: next, nodeId } = duplicateNode(graph, ndvNode.id)
+            commitGraph(next)
+            openNdv(nodeId)
+          }}
           graph={graph}
           labelOf={(node) => labelCtx.stepLabels[node.id] || defaultStepLabel(node)}
           issuesByNode={issuesByNode}

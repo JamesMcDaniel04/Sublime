@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
-import { Play, X } from 'lucide-react'
+import { Copy, Play, Trash2, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import type { FlowNode } from '@/lib/flows/graph'
 import type { NodeRef } from '@/lib/flows/node-test-input'
@@ -56,6 +56,8 @@ export function NodeDetailView({
   onChange,
   onRefreshAgents,
   onAddStep,
+  onDeleteNode,
+  onDuplicateNode,
   graph,
   labelOf,
   issuesByNode,
@@ -87,6 +89,9 @@ export function NodeDetailView({
   onChange: (node: FlowNode) => void
   onRefreshAgents?: () => void
   onAddStep?: (type: EditableType, branchIndex?: number) => void
+  /** Delete/duplicate the open node — the keyboard shortcuts' visible twins. */
+  onDeleteNode?: () => void
+  onDuplicateNode?: () => void
   /** Container wiring: the child list inside a loop/parallel body needs these. */
   graph?: NodeBodyProps['graph']
   labelOf?: NodeBodyProps['labelOf']
@@ -184,6 +189,16 @@ export function NodeDetailView({
             <Button size="sm" variant="outline" onClick={runFromHere} disabled={testState?.status === 'running'}>
               Run from here
             </Button>
+          )}
+          {onDuplicateNode && node.type !== 'trigger' && (
+            <button type="button" onClick={onDuplicateNode} aria-label="Duplicate step" className="text-muted-foreground hover:text-foreground">
+              <Copy className="h-4 w-4" />
+            </button>
+          )}
+          {onDeleteNode && node.type !== 'trigger' && (
+            <button type="button" onClick={onDeleteNode} aria-label="Delete step" className="text-muted-foreground hover:text-red-600">
+              <Trash2 className="h-4 w-4" />
+            </button>
           )}
           <button type="button" onClick={onClose} aria-label="Close" className="text-muted-foreground hover:text-foreground">
             <X className="h-4 w-4" />

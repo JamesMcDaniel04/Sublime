@@ -102,6 +102,27 @@ test('the HTTP node keeps its Options panel, and it is in Settings', () => {
   getByText('Options')
 })
 
+test('the NDV header offers Delete and Duplicate when the page supplies them', () => {
+  let deleted = false
+  let duplicated = false
+  const { getByLabelText } = render(
+    <NodeDetailView node={NODES[0]} {...baseProps}
+      onDeleteNode={() => { deleted = true }} onDuplicateNode={() => { duplicated = true }} />,
+  )
+  fireEvent.click(getByLabelText('Duplicate step'))
+  assert.equal(duplicated, true)
+  fireEvent.click(getByLabelText('Delete step'))
+  assert.equal(deleted, true)
+})
+
+test('the trigger cannot be deleted from the NDV header', () => {
+  const trigger = { id: 'trigger', type: 'trigger', data: {} } as FlowNode
+  const { queryByLabelText } = render(
+    <NodeDetailView node={trigger} {...baseProps} onDeleteNode={() => {}} />,
+  )
+  assert.equal(queryByLabelText('Delete step'), null)
+})
+
 // ── Output pane ───────────────────────────────────────────────────────────────
 
 test('output pane renders the last run output', () => {
