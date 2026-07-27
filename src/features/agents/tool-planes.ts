@@ -33,6 +33,12 @@ import { SlackToolClient, slackTools } from '@/lib/integrations/slack'
 import { decryptSecretJson } from '@/lib/slack/connections'
 import { HttpToolClient, httpTools } from '@/lib/integrations/http'
 import { EmailToolClient, emailTools } from '@/lib/integrations/email'
+import { GoalsToolClient, goalsTools } from '@/lib/integrations/goals'
+import {
+  prismaGoalsPort,
+  resolveLinkedGoalIds,
+  type GoalResource,
+} from '@/lib/integrations/goals-port'
 import { BUILTIN_CONNECTORS, isSelected, nangoConnector, type ConnectorDescriptor } from '@/lib/connectors/registry'
 import { formatFlowToolConnectionId, type FlowToolPlane } from '@/lib/flows/tool-connection-id'
 import { flowGraphSchema } from '@/lib/flows/graph'
@@ -201,7 +207,7 @@ export async function loadMcpConnectionPlaneGroups(
  */
 export async function loadNativePlaneGroups(
   organizationId: string,
-  options: { providers?: string[] } = {},
+  options: { providers?: string[]; resource?: GoalResource } = {},
 ): Promise<ToolPlaneGroup[]> {
   const selected = (descriptor: ConnectorDescriptor) =>
     options.providers ? isSelected(descriptor, options.providers) : true
@@ -283,6 +289,33 @@ export async function loadNativePlaneGroups(
     } catch (error) {
       apiLogger.warn('loadTools: Email tool setup failed, skipping provider', {
         provider: 'email',
+        organizationId,
+        error: error instanceof Error ? error.message : String(error),
+      })
+    }
+  }
+
+  // Sublime Goals — read/write on the goals THIS resource is linked to.
+  // Absent (not empty) when nothing is linked, so an unlinked agent never sees
+  // the tools. Authorization is decided here and baked into the client: it is
+  // constructed with the resolved id set and has no query reaching past it.
+  const goalsConn = BUILTIN_CONNECTORS.find((c) => c.providerId === 'sublime-goals')!
+  if (selected(goalsConn) && options.resource) {
+    try {
+      const goalIds = await resolveLinkedGoalIds(organizationId, options.resource)
+      if (goalIds.length) {
+        groups.push(
+          group(
+            goalsConn,
+            'sublime://goals',
+            new GoalsToolClient(goalIds, prismaGoalsPort(organizationId)),
+            goalsTools(),
+          ),
+        )
+      }
+    } catch (error) {
+      apiLogger.warn('loadTools: Goals tool setup failed, skipping provider', {
+        provider: 'sublime-goals',
         organizationId,
         error: error instanceof Error ? error.message : String(error),
       })
