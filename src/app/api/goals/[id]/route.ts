@@ -140,6 +140,7 @@ export const GET = withAuthenticatedApi(async (request, auth) => {
       expectedProgress: evaluation.expectedProgress,
       projectedValue: evaluation.projectedValue,
       dashboardLayout: goal.dashboardLayout ?? null,
+      templateKey: goal.templateKey,
       metric: metric
         ? {
             id: metric.id,

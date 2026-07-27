@@ -29,6 +29,9 @@ export type Contribution = {
   resourceId: string
   name: string
   origin: 'suggestion' | 'manual'
+  /** The catalogue seed this link was provisioned from, when it was. Lets the
+   *  agent bundle mark an entry as already deployed. */
+  seedKey: string | null
   estimatedMinutesSavedPerRun: number
   runs: number
   tokens: number

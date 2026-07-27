@@ -131,6 +131,9 @@ export interface GoalDetail extends Omit<GoalSummary, 'sparkline'> {
   metric: (GoalSummary['metric'] & { id: string }) | null
   metrics: GoalMetricSeries[]
   dashboardLayout: unknown | null
+  /** The GoalTemplate this goal was created from; null for Copilot-drafted and
+   *  manually-created goals. Drives the curated agent bundle. */
+  templateKey: string | null
   children: Array<{
     id: string | null
     name: string

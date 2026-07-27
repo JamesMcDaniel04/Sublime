@@ -124,6 +124,9 @@ export function buildPreviewDashboardData(input: PreviewGoalInput): {
   const goal: GoalDetail = {
     id: 'preview',
     recoveryPlan: null,
+    // A preview goal has no persisted provenance — the dashboard widgets it
+    // feeds never read this, and no bundle is resolved from sample data.
+    templateKey: null,
     name: input.name,
     description: input.description ?? null,
     kind: input.kind,

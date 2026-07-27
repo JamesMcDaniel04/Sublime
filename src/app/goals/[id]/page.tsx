@@ -1,7 +1,7 @@
 'use client'
 
 import Link from 'next/link'
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Archive, Pencil, RefreshCw, Target } from 'lucide-react'
 import { useParams, useRouter } from 'next/navigation'
 import { toast } from 'sonner'
@@ -30,6 +30,8 @@ import { fmtValue } from '@/components/goals/chart-math'
 import { RiskBadge } from '@/components/goals/goal-viz'
 import { DashboardEditDialog } from '@/components/goals/dashboard-edit'
 import { RecoveryPlanStrip } from '@/components/goals/recovery-plan-strip'
+import { AgentBundleCard } from '@/components/goals/agent-bundle-card'
+import { connectedSlugSet } from '@/lib/templates/relevance'
 import {
   GoalDashboard,
 } from '@/components/goals/widgets/goal-dashboard'
@@ -43,7 +45,7 @@ import {
   type GoalDetail,
   type GoalSummary,
 } from '@/lib/types'
-import { invalidateCachedJson } from '@/lib/client/use-cached-json'
+import { invalidateCachedJson, useCachedJson } from '@/lib/client/use-cached-json'
 
 const SOFT_SOURCES = new Set([
   'manual',
@@ -64,6 +66,21 @@ export default function GoalDetailPage() {
   const goalId = params.id
   const [loaded, setLoaded] = useState<Loaded | null>(null)
   const [error, setError] = useState<string | null>(null)
+  // Which tools this workspace can actually run. A failed probe yields [], so
+  // every agent renders blocked-with-a-connect-link rather than hiding the card.
+  const integrationsQuery = useCachedJson<{
+    success?: boolean
+    tools?: Parameters<typeof connectedSlugSet>[0]
+  }>('/api/integrations/available')
+  const connectedIntegrations = useMemo(
+    () =>
+      Array.from(
+        connectedSlugSet(
+          integrationsQuery.data?.success ? (integrationsQuery.data.tools ?? []) : [],
+        ),
+      ),
+    [integrationsQuery.data],
+  )
   const [editOpen, setEditOpen] = useState(false)
   const [archiveOpen, setArchiveOpen] = useState(false)
   const [edit, setEdit] = useState({
@@ -320,6 +337,19 @@ export default function GoalDetailPage() {
           (Stripe, your CRM, or SQL) for exact, automatic tracking.
         </p>
       )}
+
+      <AgentBundleCard
+        goalId={goalId}
+        templateKey={goal.templateKey ?? null}
+        kind={goal.kind}
+        source={goal.metric?.source ?? null}
+        recurrence={goal.recurrence ?? null}
+        deployedSeedKeys={contributions
+          .map((contribution) => contribution.seedKey)
+          .filter((seedKey): seedKey is string => Boolean(seedKey))}
+        connectedIntegrations={connectedIntegrations}
+        onChanged={load}
+      />
 
       <GoalDashboard
         layout={layout}
