@@ -21,13 +21,13 @@ const LEGACY_KEYS = [
   'csm-org-nrr', 'csm-org-expansion-mrr', 'csm-personal-renewals', 'csm-personal-churn-saves',
 ]
 
-test('catalogue shape: 4 per served department, 2 org + 2 personal', () => {
-  assert.equal(GOAL_TEMPLATES.length, PRODUCT_DEPARTMENTS.length * 4)
+test('catalogue shape: 9 per served department, 5 org + 4 personal', () => {
+  assert.equal(GOAL_TEMPLATES.length, PRODUCT_DEPARTMENTS.length * 9)
   for (const department of PRODUCT_DEPARTMENTS) {
     const entries = GOAL_TEMPLATES.filter((entry) => entry.department === department)
-    assert.equal(entries.length, 4, `${department} should have 4 templates`)
-    assert.equal(entries.filter((entry) => entry.scope === 'org').length, 2, `${department} org split`)
-    assert.equal(entries.filter((entry) => entry.scope === 'personal').length, 2, `${department} personal split`)
+    assert.equal(entries.length, 9, `${department} should have 9 templates`)
+    assert.equal(entries.filter((entry) => entry.scope === 'org').length, 5, `${department} org split`)
+    assert.equal(entries.filter((entry) => entry.scope === 'personal').length, 4, `${department} personal split`)
   }
 })
 

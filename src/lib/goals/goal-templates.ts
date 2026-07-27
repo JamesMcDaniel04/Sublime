@@ -123,6 +123,31 @@ export const GOAL_TEMPLATES: GoalTemplate[] = [
     tracks: 'Your closed-won revenue for the current month.',
     sources: ['hubspot', 'salesforce', 'stripe', 'google_sheets'],
   }),
+  template('sales-org-pipeline-coverage', 'sales', 'org', 'Pipeline coverage ratio', 'Open pipeline as a multiple of the number you have to close — the earliest warning you get.', 'custom_kpi', {
+    category: 'Pipeline', unit: 'percent', layout: RATE_LAYOUT,
+    tracks: 'Open pipeline value divided by remaining quota, as a percentage.',
+    sources: ['hubspot', 'salesforce', 'google_sheets'],
+  }),
+  template('sales-org-win-rate', 'sales', 'org', 'Improve win rate', 'The share of qualified opportunities that close won.', 'custom_kpi', {
+    category: 'Pipeline', unit: 'percent', layout: RATE_LAYOUT,
+    tracks: 'Closed-won opportunities as a percentage of all closed opportunities.',
+    sources: ['hubspot', 'salesforce', 'google_sheets'],
+  }),
+  template('sales-org-new-logos', 'sales', 'org', 'New logos this quarter', 'Net-new customer accounts, counted rather than valued.', 'custom_kpi', {
+    category: 'Pipeline', unit: 'count', recurrence: 'quarterly', layout: ORG_ROLLUP_LAYOUT,
+    tracks: 'Accounts that became customers for the first time this quarter.',
+    sources: ['hubspot', 'salesforce', 'stripe', 'google_sheets'],
+  }),
+  template('sales-personal-pipeline-created', 'sales', 'personal', 'Pipeline I created', 'New qualified pipeline you sourced this month, ahead of anything closing.', 'revenue', {
+    category: 'Pipeline', recurrence: 'monthly', layout: PERSONAL_LAYOUT,
+    tracks: 'Value of qualified opportunities you created this month.',
+    sources: ['hubspot', 'salesforce', 'google_sheets'],
+  }),
+  template('sales-personal-meetings-booked', 'sales', 'personal', 'Meetings booked this month', 'The activity number upstream of everything else.', 'custom_kpi', {
+    category: 'Pipeline', unit: 'count', recurrence: 'monthly', layout: PERSONAL_LAYOUT,
+    tracks: 'Discovery or demo meetings you booked this month.',
+    sources: ['hubspot', 'salesforce', 'google_sheets'],
+  }),
   // ── Marketing ───────────────────────────────────────────────────────────
   template('marketing-org-monthly-mqls', 'marketing', 'org', 'Monthly qualified leads', 'Lead generation against a monthly MQL target from your CRM or spreadsheet.', 'lead_gen', {
     category: 'Demand', layout: COUNT_LAYOUT,
@@ -143,6 +168,31 @@ export const GOAL_TEMPLATES: GoalTemplate[] = [
     category: 'Demand', unit: 'count', recurrence: 'monthly', layout: PERSONAL_LAYOUT,
     tracks: 'Total list subscribers, read from your list tool or a sheet.',
     sources: ['google_sheets', 'url', 'hubspot'],
+  }),
+  template('marketing-org-cac', 'marketing', 'org', 'Bring CAC down', 'Blended cost to acquire a customer — spend divided by new customers.', 'savings', {
+    category: 'Cost', layout: COST_LAYOUT,
+    tracks: 'Total acquisition spend divided by new customers, per period.',
+    sources: ['postgres', 'google_sheets', 'hubspot'],
+  }),
+  template('marketing-org-organic-traffic', 'marketing', 'org', 'Grow organic traffic', 'Non-paid sessions, the compounding channel.', 'custom_kpi', {
+    category: 'Demand', unit: 'count', recurrence: 'monthly', layout: COUNT_LAYOUT,
+    tracks: 'Organic sessions this month, read from analytics or a sheet.',
+    sources: ['google_sheets', 'url', 'postgres'],
+  }),
+  template('marketing-org-sourced-pipeline', 'marketing', 'org', 'Marketing-sourced pipeline', 'Pipeline value attributed to marketing first-touch, not just lead count.', 'revenue', {
+    category: 'Pipeline', recurrence: 'quarterly', layout: ORG_ROLLUP_LAYOUT,
+    tracks: 'Value of open opportunities whose first touch was marketing.',
+    sources: ['hubspot', 'salesforce', 'google_sheets'],
+  }),
+  template('marketing-personal-content-output', 'marketing', 'personal', 'Ship N pieces this month', 'A personal publishing cadence — the input you actually control.', 'custom_kpi', {
+    category: 'Demand', unit: 'count', recurrence: 'monthly', layout: PERSONAL_LAYOUT,
+    tracks: 'Pieces you published this month.',
+    sources: ['google_sheets', 'url'],
+  }),
+  template('marketing-personal-conversion-rate', 'marketing', 'personal', 'Lift my landing conversion', 'The conversion rate on the pages you own.', 'custom_kpi', {
+    category: 'Demand', unit: 'percent', layout: PERSONAL_LAYOUT,
+    tracks: 'Conversions as a percentage of visits on your pages.',
+    sources: ['google_sheets', 'url', 'postgres'],
   }),
   // ── Engineering ─────────────────────────────────────────────────────────
   template('engineering-org-infra-savings', 'engineering', 'org', 'Cut infrastructure spend', 'A cost-reduction target — the trendline should go DOWN.', 'savings', {
@@ -165,6 +215,31 @@ export const GOAL_TEMPLATES: GoalTemplate[] = [
     tracks: 'Releases you shipped this quarter.',
     sources: ['postgres', 'google_sheets'],
   }),
+  template('engineering-org-deploy-frequency', 'engineering', 'org', 'Deploy more often', 'Deployment frequency — the DORA metric that moves everything else.', 'custom_kpi', {
+    category: 'Delivery', unit: 'count', recurrence: 'monthly', layout: COUNT_LAYOUT,
+    tracks: 'Production deployments this month.',
+    sources: ['postgres', 'google_sheets', 'url'],
+  }),
+  template('engineering-org-p1-incidents', 'engineering', 'org', 'Cut Sev-1 incidents', 'The count of the incidents that wake people up.', 'custom_kpi', {
+    category: 'Quality', unit: 'count', direction: 'decrease', recurrence: 'quarterly', layout: COUNT_LAYOUT,
+    tracks: 'Severity-1 incidents declared this quarter.',
+    sources: ['postgres', 'google_sheets', 'slack_assisted'],
+  }),
+  template('engineering-org-lead-time', 'engineering', 'org', 'Shorten lead time to production', 'Hours from first commit to running in production.', 'custom_kpi', {
+    category: 'Delivery', unit: 'count', direction: 'decrease', layout: ORG_ROLLUP_LAYOUT,
+    tracks: 'Median hours from first commit to production deploy.',
+    sources: ['postgres', 'google_sheets'],
+  }),
+  template('engineering-personal-review-turnaround', 'engineering', 'personal', 'Review PRs faster', 'Hours between a review being requested of you and you giving it.', 'custom_kpi', {
+    category: 'Delivery', unit: 'count', direction: 'decrease', layout: PERSONAL_LAYOUT,
+    tracks: 'Median hours you take to respond to a review request.',
+    sources: ['postgres', 'google_sheets'],
+  }),
+  template('engineering-personal-test-coverage', 'engineering', 'personal', 'Raise coverage on my services', 'Line coverage on the services you own.', 'custom_kpi', {
+    category: 'Quality', unit: 'percent', layout: PERSONAL_LAYOUT,
+    tracks: 'Line coverage percentage on your services, from CI output.',
+    sources: ['url', 'google_sheets', 'postgres'],
+  }),
   // ── Finance ─────────────────────────────────────────────────────────────
   template('finance-org-vendor-savings', 'finance', 'org', 'Reduce vendor spend', 'A company savings target across renegotiated and retired vendors.', 'savings', {
     category: 'Cost', layout: COST_LAYOUT,
@@ -186,6 +261,31 @@ export const GOAL_TEMPLATES: GoalTemplate[] = [
     tracks: 'Average days between invoice and payment across your accounts.',
     sources: ['postgres', 'stripe', 'google_sheets'],
   }),
+  template('finance-org-gross-margin', 'finance', 'org', 'Improve gross margin', 'Revenue less cost of revenue, as a percentage.', 'custom_kpi', {
+    category: 'Cost', unit: 'percent', layout: RATE_LAYOUT,
+    tracks: 'Gross profit as a percentage of revenue, from the ledger.',
+    sources: ['postgres', 'google_sheets', 'stripe'],
+  }),
+  template('finance-org-burn-reduction', 'finance', 'org', 'Reduce monthly burn', 'Net cash out per month, trending toward a floor.', 'savings', {
+    category: 'Cost', recurrence: 'monthly', layout: COST_LAYOUT,
+    tracks: 'Net cash consumed this month.',
+    sources: ['postgres', 'google_sheets', 'stripe'],
+  }),
+  template('finance-org-revenue-per-head', 'finance', 'org', 'Revenue per employee', 'The efficiency number the board asks about.', 'custom_kpi', {
+    category: 'Revenue', unit: 'usd', layout: ORG_ROLLUP_LAYOUT,
+    tracks: 'Trailing revenue divided by headcount.',
+    sources: ['postgres', 'google_sheets', 'stripe'],
+  }),
+  template('finance-personal-close-cycle', 'finance', 'personal', 'Close the books faster', 'Business days from period end to a closed set of books.', 'custom_kpi', {
+    category: 'Delivery', unit: 'count', direction: 'decrease', recurrence: 'monthly', layout: PERSONAL_LAYOUT,
+    tracks: 'Business days taken to close the most recent period.',
+    sources: ['google_sheets', 'postgres'],
+  }),
+  template('finance-personal-forecast-accuracy', 'finance', 'personal', 'Tighten my forecast accuracy', 'How close your forecast lands to the actual, as a percentage.', 'custom_kpi', {
+    category: 'Quality', unit: 'percent', recurrence: 'quarterly', layout: PERSONAL_LAYOUT,
+    tracks: 'Actual divided by forecast for the closed period, as a percentage.',
+    sources: ['google_sheets', 'postgres', 'salesforce'],
+  }),
   // ── CSM ─────────────────────────────────────────────────────────────────
   template('csm-org-nrr', 'csm', 'org', 'Net revenue retention', 'NRR as a percentage target — the health metric of the book.', 'custom_kpi', {
     category: 'Retention', unit: 'percent', layout: RATE_LAYOUT,
@@ -206,6 +306,31 @@ export const GOAL_TEMPLATES: GoalTemplate[] = [
     category: 'Retention', unit: 'count', direction: 'decrease', layout: PERSONAL_LAYOUT,
     tracks: 'Accounts lost from your book this period.',
     sources: ['hubspot', 'salesforce', 'postgres', 'google_sheets'],
+  }),
+  template('csm-org-gross-retention', 'csm', 'org', 'Gross revenue retention', 'Retention before any expansion — the honest churn number.', 'custom_kpi', {
+    category: 'Retention', unit: 'percent', layout: RATE_LAYOUT,
+    tracks: 'Retained revenue from the starting cohort, excluding upsell.',
+    sources: ['stripe', 'hubspot', 'salesforce', 'postgres'],
+  }),
+  template('csm-org-csat', 'csm', 'org', 'Raise CSAT', 'Satisfaction score across the accounts you serve.', 'custom_kpi', {
+    category: 'Retention', unit: 'percent', layout: RATE_LAYOUT,
+    tracks: 'Average satisfaction score across responses this period.',
+    sources: ['google_sheets', 'postgres', 'url'],
+  }),
+  template('csm-org-time-to-value', 'csm', 'org', 'Shorten time to first value', 'Days from signature to the customer getting their first real outcome.', 'custom_kpi', {
+    category: 'Retention', unit: 'count', direction: 'decrease', layout: ORG_ROLLUP_LAYOUT,
+    tracks: 'Median days from close to first activation milestone.',
+    sources: ['postgres', 'hubspot', 'salesforce', 'google_sheets'],
+  }),
+  template('csm-personal-qbr-coverage', 'csm', 'personal', 'QBR coverage of my book', 'The share of your accounts that got a real business review this quarter.', 'custom_kpi', {
+    category: 'Retention', unit: 'percent', recurrence: 'quarterly', layout: PERSONAL_LAYOUT,
+    tracks: 'Accounts with a completed QBR as a percentage of your book.',
+    sources: ['hubspot', 'salesforce', 'google_sheets'],
+  }),
+  template('csm-personal-response-time', 'csm', 'personal', 'Respond to my accounts faster', 'Hours between a customer reaching out and you replying.', 'custom_kpi', {
+    category: 'Quality', unit: 'count', direction: 'decrease', layout: PERSONAL_LAYOUT,
+    tracks: 'Median hours to your first reply on inbound account messages.',
+    sources: ['postgres', 'gmail_assisted', 'google_sheets'],
   }),
 ]
 
