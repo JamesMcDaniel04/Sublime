@@ -101,8 +101,31 @@ export interface GoalMetricSeries {
   }>
 }
 
+/** One actionable step of an open recovery plan. */
+export interface RecoveryActionView {
+  id: string
+  kind: 'connect_tool' | 'launch_agent' | 'manual_step'
+  title: string
+  rationale: string
+  payload: Record<string, unknown>
+  status: 'proposed' | 'accepted' | 'done' | 'dismissed'
+  resultRef: string | null
+}
+
+/** The goal's open AI recovery plan, rendered as the get-back-on-track strip. */
+export interface RecoveryPlanView {
+  id: string
+  status: 'open'
+  triggerRiskLevel: 'at_risk' | 'off_track'
+  diagnosis: string
+  evidence: string[]
+  createdAt: string
+  actions: RecoveryActionView[]
+}
+
 /** GET /api/goals/[id] response shape, shared with dashboard widgets. */
 export interface GoalDetail extends Omit<GoalSummary, 'sparkline'> {
+  recoveryPlan: RecoveryPlanView | null
   description: string | null
   projectedValue: number | null
   metric: (GoalSummary['metric'] & { id: string }) | null

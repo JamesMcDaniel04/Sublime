@@ -123,6 +123,7 @@ export function buildPreviewDashboardData(input: PreviewGoalInput): {
 
   const goal: GoalDetail = {
     id: 'preview',
+    recoveryPlan: null,
     name: input.name,
     description: input.description ?? null,
     kind: input.kind,

@@ -71,7 +71,7 @@ test('unparseable JSON throws RecoveryDraftError', () => {
 })
 
 test('draftRecoveryPlan wires goal + candidates into the model call', async () => {
-  let captured: { system: string; user: string } | null = null
+  const captured: Array<{ system: string; user: string }> = []
   const plan = await draftRecoveryPlan({
     goal: {
       name: 'Q4 ARR',
@@ -84,14 +84,14 @@ test('draftRecoveryPlan wires goal + candidates into the model call', async () =
     evidence: ['Q4 ARR: $1,300,000 is $300,000 behind pace ($1,600,000 expected by today).'],
     candidates,
     generate: async (opts) => {
-      captured = { system: opts.system, user: opts.user }
+      captured.push({ system: opts.system, user: opts.user })
       return draft([{ kind: 'manual_step', refId: null, title: 'Review pipeline', rationale: 'r' }])
     },
   })
   assert.equal(plan.actions.length, 1)
-  assert.ok(captured !== null)
-  assert.ok(captured!.user.includes('pipeline-reviver'))
-  assert.ok(captured!.user.includes('behind pace'))
+  assert.equal(captured.length, 1)
+  assert.ok(captured[0].user.includes('pipeline-reviver'))
+  assert.ok(captured[0].user.includes('behind pace'))
 })
 
 test('generation failure surfaces as RecoveryDraftError', async () => {

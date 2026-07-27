@@ -94,6 +94,29 @@ export const GET = withAuthenticatedApi(async (request, auth) => {
     }),
   )
 
+  const openPlan = await prisma.goalRecoveryPlan.findFirst({
+    where: { organizationId: auth.organizationId, goalId: id, status: 'open' },
+    select: {
+      id: true,
+      triggerRiskLevel: true,
+      diagnosis: true,
+      evidence: true,
+      createdAt: true,
+      actions: {
+        orderBy: { rank: 'asc' },
+        select: {
+          id: true,
+          kind: true,
+          title: true,
+          rationale: true,
+          payload: true,
+          status: true,
+          resultRef: true,
+        },
+      },
+    },
+  })
+
   return {
     success: true,
     goal: {
@@ -154,6 +177,19 @@ export const GET = withAuthenticatedApi(async (request, auth) => {
       ),
       periods: goal.periods,
       benchmark,
+      recoveryPlan: openPlan
+        ? {
+            id: openPlan.id,
+            status: 'open' as const,
+            triggerRiskLevel: openPlan.triggerRiskLevel,
+            diagnosis: openPlan.diagnosis,
+            evidence: Array.isArray(openPlan.evidence)
+              ? (openPlan.evidence as string[])
+              : [],
+            createdAt: openPlan.createdAt,
+            actions: openPlan.actions,
+          }
+        : null,
     },
   }
 })

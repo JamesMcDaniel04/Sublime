@@ -38,10 +38,13 @@ const bodySchema = z
     // Multi-account workspaces: pin a provider slug to a specific connection
     // id instead of the deterministic default.
     connectionOverrides: z.record(z.string(), z.string()).default({}),
-    // Goal-sourced recommendation provenance. Both ids are re-authorized
+    // Goal-sourced recommendation provenance. All ids are re-authorized
     // server-side before attribution or suggestion state changes.
     goalId: z.string().min(1).optional(),
     suggestionId: z.string().min(1).optional(),
+    // Recovery-plan launch_agent action to complete once the resource
+    // exists. Server-side so a crashed client leaves the action retryable.
+    recoveryActionId: z.string().min(1).optional(),
   })
   .refine((body) => Boolean(body.seedKey) !== Boolean(body.templateId), {
     message: 'Provide exactly one of seedKey or templateId',
@@ -225,6 +228,7 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
     connectionOverrides,
     goalId,
     suggestionId,
+    recoveryActionId,
   } =
     bodySchema.parse(await request.json())
 
@@ -296,6 +300,20 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
           context: { goalId: goalId ?? null },
         })
       }
+    }
+
+    // Complete the recovery-plan action that requested this launch. updateMany
+    // so a stale/foreign id is a silent 0-count, never a crash; org + plan
+    // scoping prevents cross-org marking.
+    if (recoveryActionId) {
+      await prisma.goalRecoveryAction.updateMany({
+        where: {
+          id: recoveryActionId,
+          organizationId,
+          plan: { status: 'open', ...(goalId ? { goalId } : {}) },
+        },
+        data: { status: 'done', resultRef: resourceId, acceptedAt: new Date() },
+      })
     }
 
     if (!goalId) return
