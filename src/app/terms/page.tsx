@@ -49,10 +49,10 @@ const sections: { id: string; title: string; body: React.ReactNode }[] = [
     title: 'Description of the service',
     body: (
       <Body>
-        Sublime is an AI-agent workspace: you connect the tools your team already uses, and
-        Sublime powers agents and multi-step workflows (&quot;flows&quot;) that act on your
-        behalf across those tools, with evidence-backed run logs. Features vary by plan and may
-        evolve over time.
+        Sublime is the goal-based AI platform: you connect the tools your team already uses, and
+        Sublime deploys specialized agents and multi-step workflows (&quot;flows&quot;) that act
+        on your behalf across those tools, with evidence-backed run logs, measured against the
+        goals your org runs on. Features vary by plan and may evolve over time.
       </Body>
     ),
   },
