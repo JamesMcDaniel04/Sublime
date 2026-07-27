@@ -11,6 +11,7 @@ import { getMetricSource } from '@/lib/metrics/registry'
 import type { MetricReading, MetricSourceContext } from '@/lib/metrics/types'
 import { evaluateGoal, settleStatus, type Evaluation } from './evaluate'
 import { emitGoalRecommendation } from './emit-recommendation'
+import { reconcileRecoveryPlan } from './recovery-lifecycle'
 import { addPeriod, type GoalRecurrence } from './recurrence'
 
 const MAX_METRICS_PER_TICK = 200
@@ -331,6 +332,11 @@ export async function evaluateAndPersistGoal(
       ...(settled && goal.status === 'active' ? { status: settled } : {}),
     },
   })
+
+  // Recovery-plan lifecycle: back-on-track resolves the open plan, and
+  // connect_tool actions auto-complete once their source is connected.
+  // Runs before emission so a stale plan never blocks a fresh one.
+  await reconcileRecoveryPlan(goal.id, organizationId, evaluation.riskLevel)
 
   const recipient = goal.ownerUserId ?? goal.createdByUserId
   if (settled === 'achieved' && goal.status === 'active' && recipient) {
