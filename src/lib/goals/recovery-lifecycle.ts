@@ -22,8 +22,8 @@ type LifecycleDeps = {
     id: string
     actions: Array<{ id: string; kind: string; status: string; payload: unknown }>
   } | null>
-  resolvePlan: (id: string) => Promise<void>
-  completeAction: (id: string) => Promise<void>
+  resolvePlan: (id: string, organizationId: string) => Promise<void>
+  completeAction: (id: string, organizationId: string) => Promise<void>
   listSources: (organizationId: string, userId: string) => Promise<MetricSourceOption[]>
   recipientFor: (goalId: string, organizationId: string) => Promise<string | null>
 }
@@ -39,13 +39,16 @@ const defaultDeps: LifecycleDeps = {
         },
       },
     }),
-  resolvePlan: (id) =>
+  resolvePlan: (id, organizationId) =>
     prisma.goalRecoveryPlan
-      .update({ where: { id }, data: { status: 'resolved', resolvedAt: new Date() } })
+      .update({
+        where: { id, organizationId },
+        data: { status: 'resolved', resolvedAt: new Date() },
+      })
       .then(() => undefined),
-  completeAction: (id) =>
+  completeAction: (id, organizationId) =>
     prisma.goalRecoveryAction
-      .update({ where: { id }, data: { status: 'done' } })
+      .update({ where: { id, organizationId }, data: { status: 'done' } })
       .then(() => undefined),
   listSources: (organizationId, userId) =>
     listMetricSourceOptions({ organizationId, dbUser: { id: userId } }),
@@ -69,7 +72,7 @@ export async function reconcileRecoveryPlan(
     if (!plan) return
 
     if (riskLevel === 'on_track') {
-      await deps.resolvePlan(plan.id)
+      await deps.resolvePlan(plan.id, organizationId)
       return
     }
 
@@ -91,7 +94,7 @@ export async function reconcileRecoveryPlan(
           ? (action.payload as Record<string, unknown>)
           : {}
       if (typeof payload.source === 'string' && availableSources.has(payload.source)) {
-        await deps.completeAction(action.id)
+        await deps.completeAction(action.id, organizationId)
       }
     }
   } catch (error) {

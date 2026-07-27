@@ -57,7 +57,7 @@ export type EmitDeps = {
     organizationId: string,
     goalId: string,
   ) => Promise<{ id: string; triggerRiskLevel: string } | null>
-  supersedePlan: (id: string) => Promise<void>
+  supersedePlan: (id: string, organizationId: string) => Promise<void>
   createPlan: (data: {
     organizationId: string
     goalId: string
@@ -110,9 +110,9 @@ const defaultDeps: EmitDeps = {
       where: { organizationId, goalId, status: 'open' },
       select: { id: true, triggerRiskLevel: true },
     }),
-  supersedePlan: (id) =>
+  supersedePlan: (id, organizationId) =>
     prisma.goalRecoveryPlan
-      .update({ where: { id }, data: { status: 'superseded' } })
+      .update({ where: { id, organizationId }, data: { status: 'superseded' } })
       .then(() => undefined),
   createPlan: (data) =>
     prisma.goalRecoveryPlan.create({
@@ -248,7 +248,7 @@ export async function emitGoalRecommendation(
     })
     const started = Date.now()
     const draft = await deps.draft({ goal, evidence, candidates })
-    if (openPlan) await deps.supersedePlan(openPlan.id)
+    if (openPlan) await deps.supersedePlan(openPlan.id, goal.organizationId)
     const plan = await deps.createPlan({
       organizationId: goal.organizationId,
       goalId: goal.id,
@@ -256,18 +256,18 @@ export async function emitGoalRecommendation(
       diagnosis: draft.diagnosis,
       evidence,
       modelMeta: { ms: Date.now() - started },
-      actions: draft.actions.map((action, rank) => ({
-        kind: action.kind,
-        title: action.title,
-        rationale: action.rationale,
-        rank,
-        payload:
-          action.kind === 'connect_tool'
-            ? { source: action.refId }
-            : action.kind === 'launch_agent'
-              ? { seedKey: action.refId }
-              : {},
-      })),
+      actions: draft.actions.map((action, rank) => {
+        let payload: Record<string, unknown> = {}
+        if (action.kind === 'connect_tool') payload = { source: action.refId }
+        if (action.kind === 'launch_agent') payload = { seedKey: action.refId }
+        return {
+          kind: action.kind,
+          title: action.title,
+          rationale: action.rationale,
+          rank,
+          payload,
+        }
+      }),
     })
     const suggestion = await emitSuggestionAndNotify(draft.diagnosis, {
       goalId: goal.id,

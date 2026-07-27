@@ -41,7 +41,7 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
 
   if (op === 'dismiss') {
     await prisma.goalRecoveryAction.update({
-      where: { id: action.id },
+      where: { id: action.id, organizationId: auth.organizationId },
       data: { status: 'dismissed' },
     })
     return { success: true, status: 'dismissed' as const }
@@ -54,14 +54,14 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
   // client leaves it 'accepted' (retryable), never falsely 'done'.
   if (action.kind === 'manual_step') {
     await prisma.goalRecoveryAction.update({
-      where: { id: action.id },
+      where: { id: action.id, organizationId: auth.organizationId },
       data: { status: 'done', acceptedAt: new Date() },
     })
     return { success: true, status: 'done' as const }
   }
 
   await prisma.goalRecoveryAction.update({
-    where: { id: action.id },
+    where: { id: action.id, organizationId: auth.organizationId },
     data: { status: 'accepted', acceptedAt: new Date() },
   })
   if (action.kind === 'connect_tool') {
