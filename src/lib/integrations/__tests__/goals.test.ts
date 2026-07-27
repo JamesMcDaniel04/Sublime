@@ -119,3 +119,68 @@ test('an unknown tool name is rejected', async () => {
   const client = new GoalsToolClient(['goal-a'], fakePort({ 'goal-a': goalView() }), () => NOW)
   await assert.rejects(() => client.executeTool('', 'delete_goal', {}), /Unknown goals tool/)
 })
+
+test('log_datapoint writes on every AI/human-owned source, labeled AI-read', async () => {
+  for (const source of ['manual', 'slack_assisted', 'gmail_assisted']) {
+    const port = fakePort({ 'goal-a': goalView({ primarySource: source }) })
+    const client = new GoalsToolClient(['goal-a'], port, () => NOW)
+    const result = (await client.executeTool('', 'log_datapoint', { value: 512 })) as {
+      ok: boolean
+      labeledAs: string
+    }
+    assert.equal(result.ok, true)
+    assert.equal(result.labeledAs, 'AI-read')
+    assert.deepEqual(port.writes, [{ goalId: 'goal-a', value: 512, capturedAt: NOW }])
+  }
+})
+
+test('log_datapoint refuses every system-of-record source and writes nothing', async () => {
+  for (const source of ['stripe', 'hubspot', 'salesforce', 'google_sheets', 'postgres', 'url']) {
+    const port = fakePort({ 'goal-a': goalView({ primarySource: source }) })
+    const client = new GoalsToolClient(['goal-a'], port, () => NOW)
+    await assert.rejects(
+      () => client.executeTool('', 'log_datapoint', { value: 512 }),
+      /Cannot write this goal's value/,
+      `${source} must refuse the write`,
+    )
+    assert.deepEqual(port.writes, [], `${source} must not have written`)
+  }
+})
+
+test('log_datapoint refuses a goal with no metric configured', async () => {
+  const port = fakePort({ 'goal-a': goalView({ primarySource: null }) })
+  const client = new GoalsToolClient(['goal-a'], port, () => NOW)
+  await assert.rejects(
+    () => client.executeTool('', 'log_datapoint', { value: 1 }),
+    /no metric configured/,
+  )
+  assert.deepEqual(port.writes, [])
+})
+
+test('log_datapoint refuses a non-numeric or future reading', async () => {
+  const port = fakePort({ 'goal-a': goalView({ primarySource: 'manual' }) })
+  const client = new GoalsToolClient(['goal-a'], port, () => NOW)
+
+  await assert.rejects(
+    () => client.executeTool('', 'log_datapoint', { value: 'lots' }),
+    /finite number/,
+  )
+  await assert.rejects(
+    () => client.executeTool('', 'log_datapoint', { value: 1, capturedAt: '2026-08-01T00:00:00Z' }),
+    /future/,
+  )
+  assert.deepEqual(port.writes, [])
+})
+
+test('an unlinked goal cannot be written to even when its source is writable', async () => {
+  const port = fakePort({
+    'goal-a': goalView({ primarySource: 'manual' }),
+    'goal-b': goalView({ id: 'goal-b', primarySource: 'manual' }),
+  })
+  const client = new GoalsToolClient(['goal-a'], port, () => NOW)
+  await assert.rejects(
+    () => client.executeTool('', 'log_datapoint', { goalId: 'goal-b', value: 9 }),
+    /not linked/,
+  )
+  assert.deepEqual(port.writes, [])
+})
