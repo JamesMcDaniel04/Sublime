@@ -30,7 +30,7 @@ Version field on every node + a read-time upgrade pipeline, so the executor almo
 
 ### Schema (`src/lib/flows/graph.ts`)
 
-- Introduce a `nodeSchema(type, dataShape)` helper that builds each variant as `{ id, type: z.literal(type), typeVersion: z.number().int().min(1).default(1), data }`. All 23 variants are converted to it so a future variant cannot forget the field. Zod (v3, strip mode) silently drops unknown keys today, so the field must be explicit in every variant.
+- Introduce a `nodeSchema(type, dataShape)` helper that builds each variant as `{ id, type: z.literal(type), typeVersion: z.number().int().min(1).optional(), data }`. All 23 variants are converted to it so a future variant cannot forget the field. Zod (v3, strip mode) silently drops unknown keys today, so the field must be explicit in every variant. The field is **optional, not defaulted** — absent means 1, read through a `nodeTypeVersion(node)` accessor. (A `.default(1)` would make the field required in the inferred `FlowNode` type and break every hand-written node literal across the app and tests; optional-with-accessor keeps the same semantics with zero churn.)
 - `typeVersion` is **not** a discriminator. `z.discriminatedUnion('type', …)` stays as-is. If a future version needs a different `data` shape, the schema holds the superset and the upgrade function normalizes.
 - New constant `LATEST_TYPE_VERSION: Record<FlowNode['type'], number>` (all `1` initially), exported next to the union.
 
