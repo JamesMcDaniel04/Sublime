@@ -2,10 +2,12 @@
 
 import type { FlowNode } from '@/lib/flows/graph'
 import { AddStepMenu } from '../add-step-menu'
+import { ContainerSteps } from './container-children'
 import { controlClass, labelClass } from './field-primitives'
 import type { NodeBodyModule, NodeBodyProps } from './types'
 
-function ParallelBody({ node: raw, update, onAddStep }: NodeBodyProps) {
+function ParallelBody(props: NodeBodyProps) {
+  const { node: raw, update, onAddStep } = props
   const node = raw as Extract<FlowNode, { type: 'parallel' }>
   return (
     <div className="space-y-3">
@@ -23,6 +25,7 @@ function ParallelBody({ node: raw, update, onAddStep }: NodeBodyProps) {
           <option value="merge">Merge (shallow-merge objects)</option>
         </select>
       </div>
+      <ContainerSteps {...props} />
       {onAddStep && <AddStepMenu label="Add parallel branch" onPick={onAddStep} />}
     </div>
   )

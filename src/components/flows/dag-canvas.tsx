@@ -50,6 +50,7 @@ import { autoLayout, containedNodeIds } from '@/lib/flows/auto-layout'
 import { connectNodes, disconnectEdge, moveNodeTo, type StepType } from '@/lib/flows/mutate'
 import { cn } from '@/lib/utils'
 import type { FlowGraph, FlowNode } from '@/lib/flows/graph'
+import { containerChildIds, isContainerNode, siblingsOf } from '@/lib/flows/containers'
 import { edgeIndicator, flowToScreenPoint, type JamCursor } from '@/lib/flows/jam-presence'
 import { jamCursorColor, type JamPeer } from './use-flow-jam'
 import { CommentPinMarker, type CommentPinData } from './flow-comments'
@@ -59,36 +60,6 @@ type NodeIssues = { errors: number; warnings: number; items: { level: 'error' | 
 
 /** Compact widget footprint — deliberately small so a big graph stays readable. */
 const WIDGET_WIDTH = 210
-
-/** The child ids a container owns — mirrors auto-layout/interpreter `contained`. */
-function containerChildIds(node: FlowNode): string[] {
-  return node.type === 'loop' || node.type === 'repeatUntil' ? node.data.body
-    : node.type === 'parallel' ? node.data.branches.flat()
-    : node.type === 'errorShield' ? [...node.data.body, ...node.data.fallback]
-    : []
-}
-
-const isContainerNode = (node: FlowNode) =>
-  node.type === 'loop' || node.type === 'repeatUntil' || node.type === 'parallel' || node.type === 'errorShield'
-
-/**
- * The sibling list a contained id can be reordered WITHIN, and the branch marker
- * `onReorderContainer` expects. Mirrors the stack canvas exactly: a parallel
- * branch reorders only within its own branch array, and an errorShield's
- * fallback list is marked with branchIndex -1 (insertIntoContainer's convention).
- */
-function siblingsOf(container: FlowNode, childId: string): { list: string[]; branchIndex?: number } {
-  if (container.type === 'loop' || container.type === 'repeatUntil') return { list: container.data.body }
-  if (container.type === 'parallel') {
-    const branchIndex = container.data.branches.findIndex((branch) => branch.includes(childId))
-    return { list: branchIndex >= 0 ? container.data.branches[branchIndex] : [], branchIndex: branchIndex >= 0 ? branchIndex : undefined }
-  }
-  if (container.type === 'errorShield') {
-    return container.data.body.includes(childId) ? { list: container.data.body } : { list: container.data.fallback, branchIndex: -1 }
-  }
-  return { list: [] }
-}
-
 
 type WidgetData = {
   node: FlowNode

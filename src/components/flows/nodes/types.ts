@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react'
-import type { FlowNode, OutputField } from '@/lib/flows/graph'
+import type { FlowGraph, FlowNode, OutputField } from '@/lib/flows/graph'
+import type { StepCardIssues } from './container-children'
 import type { TokenLabelContext } from '@/lib/flows/token-text'
 import type { FlowContext } from '@/features/flows/context'
 import type { TokenTextEditorHandle } from '../token-text-editor'
@@ -56,6 +57,15 @@ export type NodeBodyProps = {
    */
   previewContext?: FlowContext
   onAddStep?: (type: EditableType, branchIndex?: number) => void
+  /**
+   * Container bodies list their children and reorder them in place; absent for
+   * every other node type, which is why these are all optional.
+   */
+  graph?: FlowGraph
+  labelOf?: (node: FlowNode) => string
+  issuesByNode?: Record<string, StepCardIssues>
+  onOpenNode?: (id: string) => void
+  onReorderContainer?: (containerId: string, from: number, to: number, branchIndex?: number) => void
 }
 
 /**

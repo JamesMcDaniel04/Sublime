@@ -11,7 +11,7 @@ import type { ToolCatalog } from '../tool-catalog-type'
 import type { EditableType } from '../node-types'
 import type { TokenTextEditorHandle } from '../token-text-editor'
 import { NODE_BODIES } from '../nodes/registry'
-import type { Agent, TokenEditorWiring } from '../nodes/types'
+import type { Agent, NodeBodyProps, TokenEditorWiring } from '../nodes/types'
 import { ParamsPane } from './params-pane'
 import { InputPane } from './input-pane'
 import { OutputPane } from './output-pane'
@@ -56,6 +56,11 @@ export function NodeDetailView({
   onChange,
   onRefreshAgents,
   onAddStep,
+  graph,
+  labelOf,
+  issuesByNode,
+  onOpenNode,
+  onReorderContainer,
   onClose,
 }: {
   node: FlowNode
@@ -82,6 +87,12 @@ export function NodeDetailView({
   onChange: (node: FlowNode) => void
   onRefreshAgents?: () => void
   onAddStep?: (type: EditableType, branchIndex?: number) => void
+  /** Container wiring: the child list inside a loop/parallel body needs these. */
+  graph?: NodeBodyProps['graph']
+  labelOf?: NodeBodyProps['labelOf']
+  issuesByNode?: NodeBodyProps['issuesByNode']
+  onOpenNode?: (id: string) => void
+  onReorderContainer?: NodeBodyProps['onReorderContainer']
   onClose: () => void
 }) {
   // Which action is awaiting an explicit go-ahead. Confirms exist only where
@@ -223,6 +234,11 @@ export function NodeDetailView({
               variableNames={variableNames}
               previewContext={previewContext}
               onAddStep={onAddStep}
+              graph={graph}
+              labelOf={labelOf}
+              issuesByNode={issuesByNode}
+              onOpenNode={onOpenNode}
+              onReorderContainer={onReorderContainer}
             />
           </div>
           <div className="min-w-0">

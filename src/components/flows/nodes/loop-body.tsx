@@ -4,6 +4,7 @@ import { cn } from '@/lib/utils'
 import type { FlowNode } from '@/lib/flows/graph'
 import { TokenTextEditor } from '../token-text-editor'
 import { AddStepMenu } from '../add-step-menu'
+import { ContainerSteps } from './container-children'
 import type { EditableType } from '../node-types'
 import { controlClass, tokenControlClass } from './field-primitives'
 import { FieldPreview } from './field-preview'
@@ -15,12 +16,14 @@ function LoopBody({
   tokenWiring,
   onAddStep,
   previewContext,
+  containerProps,
 }: {
   node: Extract<FlowNode, { type: 'loop' }>
   update: (node: FlowNode) => void
   tokenWiring: TokenEditorWiring
   onAddStep?: (type: EditableType, branchIndex?: number) => void
   previewContext?: NodeBodyProps['previewContext']
+  containerProps: NodeBodyProps
 }) {
   const { labelCtx, registerEditor, focusEditor } = tokenWiring
   const usesTriggerInput = node.data.over === '{{trigger.input}}'
@@ -54,6 +57,7 @@ function LoopBody({
           </div>
         )}
       </div>
+      <ContainerSteps {...containerProps} />
       {onAddStep && <AddStepMenu label="Add step to loop" onPick={onAddStep} />}
     </div>
   )
@@ -61,8 +65,15 @@ function LoopBody({
 
 // MISSING_LOOP_SOURCE + EMPTY_LOOP_BODY in validate.ts.
 export const loopModule: NodeBodyModule = {
-  Body: ({ node, update, tokenWiring, onAddStep, previewContext }: NodeBodyProps) => (
-    <LoopBody node={node as Extract<FlowNode, { type: 'loop' }>} update={update} tokenWiring={tokenWiring} onAddStep={onAddStep} previewContext={previewContext} />
+  Body: (props: NodeBodyProps) => (
+    <LoopBody
+      node={props.node as Extract<FlowNode, { type: 'loop' }>}
+      update={props.update}
+      tokenWiring={props.tokenWiring}
+      onAddStep={props.onAddStep}
+      previewContext={props.previewContext}
+      containerProps={props}
+    />
   ),
   defaultEditorKey: 'loop.over',
   requiredFields: ['over', 'body'],

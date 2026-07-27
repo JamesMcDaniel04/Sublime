@@ -2161,6 +2161,11 @@ function FlowBuilder() {
           downstreamWrites={ndvDownstreamWrites}
           onChange={(node) => setGraph((g) => updateNode(g, node))}
           onRefreshAgents={refreshAgents}
+          graph={graph}
+          labelOf={(node) => labelCtx.stepLabels[node.id] || defaultStepLabel(node)}
+          issuesByNode={issuesByNode}
+          onOpenNode={openNdv}
+          onReorderContainer={(containerId, from, to, branchIndex) => commitGraph(moveContainerStep(graph, containerId, from, to, branchIndex))}
           onAddStep={(type, branchIndex) => {
             const { graph: next, nodeId } = addContainerStep(graph, ndvNode.id, type, type === 'agent' ? agents[0]?.id ?? '' : undefined, branchIndex)
             commitGraph(next)
