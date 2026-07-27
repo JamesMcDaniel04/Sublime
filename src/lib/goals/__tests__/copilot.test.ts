@@ -219,6 +219,36 @@ test('draftGoalDashboard threads an injected generator', async () => {
   assert.ok(options.user.includes('demo bookings'))
 })
 
+test('config arrives as a JSON string and still builds the layout', () => {
+  // What the model now actually sends: strict mode cannot express a free-form
+  // object, so every config is serialized. Widgets must still resolve their
+  // metric references, and metric config must still land as an object.
+  const raw = makeRaw((draft) => {
+    for (const metric of draft.metrics) {
+      ;(metric as { config: unknown }).config = '{}'
+    }
+    draft.widgets = draft.widgets.map((widget) => ({
+      ...widget,
+      config: JSON.stringify(widget.config),
+    })) as unknown as typeof draft.widgets
+  })
+  const { draft, notes } = validateCopilotDraft(raw, SOURCES, NOW)
+  assert.deepEqual(notes, [])
+  assert.deepEqual(draft.metrics[0].config, {})
+  assert.ok(draft.layout, 'string-encoded widget config should still parse')
+  const kpi = draft.layout.widgets.find((widget) => widget.type === 'kpi')
+  assert.ok(kpi, 'kpi widget survives')
+  assert.deepEqual(kpi.config, { metric: 0 })
+})
+
+test('unparseable config degrades to empty instead of failing the draft', () => {
+  const raw = makeRaw((draft) => {
+    ;(draft.metrics[0] as { config: unknown }).config = 'not json at all'
+  })
+  const { draft } = validateCopilotDraft(raw, SOURCES, NOW)
+  assert.deepEqual(draft.metrics[0].config, {})
+})
+
 test('provider failures remain provider failures', async () => {
   await assert.rejects(
     draftGoalDashboard({

@@ -130,8 +130,10 @@ const SYSTEM = [
   'Rules:',
   `- kind MUST be one of: ${GOAL_KINDS.join(', ')}. Pick the closest; blends use the dominant kind plus supporting metrics from other kinds.`,
   '- Use ONLY the metric sources listed as available in the input. When nothing fits, use source "manual" with metricKey "manual.value".',
-  '- Use 1-4 metrics and exactly one role "primary"; it drives progress and risk.',
-  '- Widget config references metrics by array INDEX: kpi/trend/history {"metric":0}, comparison {"metrics":[0,1]}, ratio {"numerator":0,"denominator":1,"format":"percent"|"ratio"}, narrative {"text":"..."}, and progress/impact/benchmark/periods/contributions/rollups {}.',
+  '- Use 1-4 metrics and exactly one role "primary"; it drives progress and risk. More than 4 metrics is rejected.',
+  '- Every config field is a JSON object SERIALIZED AS A STRING, not an object. Send "{}" when empty.',
+  `- Widget config references metrics by array INDEX, as a JSON string: kpi/trend/history {"metric":0}, comparison {"metrics":[0,1]}, ratio {"numerator":0,"denominator":1,"format":"percent"} (or "ratio"), narrative {"text":"..."}, and progress/impact/benchmark/periods/contributions/rollups {}.`,
+  '- Use at most 12 widgets.',
   '- Put kpi first, then trend; add useful ratio/comparison widgets; include narrative, impact, and history.',
   '- suggestedTarget is an honest starting point, never fabricated precision. Use null when the description gives no basis.',
   '- suggestedTargetDate is a sensible future YYYY-MM-DD, or null when unclear.',
@@ -172,6 +174,14 @@ export function parseConfigJson(value: unknown): Record<string, unknown> {
 }
 
 const configJson = z.unknown().transform(parseConfigJson)
+
+/** Widgets stay `unknown` until parseDraftLayout validates them, so their
+ *  config string is decoded here rather than in the zod shell. */
+function withParsedWidgetConfig(widget: unknown): unknown {
+  if (!widget || typeof widget !== 'object' || Array.isArray(widget)) return widget
+  const shell = widget as Record<string, unknown>
+  return { ...shell, config: parseConfigJson(shell.config) }
+}
 
 const rawDraftSchema = z.object({
   name: z.string().min(1).max(120),
@@ -309,7 +319,7 @@ export function validateCopilotDraft(
   if (!sawPrimary) metrics[0].role = 'primary'
 
   const layout = parseDraftLayout(
-    { version: 1, widgets: data.widgets.map(withParsedWidgetConfig) },
+    { version: 1, widgets: data.widgets.map((widget) => withParsedWidgetConfig(widget)) },
     metrics.length,
   )
   if (!layout && data.widgets.length > 0) {

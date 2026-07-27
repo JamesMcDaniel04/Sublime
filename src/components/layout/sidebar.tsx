@@ -165,6 +165,8 @@ export function Sidebar() {
         '/api/agent-templates',
         '/api/skills',
         '/api/flows',
+        '/api/goals',
+        '/api/goals/impact',
         '/api/integrations/available',
         '/api/nango/integrations',
         '/api/mcp-connections',

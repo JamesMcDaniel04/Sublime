@@ -1,7 +1,7 @@
 'use client'
 
 import Link from 'next/link'
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useState } from 'react'
 import { Plus, RefreshCw, Target } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { EmptyState } from '@/components/ui/empty-state'
@@ -17,57 +17,60 @@ import {
 } from '@/components/goals/impact-strip'
 import type { GoalSummary } from '@/lib/types'
 import type { CopilotDraft } from '@/lib/goals/copilot'
+import { invalidateCachedJson, useCachedJson } from '@/lib/client/use-cached-json'
 
-type State = { goals: GoalSummary[]; impact: OrgImpact }
+type GoalsResponse = { goals?: GoalSummary[] }
+type ImpactResponse = { impact?: OrgImpact }
+type CapabilitiesResponse = {
+  capabilities?: { key: string; configured: boolean }[]
+}
+
+const GOALS_URL = '/api/goals'
+const IMPACT_URL = '/api/goals/impact'
+
+const messageOf = (error: unknown, fallback: string) =>
+  error instanceof Error ? error.message : fallback
 
 export default function GoalsPage() {
-  const [state, setState] = useState<State | null>(null)
-  const [error, setError] = useState<string | null>(null)
+  // Stale-while-revalidate: paint instantly from the client cache (warmed at
+  // sign-in by the sidebar) and refresh in the background. The previous
+  // fetch-on-mount pattern blocked every visit on a cold round-trip, and the
+  // mutation sites were already invalidating these two URLs against a cache
+  // nothing read.
+  const goalsQuery = useCachedJson<GoalsResponse>(GOALS_URL)
+  const impactQuery = useCachedJson<ImpactResponse>(IMPACT_URL)
+  const capabilities = useCachedJson<CapabilitiesResponse>('/api/system/capabilities')
   const [copilot, setCopilot] = useState<{
     draft: CopilotDraft
     notes: string[]
   } | null>(null)
-  const [llmReady, setLlmReady] = useState(false)
 
-  const load = useCallback(async () => {
-    try {
-      setError(null)
-      const [goalsResponse, impactResponse, capabilitiesBody] = await Promise.all([
-        fetch('/api/goals', { cache: 'no-store' }),
-        fetch('/api/goals/impact', { cache: 'no-store' }),
-        fetch('/api/system/capabilities', { cache: 'no-store' })
-          .then(async (response) => (response.ok ? response.json() : {}))
-          .catch(() => ({})),
-      ])
-      const [goalsBody, impactBody] = await Promise.all([
-        goalsResponse.json(),
-        impactResponse.json(),
-      ])
-      if (!goalsResponse.ok || !impactResponse.ok) {
-        throw new Error(goalsBody.error || impactBody.error || 'Could not load goals.')
-      }
-      setState({ goals: goalsBody.goals, impact: impactBody.impact })
-      setLlmReady(
-        Boolean(
-          capabilitiesBody.capabilities?.some(
-            (capability: { key: string; configured: boolean }) =>
-              (capability.key === 'model.anthropic' ||
-                capability.key === 'model.qwen') &&
-              capability.configured,
-          ),
-        ),
-      )
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Could not load goals.')
-    }
-  }, [])
+  const goals = goalsQuery.data?.goals
+  const impact = impactQuery.data?.impact
+  const failure = goalsQuery.error ?? impactQuery.error
+  const error = failure ? messageOf(failure, 'Could not load goals.') : null
 
-  useEffect(() => {
-    void load()
-  }, [load])
+  // Capability probing is best-effort — a failure here hides the Copilot
+  // entry point rather than breaking the page, exactly as before.
+  const llmReady = Boolean(
+    capabilities.data?.capabilities?.some(
+      (capability) =>
+        (capability.key === 'model.anthropic' || capability.key === 'model.qwen') &&
+        capability.configured,
+    ),
+  )
 
-  const organizationGoals = state?.goals.filter((goal) => !goal.personal) ?? []
-  const personalGoals = state?.goals.filter((goal) => goal.personal) ?? []
+  const reload = useCallback(async () => {
+    // Drop the entries first so a retry or a settings save re-reads the
+    // server rather than repainting the same stale response.
+    invalidateCachedJson(GOALS_URL)
+    invalidateCachedJson(IMPACT_URL)
+    await Promise.all([goalsQuery.refresh(), impactQuery.refresh()])
+  }, [goalsQuery, impactQuery])
+
+  const organizationGoals = goals?.filter((goal) => !goal.personal) ?? []
+  const personalGoals = goals?.filter((goal) => goal.personal) ?? []
+  const ready = goals !== undefined && impact !== undefined
 
   return (
     <div className="space-y-8">
@@ -100,7 +103,7 @@ export default function GoalsPage() {
             />
           )}
 
-      {!state && !error && (
+      {!ready && !error && (
         <div className="grid animate-pulse gap-3 sm:grid-cols-2 lg:grid-cols-4">
           {Array.from({ length: 4 }).map((_, index) => (
             <div key={index} className="h-32 rounded-2xl bg-muted" />
@@ -113,19 +116,27 @@ export default function GoalsPage() {
           icon={RefreshCw}
           title="Goals could not load"
           description={error}
-          action={<Button onClick={() => void load()}>Try again</Button>}
+          action={
+            <Button
+              onClick={() => {
+                void reload()
+              }}
+            >
+              Try again
+            </Button>
+          }
         />
       )}
 
-      {state && (
+      {ready && (
         <>
           {/* Export stays reachable at zero goals — the report route renders a
               valid "no goals tracked yet" document by design. */}
           <div className="flex justify-end">
             <ExportRoiReport />
           </div>
-          {state.goals.length > 0 && <ImpactStrip impact={state.impact} onSaved={load} />}
-          {state.goals.length === 0 ? (
+          {goals.length > 0 && <ImpactStrip impact={impact} onSaved={reload} />}
+          {goals.length === 0 ? (
             <div className="space-y-8">
               <EmptyState
                 icon={Target}
