@@ -42,6 +42,7 @@ import {
   type GoalDetail,
   type GoalSummary,
 } from '@/lib/types'
+import { invalidateCachedJson } from '@/lib/client/use-cached-json'
 
 const SOFT_SOURCES = new Set([
   'manual',
@@ -131,6 +132,10 @@ export default function GoalDetailPage() {
       toast.error(body.error || 'Could not update goal.')
       return
     }
+    // The dashboard caches /api/goals and /api/goals/impact for 60s — a name,
+    // target, or recurrence change should be reflected there right away.
+    invalidateCachedJson('/api/goals')
+    invalidateCachedJson('/api/goals/impact')
     await load()
     setEditOpen(false)
     toast.success('Goal updated.')
@@ -145,6 +150,9 @@ export default function GoalDetailPage() {
       toast.error(body.error || 'Could not archive goal.')
       return
     }
+    // Archiving removes the goal from the active set the dashboard reads.
+    invalidateCachedJson('/api/goals')
+    invalidateCachedJson('/api/goals/impact')
     toast.success('Goal archived.')
     router.push('/goals')
   }

@@ -15,6 +15,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
+import { invalidateCachedJson } from '@/lib/client/use-cached-json'
 import {
   GoalDashboard,
   type DashboardData,
@@ -267,6 +268,10 @@ export function CopilotPreview({
       if (!response.ok) {
         throw new Error(body.error || 'Could not create the dashboard.')
       }
+      // The dashboard caches /api/goals and /api/goals/impact for 60s —
+      // invalidate so this goal shows up there immediately.
+      invalidateCachedJson('/api/goals')
+      invalidateCachedJson('/api/goals/impact')
       toast.success('Goal dashboard created.')
       router.push(`/goals/${body.goal.id}`)
     } catch (error) {

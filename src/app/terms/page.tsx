@@ -11,7 +11,7 @@ export const metadata: Metadata = {
   description: 'The terms that govern your use of Sublime.',
 }
 
-const LAST_UPDATED = 'July 20, 2026'
+const LAST_UPDATED = 'July 26, 2026'
 
 function Bullet({ children }: { children: React.ReactNode }) {
   return (

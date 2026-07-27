@@ -93,14 +93,25 @@ function planLabel(plan: string) {
 }
 
 /** Hover hint for icon-only controls (the collapsed rail). Shortcut renders
- *  inside the tooltip instead of a `title=` suffix. */
-function RailTooltip({ label, shortcut, children }: Readonly<{ label: string; shortcut?: string; children: React.ReactNode }>) {
+ *  inside the tooltip instead of a `title=` suffix. An optional `description`
+ *  renders as a second line — the collapsed rail has no other way to show
+ *  the goal-framed nav copy since native `title` is suppressed there to
+ *  avoid a double tooltip (Radix + native). */
+function RailTooltip({
+  label,
+  description,
+  shortcut,
+  children,
+}: Readonly<{ label: string; description?: string; shortcut?: string; children: React.ReactNode }>) {
   return (
     <Tooltip>
       <TooltipTrigger asChild>{children}</TooltipTrigger>
-      <TooltipContent side="right" className="flex items-center gap-2">
-        {label}
-        {shortcut && <kbd className="rounded border border-background/30 px-1 font-mono text-[10px]">{shortcut}</kbd>}
+      <TooltipContent side="right" className="flex flex-col gap-0.5">
+        <span className="flex items-center gap-2">
+          {label}
+          {shortcut && <kbd className="rounded border border-background/30 px-1 font-mono text-[10px]">{shortcut}</kbd>}
+        </span>
+        {description && <span className="text-xs text-background/70">{description}</span>}
       </TooltipContent>
     </Tooltip>
   )
@@ -615,7 +626,7 @@ export function Sidebar() {
                   key={item.name}
                   href={item.href}
                   aria-label={item.name}
-                  title={item.description}
+                  title={rail ? undefined : item.description}
                   className={cn(
                     'flex items-center gap-2.5 rounded-lg text-sm font-medium transition-colors duration-fast',
                     rail ? 'justify-center p-2' : 'px-2 py-1.5',
@@ -626,7 +637,13 @@ export function Sidebar() {
                   {!rail && item.name}
                 </Link>
               )
-              return rail ? <RailTooltip key={item.name} label={item.name}>{link}</RailTooltip> : link
+              return rail ? (
+                <RailTooltip key={item.name} label={item.name} description={item.description}>
+                  {link}
+                </RailTooltip>
+              ) : (
+                link
+              )
             })}
           </nav>
 

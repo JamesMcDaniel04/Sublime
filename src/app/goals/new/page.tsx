@@ -28,6 +28,7 @@ import {
   SOURCE_LABELS,
 } from '@/components/goals/source-labels'
 import { sourceIsAvailable } from '@/lib/metrics/source-options'
+import { invalidateCachedJson } from '@/lib/client/use-cached-json'
 
 type Step = 1 | 2 | 3
 type GoalKind = GoalSummary['kind']
@@ -313,6 +314,11 @@ export default function NewGoalPage() {
       })
       const body = await response.json()
       if (!response.ok) throw new Error(body.error || 'Could not create goal.')
+      // The dashboard caches /api/goals and /api/goals/impact for 60s —
+      // invalidate so a freshly created goal shows up immediately instead of
+      // leaving the no-goals hero stuck for up to a minute.
+      invalidateCachedJson('/api/goals')
+      invalidateCachedJson('/api/goals/impact')
       if (csvIntent && body.goal?.id) {
         toast.success('Goal created — import your CSV history next.')
         router.push(`/goals/${body.goal.id}?import=1`)

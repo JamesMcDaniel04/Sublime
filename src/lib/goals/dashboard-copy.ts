@@ -5,13 +5,33 @@ import type { GoalSummary } from '@/lib/types'
 export type GoalPreset = { label: string; prompt: string; sendNow: boolean }
 
 /**
+ * Active shared (non-personal) goals — what the "Organization goals" strip
+ * and the goal-anchored composer chips are scoped to.
+ */
+export function activeOrgGoals<T extends Pick<GoalSummary, 'personal' | 'status'>>(
+  goals: ReadonlyArray<T>,
+): T[] {
+  return goals.filter((goal) => !goal.personal && goal.status === 'active')
+}
+
+/**
+ * Any active goal, personal or org. This is what should gate onboarding —
+ * a user who only ever creates a personal goal (the default on /goals/new)
+ * must still see the first-run guide's "goal" step complete and the
+ * dashboard's no-goals CTA disappear.
+ */
+export function activeGoals<T extends Pick<GoalSummary, 'status'>>(goals: ReadonlyArray<T>): T[] {
+  return goals.filter((goal) => goal.status === 'active')
+}
+
+/**
  * Goal-anchored composer chips. Returns null when the org has no active
  * shared goals so the dashboard falls back to its generic presets.
  */
 export function goalPresets(
   goals: ReadonlyArray<Pick<GoalSummary, 'name' | 'personal' | 'status'>>,
 ): GoalPreset[] | null {
-  const active = goals.filter((candidate) => !candidate.personal && candidate.status === 'active')
+  const active = activeOrgGoals(goals)
   if (active.length === 0) return null
   const named = active.slice(0, 2)
   return [

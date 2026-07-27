@@ -30,7 +30,7 @@ import { cn } from '@/lib/utils'
 import { getCachedJson } from '@/lib/client/use-cached-json'
 import type { GoalSummary } from '@/lib/types'
 import type { OrgImpact } from '@/components/goals/impact-strip'
-import { goalPresets, impactSentence } from '@/lib/goals/dashboard-copy'
+import { activeGoals, goalPresets, impactSentence } from '@/lib/goals/dashboard-copy'
 
 /**
  * Home — the workspace-level assistant. A Claude/ChatGPT-style chat surface:
@@ -229,16 +229,22 @@ export function HomeAssistant() {
     let cancelled = false
     getCachedJson<{ goals?: GoalSummary[] }>('/api/goals', 60_000)
       .then((data) => {
-        if (!cancelled) setGoals(data.goals ?? [])
+        if (cancelled) return
+        const nextGoals = data.goals ?? []
+        setGoals(nextGoals)
+        // /api/goals/impact is expensive (per-contribution N+1 queries
+        // server-side) and its result is only rendered once an active goal
+        // exists — skip the fetch entirely for the common no-goals case.
+        if (activeGoals(nextGoals).length === 0) return
+        getCachedJson<{ impact?: OrgImpact }>('/api/goals/impact', 60_000)
+          .then((impactData) => {
+            if (!cancelled) setImpact(impactData.impact ?? null)
+          })
+          .catch(() => undefined)
       })
       .catch(() => {
         if (!cancelled) setGoals([])
       })
-    getCachedJson<{ impact?: OrgImpact }>('/api/goals/impact', 60_000)
-      .then((data) => {
-        if (!cancelled) setImpact(data.impact ?? null)
-      })
-      .catch(() => undefined)
     return () => {
       cancelled = true
     }
@@ -548,7 +554,10 @@ export function HomeAssistant() {
 
   const goalChips = goals ? goalPresets(goals) : null
   const chips = goalChips ? goalChips.map((preset) => ({ ...preset, icon: Target })) : PRESETS
-  const hasGoals = Boolean(goals?.some((goal) => !goal.personal && goal.status === 'active'))
+  // Any active goal (personal or org) counts — a user who creates a
+  // personal-only goal from the "Set your first goal" CTA must not get
+  // stuck seeing the no-goals hero forever.
+  const hasGoals = Boolean(goals && activeGoals(goals).length > 0)
   const proofLine = impactSentence(impact)
 
   return (
@@ -616,7 +625,7 @@ export function HomeAssistant() {
         /* Hero: greeting + composer + presets, vertically centered. */
         <div className="flex min-h-0 flex-1 items-center justify-center p-4">
           <div className="w-full max-w-4xl">
-            <FirstRunGuide goalsCount={goals === null ? null : goals.filter((goal) => !goal.personal && goal.status === 'active').length} />
+            <FirstRunGuide goalsCount={goals === null ? null : activeGoals(goals).length} />
             <GoalStatusStrip goals={goals} />
             {hasGoals && proofLine && (
               <p className="mb-4 text-center text-sm text-muted-foreground">{proofLine}</p>
@@ -648,9 +657,9 @@ export function HomeAssistant() {
               {composer}
             </div>
             <div className="mt-4 flex flex-wrap justify-center gap-2">
-              {chips.map((preset) => (
+              {chips.map((preset, index) => (
                 <button
-                  key={preset.label}
+                  key={`${index}-${preset.label}`}
                   type="button"
                   disabled={sending || uploading}
                   onClick={() => applyPreset(preset)}

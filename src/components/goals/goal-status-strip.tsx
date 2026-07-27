@@ -3,12 +3,11 @@
 import Link from 'next/link'
 import { Target } from 'lucide-react'
 import type { GoalSummary } from '@/lib/types'
+import { activeOrgGoals } from '@/lib/goals/dashboard-copy'
 import { GoalProgressBar, RiskBadge } from './goal-viz'
 
 export function GoalStatusStrip({ goals }: { readonly goals: GoalSummary[] | null }) {
-  const visible = (goals ?? [])
-    .filter((goal) => !goal.personal && goal.status === 'active')
-    .slice(0, 3)
+  const visible = activeOrgGoals(goals ?? []).slice(0, 3)
   if (!visible.length) return null
 
   return (
