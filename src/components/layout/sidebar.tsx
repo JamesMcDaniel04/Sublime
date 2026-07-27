@@ -83,8 +83,8 @@ const navigation = [
   { name: 'Home', href: '/dashboard', icon: Sparkles, description: 'Your assistant across the workspace' },
   { name: 'Goals', href: '/goals', icon: Target, description: 'The numbers your workspace is accountable to' },
   { name: 'Agents', href: '/agents', icon: Bot, description: 'Specialized agents serving your goals' },
-  { name: 'Integrations', href: '/integrations', icon: Plug, description: 'Connect the tools you already use' },
   { name: 'Flows', href: '/flows', icon: Workflow, description: 'Orchestrate multi-step work' },
+  { name: 'Integrations', href: '/integrations', icon: Plug, description: 'Connect the tools you already use' },
 ]
 
 function planLabel(plan: string) {

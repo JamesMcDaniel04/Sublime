@@ -55,7 +55,7 @@ export function GoalCopilot({
       <div className="flex items-center gap-2">
         <Sparkles className="h-5 w-5 text-chart-violet" />
         <div>
-          <h2 className="font-semibold">Describe your goal</h2>
+          <h2 className="font-semibold">Describe your next goal</h2>
           <p className="text-sm text-muted-foreground">
             The Copilot designs a dashboard to track it — you review
             everything before it exists.

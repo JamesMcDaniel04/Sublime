@@ -97,99 +97,107 @@ export default function GoalsPage() {
         />
       ) : (
         <>
+          {/* Impact leads the page — what the automations already returned
+              reads before the prompt asking for the next goal. The skeleton
+              sits here too so the tiles don't shove the Copilot down when the
+              impact response lands. */}
+          {!ready && !error && (
+            <div className="grid animate-pulse gap-3 sm:grid-cols-2 lg:grid-cols-4">
+              {Array.from({ length: 4 }).map((_, index) => (
+                <div key={index} className="h-32 rounded-2xl bg-muted" />
+              ))}
+            </div>
+          )}
+
+          {ready && (
+            <>
+              {/* Export stays reachable at zero goals — the report route
+                  renders a valid "no goals tracked yet" document by design. */}
+              <div className="flex justify-end">
+                <ExportRoiReport />
+              </div>
+              {goals.length > 0 && (
+                <ImpactStrip impact={impact} onSaved={reload} />
+              )}
+            </>
+          )}
+
           {llmReady && (
             <GoalCopilot
               onDraft={(draft, notes) => setCopilot({ draft, notes })}
             />
           )}
 
-      {!ready && !error && (
-        <div className="grid animate-pulse gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          {Array.from({ length: 4 }).map((_, index) => (
-            <div key={index} className="h-32 rounded-2xl bg-muted" />
-          ))}
-        </div>
-      )}
-
-      {error && (
-        <EmptyState
-          icon={RefreshCw}
-          title="Goals could not load"
-          description={error}
-          action={
-            <Button
-              onClick={() => {
-                void reload()
-              }}
-            >
-              Try again
-            </Button>
-          }
-        />
-      )}
-
-      {ready && (
-        <>
-          {/* Export stays reachable at zero goals — the report route renders a
-              valid "no goals tracked yet" document by design. */}
-          <div className="flex justify-end">
-            <ExportRoiReport />
-          </div>
-          {goals.length > 0 && <ImpactStrip impact={impact} onSaved={reload} />}
-          {goals.length === 0 ? (
-            <div className="space-y-8">
-              <EmptyState
-                icon={Target}
-                title="Set your first goal"
-                description="Set a goal and Sublime will track it, watch for risk, and recommend what to do about it."
-                action={
-                  <Button asChild>
-                    <Link href="/goals/new">Create a goal</Link>
-                  </Button>
-                }
-              />
-              <GoalTemplateGallery />
-            </div>
-          ) : (
-            <div className="space-y-8">
-              {/* Goals lead the page — the template gallery is a starting
-                  point, not the thing someone came back to check. Both
-                  sections always render once any goal exists: hiding an empty
-                  one made a freshly created goal look lost when it landed in
-                  the section the user wasn't watching. */}
-              <section className="space-y-3">
-                <h2 className="text-lg font-semibold">Organization goals</h2>
-                {organizationGoals.length > 0 ? (
-                  <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                    {organizationGoals.map((goal) => (
-                      <GoalCard key={goal.id} goal={goal} />
-                    ))}
-                  </div>
-                ) : (
-                  <p className="text-sm text-muted-foreground">
-                    No organization goals yet — these are visible across your workspace.
-                  </p>
-                )}
-              </section>
-              <section className="space-y-3">
-                <h2 className="text-lg font-semibold">My goals</h2>
-                {personalGoals.length > 0 ? (
-                  <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                    {personalGoals.map((goal) => (
-                      <GoalCard key={goal.id} goal={goal} />
-                    ))}
-                  </div>
-                ) : (
-                  <p className="text-sm text-muted-foreground">
-                    No personal goals yet — personal goals are visible only to you.
-                  </p>
-                )}
-              </section>
-              <GoalTemplateGallery />
-            </div>
+          {error && (
+            <EmptyState
+              icon={RefreshCw}
+              title="Goals could not load"
+              description={error}
+              action={
+                <Button
+                  onClick={() => {
+                    void reload()
+                  }}
+                >
+                  Try again
+                </Button>
+              }
+            />
           )}
-        </>
-      )}
+
+          {ready &&
+            (goals.length === 0 ? (
+              <div className="space-y-8">
+                <EmptyState
+                  icon={Target}
+                  title="Set your first goal"
+                  description="Set a goal and Sublime will track it, watch for risk, and recommend what to do about it."
+                  action={
+                    <Button asChild>
+                      <Link href="/goals/new">Create a goal</Link>
+                    </Button>
+                  }
+                />
+                <GoalTemplateGallery />
+              </div>
+            ) : (
+              <div className="space-y-8">
+                {/* Goals lead the rest of the page — the template gallery is a
+                    starting point, not the thing someone came back to check.
+                    Both sections always render once any goal exists: hiding an
+                    empty one made a freshly created goal look lost when it
+                    landed in the section the user wasn't watching. */}
+                <section className="space-y-3">
+                  <h2 className="text-lg font-semibold">Organization goals</h2>
+                  {organizationGoals.length > 0 ? (
+                    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                      {organizationGoals.map((goal) => (
+                        <GoalCard key={goal.id} goal={goal} />
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-sm text-muted-foreground">
+                      No organization goals yet — these are visible across your workspace.
+                    </p>
+                  )}
+                </section>
+                <section className="space-y-3">
+                  <h2 className="text-lg font-semibold">My goals</h2>
+                  {personalGoals.length > 0 ? (
+                    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                      {personalGoals.map((goal) => (
+                        <GoalCard key={goal.id} goal={goal} />
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-sm text-muted-foreground">
+                      No personal goals yet — personal goals are visible only to you.
+                    </p>
+                  )}
+                </section>
+                <GoalTemplateGallery />
+              </div>
+            ))}
         </>
       )}
     </div>
