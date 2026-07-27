@@ -18,3 +18,12 @@ export function sourceIsAvailable(option: MetricSourceOption): boolean {
     option.connections.length > 0
   )
 }
+
+/**
+ * The set of metric sources this workspace can actually read from right now.
+ * Shared by the goal template card (dimming unconnected chips) and the
+ * template detail modal (marking a recommended source).
+ */
+export function connectedSourceSet(options: MetricSourceOption[]): Set<string> {
+  return new Set(options.filter(sourceIsAvailable).map((option) => option.source))
+}
