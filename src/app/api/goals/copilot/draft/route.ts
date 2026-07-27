@@ -2,6 +2,8 @@ import { z } from 'zod'
 import { ApiError, withAuthenticatedApi } from '@/lib/server/api-handler'
 import { listMetricSourceOptions } from '@/lib/metrics/available-sources'
 import { CopilotDraftError, draftGoalDashboard } from '@/lib/goals/copilot'
+import { rateLimit } from '@/lib/ratelimit'
+import { checkMonthlyTokenBudget } from '@/lib/usage/budget'
 import { apiLogger } from '@/lib/logger'
 
 export const runtime = 'nodejs'
@@ -14,6 +16,27 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
   const { description } = bodySchema.parse(
     await request.json().catch(() => ({})),
   )
+  // Same guardrails as the other LLM routes: per-user sliding window plus the
+  // workspace token budget — a draft loop must not burn unbounded spend.
+  const limited = await rateLimit(`goals-copilot-draft:${auth.dbUser.id}`, {
+    limit: 10,
+    windowMs: 60_000,
+  })
+  if (!limited.ok) {
+    throw new ApiError(
+      'Slow down a moment — try the draft again shortly.',
+      429,
+      'RATE_LIMITED',
+    )
+  }
+  const budget = await checkMonthlyTokenBudget(auth.organizationId)
+  if (budget.over) {
+    throw new ApiError(
+      'Monthly token budget reached for this workspace. Buy additional credits in Settings → Billing or upgrade your plan.',
+      429,
+      'BUDGET_EXCEEDED',
+    )
+  }
   const sources = await listMetricSourceOptions(auth)
   try {
     const { draft, notes } = await draftGoalDashboard({

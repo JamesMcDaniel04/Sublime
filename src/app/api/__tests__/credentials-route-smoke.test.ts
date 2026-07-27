@@ -142,7 +142,9 @@ if (!TEST_DB) {
 
   test('an unknown credential type is rejected', async () => {
     installTestAuth(seeded.auth)
-    const bad = await post({ name: 'Bad type', type: 'digest', token: 'x' })
+    // 'digest' was the fixture here until the HTTP-node work made it a real
+    // type — use a value that can never join CREDENTIAL_TYPES.
+    const bad = await post({ name: 'Bad type', type: 'carrier_pigeon', token: 'x' })
     assert.notEqual(bad.status, 200)
   })
 

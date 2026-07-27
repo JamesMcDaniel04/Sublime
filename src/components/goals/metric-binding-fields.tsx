@@ -25,6 +25,36 @@ export type MetricBinding = {
   config: Record<string, unknown>
 }
 
+/** Sources that carry no connectionRef (mirrors NO_CONNECTION_SOURCES in the
+ * create route). */
+const NO_CONNECTION_SOURCES = new Set(['manual', 'url', 'slack_assisted'])
+
+/** Why this binding would fail the create route, or null when it is ready.
+ * Mirrors the server's per-source zod checks so the Copilot preview can gate
+ * Create with a specific hint instead of a raw 400 toast. */
+export function metricBindingIssue(binding: MetricBinding): string | null {
+  const text = (key: string) =>
+    typeof binding.config[key] === 'string' ? (binding.config[key] as string).trim() : ''
+  if (!binding.label.trim()) return `Name the ${binding.role} series.`
+  if (!NO_CONNECTION_SOURCES.has(binding.source) && !binding.connectionRef) {
+    return `Pick the account "${binding.label}" reads from.`
+  }
+  const required: Record<string, Array<[key: string, hint: string]>> = {
+    google_sheets: [
+      ['spreadsheetId', 'Enter the spreadsheet id for'],
+      ['range', 'Enter the A1 range for'],
+    ],
+    postgres: [['query', 'Enter the SQL query for']],
+    url: [['url', 'Enter the URL that reports']],
+    slack_assisted: [['channel', 'Enter the Slack channel that reports']],
+    gmail_assisted: [['query', 'Enter the Gmail search that finds']],
+  }
+  for (const [key, hint] of required[binding.source] ?? []) {
+    if (!text(key)) return `${hint} "${binding.label}".`
+  }
+  return null
+}
+
 export function MetricBindingFields({
   binding,
   sources,

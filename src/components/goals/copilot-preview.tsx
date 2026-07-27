@@ -22,6 +22,7 @@ import {
 } from '@/components/goals/widgets/goal-dashboard'
 import {
   MetricBindingFields,
+  metricBindingIssue,
   type MetricBinding,
 } from '@/components/goals/metric-binding-fields'
 import {
@@ -227,6 +228,9 @@ export function CopilotPreview({
   const start = Number(startValue)
   const primaryReady =
     primary?.source === 'manual' || verifiedKey === primaryKey
+  const bindingIssue = metrics
+    .map((metric) => metricBindingIssue(metric))
+    .find((issue) => issue !== null) ?? null
   const canCreate =
     name.trim().length > 0 &&
     targetValue.trim().length > 0 &&
@@ -236,7 +240,8 @@ export function CopilotPreview({
     Number.isFinite(start) &&
     start !== target &&
     Boolean(primary) &&
-    primaryReady
+    primaryReady &&
+    bindingIssue === null
 
   const create = async () => {
     if (!canCreate) return
@@ -466,7 +471,10 @@ export function CopilotPreview({
         <GoalDashboard layout={previewLayout} data={previewData} />
       </section>
 
-      <div className="flex flex-wrap justify-end gap-2">
+      <div className="flex flex-wrap items-center justify-end gap-2">
+        {bindingIssue && (
+          <p className="mr-auto text-xs text-muted-foreground">{bindingIssue}</p>
+        )}
         <Button variant="ghost" onClick={onCancel}>
           Start over
         </Button>
