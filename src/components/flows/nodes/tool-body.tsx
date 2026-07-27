@@ -5,7 +5,6 @@ import { IntegrationLogo } from '@/components/integrations/integration-logo'
 import { ToolArgsEditor } from '../tool-args-editor'
 import { SearchableSelect } from '../searchable-select'
 import { ConnectionHealth } from './connection-health'
-import { AdvancedParamsSection } from '../advanced-params'
 import type { ToolCatalog } from '../tool-catalog-type'
 import { labelClass } from './field-primitives'
 import type { NodeBodyModule, NodeBodyProps, TokenEditorWiring } from './types'
@@ -87,7 +86,6 @@ function ToolBody({
         />
       )}
       {node.data.risk && node.data.risk !== 'read' && <p className="rounded-lg bg-amber-50 p-2 text-xs text-amber-800">This action is classified as {node.data.risk} — it performs an external write when the flow runs.</p>}
-      <AdvancedParamsSection node={node} onChange={update} />
     </div>
   )
 }

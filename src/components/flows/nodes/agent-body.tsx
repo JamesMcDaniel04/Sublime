@@ -5,7 +5,6 @@ import { Plus, RefreshCw, Trash2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { FIELD_TYPES, type FlowNode, type OutputField } from '@/lib/flows/graph'
 import { TokenTextEditor } from '../token-text-editor'
-import { AdvancedParamsSection } from '../advanced-params'
 import { controlClass, labelClass, tokenControlClass } from './field-primitives'
 import { FieldPreview } from './field-preview'
 import type { Agent, NodeBodyModule, NodeBodyProps, TokenEditorWiring } from './types'
@@ -224,7 +223,6 @@ function AgentBody({
           </div>
         )}
       </div>
-      <AdvancedParamsSection node={node} onChange={update} />
     </div>
   )
 }

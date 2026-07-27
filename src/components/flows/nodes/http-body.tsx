@@ -20,7 +20,6 @@ import type { NodeBodyModule, NodeBodyProps, TokenEditorWiring } from './types'
 import { FieldPreview } from './field-preview'
 import { CredentialHealth } from './credential-health'
 import type { VerificationView } from './verification-badge'
-import { HttpOptionsSection } from './http-options'
 
 type HttpNode = Extract<FlowNode, { type: 'http' }>
 type ListedCredential = {
@@ -519,8 +518,6 @@ function HttpBody({
           )}
         </div>
       </ToggleSection>
-
-      <HttpOptionsSection node={node} onChange={update} tokenWiring={tokenWiring} />
 
       <Dialog open={credentialModal !== null} onOpenChange={(open) => !open && setCredentialModal(null)}>
         <DialogContent className="max-h-[88vh] max-w-2xl overflow-y-auto">

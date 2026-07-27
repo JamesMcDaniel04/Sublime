@@ -4,7 +4,6 @@ import { cn } from '@/lib/utils'
 import type { FlowNode } from '@/lib/flows/graph'
 import { TokenTextEditor } from '../token-text-editor'
 import { AddStepMenu } from '../add-step-menu'
-import { AdvancedParamsSection } from '../advanced-params'
 import type { EditableType } from '../node-types'
 import { controlClass, tokenControlClass } from './field-primitives'
 import { FieldPreview } from './field-preview'
@@ -56,7 +55,6 @@ function LoopBody({
         )}
       </div>
       {onAddStep && <AddStepMenu label="Add step to loop" onPick={onAddStep} />}
-      <AdvancedParamsSection node={node} onChange={update} />
     </div>
   )
 }

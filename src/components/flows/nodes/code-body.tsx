@@ -2,7 +2,6 @@
 
 import type { FlowNode } from '@/lib/flows/graph'
 import { CODE_SNIPPETS, isDefaultSnippet, type CodeLanguage, type CodeMode } from '@/lib/flows/code-snippets'
-import { AdvancedParamsSection } from '../advanced-params'
 import { controlClass, labelClass } from './field-primitives'
 import type { NodeBodyModule, NodeBodyProps } from './types'
 
@@ -88,7 +87,6 @@ function CodeBody({ node, update }: { node: CodeNode; update: (node: FlowNode) =
         )}
       </p>
 
-      <AdvancedParamsSection node={node} onChange={update} />
     </div>
   )
 }

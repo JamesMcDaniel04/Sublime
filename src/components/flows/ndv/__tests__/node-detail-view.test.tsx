@@ -85,6 +85,23 @@ test('no node type offers a Step type selector — the node IS its type', () => 
   }
 })
 
+test('execution policy lives in Settings, never in Parameters', () => {
+  const agent = { id: 'a1', type: 'agent', data: { agentId: '' } } as FlowNode
+  const { container, getByText } = render(<NodeDetailView node={agent} {...baseProps} />)
+  const inParams = container.textContent ?? ''
+  assert.equal(inParams.includes('Advanced parameters'), false, 'policy is still on the Parameters tab')
+  fireEvent.click(getByText('Settings'))
+  getByText('Advanced parameters')
+})
+
+test('the HTTP node keeps its Options panel, and it is in Settings', () => {
+  const http = { id: 'h1', type: 'http', data: { method: 'GET', url: 'https://api/x' } } as FlowNode
+  const { container, getByText } = render(<NodeDetailView node={http} {...baseProps} />)
+  assert.equal((container.textContent ?? '').includes('Add option'), false, 'Options is still on Parameters')
+  fireEvent.click(getByText('Settings'))
+  getByText('Options')
+})
+
 // ── Output pane ───────────────────────────────────────────────────────────────
 
 test('output pane renders the last run output', () => {

@@ -30,9 +30,17 @@ function Harness({ initial, capture }: { initial?: Record<string, unknown>; capt
 
 const dataOf = (node: FlowNode | null) => (node as unknown as { data: Record<string, unknown> }).data
 
+/** Options moved to the Settings tab — Parameters holds only what the step does. */
+function openSettings(container: HTMLElement) {
+  const tab = [...container.querySelectorAll('button')].find((button) => button.textContent === 'Settings')
+  act(() => { fireEvent.click(tab as HTMLElement) })
+}
+
 test('the retired Advanced parameters panel is gone from the http step', (t) => {
   t.after(cleanup)
   const { container } = render(React.createElement(Harness, { capture: () => {} }))
+  assert.equal(container.textContent?.includes('Advanced parameters'), false)
+  openSettings(container)
   assert.equal(container.textContent?.includes('Advanced parameters'), false)
   assert.ok(container.querySelector('[aria-label="Add option"]'), 'the n8n Options picker renders instead')
 })
@@ -67,6 +75,7 @@ test('adding pagination from Options writes a usable default', (t) => {
   t.after(cleanup)
   let latest: FlowNode | null = null
   const { container } = render(React.createElement(Harness, { capture: (n) => { latest = n } }))
+  openSettings(container)
   const add = container.querySelector('[aria-label="Add option"]') as HTMLSelectElement
   act(() => { fireEvent.change(add, { target: { value: 'pagination' } }) })
 
@@ -77,6 +86,7 @@ test('adding pagination from Options writes a usable default', (t) => {
 test('cookie, batching, and retry status codes are reachable from Options', (t) => {
   t.after(cleanup)
   const { container } = render(React.createElement(Harness, { capture: () => {} }))
+  openSettings(container)
   const add = container.querySelector('[aria-label="Add option"]') as HTMLSelectElement
   const offered = [...add.querySelectorAll('option')].map((option) => option.value)
   for (const key of ['cookie', 'batch', 'retryStatusCodes', 'pagination']) {
@@ -90,6 +100,7 @@ test('removing an option clears it rather than leaving a default behind', (t) =>
   t.after(cleanup)
   let latest: FlowNode | null = null
   const { container } = render(React.createElement(Harness, { initial: { cookie: 'a=b' }, capture: (n) => { latest = n } }))
+  openSettings(container)
   act(() => { fireEvent.click(container.querySelector('[aria-label="Remove Cookie"]') as HTMLElement) })
   assert.equal(dataOf(latest).cookie, undefined)
 })
