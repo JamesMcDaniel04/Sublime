@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Sparkles } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { EmptyState } from '@/components/ui/empty-state'
 import { Pagination, paginate } from '@/components/ui/pagination'
 import { GoalTemplateCard } from '@/components/goals/goal-template-card'
 import { GoalTemplateDetail } from '@/components/goals/goal-template-detail'
@@ -20,11 +21,28 @@ const DEPARTMENT_LABELS: Record<string, string> = {
   csm: 'Customer Success',
 }
 
+/** A template is "ready" when some source it reads is already connected.
+ *  `manual` never counts — every template can fall back to manual entry, so
+ *  counting it would mark all 45 ready and the signal would say nothing. */
+const isReady = (template: GoalTemplate, connected: Set<string>) =>
+  template.sources.some((source) => source !== 'manual' && connected.has(source))
+
+/** Stable partition: ready templates first, never dropping any. Mirrors
+ *  sortByReadiness on the agent catalogue — sort and annotate, never hide. */
+const byReadiness = (templates: readonly GoalTemplate[], connected: Set<string>) =>
+  [...templates].sort(
+    (a, b) => Number(isReady(b, connected)) - Number(isReady(a, connected)),
+  )
+
 /**
  * "Start from a template": 45 starting points, nine per served department,
  * nine to a page. Clicking a card opens its detail dialog — tools, what gets
  * tracked, and a preview of the dashboard it produces. Nothing is created
  * until the wizard, where the target and source stay the user's.
+ *
+ * Presentation deliberately matches the agent/flow starter catalogue — same
+ * card shell, same gap-6 stagger grid, same indigo department pills — so the
+ * two catalogues read as one system rather than two.
  *
  * Page state is deliberately component-local rather than in the URL: the
  * gallery sits mid-page on /goals and must not push history entries.
@@ -56,57 +74,68 @@ export function GoalTemplateGallery() {
     [sources, sourcesFailed],
   )
 
-  const visible = useMemo(
-    () =>
+  const visible = useMemo(() => {
+    const inDepartment =
       department === 'all'
         ? GOAL_TEMPLATES
-        : GOAL_TEMPLATES.filter((entry) => entry.department === department),
-    [department],
-  )
+        : GOAL_TEMPLATES.filter((entry) => entry.department === department)
+    return byReadiness(inDepartment, connected)
+  }, [department, connected])
   const { pageItems, pageCount, page: currentPage } = paginate(visible, page, PAGE_SIZE)
 
   return (
-    <section className="space-y-3" aria-labelledby="goal-templates-heading">
-      <div>
-        <h2 id="goal-templates-heading" className="flex items-center gap-2 text-lg font-semibold">
-          <Sparkles className="h-4 w-4 text-indigo-500" />
-          Start from a template
-        </h2>
-        <p className="text-xs text-muted-foreground">
-          Proven targets by team — open one to see what it tracks and the dashboard you&apos;ll get.
-        </p>
+    <section className="space-y-4" aria-labelledby="goal-templates-heading">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="space-y-1">
+          <h2 id="goal-templates-heading" className="flex items-center gap-2 text-lg font-semibold">
+            <Sparkles className="h-4 w-4 text-indigo-500" />
+            Start from a template
+          </h2>
+          <p className="text-sm text-muted-foreground">
+            Proven targets by team, sorted by what you can measure right now — open one
+            to see what it tracks and the dashboard you&apos;ll get.
+          </p>
+        </div>
+
+        <div className="flex flex-wrap gap-1.5" role="tablist" aria-label="Filter templates by department">
+          {['all', ...PRODUCT_DEPARTMENTS].map((key) => (
+            <button
+              key={key}
+              type="button"
+              role="tab"
+              aria-selected={department === key}
+              onClick={() => { setDepartment(key); setPage(1) }}
+              className={cn(
+                'rounded-full border px-2.5 py-1 text-xs font-medium transition-colors',
+                department === key
+                  ? 'border-indigo-300 bg-indigo-50 text-indigo-700 dark:border-indigo-500/40 dark:bg-indigo-500/10 dark:text-indigo-300'
+                  : 'border-border/60 bg-card text-muted-foreground hover:bg-accent hover:text-foreground',
+              )}
+            >
+              {key === 'all' ? 'All teams' : DEPARTMENT_LABELS[key]}
+            </button>
+          ))}
+        </div>
       </div>
 
-      <div className="flex flex-wrap gap-1.5" role="tablist" aria-label="Filter templates by department">
-        {['all', ...PRODUCT_DEPARTMENTS].map((key) => (
-          <button
-            key={key}
-            type="button"
-            role="tab"
-            aria-selected={department === key}
-            onClick={() => { setDepartment(key); setPage(1) }}
-            className={cn(
-              'rounded-full border px-3 py-1 text-xs font-medium transition-colors',
-              department === key
-                ? 'border-foreground/30 bg-secondary text-foreground'
-                : 'text-muted-foreground hover:bg-muted hover:text-foreground',
-            )}
-          >
-            {key === 'all' ? 'All teams' : DEPARTMENT_LABELS[key]}
-          </button>
-        ))}
-      </div>
-
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        {pageItems.map((entry) => (
-          <GoalTemplateCard
-            key={entry.key}
-            template={entry}
-            connectedSources={connected}
-            onOpen={setSelected}
-          />
-        ))}
-      </div>
+      {pageItems.length === 0 ? (
+        <EmptyState
+          icon={Sparkles}
+          title="No goal templates for this team yet"
+          description="Try another team, or browse them all with All teams."
+        />
+      ) : (
+        <div className="stagger-children grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3">
+          {pageItems.map((entry) => (
+            <GoalTemplateCard
+              key={entry.key}
+              template={entry}
+              connectedSources={connected}
+              onOpen={setSelected}
+            />
+          ))}
+        </div>
+      )}
 
       <Pagination page={currentPage} pageCount={pageCount} onPageChange={setPage} />
 

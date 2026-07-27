@@ -29,6 +29,13 @@ export function GoalTemplateCard({
   const accent = CATEGORY_ACCENTS[template.category]
   const shown = template.sources.slice(0, VISIBLE_SOURCES)
   const overflow = template.sources.length - shown.length
+  // Same signal the agent catalogue card carries: a filled CTA when the
+  // workspace can already feed this template, an outline one when it would
+  // start on manual entry. `manual` is excluded — it is always available, so
+  // counting it would make every card look connected.
+  const ready = template.sources.some(
+    (source) => source !== 'manual' && connectedSources.has(source),
+  )
 
   return (
     <button
@@ -77,7 +84,7 @@ export function GoalTemplateCard({
           </div>
         }
         cta={
-          <Button size="sm" variant="default" className="w-full" asChild>
+          <Button size="sm" variant={ready ? 'default' : 'outline'} className="w-full" asChild>
             <span>View goal</span>
           </Button>
         }

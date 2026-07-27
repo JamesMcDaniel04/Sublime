@@ -152,10 +152,11 @@ export default function GoalsPage() {
             </div>
           ) : (
             <div className="space-y-8">
-              <GoalTemplateGallery />
-              {/* Both sections always render once any goal exists. Hiding an
-                  empty one made a freshly created goal look lost when it
-                  landed in the section the user wasn't watching. */}
+              {/* Goals lead the page — the template gallery is a starting
+                  point, not the thing someone came back to check. Both
+                  sections always render once any goal exists: hiding an empty
+                  one made a freshly created goal look lost when it landed in
+                  the section the user wasn't watching. */}
               <section className="space-y-3">
                 <h2 className="text-lg font-semibold">Organization goals</h2>
                 {organizationGoals.length > 0 ? (
@@ -184,6 +185,7 @@ export default function GoalsPage() {
                   </p>
                 )}
               </section>
+              <GoalTemplateGallery />
             </div>
           )}
         </>
