@@ -1239,6 +1239,10 @@ model Goal {
   /// render defaultLayoutForGoal(). Invalid persisted layouts fail soft to
   /// that default in the detail renderer.
   dashboardLayout Json?
+  /// The GoalTemplate.key this goal was created from, or null for
+  /// Copilot-drafted and manually-created goals. Read by the agent-bundle
+  /// lookup to offer the template's curated agents; never edited after create.
+  templateKey     String?
   createdByUserId String?
   createdAt       DateTime  @default(now()) @db.Timestamptz(6)
   updatedAt       DateTime  @updatedAt @db.Timestamptz(6)

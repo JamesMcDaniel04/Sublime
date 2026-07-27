@@ -61,6 +61,7 @@ const createSchema = z
     metric: metricInputSchema.optional(),
     metrics: z.array(metricListItemSchema).min(1).max(4).optional(),
     dashboardLayout: z.unknown().optional(),
+    templateKey: z.string().max(120).optional(),
   })
   .refine((body) => (body.metric !== undefined) !== (body.metrics !== undefined), {
     message: 'Provide metric or metrics, not both.',
@@ -239,6 +240,7 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
         organizationId: auth.organizationId,
         ownerUserId: input.personal ? auth.dbUser.id : null,
         parentGoalId: input.parentGoalId ?? null,
+        templateKey: input.templateKey ?? null,
         name: input.name,
         description: input.description ?? null,
         kind: input.kind,

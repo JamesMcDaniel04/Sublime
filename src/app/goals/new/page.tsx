@@ -106,6 +106,9 @@ export default function NewGoalPage() {
   // Set when a template is applied — the layout the user previewed in the
   // template modal, sent verbatim so the created goal's dashboard matches.
   const [templateLayout, setTemplateLayout] = useState<DashboardLayout | null>(null)
+  // Persisted on the goal so its curated agent bundle is resolvable after
+  // creation — the query param is gone by then.
+  const [templateKey, setTemplateKey] = useState<string | null>(null)
 
   // Template prefill (?template=<key>): window.location instead of
   // useSearchParams so the page needs no Suspense boundary at build time.
@@ -123,6 +126,7 @@ export default function NewGoalPage() {
         personal: entry.scope === 'personal',
       }))
       setTemplateLayout(entry.layout)
+      setTemplateKey(entry.key)
       toast.info(
         `Template applied — set your target${entry.scope === 'personal' ? '' : ' for the org'} and pick a source.`,
       )
@@ -310,6 +314,7 @@ export default function NewGoalPage() {
             ? { parentGoalId: state.parentGoalId }
             : {}),
           ...(templateLayout ? { dashboardLayout: templateLayout } : {}),
+          ...(templateKey ? { templateKey } : {}),
           metric: {
             source: state.source,
             metricKey: state.metricKey,
