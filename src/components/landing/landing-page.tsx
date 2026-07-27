@@ -125,8 +125,8 @@ export function LandingPage({ fontClassName = '' }: { fontClassName?: string }) 
               </h1>
               <p className="mt-6 text-base leading-relaxed text-muted-foreground max-w-[420px]">
                 Sublime connects to your tech stack, connects the dots, and deploys specialized
-                agents against the goals that matter:quota, ARR, launch dates. Every run shows
-                its work. Every goal shows its progress.
+                agents against the goals that matter: Quota, ARR, launch dates, ETC. Every run shows
+                its work and every goal shows its progress.
               </p>
               <div className="mt-10 flex items-center gap-4">
                 <Link href="/auth/signup">
