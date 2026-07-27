@@ -215,8 +215,27 @@ test('NO seed anywhere requires goals — it has no connection to make', () => {
 
 test('the metric collector is always deployable and serves every department', () => {
   const collector = getSeedByKey(GOAL_METRIC_COLLECTOR_KEY)!
+  // Delivery-exempt: its output is a datapoint on the goal, not a message, so
+  // normalizeDelivery must leave it alone. This is what keeps "every goal has
+  // something deployable with zero integrations" true.
+  assert.equal(collector.deliversToGoal, true)
   assert.deepEqual(collector.requiredIntegrations, [])
   assert.equal(collector.departments.length, 5)
+})
+
+test('the two posting agents DO normalize to a Slack delivery integration', () => {
+  for (const key of [GOAL_PACE_AUDITOR_KEY, GOAL_PERIOD_CLOSE_KEY]) {
+    const seed = getSeedByKey(key)!
+    assert.ok(
+      seed.requiredIntegrations.includes('slack'),
+      `${key} posts messages and must carry a delivery integration`,
+    )
+  }
+})
+
+test('the delivery exemption stays minimal — exactly one seed uses it', () => {
+  const exempt = SEED_CATALOGUE.filter((seed) => seed.deliversToGoal)
+  assert.deepEqual(exempt.map((seed) => seed.seedKey), [GOAL_METRIC_COLLECTOR_KEY])
 })
 
 test('goal-native seeds are scheduled, not manual — they must run on their own', () => {
@@ -358,7 +377,26 @@ export const GOAL_NATIVE_SEEDS: SeedTemplate[] = [
 ]
 ```
 
-- [ ] **Step 4: Register them in the catalogue**
+- [ ] **Step 4: Add the delivery-exemption flag**
+
+In `src/lib/templates/catalogue.ts`, add to the `SeedTemplate` type:
+
+```ts
+  /** This agent's output is a datapoint written back to a goal, not a message,
+   *  so it has no delivery channel to require. normalizeDelivery skips it.
+   *  Exactly one seed sets this; see goal-native-seeds.ts. */
+  deliversToGoal?: boolean
+```
+
+And make `normalizeDelivery` (line ~457) honor it — first line of the function body:
+
+```ts
+function normalizeDelivery(seed: SeedTemplate): SeedTemplate {
+  if (seed.deliversToGoal) return seed
+  const delivery = deliveryForSeed(seed)
+```
+
+- [ ] **Step 5: Register them in the catalogue**
 
 In `src/lib/templates/catalogue.ts`, add the import beside the other seed imports at the top:
 
@@ -372,17 +410,56 @@ And extend the `SEED_CATALOGUE` spread at line 469:
 export const SEED_CATALOGUE: SeedTemplate[] = [...BASE_SEED_CATALOGUE, ...MULTI_TOOL_SEEDS, ...GMAIL_SEEDS, ...GOAL_NATIVE_SEEDS].map(normalizeDelivery)
 ```
 
-- [ ] **Step 5: Run tests**
+- [ ] **Step 6: Update the catalogue size ratchet and the delivery invariant**
+
+`catalogue.test.ts` hard-codes the catalogue size. The three new seeds serve all
+five departments, so update the first test:
+
+```ts
+test('83 seeds, 19 per department bucket, unique seedKeys', () => {
+  assert.equal(SEED_CATALOGUE.length, 83)
+  const keys = SEED_CATALOGUE.map((s) => s.seedKey)
+  assert.equal(new Set(keys).size, 83, 'seedKeys must be unique')
+  for (const dept of DEPARTMENTS.filter((d) => d !== 'general')) {
+    const n = SEED_CATALOGUE.filter((s) => s.departments.includes(dept)).length
+    assert.equal(n, 19, `${dept} needs exactly 19 seeds, got ${n}`)
+  }
+})
+```
+
+This is a ratchet bump for real growth, not a weakened invariant — the counts
+still pin the catalogue exactly.
+
+In the same file, the delivery invariant must skip the exempt seed. Change only
+the guard, leaving every other assertion in that test untouched:
+
+```ts
+test('every template requires Slack or Gmail delivery and exposes an executable runbook', () => {
+  for (const seed of SEED_CATALOGUE) {
+    // Delivery-exempt seeds write their result back to a goal instead of
+    // sending it somewhere, so they have no channel to require.
+    if (!seed.deliversToGoal) {
+      assert.ok(
+        seed.requiredIntegrations.includes('slack') || seed.requiredIntegrations.includes('gmail'),
+        `${seed.seedKey} needs Slack or Gmail delivery`,
+      )
+    }
+```
+
+The runbook assertions below that guard stay as they are and must still pass —
+`instructionsForSeed()` composes those sections for every seed, exempt or not.
+
+- [ ] **Step 7: Run tests**
 
 Run: `TSX_TSCONFIG_PATH=tsconfig.test.json npx tsx --test src/lib/templates/__tests__/goal-native-seeds.test.ts src/lib/templates/__tests__/catalogue.test.ts`
-Expected: PASS. The existing `catalogue.test.ts` must stay green — it enforces catalogue-wide invariants, and three new seeds must satisfy them.
+Expected: PASS.
 
-If `catalogue.test.ts` fails on a delivery or output-standard invariant, fix the seed to satisfy it. Do not weaken the invariant.
+If a runbook assertion fails, fix the seed's instructions to satisfy it. Do not weaken it — those sections are what make a provisioned agent produce a usable artifact.
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 8: Commit**
 
 ```bash
-git add src/lib/templates/goal-native-seeds.ts src/lib/templates/catalogue.ts src/lib/templates/__tests__/goal-native-seeds.test.ts
+git add src/lib/templates/goal-native-seeds.ts src/lib/templates/catalogue.ts src/lib/templates/__tests__/goal-native-seeds.test.ts src/lib/templates/__tests__/catalogue.test.ts
 git commit -m "feat(goals): add three goal-native agent seeds"
 ```
 
@@ -1338,7 +1415,7 @@ Expected: tests PASS, no output from tsc or eslint.
 - [ ] **Step 6: Run the full suite**
 
 Run: `npm test`
-Expected: 0 failures. Baseline was 1894 tests / 1872 pass / 22 skipped; this plan adds 25 tests (1 + 5 + 4 + 9 + 2 + 4), so expect ~1919 total.
+Expected: 0 failures. Baseline was 1894 tests / 1872 pass / 22 skipped; this plan adds 27 tests (1 + 7 + 4 + 9 + 2 + 4), so expect ~1921 total.
 
 - [ ] **Step 7: Commit**
 

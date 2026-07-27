@@ -158,8 +158,24 @@ alone.
 - `departments`: all five; `kind`: `agent`; schedule: daily
 - `integrations`: `['goals']`; `requiredIntegrations`: `[]`;
   `recommendedIntegrations`: `['slack', 'gmail']`
-- Always deployable — `readiness()` returns `ready` when nothing is required,
-  which is correct here: the goal itself is the data source.
+- `deliversToGoal: true` — **the one delivery-exempt seed in the catalogue.**
+
+`normalizeDelivery()` forces a Slack (or Gmail) delivery integration into every
+seed's `requiredIntegrations`, which is why all 80 existing seeds require one.
+That is right for agents whose output is a message, and wrong for this one: its
+output is a datapoint written back to the goal, so it has nowhere to deliver and
+nothing to connect. A new optional `SeedTemplate.deliversToGoal` flag makes
+`normalizeDelivery` pass the seed through untouched, and the catalogue-wide
+delivery invariant in `catalogue.test.ts` exempts flagged seeds.
+
+The flag is declared on the seed rather than kept as an exemption list in
+`catalogue.ts`, which would require a circular value import from
+`goal-native-seeds.ts`. It also reads as a statement about the agent rather than
+as a special case.
+
+Consequence, accepted: Pace Auditor and Period Close Reporter both genuinely post
+messages and normalize to Slack as usual. Metric Collector is therefore the agent
+that keeps "every goal has something deployable with zero integrations" true.
 - Reads the source named in its instructions (a Slack channel, a mailbox, or a
   URL), extracts the current value, and calls `log_datapoint`. The only consumer
   of slice 1's write path, and the only way a number living outside an
@@ -223,6 +239,7 @@ component-test style.
 | --- | --- |
 | Referential integrity | Every `seedKey` in every `GoalTemplate.agents` across all 45 templates resolves through `getSeedByKey` |
 | Goals is never required | No seed anywhere in the catalogue lists `'goals'` in `requiredIntegrations` — it has no connection to make, so requiring it would block the seed forever |
+| Delivery exemption is minimal | Exactly one seed sets `deliversToGoal`; every other seed still normalizes to a Slack or Gmail delivery integration |
 | Curated ordering | Curated entries precede goal-native, which precede fallback |
 | Fallback gating | `kind_match` entries appear only when curated is empty/absent |
 | Collector applicability | Offered for the three writable sources, withheld for all six system-of-record sources |
