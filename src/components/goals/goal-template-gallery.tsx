@@ -1,14 +1,16 @@
 'use client'
 
-import Link from 'next/link'
-import { useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Sparkles } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { Badge } from '@/components/ui/badge'
-import { Card } from '@/components/ui/card'
-import { GOAL_TEMPLATES } from '@/lib/goals/goal-templates'
-import { GOAL_KIND_LABELS } from '@/lib/types'
+import { Pagination, paginate } from '@/components/ui/pagination'
+import { GoalTemplateCard } from '@/components/goals/goal-template-card'
+import { GoalTemplateDetail } from '@/components/goals/goal-template-detail'
+import { GOAL_TEMPLATES, type GoalTemplate } from '@/lib/goals/goal-templates'
+import { connectedSourceSet, type MetricSourceOption } from '@/lib/metrics/source-options'
 import { PRODUCT_DEPARTMENTS } from '@/lib/templates/departments'
+
+const PAGE_SIZE = 9
 
 const DEPARTMENT_LABELS: Record<string, string> = {
   sales: 'Sales',
@@ -18,15 +20,50 @@ const DEPARTMENT_LABELS: Record<string, string> = {
   csm: 'Customer Success',
 }
 
-/** "Start from a template": 2 org + 2 personal starting points per served
- *  department. Selecting one prefills the wizard — target and source stay
- *  the user's. */
+/**
+ * "Start from a template": 45 starting points, nine per served department,
+ * nine to a page. Clicking a card opens its detail dialog — tools, what gets
+ * tracked, and a preview of the dashboard it produces. Nothing is created
+ * until the wizard, where the target and source stay the user's.
+ *
+ * Page state is deliberately component-local rather than in the URL: the
+ * gallery sits mid-page on /goals and must not push history entries.
+ */
 export function GoalTemplateGallery() {
   const [department, setDepartment] = useState<string>('all')
-  const visible =
-    department === 'all'
-      ? GOAL_TEMPLATES
-      : GOAL_TEMPLATES.filter((entry) => entry.department === department)
+  const [page, setPage] = useState(1)
+  const [selected, setSelected] = useState<GoalTemplate | null>(null)
+  const [sources, setSources] = useState<MetricSourceOption[]>([])
+  const [sourcesFailed, setSourcesFailed] = useState(false)
+
+  // Best-effort: connection state decorates the cards, it never gates them.
+  useEffect(() => {
+    let cancelled = false
+    fetch('/api/goals/metrics/sources', { cache: 'no-store' })
+      .then(async (response) => {
+        const body = await response.json()
+        if (!response.ok) throw new Error(body.error || 'sources unavailable')
+        if (!cancelled) setSources(body.sources ?? [])
+      })
+      .catch(() => {
+        if (!cancelled) setSourcesFailed(true)
+      })
+    return () => { cancelled = true }
+  }, [])
+
+  const connected = useMemo(
+    () => (sourcesFailed ? new Set<string>() : connectedSourceSet(sources)),
+    [sources, sourcesFailed],
+  )
+
+  const visible = useMemo(
+    () =>
+      department === 'all'
+        ? GOAL_TEMPLATES
+        : GOAL_TEMPLATES.filter((entry) => entry.department === department),
+    [department],
+  )
+  const { pageItems, pageCount, page: currentPage } = paginate(visible, page, PAGE_SIZE)
 
   return (
     <section className="space-y-3" aria-labelledby="goal-templates-heading">
@@ -36,9 +73,10 @@ export function GoalTemplateGallery() {
           Start from a template
         </h2>
         <p className="text-xs text-muted-foreground">
-          Proven targets by team — pick one and we&apos;ll prefill the goal for you.
+          Proven targets by team — open one to see what it tracks and the dashboard you&apos;ll get.
         </p>
       </div>
+
       <div className="flex flex-wrap gap-1.5" role="tablist" aria-label="Filter templates by department">
         {['all', ...PRODUCT_DEPARTMENTS].map((key) => (
           <button
@@ -46,7 +84,7 @@ export function GoalTemplateGallery() {
             type="button"
             role="tab"
             aria-selected={department === key}
-            onClick={() => setDepartment(key)}
+            onClick={() => { setDepartment(key); setPage(1) }}
             className={cn(
               'rounded-full border px-3 py-1 text-xs font-medium transition-colors',
               department === key
@@ -58,25 +96,26 @@ export function GoalTemplateGallery() {
           </button>
         ))}
       </div>
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        {visible.map((entry) => (
-          <Link key={entry.key} href={`/goals/new?template=${entry.key}`} className="group">
-            <Card variant="interactive" className="h-full p-4">
-              <div className="flex items-start justify-between gap-2">
-                <p className="text-sm font-medium group-hover:text-foreground">{entry.name}</p>
-                <Badge variant={entry.scope === 'org' ? 'secondary' : 'outline'}>
-                  {entry.scope === 'org' ? 'Org' : 'Personal'}
-                </Badge>
-              </div>
-              <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">{entry.description}</p>
-              <p className="mt-2 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-                {DEPARTMENT_LABELS[entry.department]} · {GOAL_KIND_LABELS[entry.kind]}
-                {entry.recurrence ? ` · ↻ ${entry.recurrence}` : ''}
-              </p>
-            </Card>
-          </Link>
+
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        {pageItems.map((entry) => (
+          <GoalTemplateCard
+            key={entry.key}
+            template={entry}
+            connectedSources={connected}
+            onOpen={setSelected}
+          />
         ))}
       </div>
+
+      <Pagination page={currentPage} pageCount={pageCount} onPageChange={setPage} />
+
+      <GoalTemplateDetail
+        template={selected}
+        sources={sources}
+        sourcesFailed={sourcesFailed}
+        onClose={() => setSelected(null)}
+      />
     </section>
   )
 }
