@@ -66,6 +66,8 @@ model Organization {
   metricDatapoints          MetricDatapoint[]
   goalContributions         GoalContribution[]
   goalPeriods               GoalPeriod[]
+  goalRecoveryPlans         GoalRecoveryPlan[]
+  goalRecoveryActions       GoalRecoveryAction[]
 
   @@map("organizations")
 }
@@ -1248,6 +1250,7 @@ model Goal {
   metrics       GoalMetric[]
   contributions GoalContribution[]
   periods       GoalPeriod[]
+  recoveryPlans GoalRecoveryPlan[]
 
   @@index([organizationId, status])
   @@index([organizationId, ownerUserId, status])
@@ -1352,6 +1355,57 @@ model GoalContribution {
   @@index([organizationId, goalId])
   @@index([seedKey])
   @@map("goal_contributions")
+}
+
+/// AI-generated recovery plan for a goal whose risk worsened. At most one
+/// 'open' plan per goal — enforced by a migration-managed partial unique
+/// index (same discipline as GoalMetric's one-primary index). The
+/// UserSuggestion emitted alongside is the alert vehicle; this row is the
+/// content the goal dashboard renders.
+model GoalRecoveryPlan {
+  id               String    @id @default(cuid())
+  organizationId   String    @db.Uuid
+  goalId           String
+  status           String    @default("open") // 'open' | 'resolved' | 'superseded' | 'dismissed'
+  triggerRiskLevel String // 'at_risk' | 'off_track'
+  diagnosis        String    @db.Text
+  /// Measured-fact evidence lines frozen at generation time (string[]).
+  evidence         Json      @default("[]")
+  /// { ms: number } — latency of the generating call.
+  modelMeta        Json      @default("{}")
+  createdAt        DateTime  @default(now()) @db.Timestamptz(6)
+  resolvedAt       DateTime? @db.Timestamptz(6)
+
+  organization Organization         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  goal         Goal                 @relation(fields: [goalId], references: [id], onDelete: Cascade)
+  actions      GoalRecoveryAction[]
+
+  @@index([organizationId, goalId, status])
+  @@map("goal_recovery_plans")
+}
+
+/// One independently actionable step of a recovery plan. payload by kind:
+/// connect_tool {source}, launch_agent {seedKey}, manual_step {}.
+/// resultRef records what accepting produced (AgentTask id / flow id).
+model GoalRecoveryAction {
+  id             String    @id @default(cuid())
+  organizationId String    @db.Uuid
+  planId         String
+  kind           String // 'connect_tool' | 'launch_agent' | 'manual_step'
+  title          String
+  rationale      String    @db.Text
+  payload        Json      @default("{}")
+  rank           Int       @default(0)
+  status         String    @default("proposed") // 'proposed' | 'accepted' | 'done' | 'dismissed'
+  resultRef      String?
+  acceptedAt     DateTime? @db.Timestamptz(6)
+  createdAt      DateTime  @default(now()) @db.Timestamptz(6)
+
+  organization Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  plan         GoalRecoveryPlan @relation(fields: [planId], references: [id], onDelete: Cascade)
+
+  @@index([planId])
+  @@map("goal_recovery_actions")
 }
 
 /// Global k-anonymous calibration for a catalogue seed's manual-time estimate.
