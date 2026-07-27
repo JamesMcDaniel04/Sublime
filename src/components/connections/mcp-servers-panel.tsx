@@ -77,7 +77,7 @@ function McpServersPanelInner() {
     }
 
     if (draft.authType === 'api_key') {
-      if (draft.apiKey) payload.apiKey = draft.apiKey
+      if (draft.credentialId) payload.credentialId = draft.credentialId
       if (draft.headerName) payload.headerName = draft.headerName
     }
     if (draft.authType === 'oauth2') {

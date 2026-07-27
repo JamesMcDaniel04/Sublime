@@ -65,6 +65,12 @@ export function usableConnectionToken(
  * own), refresh its OAuth token if needed, and return the bearer token value.
  * Throws HTTP_CONNECTION_UNAVAILABLE when the connection is missing, out of
  * scope, inactive, or carries no usable token.
+ *
+ * A vault-backed connection (authConfig `{ credentialId }`) deliberately lands
+ * in that last case: its credential may inject several headers or a query
+ * param, which cannot be flattened into the single bearer string this returns.
+ * Failing closed is right — an HTTP step wanting a vault credential picks it
+ * directly via generic auth, rather than through a connection indirection.
  */
 export async function resolveHttpConnectionToken(params: {
   connectionId: string

@@ -12,6 +12,8 @@
  */
 
 import { decryptSecret } from '@/lib/crypto/secrets'
+import { applyCredentialPlan } from '@/lib/credentials/apply'
+import type { InjectionPlan } from '@/lib/credentials/types'
 import { refreshAccessToken } from '@/lib/mcp/oauth-authcode'
 import { assertPublicUrl } from '@/lib/net/ssrf'
 
@@ -25,6 +27,12 @@ export interface McpClientConfig {
   // api_key fields
   apiKey?: string
   headerName?: string
+  /**
+   * Headers/query contributed by a vault Credential backing this connection,
+   * resolved by mcpCredentialPlan. Applied with the same user-value-wins
+   * precedence the HTTP node uses.
+   */
+  credentialPlan?: InjectionPlan
   // oauth2 (client-credentials) fields
   clientId?: string
   clientSecret?: string
@@ -328,9 +336,17 @@ export class McpClient {
     const sessionId = this.sessionIds.get(serverUrl)
     if (sessionId) headers['Mcp-Session-Id'] = sessionId
 
-    const response = await fetch(serverUrl, {
+    // A vault-backed connection contributes its auth here rather than through
+    // authHeaders(), because resolving it needed a database read. Sessions stay
+    // keyed by the ORIGINAL url so a query-injected credential cannot fragment
+    // session tracking.
+    const injected = this.config.credentialPlan
+      ? applyCredentialPlan(serverUrl, headers, this.config.credentialPlan)
+      : { url: serverUrl, headers }
+
+    const response = await fetch(injected.url, {
       method: 'POST',
-      headers,
+      headers: injected.headers,
       body: JSON.stringify({
         jsonrpc: '2.0',
         ...(!notification ? { id: this.rpcId++ } : {}),

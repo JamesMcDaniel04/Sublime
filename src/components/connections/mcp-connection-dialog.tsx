@@ -5,6 +5,7 @@ import { CheckCircle2, Loader2, XCircle } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
+import { CredentialPicker } from '@/components/credentials/credential-picker'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 
@@ -17,8 +18,8 @@ export type McpConnectionDraft = {
   description: string
   serverUrl: string
   authType: AuthType
-  // api_key fields
-  apiKey: string
+  // api_key fields — a vault Credential now backs this, not an inline key
+  credentialId: string
   headerName: string
   // oauth2 fields
   clientId: string
@@ -38,6 +39,7 @@ export type SerializedConnection = {
   auth: {
     authType: AuthType
     hasApiKey?: boolean
+    credentialId?: string
     headerName?: string
     clientId?: string
     tokenUrl?: string
@@ -53,7 +55,7 @@ const emptyDraft: McpConnectionDraft = {
   description: '',
   serverUrl: '',
   authType: 'none',
-  apiKey: '',
+  credentialId: '',
   headerName: '',
   clientId: '',
   clientSecret: '',
@@ -100,8 +102,9 @@ export function McpConnectionDialog({
         serverUrl: editingConnection.serverUrl,
         authType: editingConnection.auth.authType,
         // Secret fields are intentionally blank on edit — server preserves
-        // existing secrets when these are omitted from the PUT body.
-        apiKey: '',
+        // existing secrets when these are omitted from the PUT body. The
+        // credential reference is not a secret, so it prefills.
+        credentialId: editingConnection.auth.credentialId ?? '',
         headerName: editingConnection.auth.headerName ?? '',
         clientId: editingConnection.auth.clientId ?? '',
         clientSecret: '',
@@ -121,7 +124,7 @@ export function McpConnectionDialog({
   // Reset test result whenever auth or URL changes
   useEffect(() => {
     setTestResult({ status: 'idle' })
-  }, [draft.serverUrl, draft.authType, draft.apiKey, draft.clientId, draft.clientSecret, draft.tokenUrl])
+  }, [draft.serverUrl, draft.authType, draft.credentialId, draft.clientId, draft.clientSecret, draft.tokenUrl])
 
   // Probe the server for OAuth on blur, so leaving the default "None" auth
   // selected doesn't silently send an unauthenticated request that's bound to
@@ -181,7 +184,7 @@ export function McpConnectionDialog({
         authType: draft.authType,
       }
       if (draft.authType === 'api_key') {
-        if (draft.apiKey) payload.apiKey = draft.apiKey
+        if (draft.credentialId) payload.credentialId = draft.credentialId
         if (draft.headerName) payload.headerName = draft.headerName
       }
       if (draft.authType === 'oauth2') {
@@ -307,28 +310,16 @@ export function McpConnectionDialog({
             )}
           </div>
 
-          {/* Conditional: API key fields */}
+          {/* Conditional: a stored credential backs api_key auth */}
           {draft.authType === 'api_key' && (
             <div className="space-y-3 rounded-lg border bg-muted p-3">
-              <div>
-                <Label>API key</Label>
-                <Input
-                  type="password"
-                  value={draft.apiKey}
-                  onChange={(e) => set({ apiKey: e.target.value })}
-                  placeholder={
-                    editingConnection?.auth.hasApiKey
-                      ? 'Leave blank to keep current key'
-                      : 'Paste your API key'
-                  }
-                  autoComplete="new-password"
-                />
-                {editingConnection?.auth.hasApiKey && !draft.apiKey && (
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    Leave blank to keep the current key.
-                  </p>
-                )}
-              </div>
+              <CredentialPicker
+                value={draft.credentialId || undefined}
+                type="apiKeyHeader"
+                verifyAgainst={draft.serverUrl}
+                context="mcp"
+                onChange={(credentialId) => set({ credentialId: credentialId ?? '' })}
+              />
               <div>
                 <Label>Header name (optional)</Label>
                 <Input
@@ -340,7 +331,6 @@ export function McpConnectionDialog({
             </div>
           )}
 
-          {/* Conditional: OAuth 2.0 fields */}
           {draft.authType === 'oauth2' && (
             <div className="space-y-3 rounded-lg border bg-muted p-3">
               {/* Primary path: user-consent / Okta SSO via authorization-code flow */}

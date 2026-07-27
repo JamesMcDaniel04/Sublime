@@ -27,6 +27,7 @@ import { isGoogleNativeProvider, proxyForConnection } from '@/lib/google/proxy'
 import { listActionTools, runNangoAction } from '@/lib/nango/actions'
 import { McpClient, mcpConfigFromConnection } from '@/lib/mcp/mcp-client'
 import { ensureFreshConnectionToken, persistRefreshedAuthcodeTokens } from '@/lib/mcp/connection-token'
+import { mcpCredentialPlan } from '@/lib/mcp/connection-credential'
 import { GranolaToolClient, getGranolaApiKey, granolaTools } from '@/lib/integrations/granola'
 import { SlackToolClient, slackTools } from '@/lib/integrations/slack'
 import { decryptSecretJson } from '@/lib/slack/connections'
@@ -153,6 +154,7 @@ export async function loadMcpConnectionPlaneGroups(
     try {
       const fresh = await ensureFreshConnectionToken(conn)
       const config = mcpConfigFromConnection(fresh)
+      config.credentialPlan = await mcpCredentialPlan(fresh, { organizationId })
       // For authcode connections, let a mid-run token refresh persist the
       // rotated tokens back to this row so the next run reuses them.
       if (config.flow === 'authcode') {
@@ -488,7 +490,10 @@ export async function resolveFlowToolExecutor(params: {
     })
     if (!conn) throw new Error('The selected connection no longer exists — pick another in the step config.')
     const fresh = await ensureFreshConnectionToken(conn)
-    const client = new McpClient(mcpConfigFromConnection(fresh))
+    const client = new McpClient({
+      ...mcpConfigFromConnection(fresh),
+      credentialPlan: await mcpCredentialPlan(fresh, { organizationId, userId }),
+    })
     return {
       provider: mcpConnectionSlug(fresh.name),
       isWrite: false,

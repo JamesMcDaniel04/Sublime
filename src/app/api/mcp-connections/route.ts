@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { credentialScope } from '@/lib/credentials/resolve'
 import { Prisma } from '@prisma/client'
 import { after } from 'next/server'
 import { prisma } from '@/lib/prisma'
@@ -36,8 +37,9 @@ const mcpConnectionSchema = z.object({
   description: z.string().optional(),
   serverUrl: z.string().url(),
   authType: z.enum(['none', 'api_key', 'oauth2']).default('none'),
-  // api_key fields
+  // api_key fields — an inline key, or a vault Credential backing it
   apiKey: z.string().optional(),
+  credentialId: z.string().optional(),
   headerName: z.string().optional(),
   // oauth2 fields
   clientId: z.string().optional(),
@@ -103,6 +105,20 @@ export const GET = withAuthenticatedApi(async (_request, auth) => {
   }
 })
 
+/**
+ * A referenced credential must belong to the caller before it is stored: the
+ * id travels in a request body, and an unchecked one would let a connection
+ * point at another tenant's secret.
+ */
+async function assertOwnedCredential(credentialId: string | undefined, organizationId: string, userId: string) {
+  if (!credentialId) return
+  const owned = await prisma.credential.findFirst({
+    where: { id: credentialId, ...credentialScope(organizationId, userId) },
+    select: { id: true },
+  })
+  if (!owned) throw new ApiError('That credential is not available to this workspace.', 404, 'NOT_FOUND')
+}
+
 // ── POST — create a connection ────────────────────────────────────────────
 
 export const POST = withAuthenticatedApi(async (request, auth) => {
@@ -111,9 +127,12 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
   await requirePublicUrl(data.serverUrl, 'serverUrl')
   await requirePublicUrl(data.tokenUrl, 'tokenUrl')
 
+  await assertOwnedCredential(data.credentialId, auth.organizationId, auth.dbUser.id)
+
   const authConfig = buildAuthConfig({
     authType: data.authType,
     apiKey: data.apiKey,
+    credentialId: data.credentialId,
     headerName: data.headerName,
     clientId: data.clientId,
     clientSecret: data.clientSecret,
@@ -184,10 +203,13 @@ export const PUT = withAuthenticatedApi(async (request, auth) => {
       ? (existing.authConfig as Record<string, unknown>)
       : {}
 
+  await assertOwnedCredential(body.credentialId, auth.organizationId, auth.dbUser.id)
+
   const newAuthType = body.authType ?? existing.authType
   const authConfig = mergeAuthConfig(existingConfig, {
     authType: newAuthType as 'none' | 'api_key' | 'oauth2',
     apiKey: body.apiKey,
+    credentialId: body.credentialId,
     headerName: body.headerName,
     clientId: body.clientId,
     clientSecret: body.clientSecret,

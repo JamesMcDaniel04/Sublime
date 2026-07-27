@@ -152,4 +152,53 @@ if (!TEST_DB) {
     installTestAuth(seeded.auth)
     assert.notEqual((await post({ name: '', type: 'bearer', token: 'x' })).status, 200)
   })
+
+  // ── MCP connections backed by a vault credential ───────────────────────────
+
+  test('an MCP connection pointing at a credential resolves to its injected header', async () => {
+    installTestAuth(seeded.auth)
+    const created = await (await post({
+      name: 'MCP key',
+      type: 'apiKeyHeader',
+      headerName: 'X-Api-Key',
+      key: SECRET,
+      allowedDomains: ['mcp.example.com'],
+    })).json()
+    assert.equal(created.success, true, JSON.stringify(created))
+
+    const { mcpCredentialPlan } = await import('@/lib/mcp/connection-credential')
+    const plan = await mcpCredentialPlan(
+      {
+        serverUrl: 'https://mcp.example.com/rpc',
+        authType: 'api_key',
+        authConfig: { credentialId: created.credential.id },
+      },
+      { organizationId: seeded.organizationId, userId: seeded.userId },
+    )
+    // The same header an inline api_key would have produced — one saved key,
+    // now reusable by any MCP server or HTTP step on an allowed domain.
+    assert.deepEqual(plan?.headers, { 'X-Api-Key': SECRET })
+  })
+
+  test('a credential whose allow-list excludes the MCP host is refused', async () => {
+    installTestAuth(seeded.auth)
+    const created = await (await post({
+      name: 'Scoped elsewhere',
+      type: 'apiKeyHeader',
+      headerName: 'X-Api-Key',
+      key: SECRET,
+      allowedDomains: ['other.example.com'],
+    })).json()
+
+    const { mcpCredentialPlan } = await import('@/lib/mcp/connection-credential')
+    // Fail closed and loudly: calling the server unauthenticated would read as
+    // a server-side permission bug rather than a misconfigured credential.
+    await assert.rejects(
+      () => mcpCredentialPlan(
+        { serverUrl: 'https://mcp.example.com/rpc', authType: 'api_key', authConfig: { credentialId: created.credential.id } },
+        { organizationId: seeded.organizationId, userId: seeded.userId },
+      ),
+      /not allowed for that request URL/,
+    )
+  })
 }

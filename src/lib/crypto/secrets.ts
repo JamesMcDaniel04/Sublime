@@ -134,6 +134,14 @@ export interface RawAuthInput {
   authType: AuthType
   apiKey?: string
   headerName?: string
+  /**
+   * A vault Credential backing this connection's api_key auth, instead of an
+   * inline encrypted key. Mutually exclusive with `apiKey`: whichever the
+   * caller supplies replaces the other, because a row holding both would let
+   * the stale inline key win at request time (authHeaders runs before the
+   * credential plan, and the plan never overwrites a populated header).
+   */
+  credentialId?: string
   clientId?: string
   clientSecret?: string
   tokenUrl?: string
@@ -152,6 +160,12 @@ export function buildAuthConfig(input: RawAuthInput): Record<string, unknown> {
   }
 
   if (authType === 'api_key') {
+    if (input.credentialId) {
+      return {
+        credentialId: input.credentialId,
+        ...(input.headerName !== undefined && { headerName: input.headerName }),
+      }
+    }
     return {
       ...(input.apiKey !== undefined && {
         apiKey: encryptSecret(input.apiKey),
@@ -190,11 +204,27 @@ export function mergeAuthConfig(
   }
 
   if (authType === 'api_key') {
+    // Switching to a vault credential DROPS any inline key rather than merging
+    // over it — see RawAuthInput.credentialId for why leaving both is unsafe.
+    const rest = { ...existing }
+    if (input.credentialId) {
+      delete rest.apiKey
+      return {
+        ...rest,
+        credentialId: input.credentialId,
+        ...(input.headerName !== undefined && { headerName: input.headerName }),
+      }
+    }
+    if (input.apiKey !== undefined) {
+      delete rest.credentialId
+      return {
+        ...rest,
+        apiKey: encryptSecret(input.apiKey),
+        ...(input.headerName !== undefined && { headerName: input.headerName }),
+      }
+    }
     return {
       ...existing,
-      ...(input.apiKey !== undefined && {
-        apiKey: encryptSecret(input.apiKey),
-      }),
       ...(input.headerName !== undefined && { headerName: input.headerName }),
     }
   }
@@ -219,6 +249,8 @@ export function mergeAuthConfig(
 export interface RedactedAuthConfig {
   authType: AuthType
   hasApiKey?: boolean
+  /** Non-secret: which vault Credential backs this connection, if any. */
+  credentialId?: string
   headerName?: string
   clientId?: string
   tokenUrl?: string
@@ -245,6 +277,7 @@ export function redactConfig(
     return {
       authType: type,
       hasApiKey: Boolean(cfg.apiKey),
+      ...(typeof cfg.credentialId === 'string' && { credentialId: cfg.credentialId }),
       ...(cfg.headerName !== undefined && {
         headerName: cfg.headerName as string,
       }),
