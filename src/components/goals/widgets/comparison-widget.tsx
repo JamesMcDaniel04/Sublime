@@ -30,14 +30,20 @@ export function ComparisonWidget({ config, data }: WidgetProps) {
       </Card>
     )
   }
-  const lines = series.map((metric) => {
+  const lines = series.map((metric, index) => {
+    // Preview series get a deterministic per-series wobble: normalizeSeries
+    // rescales every line to its own 0–1 band, so identical sample shapes
+    // would overlap exactly and hide all but the last color.
     const points = data.preview
       ? sampleSeries(
           data.goal.startValue,
           data.goal.targetValue,
           data.goal.startAt,
           data.goal.targetDate,
-        )
+        ).map((point, at) => ({
+          ...point,
+          value: point.value * (1 + 0.08 * Math.sin(at / 2 + index * 2)),
+        }))
       : metric.datapoints
     return { metric, points, norm: normalizeSeries(points) }
   })

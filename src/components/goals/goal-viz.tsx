@@ -40,7 +40,7 @@ export function RiskBadge({
 }) {
   const { label, icon: Icon, className } = RISK[riskLevel]
   return (
-    <Badge variant="outline" className={cn('gap-1', className)}>
+    <Badge variant="outline" className={cn('shrink-0 gap-1 whitespace-nowrap', className)}>
       <Icon className="h-3 w-3" aria-hidden />
       {label}
     </Badge>

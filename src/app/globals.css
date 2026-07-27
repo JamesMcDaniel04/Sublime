@@ -31,6 +31,16 @@
   --accent-foreground: 0 0% 9%;
   --destructive: 345 72% 51%;
   --destructive-foreground: 0 0% 100%;
+  /* Status tokens: previously only defined inside .lovable-landing, so every
+     product `text-success`/`bg-warning/10` resolved to an INVALID color and
+     rendered neutral. Darker than the landing steps — these are used as text
+     on white surfaces, where the landing values fail contrast. */
+  --success: 142 72% 29%;
+  --success-foreground: 0 0% 100%;
+  --warning: 32 95% 38%;
+  --warning-foreground: 0 0% 100%;
+  --info: 200 98% 34%;
+  --info-foreground: 0 0% 100%;
   --border: 0 0% 90%;
   --input: 0 0% 90%;
   --ring: 215 16% 47%;
@@ -54,6 +64,12 @@
   --accent-foreground: 0 0% 90%;
   --destructive: 345 90% 60%;
   --destructive-foreground: 0 0% 100%;
+  --success: 142 60% 55%;
+  --success-foreground: 0 0% 9%;
+  --warning: 40 92% 55%;
+  --warning-foreground: 0 0% 9%;
+  --info: 199 85% 60%;
+  --info-foreground: 0 0% 9%;
   --border: 240 4% 26%;
   --input: 240 4% 26%;
   --ring: 215 14% 55%;
