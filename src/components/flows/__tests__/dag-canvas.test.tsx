@@ -94,43 +94,28 @@ test('container children are not top-level widgets (their container owns them)',
   assert.equal(container.querySelectorAll('.react-flow__node').length, 2)
 })
 
-test('clicking a widget asks to open that node (n8n: config lives in a panel)', () => {
+test('clicking a widget opens that node straight in the config surface', () => {
   const opened: (string | null)[] = []
   const { container } = render(
-    React.createElement(DagCanvas, { ...props, onSelect: (id: string | null) => opened.push(id) } as never),
+    React.createElement(DagCanvas, { ...props, onOpenNode: (id: string) => opened.push(id) } as never),
   )
   const widget = [...container.querySelectorAll('.react-flow__node')]
     .find((el) => el.getAttribute('data-id') === 'agent')
     ?.querySelector('button') as HTMLButtonElement
   assert.ok(widget, 'the agent widget renders a clickable card')
   act(() => widget.click())
-  assert.deepEqual(opened, ['agent'], 'clicking opens that node rather than editing inline')
+  assert.deepEqual(opened, ['agent'], 'one click reaches the config, with no preview step in between')
 })
 
-test('the config panel opens for the selected node and is NOT rendered otherwise', () => {
-  const closed = render(React.createElement(DagCanvas, props as never))
-  assert.equal(closed.container.querySelector('aside'), null, 'no panel with nothing selected')
-  cleanup()
-  const open = render(React.createElement(DagCanvas, { ...props, selectedId: 'agent' } as never))
-  assert.ok(open.container.querySelector('aside'), 'panel opens for the selected node')
-})
-
-test("a container's panel lists its children and offers add-a-step", () => {
-  const { container } = render(
-    React.createElement(DagCanvas, { ...props, graph: withLoop, selectedId: 'loop' } as never),
-  )
-  const panel = container.querySelector('aside')
-  assert.ok(panel, 'the loop opens a config panel')
-  assert.match(panel!.textContent ?? '', /Steps inside/, 'children are edited here, not on the canvas')
-  assert.match(panel!.textContent ?? '', /Add a step/, 'nested steps can be added from the panel')
-})
-
-test('a container child selected on its own does not open a stray top-level panel', () => {
-  const { container } = render(
-    React.createElement(DagCanvas, { ...props, graph: withLoop, selectedId: 'inner' } as never),
-  )
-  // `inner` is contained — it is edited via the loop's panel, never its own.
-  assert.equal(container.querySelector('aside'), null)
+test('no side panel renders — a click goes straight to the config surface', () => {
+  // The panel this replaced held a summary card and a button to open the real
+  // config. Its one unique capability, container-child reordering, moved into
+  // the NDV (see nodes/__tests__/container-children.test.tsx).
+  for (const selectedId of [undefined, 'agent', 'loop', 'inner']) {
+    const view = render(React.createElement(DagCanvas, { ...props, graph: withLoop, selectedId } as never))
+    assert.equal(view.container.querySelector('aside'), null, `a panel rendered for selectedId=${selectedId}`)
+    cleanup()
+  }
 })
 
 test('every widget offers a quick-add "+" — the n8n append-a-step affordance', () => {

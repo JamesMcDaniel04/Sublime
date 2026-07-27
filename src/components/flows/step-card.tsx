@@ -243,11 +243,9 @@ export function StepCard({
       tabIndex={0}
       onClick={(event) => {
         event.stopPropagation()
-        onClick?.()
-      }}
-      onDoubleClick={(event) => {
-        event.stopPropagation()
-        onOpen?.()
+        // One click IS "open" — the old select-then-open two-step existed only
+        // to feed a preview panel that no longer exists.
+        ;(onOpen ?? onClick)?.()
       }}
       onKeyDown={onRootKeyDown}
       className={cn(

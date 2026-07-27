@@ -1829,7 +1829,6 @@ function FlowBuilder() {
               labelOf={(node) => labelCtx.stepLabels[node.id] || defaultStepLabel(node)}
               onSelect={viewingVersion ? () => {} : setSelectedId}
               onOpenNode={viewingVersion ? undefined : openNdv}
-              onChangeNode={viewingVersion ? () => {} : (node) => setGraph((g) => updateNode(g, node))}
               onChangeGraph={viewingVersion ? () => {} : commitGraph}
               onAddNode={
                 viewingVersion
@@ -1845,22 +1844,6 @@ function FlowBuilder() {
                         ? addConnectedNodeAt(graph, connectFrom, type, position, agentId, connectBranch)
                         : addNodeAt(graph, type, position, agentId)
                       commitGraph(applyInsertSeed(added, nodeId, seed))
-                      setSelectedId(nodeId)
-                    }
-              }
-              // Container editing happens in the node's config panel (the widget
-              // itself stays small) — same mutations the stack view uses.
-              onReorderContainer={
-                viewingVersion
-                  ? undefined
-                  : (containerId, from, to, branchIndex) => commitGraph(moveContainerStep(graph, containerId, from, to, branchIndex))
-              }
-              onAddContainerStep={
-                viewingVersion
-                  ? undefined
-                  : (containerId, type, branchIndex) => {
-                      const { graph: next, nodeId } = addContainerStep(graph, containerId, type, type === 'agent' ? agents[0]?.id ?? '' : undefined, branchIndex)
-                      commitGraph(next)
                       setSelectedId(nodeId)
                     }
               }

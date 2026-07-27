@@ -38,19 +38,18 @@ import {
   type NodeProps,
   type ReactFlowInstance,
 } from '@xyflow/react'
-import { AlertCircle, Plus, X } from 'lucide-react'
+import { AlertCircle, Plus } from 'lucide-react'
 import { toast } from 'sonner'
-import { StepCard, type StepStatus } from './step-card'
-import { AddStepMenu } from './add-step-menu'
+import { type StepStatus } from './step-card'
 import { FlowPicker } from './flow-picker'
-import { NODE_TYPE_LABEL, nodeIconOf, nodeToneOf, type EditableType } from './node-types'
+import { NODE_TYPE_LABEL, nodeIconOf, nodeToneOf } from './node-types'
 import type { FlowInsertSeed } from './flow-canvas'
 import type { ToolCatalog } from './tool-catalog-type'
 import { autoLayout, containedNodeIds } from '@/lib/flows/auto-layout'
 import { connectNodes, disconnectEdge, moveNodeTo, type StepType } from '@/lib/flows/mutate'
 import { cn } from '@/lib/utils'
 import type { FlowGraph, FlowNode } from '@/lib/flows/graph'
-import { containerChildIds, isContainerNode, siblingsOf } from '@/lib/flows/containers'
+import { containerChildIds } from '@/lib/flows/containers'
 import { edgeIndicator, flowToScreenPoint, type JamCursor } from '@/lib/flows/jam-presence'
 import { jamCursorColor, type JamPeer } from './use-flow-jam'
 import { CommentPinMarker, type CommentPinData } from './flow-comments'
@@ -280,121 +279,6 @@ function JamDagCursors({ peers }: Readonly<{ peers: JamPeer[] }>) {
   )
 }
 
-/**
- * Config panel for the selected node (n8n's "open the node" surface). Hosts the
- * full StepCard — every editor already lives there — plus, for containers, their
- * children: editable, drag-reorderable, and extendable. That's why the canvas
- * widget can stay small.
- */
-function NodeConfigPanel({
-  node,
-  graph,
-  title,
-  labelOf,
-  issuesByNode,
-  readOnly,
-  onOpenNode,
-  onClose,
-  onChangeNode,
-  onSelect,
-  onReorderContainer,
-  onAddContainerStep,
-}: Readonly<{
-  node: FlowNode
-  graph: FlowGraph
-  title: string
-  labelOf: (node: FlowNode) => string
-  issuesByNode?: Record<string, NodeIssues>
-  readOnly: boolean
-  /** Open the Node Detail View — the drawer's cards are summaries now. */
-  onOpenNode?: (id: string) => void
-  onClose: () => void
-  onChangeNode: (node: FlowNode) => void
-  /** Focus a different node in this panel (e.g. a container child card). */
-  onSelect?: (id: string) => void
-  onReorderContainer?: (containerId: string, from: number, to: number, branchIndex?: number) => void
-  onAddContainerStep?: (containerId: string, type: EditableType, branchIndex?: number) => void
-}>) {
-  const [dragId, setDragId] = useState<string | null>(null)
-  const byId = useMemo(() => new Map(graph.nodes.map((n) => [n.id, n])), [graph.nodes])
-  const children = containerChildIds(node)
-    .map((id) => byId.get(id))
-    .filter((child): child is FlowNode => Boolean(child))
-
-  return (
-    <aside className="flex h-full w-[28rem] max-w-[92vw] shrink-0 flex-col border-l border-border bg-muted">
-      <div className="flex items-center justify-between border-b border-border bg-card px-4 py-3">
-        <p className="truncate text-sm font-semibold text-foreground">{title}</p>
-        <button type="button" onClick={onClose} aria-label="Close settings" className="rounded-md p-1 text-muted-foreground hover:bg-muted hover:text-foreground">
-          <X className="h-4 w-4" />
-        </button>
-      </div>
-      <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-3">
-        <StepCard
-          node={node}
-          title={title}
-          issues={issuesByNode?.[node.id]}
-          selected
-          labelCtx={{} as never}
-          onChange={readOnly ? () => {} : onChangeNode}
-          onClick={() => {}}
-          onOpen={!readOnly && onOpenNode ? () => onOpenNode(node.id) : undefined}
-        />
-        {isContainerNode(node) && (
-          <div className="space-y-2 rounded-2xl border border-dashed border-border bg-card/70 p-3">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Steps inside</p>
-            {children.map((child) => {
-              const { list, branchIndex } = siblingsOf(node, child.id)
-              return (
-                <div
-                  key={child.id}
-                  draggable={!readOnly}
-                  onDragStart={(event) => {
-                    setDragId(child.id)
-                    event.dataTransfer.setData('text/flow-node-id', child.id)
-                    event.dataTransfer.effectAllowed = 'move'
-                  }}
-                  onDragEnd={() => setDragId(null)}
-                  onDragOver={(event) => {
-                    // Only a sibling from the SAME list may drop here — a parallel
-                    // branch never reorders into another branch.
-                    if (dragId && dragId !== child.id && list.includes(dragId)) {
-                      event.preventDefault()
-                      event.dataTransfer.dropEffect = 'move'
-                    }
-                  }}
-                  onDrop={(event) => {
-                    const draggedId = event.dataTransfer.getData('text/flow-node-id')
-                    if (draggedId && draggedId !== child.id && list.includes(draggedId)) {
-                      event.preventDefault()
-                      onReorderContainer?.(node.id, list.indexOf(draggedId), list.indexOf(child.id), branchIndex)
-                    }
-                    setDragId(null)
-                  }}
-                  className={cn('rounded-xl transition-opacity', dragId === child.id && 'opacity-50')}
-                >
-                  <StepCard
-                    node={child}
-                    title={labelOf(child)}
-                    issues={issuesByNode?.[child.id]}
-                    selected={false}
-                    labelCtx={{} as never}
-                    draggable={!readOnly}
-                    onChange={readOnly ? () => {} : onChangeNode}
-                    onClick={() => onSelect?.(child.id)}
-                    onOpen={!readOnly && onOpenNode ? () => onOpenNode(child.id) : undefined}
-                  />
-                </div>
-              )
-            })}
-            {!readOnly && onAddContainerStep && node.type !== 'errorShield' && <AddStepMenu onPick={(type) => onAddContainerStep(node.id, type)} />}
-          </div>
-        )}
-      </div>
-    </aside>
-  )
-}
-
 export function DagCanvas({
   graph,
   agents,
@@ -408,11 +292,8 @@ export function DagCanvas({
   labelOf,
   onSelect,
   onOpenNode,
-  onChangeNode,
   onChangeGraph,
   onAddNode,
-  onReorderContainer,
-  onAddContainerStep,
   onCursorMove,
   onRfInit,
   onUserPan,
@@ -435,15 +316,12 @@ export function DagCanvas({
   onSelect: (id: string | null) => void
   /** Open the Node Detail View for a node — the drawer's cards are summaries now. */
   onOpenNode?: (id: string) => void
-  onChangeNode: (node: FlowNode) => void
   /** Structural change (wire added/removed, widget moved). */
   onChangeGraph: (graph: FlowGraph) => void
   /** Add a step at `position`; `connectFrom` (quick-add / drag-to-canvas) also
    *  wires it from that node in the same commit, `connectBranch` labelling the
    *  wire with a branch node's chosen output. */
   onAddNode: (type: StepType, seed: FlowInsertSeed | undefined, position: { x: number; y: number }, connectFrom?: string, connectBranch?: string) => void
-  onReorderContainer?: (containerId: string, from: number, to: number, branchIndex?: number) => void
-  onAddContainerStep?: (containerId: string, type: EditableType, branchIndex?: number) => void
   /** Local pointer position in FLOW coordinates + current viewport (Jam cursor). */
   onCursorMove?: (cursor: JamCursor | null) => void
   /** Hands the React Flow instance up for follow mode's setViewport. */
@@ -462,9 +340,6 @@ export function DagCanvas({
   const layout = useMemo(() => autoLayout(graph), [graph])
   const contained = useMemo(() => containedNodeIds(graph), [graph])
   const byId = useMemo(() => new Map(graph.nodes.map((node) => [node.id, node])), [graph.nodes])
-  const selectedNode = selectedId ? byId.get(selectedId) : undefined
-  // A container child is edited in its container's panel, never as a top-level widget.
-  const panelNode = selectedNode && !contained.has(selectedNode.id) ? selectedNode : undefined
 
   // Quick-add: which node the picked step will be wired FROM, and where it
   // lands. Branch nodes (If/else, Switch, AI router) must first answer "which
@@ -540,13 +415,15 @@ export function DagCanvas({
             jamEditors: jamPeers?.filter((peer) => peer.selectedNodeId === node.id) ?? [],
             childCount: containerChildIds(node).length,
             hasOutgoing: (outgoingCount.get(node.id) ?? 0) > 0,
-            onOpen: onSelect,
+            // Straight to the config surface — the select-then-preview step
+            // is gone with the panel it fed.
+            onOpen: onOpenNode ?? onSelect,
             // A Stop step halts the run — a successor could never execute, so
             // it gets no append affordance.
             onQuickAdd: readOnly || node.type === 'stop' ? undefined : openQuickAdd,
           } satisfies WidgetData as unknown as Record<string, unknown>,
         })),
-    [graph.nodes, contained, layout, readOnly, labelOf, statusByNode, issuesByNode, highlightIds, jamPeers, selectedId, onSelect, outgoingCount, openQuickAdd],
+    [graph.nodes, contained, layout, readOnly, labelOf, statusByNode, issuesByNode, highlightIds, jamPeers, selectedId, onSelect, onOpenNode, outgoingCount, openQuickAdd],
   )
 
   const rfEdges: Edge[] = useMemo(
@@ -709,22 +586,6 @@ export function DagCanvas({
           </>
         )}
       </div>
-      {panelNode && (
-        <NodeConfigPanel
-          node={panelNode}
-          graph={graph}
-          title={labelOf(panelNode)}
-          labelOf={labelOf}
-          issuesByNode={issuesByNode}
-          readOnly={readOnly}
-          onOpenNode={onOpenNode}
-          onClose={() => onSelect(null)}
-          onSelect={onSelect}
-          onChangeNode={onChangeNode}
-          onReorderContainer={onReorderContainer}
-          onAddContainerStep={onAddContainerStep}
-        />
-      )}
     </div>
   )
 }
