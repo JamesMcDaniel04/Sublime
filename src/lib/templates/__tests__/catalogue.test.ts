@@ -9,10 +9,13 @@ import { canonicalIntegrationSlug, departmentsForTools, DEPARTMENTS } from '../d
 const KNOWN = new Set(DEPARTMENTS)
 const STABLE_TOOL_PLANES = new Set(['nango', 'native', 'template']) // template placeholders bind to per-org connection ids at provision time
 
-test('80 seeds, 16 per department bucket, unique seedKeys', () => {
-  assert.equal(SEED_CATALOGUE.length, 80)
+// 80 department seeds + 3 department-agnostic goal-native seeds. The per-bucket
+// count stays 16 because goal-native seeds declare 'general': their only tools
+// are the goals plane plus glue, which anchors no department.
+test('83 seeds, 16 per department bucket, unique seedKeys', () => {
+  assert.equal(SEED_CATALOGUE.length, 83)
   const keys = SEED_CATALOGUE.map((s) => s.seedKey)
-  assert.equal(new Set(keys).size, 80, 'seedKeys must be unique')
+  assert.equal(new Set(keys).size, 83, 'seedKeys must be unique')
   for (const dept of DEPARTMENTS.filter((d) => d !== 'general')) {
     const n = SEED_CATALOGUE.filter((s) => s.departments.includes(dept)).length
     assert.equal(n, 16, `${dept} needs exactly 16 seeds, got ${n}`)
@@ -65,10 +68,14 @@ test('every seed: valid departments, non-empty required∪recommended slugs cano
 
 test('every template requires Slack or Gmail delivery and exposes an executable runbook', () => {
   for (const seed of SEED_CATALOGUE) {
-    assert.ok(
-      seed.requiredIntegrations.includes('slack') || seed.requiredIntegrations.includes('gmail'),
-      `${seed.seedKey} needs Slack or Gmail delivery`,
-    )
+    // Delivery-exempt seeds write their result back to a goal instead of
+    // sending it somewhere, so they have no channel to require.
+    if (!seed.deliversToGoal) {
+      assert.ok(
+        seed.requiredIntegrations.includes('slack') || seed.requiredIntegrations.includes('gmail'),
+        `${seed.seedKey} needs Slack or Gmail delivery`,
+      )
+    }
     const instructions = serializeSeed(seed).instructions
     assert.match(instructions, /Trigger and cadence/, seed.seedKey)
     assert.match(instructions, /Delivery requirement/, seed.seedKey)

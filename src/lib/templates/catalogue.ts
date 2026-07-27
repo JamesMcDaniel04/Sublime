@@ -2,6 +2,7 @@ import type { FlowGraph } from '@/lib/flows/graph'
 import type { Department } from './departments'
 import { MULTI_TOOL_SEEDS } from './catalogue-expansion'
 import { GMAIL_SEEDS } from './gmail-catalogue'
+import { GOAL_NATIVE_SEEDS } from './goal-native-seeds'
 import { withTemplateOutputStandard } from './output-standard'
 import { artifactOutputContract } from './example-artifact'
 
@@ -23,6 +24,10 @@ export type SeedTemplate = {
     }
   }
   icon?: string; exampleOutput?: string
+  /** This agent's output is a datapoint written back to a goal, not a message,
+   * so it has no delivery channel to require. normalizeDelivery skips it.
+   * Exactly one seed sets this; see goal-native-seeds.ts. */
+  deliversToGoal?: boolean
   /** Goal kinds this recipe advances. Drives off-track recommendations and
    * the "Advances: <goal>" chip. */
   goalKinds?: string[]
@@ -455,6 +460,7 @@ export function deliveryForSeed(seed: SeedTemplate): TemplateDelivery {
 }
 
 function normalizeDelivery(seed: SeedTemplate): SeedTemplate {
+  if (seed.deliversToGoal) return seed
   const delivery = deliveryForSeed(seed)
   return {
     ...seed,
@@ -466,7 +472,7 @@ function normalizeDelivery(seed: SeedTemplate): SeedTemplate {
   }
 }
 
-export const SEED_CATALOGUE: SeedTemplate[] = [...BASE_SEED_CATALOGUE, ...MULTI_TOOL_SEEDS, ...GMAIL_SEEDS].map(normalizeDelivery)
+export const SEED_CATALOGUE: SeedTemplate[] = [...BASE_SEED_CATALOGUE, ...MULTI_TOOL_SEEDS, ...GMAIL_SEEDS, ...GOAL_NATIVE_SEEDS].map(normalizeDelivery)
 
 export function getSeedByKey(seedKey: string): SeedTemplate | undefined {
   return SEED_CATALOGUE.find((s) => s.seedKey === seedKey)
