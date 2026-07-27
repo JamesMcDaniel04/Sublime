@@ -22,7 +22,6 @@ import {
 import { Button } from '@/components/ui/button'
 import { Markdown } from '@/components/ui/markdown'
 import { notifyAgentsChanged } from '@/components/layout/sidebar'
-import { LearningProgressCard } from '@/components/intelligence/learning-progress-card'
 import { GoalStatusStrip } from '@/components/goals/goal-status-strip'
 import { FirstRunGuide } from '@/components/goals/first-run-guide'
 import { useAuth } from '@/hooks/use-auth'
@@ -193,17 +192,6 @@ function salutationForHour(hour: number): string {
   return 'Good evening'
 }
 
-// Roles the reply can be framed for. Keys must match OUTPUT_STYLE_PROMPTS in
-// the chat route, where the actual tailoring happens.
-type OutputStyleKey = 'sales' | 'csm' | 'marketing' | 'it'
-
-const OUTPUT_STYLES: Array<{ key: OutputStyleKey; label: string; hint: string }> = [
-  { key: 'sales', label: 'Sales', hint: 'Deal impact and next actions' },
-  { key: 'csm', label: 'CSM', hint: 'Account health and follow-ups' },
-  { key: 'marketing', label: 'Marketing', hint: 'Campaign results and next content' },
-  { key: 'it', label: 'IT', hint: 'System status, errors, and fixes' },
-]
-
 export function HomeAssistant() {
   const { user } = useAuth()
   const router = useRouter()
@@ -217,7 +205,6 @@ export function HomeAssistant() {
   const [attachment, setAttachment] = useState<Attachment | null>(null)
   const [uploading, setUploading] = useState(false)
   const [runningId, setRunningId] = useState<string | null>(null)
-  const [outputStyle, setOutputStyle] = useState<OutputStyleKey | null>(null)
   // Computed after mount so the server-rendered HTML never disagrees with the
   // visitor's local clock.
   const [salutation, setSalutation] = useState('Welcome back')
@@ -378,7 +365,6 @@ export function HomeAssistant() {
           message: content,
           ...(sessionId ? { sessionId } : {}),
           ...(sentAttachment ? { attachment: sentAttachment } : {}),
-          ...(outputStyle ? { outputStyle } : {}),
         }),
       })
       const data = await response.json().catch(() => ({}))
@@ -515,39 +501,6 @@ export function HomeAssistant() {
           {sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowUp className="h-4 w-4" />}
         </Button>
         </div>
-        {/* Role framing — the selected key travels with each send and reshapes
-            the reply server-side. Clicking the active role clears it. */}
-        <fieldset className="mt-2.5 border-t border-border px-1 pt-2.5">
-          <legend className="sr-only">Tailor output for</legend>
-          <div className="flex items-center justify-between gap-3">
-            <span className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
-              Tailor output for
-            </span>
-            <span className="truncate text-sm text-muted-foreground">
-              {OUTPUT_STYLES.find((style) => style.key === outputStyle)?.hint ?? 'General output'}
-            </span>
-          </div>
-          <div className="mt-2 grid grid-cols-4 gap-0.5 rounded-xl bg-muted p-1">
-            {OUTPUT_STYLES.map((style) => (
-              <button
-                key={style.key}
-                type="button"
-                aria-pressed={outputStyle === style.key}
-                title={style.hint}
-                disabled={sending}
-                onClick={() => setOutputStyle((current) => (current === style.key ? null : style.key))}
-                className={cn(
-                  'rounded-lg px-2 py-1.5 text-[13px] font-medium uppercase tracking-wide transition-colors',
-                  outputStyle === style.key
-                    ? 'bg-background text-indigo-700 shadow-1'
-                    : 'text-muted-foreground hover:text-foreground',
-                )}
-              >
-                {style.label}
-              </button>
-            ))}
-          </div>
-        </fieldset>
       </div>
     </div>
   )
@@ -652,10 +605,7 @@ export function HomeAssistant() {
                 <TypedHeadline phrases={HEADLINE_CTAS} />
               </div>
             )}
-            <div className="mt-6">
-              <LearningProgressCard />
-              {composer}
-            </div>
+            <div className="mt-6">{composer}</div>
             <div className="mt-4 flex flex-wrap justify-center gap-2">
               {chips.map((preset, index) => (
                 <button
