@@ -1,7 +1,6 @@
 import type { ReactNode } from 'react'
 import type { FlowNode, OutputField } from '@/lib/flows/graph'
 import type { TokenLabelContext } from '@/lib/flows/token-text'
-import type { DataField } from '@/lib/flows/datatree'
 import type { FlowContext } from '@/features/flows/context'
 import type { TokenTextEditorHandle } from '../token-text-editor'
 import type { ToolCatalog } from '../tool-catalog-type'
@@ -50,7 +49,6 @@ export type NodeBodyProps = {
   tokenWiring: TokenEditorWiring
   showErrors?: boolean
   variableNames?: string[]
-  dataFields?: DataField[]
   /**
    * Sample data for token previews (last run / pins / test input). Absent on a
    * flow with no data yet — bodies then render no preview rather than claiming

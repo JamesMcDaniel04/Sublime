@@ -1,7 +1,6 @@
 'use client'
 
 import type { FlowNode } from '@/lib/flows/graph'
-import type { DataField } from '@/lib/flows/datatree'
 import { IntegrationLogo } from '@/components/integrations/integration-logo'
 import { ToolArgsEditor } from '../tool-args-editor'
 import { SearchableSelect } from '../searchable-select'
@@ -22,7 +21,6 @@ function ToolBody({
   toolCatalog,
   update,
   showErrors,
-  dataFields,
   tokenWiring,
   previewContext,
 }: {
@@ -30,7 +28,6 @@ function ToolBody({
   toolCatalog: ToolCatalog
   update: (node: FlowNode) => void
   showErrors?: boolean
-  dataFields: DataField[]
   tokenWiring: TokenEditorWiring
   previewContext?: NodeBodyProps['previewContext']
 }) {
@@ -86,7 +83,6 @@ function ToolBody({
           inputSchema={tool?.inputSchema}
           args={node.data.args}
           onChange={(nextArgs) => update({ ...node, data: { ...node.data, args: nextArgs } })}
-          dataFields={dataFields}
           labelCtx={tokenWiring.labelCtx}
         />
       )}
@@ -98,8 +94,8 @@ function ToolBody({
 
 // MISSING_TOOL_CONNECTION + MISSING_TOOL in validate.ts.
 export const toolModule: NodeBodyModule = {
-  Body: ({ node, toolCatalog, update, showErrors, dataFields, tokenWiring, previewContext }: NodeBodyProps) => (
-    <ToolBody node={node as Extract<FlowNode, { type: 'tool' }>} toolCatalog={toolCatalog} update={update} showErrors={showErrors} dataFields={dataFields ?? []} tokenWiring={tokenWiring} previewContext={previewContext} />
+  Body: ({ node, toolCatalog, update, showErrors, tokenWiring, previewContext }: NodeBodyProps) => (
+    <ToolBody node={node as Extract<FlowNode, { type: 'tool' }>} toolCatalog={toolCatalog} update={update} showErrors={showErrors} tokenWiring={tokenWiring} previewContext={previewContext} />
   ),
   requiredFields: ['connectionId', 'toolName'],
 }

@@ -20,7 +20,7 @@ function CardHarness({ capture }: { capture: (n: FlowNode) => void }) {
   // The param body moved from the card into the Node Detail View — same body
   // module, new host. The harness drives the same real controlled loop.
   return React.createElement(NodeDetailView, {
-    node, agents: [], toolCatalog: [], dataFields: [], lastOutput: undefined,
+    node, agents: [], toolCatalog: [], lastOutput: undefined,
     onChange: (n: FlowNode) => setGraph((g) => updateNode(g, n)), onClose: () => {},
   })
 }

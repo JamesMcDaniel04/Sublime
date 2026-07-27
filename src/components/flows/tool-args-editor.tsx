@@ -1,12 +1,10 @@
 'use client'
 
-import { useRef, useState } from 'react'
+import { useState } from 'react'
 import { Code2, ListTree } from 'lucide-react'
-import { DataTree } from '@/components/flows/data-tree'
-import type { DataField } from '@/lib/flows/datatree'
 import type { FlowContext } from '@/features/flows/context'
 import { FieldPreview } from './nodes/field-preview'
-import { TokenTextEditor, type TokenTextEditorHandle } from '@/components/flows/token-text-editor'
+import { TokenTextEditor } from '@/components/flows/token-text-editor'
 import type { TokenLabelContext } from '@/lib/flows/token-text'
 
 type JsonSchema = {
@@ -108,9 +106,9 @@ function setPath(target: Record<string, unknown>, path: string, value: unknown) 
 
 function placeholderFor(field: SchemaField): string {
   if (field.description) return field.description
-  if (field.type === 'object') return '{"id": "abc123"} or a whole record from Available data'
-  if (field.type === 'array') return '["one", "two"] or a list from Available data'
-  if (field.type === 'any') return 'Text, JSON, or a value from Available data'
+  if (field.type === 'object') return '{"id": "abc123"} or a whole record from an upstream step'
+  if (field.type === 'array') return '["one", "two"] or a list from an upstream step'
+  if (field.type === 'any') return 'Text, JSON, or a value from an upstream step'
   return 'Add a value or choose one below'
 }
 
@@ -119,44 +117,29 @@ const fieldClass =
 const labelClass = 'mb-1.5 block text-xs font-semibold uppercase tracking-wide text-muted-foreground'
 
 /**
- * Renders a tool's arguments from its JSON-schema as real form fields (with a
- * datatree token picker), or falls back to a raw-JSON editor for tools whose
- * schema is unknown or when the user opts into advanced mode.
+ * Renders a tool's arguments from its JSON-schema as real form fields, or
+ * falls back to a raw-JSON editor for tools whose schema is unknown or when
+ * the user opts into advanced mode.
+ *
+ * Tokens come from the NDV's input pane, which inserts into whichever field
+ * has the caret — this editor no longer carries its own picker.
  */
 export function ToolArgsEditor({
   inputSchema,
   args,
   onChange,
-  dataFields,
   labelCtx,
   previewContext,
 }: {
   inputSchema: unknown
   args: string | undefined
   onChange: (nextArgs: string) => void
-  dataFields: DataField[]
   labelCtx: TokenLabelContext
   /** Sample data for the per-arg resolved-value preview. */
   previewContext?: FlowContext
 }) {
   const fields = schemaFields(inputSchema)
   const [raw, setRaw] = useState(fields.length === 0)
-  // Chip-editor handles per free-text arg; the datatree inserts a token chip at
-  // the caret of the last-focused one (first free-text arg before any focus).
-  const editorHandles = useRef<Map<string, TokenTextEditorHandle | null>>(new Map())
-  const editorRefCallbacks = useRef<Map<string, (handle: TokenTextEditorHandle | null) => void>>(new Map())
-  const activeArgRef = useRef<string | null>(null)
-  const registerEditor = (name: string) => {
-    let callback = editorRefCallbacks.current.get(name)
-    if (!callback) {
-      callback = (handle: TokenTextEditorHandle | null) => {
-        editorHandles.current.set(name, handle)
-      }
-      editorRefCallbacks.current.set(name, callback)
-    }
-    return callback
-  }
-  const rawElRef = useRef<HTMLTextAreaElement | null>(null)
 
   const values = parseArgs(args)
   if (args) {
@@ -170,36 +153,6 @@ export function ToolArgsEditor({
     } catch { /* raw editor handles invalid JSON */ }
   }
   const setValue = (name: string, value: string) => onChange(serializeArgs({ ...values, [name]: value }, fields))
-  const insertAtCaret = (value: string, token: string, el: HTMLTextAreaElement | null) => {
-    if (!el || typeof el.selectionStart !== 'number') return value + token
-    const start = el.selectionStart
-    const end = el.selectionEnd ?? start
-    const next = value.slice(0, start) + token + value.slice(end)
-    const pos = start + token.length
-    requestAnimationFrame(() => {
-      try {
-        el.focus()
-        el.setSelectionRange(pos, pos)
-      } catch {
-        /* element unmounted */
-      }
-    })
-    return next
-  }
-  const isFreeText = (field: SchemaField) => !field.enumValues && field.type !== 'boolean'
-  // DataTree emits braced `{{token}}`s; the chip editor takes the bare path.
-  const insert = (token: string) => {
-    if (raw || fields.length === 0) {
-      onChange(insertAtCaret(args ?? '{}', token, rawElRef.current))
-      return
-    }
-    const path = token.startsWith('{{') && token.endsWith('}}') ? token.slice(2, -2).trim() : token
-    const active = activeArgRef.current ? editorHandles.current.get(activeArgRef.current) : null
-    const fallback = fields.find(isFreeText)?.name
-    const editor = active ?? (fallback ? editorHandles.current.get(fallback) : null)
-    editor?.insertToken(path)
-  }
-
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between">
@@ -219,14 +172,12 @@ export function ToolArgsEditor({
       {raw || fields.length === 0 ? (
         <div className="space-y-2">
           <textarea
-            ref={rawElRef}
             rows={5}
             className={`${fieldClass} min-h-[120px] resize-y font-mono text-xs`}
             value={args ?? '{}'}
-            placeholder={'{"query": "Use a value from Available data"}'}
+            placeholder={'{"query": "Click a value in the Input pane to map it"}'}
             onChange={(e) => onChange(e.target.value)}
           />
-          <DataTree fields={dataFields} onInsert={insert} />
         </div>
       ) : (
         <div className="space-y-3">
@@ -262,28 +213,20 @@ export function ToolArgsEditor({
                 </select>
               ) : isJsonValueField(field) ? (
                 <TokenTextEditor
-                  ref={registerEditor(field.name)}
                   multiline
                   rows={field.type === 'array' || field.type === 'object' ? 4 : 2}
                   className="font-mono text-xs"
                   value={values[field.name] ?? (field.defaultValue === undefined ? '' : typeof field.defaultValue === 'string' ? field.defaultValue : JSON.stringify(field.defaultValue))}
                   labelCtx={labelCtx}
                   placeholder={placeholderFor(field)}
-                  onFocus={() => {
-                    activeArgRef.current = field.name
-                  }}
                   onChange={(value) => setValue(field.name, value)}
                   ariaLabel={`Argument ${field.name}`}
                 />
               ) : (
                 <TokenTextEditor
-                  ref={registerEditor(field.name)}
                   value={values[field.name] ?? (field.defaultValue === undefined ? '' : String(field.defaultValue))}
                   labelCtx={labelCtx}
                   placeholder={placeholderFor(field)}
-                  onFocus={() => {
-                    activeArgRef.current = field.name
-                  }}
                   onChange={(value) => setValue(field.name, value)}
                   ariaLabel={`Argument ${field.name}`}
                 />
@@ -292,9 +235,6 @@ export function ToolArgsEditor({
               <FieldPreview value={values[field.name] ?? ''} ctx={previewContext} />
             </div>
           ))}
-          <div>
-            <DataTree fields={dataFields} onInsert={insert} />
-          </div>
         </div>
       )}
     </div>

@@ -24,7 +24,7 @@ function Harness({ initial, capture }: { initial?: Record<string, unknown>; capt
   const node = graph.nodes.find((n) => n.id === 'c1') as FlowNode
   capture(node)
   return React.createElement(NodeDetailView, {
-    node, agents: [], toolCatalog: [], dataFields: [], lastOutput: undefined,
+    node, agents: [], toolCatalog: [], lastOutput: undefined,
     onChange: (n: FlowNode) => setGraph((g) => updateNode(g, n)), onClose: () => {},
   })
 }
@@ -109,7 +109,7 @@ test('everything the editor writes survives the graph schema parse', (t) => {
 test('the output pane renders captured logs after a test, win or lose', (t) => {
   t.after(cleanup)
   const succeeded = render(React.createElement(NodeDetailView, {
-    node: codeNode(), agents: [], toolCatalog: [], dataFields: [], lastOutput: { ok: 1 },
+    node: codeNode(), agents: [], toolCatalog: [], lastOutput: { ok: 1 },
     testState: { status: 'succeeded', logs: ['checking 3', 'done'] },
     onChange: () => {}, onClose: () => {},
   }))
@@ -117,7 +117,7 @@ test('the output pane renders captured logs after a test, win or lose', (t) => {
   assert.match(succeeded.container.textContent ?? '', /checking 3\ndone/)
   cleanup()
   const failed = render(React.createElement(NodeDetailView, {
-    node: codeNode(), agents: [], toolCatalog: [], dataFields: [], lastOutput: undefined,
+    node: codeNode(), agents: [], toolCatalog: [], lastOutput: undefined,
     testState: { status: 'failed', error: 'ValueError: bad', logs: ['made it here'] },
     onChange: () => {}, onClose: () => {},
   }))

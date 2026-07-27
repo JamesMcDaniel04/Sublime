@@ -16,7 +16,6 @@ import { diffFlowGraphs, patchIsEmpty, type FlowCollaborationPatch } from '@/lib
 import { applyPatchStrict, invertPatch } from '@/lib/flows/undo'
 import { applyCopilotOps, type CopilotOp } from '@/lib/flows/copilot-ops'
 import { remediationForFailedRun, type FlowFailureRemediation } from '@/lib/flows/failure-remediation'
-import { buildDataTree } from '@/lib/flows/datatree'
 import { parseFlowInput } from '@/lib/flows/input'
 import { validateFlowGraph } from '@/lib/flows/validate'
 import { defaultStepLabel, stepLabelsOf } from '@/lib/flows/token-text'
@@ -65,7 +64,7 @@ type Agent = { id: string; title: string }
 
 import {
   spineIds, parentLoop, parentParallelBranch, parseFlowValue, isRecordLike,
-  triggerInputFields, outputFieldsForNode, sampleLoopItem,
+  triggerInputFields,
   clampZoom, filenameSlug,
 } from './flow-builder-helpers'
 
@@ -138,8 +137,6 @@ function FlowBuilder() {
   // The Node Detail View's open node. Kept alongside selectedId (not derived
   // from it) so selecting a card on the canvas doesn't pop a full overlay.
   const [ndvNodeId, setNdvNodeId] = useState<string | null>(null)
-  // Opening the NDV also selects the node, so the dataFields memo (keyed off
-  // selectedId's upstream) feeds the NDV's input pane.
   const openNdv = useCallback((nodeId: string) => {
     setSelectedId(nodeId)
     setNdvNodeId(nodeId)
@@ -753,7 +750,6 @@ function FlowBuilder() {
 
   const loopContext = useMemo(() => parentLoop(graph, selectedId), [graph, selectedId])
   const parallelContext = useMemo(() => parentParallelBranch(graph, selectedId), [graph, selectedId])
-  const insideLoop = Boolean(loopContext)
   const upstreamIds = useMemo(() => {
     const ids = spineIds(graph)
     if (loopContext) {
@@ -786,35 +782,6 @@ function FlowBuilder() {
     }
     return Array.from(byName, ([name, type]) => ({ name, type }))
   }, [graph, upstreamIds])
-
-  // The datatree of mappable upstream data — declared output fields plus fields
-  // inferred from the latest run's actual output.
-  const dataFields = useMemo(() => {
-    if (!selectedNode || selectedNode.type === 'trigger') return []
-    const lastOutputs: Record<string, unknown> = {}
-    for (const step of selectedRun?.steps ?? []) lastOutputs[step.nodeId] = parseFlowValue(step.output)
-    const triggerInput = testInput.trim() ? parseFlowInput(testInput) : storedRunInput(selectedRun?.input)
-    if (loopContext) {
-      const sampleInput = typeof triggerInput === 'string' ? triggerInput : triggerInput == null ? '' : JSON.stringify(triggerInput)
-      lastOutputs.__item = sampleLoopItem(loopContext.loop, lastOutputs, sampleInput)
-    }
-    const upstream = upstreamIds.map((uid) => {
-      const n = graph.nodes.find((x) => x.id === uid)
-      const label =
-        n?.type === 'agent'
-          ? n.data.label || agentsById.get(n.data.agentId) || 'Agent step'
-          : n?.type === 'tool'
-            ? n.data.label || n.data.toolName || 'Tool call'
-            : n?.type === 'http'
-              ? n.data.label || `${n.data.method} request`
-              : n
-                ? ('label' in n.data && n.data.label) || defaultStepLabel(n)
-                : uid
-      const outputFields = outputFieldsForNode(n, toolCatalog)
-      return { id: uid, label, outputFields }
-    })
-    return buildDataTree({ upstream, insideLoop, lastOutputs, triggerInput, inputFields, variables: upstreamVariables })
-  }, [selectedNode, upstreamIds, graph, selectedRun, insideLoop, agentsById, loopContext, testInput, inputFields, toolCatalog, upstreamVariables])
 
   // ── Node Detail View wiring ────────────────────────────────────────────────
   const ndvNode = useMemo(
@@ -2180,7 +2147,6 @@ function FlowBuilder() {
           flowId={id}
           agents={agents}
           toolCatalog={toolCatalog}
-          dataFields={dataFields}
           labelCtx={labelCtx}
           variableNames={upstreamVariables.map((variable) => variable.name)}
           previewContext={previewContext}

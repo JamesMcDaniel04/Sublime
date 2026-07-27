@@ -8,7 +8,7 @@ import '@/test-support/jsdom-env'
 import { test, afterEach } from 'node:test'
 import assert from 'node:assert/strict'
 import React from 'react'
-import { render, cleanup, act } from '@testing-library/react'
+import { render, cleanup, act, fireEvent } from '@testing-library/react'
 import { NodeDetailView } from '../node-detail-view'
 import { InputPane } from '../input-pane'
 import { OutputPane } from '../output-pane'
@@ -29,7 +29,6 @@ const NODES = [
 const baseProps = {
   agents: [],
   toolCatalog: [],
-  dataFields: [],
   lastOutput: undefined,
   onChange: () => {},
   onClose: () => {},
@@ -52,21 +51,25 @@ test('closes on Escape', () => {
 
 // ── Input pane ────────────────────────────────────────────────────────────────
 
-test('input pane lists upstream fields and inserts on click', () => {
+test('input pane shows raw JSON and inserts a token on click', () => {
   let inserted: string | null = null
-  const { getByText } = render(
-    <InputPane
-      dataFields={[{ label: 'account', token: '{{trigger.input.account}}', type: 'string' }]}
-      onInsertToken={(token) => { inserted = token }}
-    />,
+  const { container } = render(
+    <InputPane rawInput={{ trigger: { account: 'acme' } }} onInsertToken={(token) => { inserted = token }} />,
   )
-  getByText('account').click()
-  assert.equal(inserted, '{{trigger.input.account}}')
+  const leaf = container.querySelector('[data-token="{{trigger.account}}"]') as HTMLElement
+  assert.ok(leaf, 'raw JSON is not clickable')
+  fireEvent.click(leaf)
+  assert.equal(inserted, '{{trigger.account}}')
+})
+
+test('input pane offers no Raw/Fields toggle', () => {
+  const { queryByText } = render(<InputPane rawInput={{ a: 1 }} onInsertToken={() => {}} />)
+  assert.equal(queryByText('Fields'), null, 'the Fields view should be gone')
 })
 
 test('input pane shows an empty state rather than nothing', () => {
   // A blank pane reads as broken; say WHY there is no data.
-  const { getByText } = render(<InputPane dataFields={[]} onInsertToken={() => {}} />)
+  const { getByText } = render(<InputPane onInsertToken={() => {}} />)
   getByText(/no upstream data/i)
 })
 
@@ -170,15 +173,11 @@ test('Run from here with no downstream writes runs immediately', () => {
 })
 
 test('input pane leaves are draggable and carry the braced token', () => {
-  const { getByText } = render(
-    <InputPane
-      dataFields={[{ label: 'account', token: '{{trigger.input.account}}', type: 'string' }]}
-      onInsertToken={() => {}}
-    />,
+  const { container } = render(
+    <InputPane rawInput={{ trigger: { account: 'acme' } }} onInsertToken={() => {}} />,
   )
-  // The draggable attribute lives on the row button wrapping the label.
-  const leaf = getByText('account').closest('[draggable="true"]')
-  assert.ok(leaf, 'leaf row is not draggable')
+  const leaf = container.querySelector('[data-token="{{trigger.account}}"]')
+  assert.equal(leaf?.getAttribute('draggable'), 'true', 'leaf is not draggable')
 })
 
 // ── Field preview ─────────────────────────────────────────────────────────────

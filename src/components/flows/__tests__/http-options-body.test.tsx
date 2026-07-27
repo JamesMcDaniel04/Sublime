@@ -23,7 +23,7 @@ function Harness({ initial, capture }: { initial?: Record<string, unknown>; capt
   const node = graph.nodes.find((n) => n.id === 'h1') as FlowNode
   capture(node)
   return React.createElement(NodeDetailView, {
-    node, agents: [], toolCatalog: [], dataFields: [], lastOutput: undefined,
+    node, agents: [], toolCatalog: [], lastOutput: undefined,
     onChange: (n: FlowNode) => setGraph((g) => updateNode(g, n)), onClose: () => {},
   })
 }

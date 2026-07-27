@@ -115,7 +115,7 @@ test('the input pane renders raw upstream data and the output pane the last run'
     step: { n1: { output: { userId: 42 } } },
   } as unknown as FlowContext
   const { container } = render(React.createElement(NodeDetailView, {
-    node: httpNode, agents: [], toolCatalog: [], dataFields: [], labelCtx: { stepLabels: {} },
+    node: httpNode, agents: [], toolCatalog: [], labelCtx: { stepLabels: {} },
     previewContext, lastOutput: { status: 200, body: { hello: 'world' } },
     onChange: () => {}, onClose: () => {},
   }))

@@ -6,7 +6,6 @@ import { Button } from '@/components/ui/button'
 import type { FlowNode } from '@/lib/flows/graph'
 import type { NodeRef } from '@/lib/flows/node-test-input'
 import type { FlowContext } from '@/features/flows/context'
-import type { DataField } from '@/lib/flows/datatree'
 import type { TokenLabelContext } from '@/lib/flows/token-text'
 import type { ToolCatalog } from '../tool-catalog-type'
 import type { EditableType } from '../node-types'
@@ -42,7 +41,6 @@ export function NodeDetailView({
   flowId,
   agents,
   toolCatalog,
-  dataFields,
   labelCtx,
   variableNames,
   previewContext,
@@ -65,7 +63,6 @@ export function NodeDetailView({
   flowId?: string
   agents: Agent[]
   toolCatalog: ToolCatalog
-  dataFields: DataField[]
   labelCtx?: TokenLabelContext
   variableNames?: string[]
   /** Sample data for token previews; absent until the flow has run once. */
@@ -214,7 +211,7 @@ export function NodeDetailView({
         )}
         <div className="grid min-h-0 flex-1 grid-cols-[minmax(240px,1fr)_minmax(440px,620px)_minmax(260px,1fr)]">
           <div className="min-w-0">
-            <InputPane dataFields={dataFields} rawInput={rawInput} onInsertToken={insertToken} />
+            <InputPane rawInput={rawInput} onInsertToken={insertToken} />
           </div>
           <div className="min-w-0 border-x border-border">
             <ParamsPane
@@ -226,7 +223,6 @@ export function NodeDetailView({
               onRefreshAgents={onRefreshAgents}
               tokenWiring={tokenWiring}
               variableNames={variableNames}
-              dataFields={dataFields}
               previewContext={previewContext}
               onAddStep={onAddStep}
               onChangeType={onChangeType}
