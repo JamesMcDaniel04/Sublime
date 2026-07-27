@@ -29,6 +29,7 @@ import type { Contribution } from '@/components/goals/contribution-panel'
 import { fmtValue } from '@/components/goals/chart-math'
 import { RiskBadge } from '@/components/goals/goal-viz'
 import { DashboardEditDialog } from '@/components/goals/dashboard-edit'
+import { RecoveryPlanStrip } from '@/components/goals/recovery-plan-strip'
 import {
   GoalDashboard,
 } from '@/components/goals/widgets/goal-dashboard'
@@ -298,6 +299,10 @@ export default function GoalDetailPage() {
           </>
         }
       />
+
+      {goal.recoveryPlan && (
+        <RecoveryPlanStrip goalId={goalId} plan={goal.recoveryPlan} onChanged={load} />
+      )}
 
       {goal.metric && SOFT_SOURCES.has(goal.metric.source) && (
         <p className="rounded-xl border border-dashed bg-muted/40 px-4 py-2.5 text-xs text-muted-foreground">
