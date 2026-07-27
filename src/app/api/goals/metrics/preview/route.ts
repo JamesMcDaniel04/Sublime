@@ -10,6 +10,7 @@ const bodySchema = z.object({
     'hubspot',
     'salesforce',
     'google_sheets',
+    'google_analytics',
     'postgres',
     'url',
     'slack_assisted',

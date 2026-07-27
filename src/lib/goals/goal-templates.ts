@@ -199,7 +199,7 @@ export const GOAL_TEMPLATES: GoalTemplate[] = [
   template('marketing-org-organic-traffic', 'marketing', 'org', 'Grow organic traffic', 'Non-paid sessions, the compounding channel.', 'custom_kpi', {
     category: 'Demand', unit: 'count', recurrence: 'monthly', layout: COUNT_LAYOUT,
     tracks: 'Organic sessions this month, read from analytics or a sheet.',
-    sources: ['google_sheets', 'url', 'postgres'],
+    sources: ['google_analytics', 'google_sheets', 'url', 'postgres'],
     agents: ['marketing-content-repurpose-engine', 'marketing-editorial-operations'],
   }),
   template('marketing-org-sourced-pipeline', 'marketing', 'org', 'Marketing-sourced pipeline', 'Pipeline value attributed to marketing first-touch, not just lead count.', 'revenue', {
@@ -217,7 +217,7 @@ export const GOAL_TEMPLATES: GoalTemplate[] = [
   template('marketing-personal-conversion-rate', 'marketing', 'personal', 'Lift my landing conversion', 'The conversion rate on the pages you own.', 'custom_kpi', {
     category: 'Demand', unit: 'percent', layout: PERSONAL_LAYOUT,
     tracks: 'Conversions as a percentage of visits on your pages.',
-    sources: ['google_sheets', 'url', 'postgres'],
+    sources: ['google_analytics', 'google_sheets', 'url', 'postgres'],
     agents: ['marketing-creative-performance-review', 'marketing-funnel-anomaly-brief'],
   }),
   // ── Engineering ─────────────────────────────────────────────────────────

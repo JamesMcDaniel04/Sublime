@@ -5,6 +5,7 @@ export const SOURCE_LABELS: Record<string, string> = {
   hubspot: 'HubSpot',
   salesforce: 'Salesforce',
   google_sheets: 'Google Sheets',
+  google_analytics: 'Google Analytics',
   postgres: 'Postgres / SQL',
   manual: "I'll record values myself",
   url: 'A URL that reports the number',
@@ -13,6 +14,8 @@ export const SOURCE_LABELS: Record<string, string> = {
 }
 
 export const SOURCE_HINTS: Record<string, string> = {
+  google_analytics:
+    'Reads sessions, users and key events straight from your GA4 property — no spreadsheet in between.',
   url: 'We fetch the page or JSON on every sync and parse the number.',
   slack_assisted:
     'AI reads recent messages and extracts the latest value — every reading is labeled AI-read.',
@@ -35,6 +38,7 @@ export const SOURCE_ICON_SLUGS: Record<MetricSource, string | null> = {
   hubspot: 'hubspot',
   salesforce: 'salesforce',
   google_sheets: 'googlesheets',
+  google_analytics: 'googleanalytics',
   postgres: 'postgresql',
   slack_assisted: 'slack',
   gmail_assisted: 'gmail',

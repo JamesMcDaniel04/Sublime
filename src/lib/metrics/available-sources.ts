@@ -52,7 +52,7 @@ export async function listMetricSourceOptions(auth: {
       where: {
         organizationId: auth.organizationId,
         userId: auth.dbUser.id,
-        service: { in: ['google-sheets', 'google-mail'] },
+        service: { in: ['google-sheets', 'google-mail', 'google-analytics'] },
         status: 'connected',
       },
       select: { id: true, accountEmail: true, service: true },
@@ -64,6 +64,9 @@ export async function listMetricSourceOptions(auth: {
   )
   const gmailConnections = googleConnections.filter(
     (connection) => connection.service === 'google-mail',
+  )
+  const analyticsConnections = googleConnections.filter(
+    (connection) => connection.service === 'google-analytics',
   )
 
   const connectionsFor = (source: 'hubspot' | 'salesforce') =>
@@ -129,7 +132,12 @@ export async function listMetricSourceOptions(auth: {
                   ref: `google:${connection.id}`,
                   label: connection.accountEmail,
                 }))
-              : [],
+              : name === 'google_analytics'
+                ? analyticsConnections.map((connection) => ({
+                    ref: `google:${connection.id}`,
+                    label: connection.accountEmail,
+                  }))
+                : [],
   })
 
   return [
@@ -141,6 +149,7 @@ export async function listMetricSourceOptions(auth: {
     'hubspot',
     'salesforce',
     'google_sheets',
+    'google_analytics',
     'postgres',
   ].map(source)
 }

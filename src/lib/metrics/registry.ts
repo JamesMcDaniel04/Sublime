@@ -3,6 +3,7 @@ import { stripeMetricSource } from './sources/stripe'
 import { hubspotMetricSource } from './sources/hubspot'
 import { salesforceMetricSource } from './sources/salesforce'
 import { googleSheetsMetricSource } from './sources/google-sheets'
+import { googleAnalyticsMetricSource } from './sources/google-analytics'
 import { postgresMetricSource } from './sources/postgres'
 import { urlMetricSource } from './sources/url'
 import { slackAssistedMetricSource } from './sources/slack-assisted'
@@ -13,6 +14,7 @@ const SOURCES: Record<string, MetricSource> = {
   [hubspotMetricSource.source]: hubspotMetricSource,
   [salesforceMetricSource.source]: salesforceMetricSource,
   [googleSheetsMetricSource.source]: googleSheetsMetricSource,
+  [googleAnalyticsMetricSource.source]: googleAnalyticsMetricSource,
   [postgresMetricSource.source]: postgresMetricSource,
   [urlMetricSource.source]: urlMetricSource,
   [slackAssistedMetricSource.source]: slackAssistedMetricSource,

@@ -8,6 +8,7 @@ export const METRIC_SOURCES = [
   'hubspot',
   'salesforce',
   'google_sheets',
+  'google_analytics',
   'postgres',
   'url',
   'slack_assisted',
