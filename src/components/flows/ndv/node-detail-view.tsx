@@ -54,7 +54,6 @@ export function NodeDetailView({
   riskyMissing = [],
   downstreamWrites = [],
   onChange,
-  onChangeType,
   onRefreshAgents,
   onAddStep,
   onClose,
@@ -81,7 +80,6 @@ export function NodeDetailView({
   /** Downstream write actions a Run-from-here would fire. */
   downstreamWrites?: NodeRef[]
   onChange: (node: FlowNode) => void
-  onChangeType?: (type: EditableType) => void
   onRefreshAgents?: () => void
   onAddStep?: (type: EditableType, branchIndex?: number) => void
   onClose: () => void
@@ -225,7 +223,6 @@ export function NodeDetailView({
               variableNames={variableNames}
               previewContext={previewContext}
               onAddStep={onAddStep}
-              onChangeType={onChangeType}
             />
           </div>
           <div className="min-w-0">

@@ -73,6 +73,18 @@ test('input pane shows an empty state rather than nothing', () => {
   getByText(/no upstream data/i)
 })
 
+// ── Step settings ─────────────────────────────────────────────────────────────
+
+test('no node type offers a Step type selector — the node IS its type', () => {
+  for (const node of NODES) {
+    const { container, getByText, unmount } = render(<NodeDetailView node={node} {...baseProps} />)
+    fireEvent.click(getByText('Settings'))
+    const labels = [...container.querySelectorAll('label')].map((label) => label.textContent)
+    assert.equal(labels.includes('Step type'), false, `${node.type} still offers Step type`)
+    unmount()
+  }
+})
+
 // ── Output pane ───────────────────────────────────────────────────────────────
 
 test('output pane renders the last run output', () => {

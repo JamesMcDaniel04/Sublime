@@ -470,26 +470,3 @@ export function StepCard({
     </div>
   )
 }
-
-
-/** Step type + notes — the drawer's shared chrome, now inline on the card. */
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

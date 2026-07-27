@@ -2,7 +2,6 @@
 
 import { useState } from 'react'
 import { NODE_BODIES } from '../nodes/registry'
-import type { EditableType } from '../node-types'
 import type { NodeBodyProps } from '../nodes/types'
 import { MissingFields } from '../nodes/missing-fields'
 import { StepSettingsFooter } from './step-settings-footer'
@@ -12,7 +11,7 @@ import { StepSettingsFooter } from './step-settings-footer'
  * inline, plus the step-type/notes footer that used to close the expanded
  * card. One implementation, two consumers — the whole point of the registry.
  */
-export function ParamsPane({ onChangeType, ...props }: NodeBodyProps & { onChangeType?: (type: EditableType) => void }) {
+export function ParamsPane(props: NodeBodyProps) {
   const { Body } = NODE_BODIES[props.node.type]
   const [tab, setTab] = useState<'parameters' | 'settings'>('parameters')
   return (
@@ -43,7 +42,7 @@ export function ParamsPane({ onChangeType, ...props }: NodeBodyProps & { onChang
       ) : (
         <div className="p-4">
           {props.node.type !== 'trigger' ? (
-          <StepSettingsFooter node={props.node} update={props.update} onChangeType={onChangeType} tokenWiring={props.tokenWiring} />
+          <StepSettingsFooter node={props.node} update={props.update} tokenWiring={props.tokenWiring} />
           ) : (
             <p className="text-sm text-muted-foreground">This trigger has no additional step settings.</p>
           )}

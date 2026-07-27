@@ -12,7 +12,6 @@ import {
   moveContainerStep,
   sanitizeCopiedNode,
   pasteNodeAfter,
-  changeNodeType,
 } from '../mutate'
 import { emptyGraph, type FlowGraph, type FlowNode } from '../graph'
 
@@ -257,9 +256,7 @@ test('deleteNode purges an id from errorShield body AND fallback', () => {
   assert.equal(after.data.body.includes(bodyId), false)
 })
 
-test('router can be created and retyped', () => {
+test('router can be created', () => {
   const { graph, nodeId } = insertNodeAfter(emptyGraph(), 'trigger', 'router')
   assert.ok(graph.nodes.find((n) => n.id === nodeId && n.type === 'router'))
-  const retyped = changeNodeType(graph, nodeId, 'switch')
-  assert.equal(retyped.nodes.find((n) => n.id === nodeId)!.type, 'switch')
 })

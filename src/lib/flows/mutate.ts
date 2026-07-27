@@ -256,24 +256,6 @@ export function updateNode(graph: FlowGraph, updated: FlowNode): FlowGraph {
   return { ...graph, nodes: graph.nodes.map((node) => (node.id === updated.id ? updated : node)) }
 }
 
-/** Change a node's type, resetting its data. Containers get a body agent step. */
-export function changeNodeType(graph: FlowGraph, id: string, type: StepType): FlowGraph {
-  if (type === 'loop' || type === 'parallel' || type === 'errorShield' || type === 'repeatUntil') {
-    const bodyId = newNodeId(graph, 'b')
-    const bodyNode = {
-      id: bodyId,
-      type: 'agent',
-      data: {
-        agentId: '',
-        input: type === 'loop' ? 'Process this item:\n{{item}}' : 'Use this flow input:\n{{trigger.input}}',
-      },
-    } as FlowNode
-    const nodes = graph.nodes.map((node) => (node.id === id ? ({ id, type, data: defaultData(type, { bodyId }) } as FlowNode) : node))
-    return { ...graph, nodes: [...nodes, bodyNode] }
-  }
-  return { ...graph, nodes: graph.nodes.map((node) => (node.id === id ? ({ id, type, data: defaultData(type) } as FlowNode) : node)) }
-}
-
 /** Append a new typed step to a container. For an Error Shield, branchIndex
  *  -1 targets the fallback list; the default targets its protected body. */
 export function addContainerStep(graph: FlowGraph, containerId: string, type: StepType = 'agent', agentId?: string, branchIndex?: number): { graph: FlowGraph; nodeId: string } {

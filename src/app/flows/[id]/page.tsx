@@ -9,7 +9,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { Badge } from '@/components/ui/badge'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { emptyGraph, type FlowGraph, type FlowNode } from '@/lib/flows/graph'
-import { insertNodeAfter, appendToBranch, duplicateNode, updateNode, deleteNode, changeNodeType, addContainerStep, moveNodeAfter, moveContainerStep, pasteNodeAfter, addNodeAt, addConnectedNodeAt } from '@/lib/flows/mutate'
+import { insertNodeAfter, appendToBranch, duplicateNode, updateNode, deleteNode, addContainerStep, moveNodeAfter, moveContainerStep, pasteNodeAfter, addNodeAt, addConnectedNodeAt } from '@/lib/flows/mutate'
 import { stackCompatible } from '@/lib/flows/stack-compat'
 import { writeFlowClipboard, readFlowClipboard } from '@/lib/flows/clipboard'
 import { diffFlowGraphs, patchIsEmpty, type FlowCollaborationPatch } from '@/lib/flows/collaboration'
@@ -2160,7 +2160,6 @@ function FlowBuilder() {
           riskyMissing={ndvResolved?.riskyMissing ?? []}
           downstreamWrites={ndvDownstreamWrites}
           onChange={(node) => setGraph((g) => updateNode(g, node))}
-          onChangeType={(type) => commitGraph(changeNodeType(graph, ndvNode.id, type))}
           onRefreshAgents={refreshAgents}
           onAddStep={(type, branchIndex) => {
             const { graph: next, nodeId } = addContainerStep(graph, ndvNode.id, type, type === 'agent' ? agents[0]?.id ?? '' : undefined, branchIndex)
