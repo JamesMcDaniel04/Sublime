@@ -7,6 +7,7 @@ import { TemplateCardShell } from '@/components/templates/template-card-shell'
 import { CATEGORY_ACCENTS, CATEGORY_ICONS } from '@/components/goals/goal-template-accents'
 import { SOURCE_LABELS } from '@/components/goals/source-labels'
 import { SourceLogo } from '@/components/goals/source-logo'
+import { bundleForGoal } from '@/lib/goals/agent-bundle'
 import type { GoalTemplate } from '@/lib/goals/goal-templates'
 import { cn } from '@/lib/utils'
 
@@ -37,6 +38,14 @@ export function GoalTemplateCard({
   const ready = template.sources.some(
     (source) => source !== 'manual' && connectedSources.has(source),
   )
+  // source: null — the metric source is chosen later in the wizard, so this
+  // counts the agents any goal from this template could run.
+  const agentCount = bundleForGoal({
+    templateKey: template.key,
+    kind: template.kind,
+    source: null,
+    recurrence: template.recurrence,
+  }).length
 
   return (
     <button
@@ -85,6 +94,11 @@ export function GoalTemplateCard({
                 <span className="text-xs font-medium text-muted-foreground">+{overflow}</span>
               )}
             </div>
+            {agentCount > 0 && (
+              <p className="text-xs font-medium text-muted-foreground">
+                {agentCount} {agentCount === 1 ? 'agent' : 'agents'} work on it
+              </p>
+            )}
           </div>
         }
         cta={

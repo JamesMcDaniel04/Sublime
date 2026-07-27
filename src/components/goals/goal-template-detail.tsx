@@ -18,6 +18,8 @@ import { GoalDashboard } from '@/components/goals/widgets/goal-dashboard'
 import { CATEGORY_ACCENTS, CATEGORY_ICONS } from '@/components/goals/goal-template-accents'
 import { SOURCE_HINTS, SOURCE_LABELS } from '@/components/goals/source-labels'
 import { SourceLogo } from '@/components/goals/source-logo'
+import { IntegrationChip } from '@/components/integrations/integration-chip'
+import { bundleForGoal } from '@/lib/goals/agent-bundle'
 import { buildPreviewDashboardData } from '@/lib/goals/preview-data'
 import { resolveLayoutMetricRefs } from '@/lib/goals/dashboard'
 import { connectedSourceSet, type MetricSourceOption } from '@/lib/metrics/source-options'
@@ -48,6 +50,21 @@ export function GoalTemplateDetail({
   const connected = useMemo(
     () => (sourcesFailed ? new Set<string>() : connectedSourceSet(sources)),
     [sources, sourcesFailed],
+  )
+
+  // source: null — the user picks the metric source in the wizard, after this
+  // dialog. Source-dependent agents come back flagged conditional.
+  const agents = useMemo(
+    () =>
+      template
+        ? bundleForGoal({
+            templateKey: template.key,
+            kind: template.kind,
+            source: null,
+            recurrence: template.recurrence,
+          })
+        : [],
+    [template],
   )
 
   const preview = useMemo(() => {
@@ -177,6 +194,39 @@ export function GoalTemplateDetail({
             })}
           </ul>
         </section>
+
+        {agents.length > 0 && (
+          <section className="space-y-2">
+            <h3 className="text-sm font-semibold">Works on it</h3>
+            <p className="text-xs text-muted-foreground">
+              Deploy these from the goal once it exists — they do the work the
+              number measures.
+            </p>
+            <ul className="space-y-1.5">
+              {agents.map((agent) => (
+                <li
+                  key={agent.seedKey}
+                  className="space-y-1 rounded-lg border border-border/60 px-3 py-2"
+                >
+                  <p className="text-sm font-medium">{agent.name}</p>
+                  <p className="text-xs text-muted-foreground">{agent.description}</p>
+                  {agent.conditional && (
+                    <p className="text-xs text-muted-foreground">
+                      Available if you track this goal manually or with AI-read.
+                    </p>
+                  )}
+                  {agent.requiredIntegrations.length > 0 && (
+                    <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
+                      {agent.requiredIntegrations.map((integration) => (
+                        <IntegrationChip key={integration} name={integration} />
+                      ))}
+                    </div>
+                  )}
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
 
         <section className="space-y-2">
           <div className="flex items-baseline justify-between gap-2">
