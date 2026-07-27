@@ -10,6 +10,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { SOURCE_LABELS } from './source-labels'
+import { SourceLogo } from './source-logo'
 import {
   sourceIsAvailable,
   type MetricSourceOption,
@@ -108,7 +109,10 @@ export function MetricBindingFields({
                   key={candidate.source}
                   value={candidate.source}
                 >
-                  {SOURCE_LABELS[candidate.source] ?? candidate.source}
+                  <span className="flex items-center gap-2">
+                    <SourceLogo source={candidate.source} className="h-4 w-4" />
+                    {SOURCE_LABELS[candidate.source] ?? candidate.source}
+                  </span>
                 </SelectItem>
               ))}
             </SelectContent>

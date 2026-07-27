@@ -17,6 +17,7 @@ import { ErrorBoundary } from '@/components/ui/error-boundary'
 import { GoalDashboard } from '@/components/goals/widgets/goal-dashboard'
 import { CATEGORY_ACCENTS, CATEGORY_ICONS } from '@/components/goals/goal-template-accents'
 import { SOURCE_HINTS, SOURCE_LABELS } from '@/components/goals/source-labels'
+import { SourceLogo } from '@/components/goals/source-logo'
 import { buildPreviewDashboardData } from '@/lib/goals/preview-data'
 import { resolveLayoutMetricRefs } from '@/lib/goals/dashboard'
 import { connectedSourceSet, type MetricSourceOption } from '@/lib/metrics/source-options'
@@ -146,22 +147,25 @@ export function GoalTemplateDetail({
                   data-connected={isConnected}
                   className="flex items-center justify-between gap-3 rounded-lg border border-border/60 px-3 py-2"
                 >
-                  <div className="min-w-0">
-                    <p className="flex items-center gap-1.5 text-sm font-medium">
-                      {isConnected && <Check className="h-3.5 w-3.5 text-emerald-500" aria-hidden />}
-                      {SOURCE_LABELS[source] ?? source}
-                      {recommended === source && (
-                        <Badge variant="secondary" className="text-[10px] font-medium">Recommended</Badge>
-                      )}
-                    </p>
-                    {SOURCE_HINTS[source] && (
-                      <p className="text-xs text-muted-foreground">{SOURCE_HINTS[source]}</p>
-                    )}
-                    {source === 'manual' && (
-                      <p className="text-xs text-muted-foreground">
-                        Always available — no connection needed.
+                  <div className="flex min-w-0 items-start gap-3">
+                    <SourceLogo source={source} className="mt-0.5" />
+                    <div className="min-w-0">
+                      <p className="flex items-center gap-1.5 text-sm font-medium">
+                        {isConnected && <Check className="h-3.5 w-3.5 text-emerald-500" aria-hidden />}
+                        {SOURCE_LABELS[source] ?? source}
+                        {recommended === source && (
+                          <Badge variant="secondary" className="text-[10px] font-medium">Recommended</Badge>
+                        )}
                       </p>
-                    )}
+                      {SOURCE_HINTS[source] && (
+                        <p className="text-xs text-muted-foreground">{SOURCE_HINTS[source]}</p>
+                      )}
+                      {source === 'manual' && (
+                        <p className="text-xs text-muted-foreground">
+                          Always available — no connection needed.
+                        </p>
+                      )}
+                    </div>
                   </div>
                   {!isConnected && !sourcesFailed && source !== 'manual' && (
                     <Button size="sm" variant="outline" asChild>

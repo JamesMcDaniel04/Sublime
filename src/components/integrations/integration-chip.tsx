@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react'
 import { IntegrationLogo } from '@/components/integrations/integration-logo'
 
 /**
@@ -5,6 +6,9 @@ import { IntegrationLogo } from '@/components/integrations/integration-logo'
  * integration name ("Slack", "Sublime MCP", "Email") to a logo slug so
  * template/skill cards and their detail pages render real marks. Anything
  * unmapped falls through to IntegrationLogo's initial-tile fallback.
+ *
+ * Callers that already know the mark — metric sources resolve theirs from a
+ * table, and two of them have no brand at all — pass `logo` and skip the guess.
  */
 
 export function integrationSlug(name: string): string | null {
@@ -38,16 +42,16 @@ export function integrationSlug(name: string): string | null {
   return null
 }
 
-export function IntegrationChip({ name }: { name: string }) {
+export function IntegrationChip({ name, logo }: { name: string; logo?: ReactNode }) {
   const label = name
   const isHttp = label.toLowerCase().includes('http')
   return (
     <span className="inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-muted/40 py-1 pl-1 pr-2.5 text-xs font-medium text-foreground/80">
-      {isHttp ? (
+      {logo ?? (isHttp ? (
         <span className="flex h-4 w-4 items-center justify-center text-sm leading-none" aria-hidden>🌐</span>
       ) : (
         <IntegrationLogo name={label} slug={integrationSlug(label) ?? integrationSlug(name)} className="h-4 w-4" />
-      )}
+      ))}
       {label}
     </span>
   )

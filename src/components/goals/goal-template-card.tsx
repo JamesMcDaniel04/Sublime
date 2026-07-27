@@ -6,6 +6,7 @@ import { IntegrationChip } from '@/components/integrations/integration-chip'
 import { TemplateCardShell } from '@/components/templates/template-card-shell'
 import { CATEGORY_ACCENTS, CATEGORY_ICONS } from '@/components/goals/goal-template-accents'
 import { SOURCE_LABELS } from '@/components/goals/source-labels'
+import { SourceLogo } from '@/components/goals/source-logo'
 import type { GoalTemplate } from '@/lib/goals/goal-templates'
 import { cn } from '@/lib/utils'
 
@@ -74,7 +75,10 @@ export function GoalTemplateCard({
                   data-connected={connectedSources.has(source)}
                   className={cn(!connectedSources.has(source) && 'opacity-55')}
                 >
-                  <IntegrationChip name={SOURCE_LABELS[source] ?? source} />
+                  <IntegrationChip
+                    name={SOURCE_LABELS[source] ?? source}
+                    logo={<SourceLogo source={source} className="h-4 w-4" />}
+                  />
                 </span>
               ))}
               {overflow > 0 && (

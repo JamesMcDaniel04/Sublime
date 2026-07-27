@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { ArrowLeft, ArrowRight, Check, Database, Link2, Target } from 'lucide-react'
+import { ArrowLeft, ArrowRight, Check, Link2, Target } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
@@ -29,6 +29,7 @@ import {
   SOURCE_HINTS,
   SOURCE_LABELS,
 } from '@/components/goals/source-labels'
+import { SourceLogo } from '@/components/goals/source-logo'
 import { sourceIsAvailable } from '@/lib/metrics/source-options'
 import { invalidateCachedJson } from '@/lib/client/use-cached-json'
 
@@ -589,23 +590,25 @@ export default function NewGoalPage() {
                             tabIndex={available ? 0 : undefined}
                           >
                             <div className="flex items-center justify-between gap-3">
-                              <div>
-                                <p className="flex items-center gap-2 font-medium">
-                                  {source.source === 'postgres' && <Database className="h-4 w-4" />}
-                                  {SOURCE_LABELS[source.source] ?? source.source}
-                                </p>
-                                {SOURCE_HINTS[source.source] && (
-                                  <p className="text-xs text-muted-foreground">
-                                    {SOURCE_HINTS[source.source]}
+                              <div className="flex min-w-0 items-start gap-3">
+                                <SourceLogo source={source.source} className="mt-0.5" />
+                                <div className="min-w-0">
+                                  <p className="font-medium">
+                                    {SOURCE_LABELS[source.source] ?? source.source}
                                   </p>
-                                )}
-                                {!available && (
-                                  <p className="text-xs text-muted-foreground">
-                                    {source.source === 'slack_assisted'
-                                      ? 'Slack is not connected for this workspace yet.'
-                                      : 'Connect an account before selecting this source.'}
-                                  </p>
-                                )}
+                                  {SOURCE_HINTS[source.source] && (
+                                    <p className="text-xs text-muted-foreground">
+                                      {SOURCE_HINTS[source.source]}
+                                    </p>
+                                  )}
+                                  {!available && (
+                                    <p className="text-xs text-muted-foreground">
+                                      {source.source === 'slack_assisted'
+                                        ? 'Slack is not connected for this workspace yet.'
+                                        : 'Connect an account before selecting this source.'}
+                                    </p>
+                                  )}
+                                </div>
                               </div>
                               {selected && <Check className="h-4 w-4 text-success" />}
                               {!available && source.source !== 'slack_assisted' && (
