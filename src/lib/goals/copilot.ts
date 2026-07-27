@@ -26,36 +26,59 @@ const GOAL_KINDS = [
 ] as const
 const MAX_DESCRIPTION_CHARS = 2000
 
+/**
+ * Nullable the way structured outputs actually accept it. A bare
+ * `type: ['string','null']` union is outside the supported JSON Schema
+ * subset and gets the whole request rejected with a 400; `anyOf` is
+ * supported. See the schema conformance test in __tests__/copilot-schema.
+ */
+const nullable = (schema: Record<string, unknown>) =>
+  ({ anyOf: [schema, { type: 'null' }] }) as const
+
+/**
+ * Free-form config travels as a JSON *string*, not an object. Strict mode
+ * cannot express an open object at all — every object must close
+ * additionalProperties, and closing a property-less one collapses it to `{}`,
+ * which would silently drop every widget's config. The Flows copilot solves
+ * the same problem the same way (see lib/flows/copilot-generate). The server
+ * parses these back with parseConfigJson.
+ */
+const CONFIG_JSON = {
+  type: 'string',
+  description:
+    'A JSON object serialized as a string. Example: {"metric":0}. Use {} when there is nothing to configure.',
+} as const
+
 export const COPILOT_DRAFT_SCHEMA = {
   type: 'object',
   properties: {
     name: { type: 'string' },
-    description: { type: ['string', 'null'] },
+    description: nullable({ type: 'string' }),
     kind: { type: 'string', enum: [...GOAL_KINDS] },
     direction: { type: 'string', enum: ['increase', 'decrease'] },
     unit: { type: 'string', enum: ['usd', 'count', 'percent'] },
-    recurrence: {
-      type: ['string', 'null'],
-      enum: ['monthly', 'quarterly', 'yearly', null],
-    },
+    recurrence: nullable({
+      type: 'string',
+      enum: ['monthly', 'quarterly', 'yearly'],
+    }),
     personal: { type: 'boolean' },
-    suggestedTarget: {
-      type: ['object', 'null'],
+    suggestedTarget: nullable({
+      type: 'object',
       properties: {
         value: { type: 'number' },
         rationale: { type: 'string' },
       },
       required: ['value', 'rationale'],
       additionalProperties: false,
-    },
-    suggestedTargetDate: {
-      type: ['string', 'null'],
+    }),
+    suggestedTargetDate: nullable({
+      type: 'string',
       description: 'YYYY-MM-DD, must be in the future',
-    },
+    }),
+    // Item counts are enforced by rawDraftSchema below and restated in the
+    // system prompt — minItems/maxItems are not part of the supported subset.
     metrics: {
       type: 'array',
-      minItems: 1,
-      maxItems: 4,
       items: {
         type: 'object',
         properties: {
@@ -64,7 +87,7 @@ export const COPILOT_DRAFT_SCHEMA = {
           source: { type: 'string' },
           metricKey: { type: 'string' },
           unit: { type: 'string', enum: ['usd', 'count', 'percent'] },
-          config: { type: 'object' },
+          config: CONFIG_JSON,
         },
         required: ['label', 'role', 'source', 'metricKey', 'unit', 'config'],
         additionalProperties: false,
@@ -72,13 +95,12 @@ export const COPILOT_DRAFT_SCHEMA = {
     },
     widgets: {
       type: 'array',
-      maxItems: 12,
       items: {
         type: 'object',
         properties: {
           id: { type: 'string' },
           type: { type: 'string', enum: [...WIDGET_TYPES] },
-          config: { type: 'object' },
+          config: CONFIG_JSON,
         },
         required: ['id', 'type', 'config'],
         additionalProperties: false,
@@ -128,6 +150,29 @@ function fewShotTemplates(): Array<{
   }))
 }
 
+/**
+ * Accept config in either shape: the JSON string the schema now asks for, or
+ * a bare object (what the model sometimes emits anyway, and what the older
+ * fixtures use). Anything unparseable degrades to `{}` rather than failing the
+ * whole draft — a malformed widget config costs one widget, not the dashboard.
+ */
+export function parseConfigJson(value: unknown): Record<string, unknown> {
+  if (value && typeof value === 'object' && !Array.isArray(value)) {
+    return value as Record<string, unknown>
+  }
+  if (typeof value !== 'string' || value.trim() === '') return {}
+  try {
+    const parsed = JSON.parse(value)
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>)
+      : {}
+  } catch {
+    return {}
+  }
+}
+
+const configJson = z.unknown().transform(parseConfigJson)
+
 const rawDraftSchema = z.object({
   name: z.string().min(1).max(120),
   description: z.string().max(2000).nullable(),
@@ -148,7 +193,7 @@ const rawDraftSchema = z.object({
         source: z.string(),
         metricKey: z.string(),
         unit: z.enum(['usd', 'count', 'percent']),
-        config: z.record(z.string(), z.unknown()).default({}),
+        config: configJson,
       }),
     )
     .min(1)
@@ -264,7 +309,7 @@ export function validateCopilotDraft(
   if (!sawPrimary) metrics[0].role = 'primary'
 
   const layout = parseDraftLayout(
-    { version: 1, widgets: data.widgets },
+    { version: 1, widgets: data.widgets.map(withParsedWidgetConfig) },
     metrics.length,
   )
   if (!layout && data.widgets.length > 0) {

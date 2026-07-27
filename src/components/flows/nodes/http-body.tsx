@@ -1,60 +1,27 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
-import { ChevronDown, KeyRound, Pencil } from 'lucide-react'
+import { useState } from 'react'
 import { cn } from '@/lib/utils'
 import type { FlowNode } from '@/lib/flows/graph'
 import { parseCurlCommand } from '@/lib/flows/curl-import'
 import { parseFlowToolConnectionId } from '@/lib/flows/tool-connection-id'
-import { TYPE_LABELS, draftFromRedacted, emptyDraft, type CredentialDraft } from '@/lib/credentials/form'
-import { CREDENTIAL_TYPES, type CredentialType, type RedactedCredential } from '@/lib/credentials/types'
-import { CredentialEditor } from '@/components/credentials/credential-editor'
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import type { CredentialType } from '@/lib/credentials/types'
+import { CredentialPicker } from '@/components/credentials/credential-picker'
 import { Switch } from '@/components/ui/switch'
 import { TokenTextEditor } from '../token-text-editor'
-import { SearchableSelect } from '../searchable-select'
 import type { ToolCatalog } from '../tool-catalog-type'
 import { InlineKeyValue } from './inline-key-value'
 import { controlClass, labelClass, tokenControlBase, tokenControlClass } from './field-primitives'
 import type { NodeBodyModule, NodeBodyProps, TokenEditorWiring } from './types'
 import { FieldPreview } from './field-preview'
-import { CredentialHealth } from './credential-health'
-import type { VerificationView } from './verification-badge'
 
 type HttpNode = Extract<FlowNode, { type: 'http' }>
-type ListedCredential = {
-  id: string
-  name: string
-  type: string
-  allowedDomains: string[]
-  personal?: boolean
-  config?: RedactedCredential
-  verification?: VerificationView
-}
-
 /**
  * Methods where fetch refuses a body. Every other method may carry one — n8n
  * offers Send Body on all of them, and silently hiding it for DELETE/OPTIONS
  * blocked legitimate requests.
  */
 const BODYLESS_METHODS = new Set(['GET', 'HEAD'])
-
-function hostnameOf(value: string): string {
-  try {
-    return new URL(value).hostname
-  } catch {
-    return ''
-  }
-}
-
-function domainMatches(hostname: string, allowedDomains: string[]) {
-  if (!hostname || allowedDomains.length === 0) return true
-  const host = hostname.toLowerCase()
-  return allowedDomains.some((raw) => {
-    const domain = raw.trim().toLowerCase().replace(/^\.+/, '')
-    return Boolean(domain && (host === domain || host.endsWith(`.${domain}`)))
-  })
-}
 
 function ToggleSection({
   label,
@@ -156,33 +123,14 @@ function HttpBody({
   const { labelCtx, registerEditor, focusEditor } = tokenWiring
   const authMode: 'none' | 'predefined' | 'generic' =
     node.data.authMode ?? (node.data.credentialId ? 'generic' : node.data.connectionId ? 'predefined' : 'none')
-  const [credentials, setCredentials] = useState<ListedCredential[]>([])
-  // null = closed. `{ id }` edits that stored credential; `{}` creates one.
-  const [credentialModal, setCredentialModal] = useState<{ id?: string; draft: CredentialDraft } | null>(null)
   const [curlOpen, setCurlOpen] = useState(false)
   const [curlText, setCurlText] = useState('')
   const [curlError, setCurlError] = useState<string | null>(null)
 
-  const loadCredentials = useCallback(async () => {
-    const response = await fetch('/api/credentials')
-    const body = await response.json().catch(() => ({}))
-    if (response.ok) setCredentials(body.credentials ?? [])
-  }, [])
-
-  useEffect(() => {
-    if (authMode === 'generic') void loadCredentials().catch(() => undefined)
-  }, [authMode, loadCredentials])
-
   const patch = (data: Partial<HttpNode['data']>) => update({ ...node, data: { ...node.data, ...data } })
   const urlInvalid = Boolean(showErrors && !node.data.url)
   const authConnections = toolCatalog.filter((entry) => parseFlowToolConnectionId(entry.id).plane === 'mcp')
-  const hostname = hostnameOf(node.data.url)
-  const selectedCredential = credentials.find((credential) => credential.id === node.data.credentialId)
-  const credentialType = (node.data.credentialType ?? selectedCredential?.type ?? 'basic') as CredentialType
-  const compatibleCredentials = useMemo(
-    () => credentials.filter((credential) => credential.type === credentialType && domainMatches(hostname, credential.allowedDomains)),
-    [credentials, credentialType, hostname],
-  )
+  const credentialType = (node.data.credentialType ?? 'basic') as CredentialType
   const bodyAllowed = !BODYLESS_METHODS.has(node.data.method)
   const sendQuery = node.data.sendQuery ?? Boolean(node.data.query?.trim())
   const sendHeaders = node.data.sendHeaders ?? Boolean(node.data.headers?.trim())
@@ -209,13 +157,6 @@ function HttpBody({
     } catch (error) {
       setCurlError(error instanceof Error ? error.message : String(error))
     }
-  }
-
-  const startCredentialDraft = {
-    ...emptyDraft(),
-    name: hostname ? `${hostname} ${TYPE_LABELS[credentialType]}` : `Unnamed ${TYPE_LABELS[credentialType]}`,
-    type: credentialType,
-    allowedDomains: hostname,
   }
 
   return (
@@ -315,79 +256,13 @@ function HttpBody({
         )}
 
         {authMode === 'generic' && (
-          <div className="grid gap-3">
-            <div className="grid gap-2">
-              <label className={labelClass}>Generic Auth Type</label>
-              <div className="relative">
-                <select
-                  aria-label="Generic auth type"
-                  value={credentialType}
-                  onChange={(event) => patch({
-                    credentialType: event.target.value as CredentialType,
-                    credentialId: undefined,
-                  })}
-                  className={cn(controlClass, 'w-full appearance-none pr-9')}
-                >
-                  {CREDENTIAL_TYPES.map((type) => <option key={type} value={type}>{TYPE_LABELS[type]}</option>)}
-                </select>
-                <ChevronDown className="pointer-events-none absolute right-3 top-3 h-4 w-4 text-muted-foreground" />
-              </div>
-            </div>
-            <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
-              <SearchableSelect
-                value={node.data.credentialId ?? ''}
-                ariaLabel={`${TYPE_LABELS[credentialType]} credential`}
-                placeholder={`Choose ${TYPE_LABELS[credentialType]}`}
-                emptyLabel={hostname ? `No ${TYPE_LABELS[credentialType]} credentials match ${hostname}.` : `No ${TYPE_LABELS[credentialType]} credentials yet.`}
-                options={compatibleCredentials.map((credential) => ({
-                  value: credential.id,
-                  label: credential.name,
-                  hint: credential.allowedDomains.length ? credential.allowedDomains.join(', ') : 'any domain',
-                }))}
-                onChange={(credentialId) => patch({ credentialId: credentialId || undefined })}
-              />
-              <div className="flex gap-2">
-                {/* Without this there was no route from a step to a wrong
-                    credential — the only fix was to leave and find it in
-                    Settings, or create a duplicate. */}
-                {selectedCredential?.config && (
-                  <button
-                    type="button"
-                    aria-label={`Edit ${selectedCredential.name}`}
-                    onClick={() => setCredentialModal({
-                      id: selectedCredential.id,
-                      draft: draftFromRedacted({
-                        name: selectedCredential.name,
-                        type: selectedCredential.type,
-                        personal: selectedCredential.personal ?? true,
-                        allowedDomains: selectedCredential.allowedDomains,
-                        config: selectedCredential.config as RedactedCredential,
-                      }),
-                    })}
-                    className="flex h-10 items-center justify-center gap-2 rounded-md border border-border bg-background px-3 text-sm font-semibold text-foreground hover:bg-muted"
-                  >
-                    <Pencil className="h-4 w-4" /> Edit
-                  </button>
-                )}
-                <button
-                  type="button"
-                  onClick={() => setCredentialModal({ draft: startCredentialDraft })}
-                  className="flex h-10 items-center justify-center gap-2 rounded-md border border-border bg-background px-3 text-sm font-semibold text-foreground hover:bg-muted"
-                >
-                  <KeyRound className="h-4 w-4" /> Set up credential
-                </button>
-              </div>
-            </div>
-            <CredentialHealth
-              credentialId={node.data.credentialId}
-              verification={selectedCredential?.verification}
-              requestUrl={node.data.url}
-              onRechecked={() => void loadCredentials().catch(() => undefined)}
-            />
-            <p className="text-xs text-muted-foreground">
-              Credentials are encrypted, scoped to your account by default, and reusable by other HTTP nodes that call an allowed domain.
-            </p>
-          </div>
+          <CredentialPicker
+            value={node.data.credentialId}
+            type={credentialType}
+            verifyAgainst={node.data.url}
+            context="http"
+            onChange={(credentialId, nextType) => patch({ authMode: 'generic', credentialId, credentialType: nextType })}
+          />
         )}
       </div>
 
@@ -519,34 +394,6 @@ function HttpBody({
         </div>
       </ToggleSection>
 
-      <Dialog open={credentialModal !== null} onOpenChange={(open) => !open && setCredentialModal(null)}>
-        <DialogContent className="max-h-[88vh] max-w-2xl overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>{credentialModal?.id ? `Edit ${credentialModal.draft.name}` : TYPE_LABELS[credentialType]}</DialogTitle>
-            <p className="text-sm text-muted-foreground">
-              Save once, verify with a safe GET to this node&apos;s URL, then reuse it for matching endpoints.
-            </p>
-          </DialogHeader>
-          {credentialModal && (
-            <CredentialEditor
-              key={credentialModal.id ?? 'new'}
-              credentialId={credentialModal.id}
-              initial={credentialModal.draft}
-              context="http"
-              verifyAgainst={node.data.url}
-              onSaved={(credential) => {
-                patch({ authMode: 'generic', credentialType: credential.type as CredentialType, credentialId: credential.id })
-                setCredentialModal(null)
-                // Refetch rather than splice in the returned row: only the list
-                // endpoint carries the redacted config and verification state
-                // the picker and health badge render.
-                void loadCredentials().catch(() => undefined)
-              }}
-              onCancel={() => setCredentialModal(null)}
-            />
-          )}
-        </DialogContent>
-      </Dialog>
     </div>
   )
 }

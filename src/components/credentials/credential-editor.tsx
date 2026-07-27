@@ -59,7 +59,8 @@ export function CredentialEditor({
    * source consumes. Offering it here would collect trust material that the
    * request path silently ignores.
    */
-  context?: 'http' | 'vault'
+  /** 'vault' is the full Settings form; 'http'/'mcp' are the in-context ones. */
+  context?: 'http' | 'vault' | 'mcp'
 }>) {
   const editing = Boolean(credentialId)
   const [draft, setDraft] = useState<CredentialDraft>(initial ?? emptyDraft())
