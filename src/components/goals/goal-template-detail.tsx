@@ -32,7 +32,9 @@ import { cn } from '@/lib/utils'
 const SAMPLE_TARGETS: Record<string, { start: number; target: number }> = {
   usd: { start: 250_000, target: 1_000_000 },
   count: { start: 40, target: 160 },
-  percent: { start: 62, target: 85 },
+  // Percent values are fractions: fmtValue renders `value * 100`. Whole
+  // numbers here render as "8500%".
+  percent: { start: 0.62, target: 0.85 },
 }
 
 export function GoalTemplateDetail({

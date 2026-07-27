@@ -25,6 +25,24 @@ test('the detail dialog lists the agents that work on the goal', () => {
   assert.ok(screen.getByText(/Pipeline Hygiene/i))
 })
 
+test('a percent template preview shows a believable percentage', () => {
+  // fmtValue renders percent as value * 100, so SAMPLE_TARGETS must be
+  // fractions. Whole numbers render "8500%".
+  render(
+    <GoalTemplateDetail
+      template={goalTemplateByKey('sales-org-pipeline-coverage')!}
+      sources={[]}
+      sourcesFailed={false}
+      onClose={() => {}}
+    />,
+  )
+  // Assert on an element's OWN text, not document.textContent: the history
+  // table puts a date cell flush against a value cell, so the concatenated
+  // string contains "7/6/2026" + "76%" = "202676%" with nothing wrong.
+  assert.ok(screen.getAllByText('85%').length > 0, 'the 85% target should render as 85%')
+  assert.equal(screen.queryByText('8500%'), null, 'percent target rendered as whole number')
+})
+
 test('a source-dependent agent is shown with its qualifier before the source is chosen', () => {
   render(
     <GoalTemplateDetail
