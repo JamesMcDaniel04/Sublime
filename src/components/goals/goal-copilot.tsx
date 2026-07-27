@@ -51,7 +51,7 @@ export function GoalCopilot({
   }
 
   return (
-    <Card className="space-y-4 border-chart-violet/30 bg-chart-violet/5 p-6">
+    <Card className="space-y-4 border-chart-violet/30 p-6">
       <div className="flex items-center gap-2">
         <Sparkles className="h-5 w-5 text-chart-violet" />
         <div>
