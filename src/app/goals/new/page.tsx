@@ -23,6 +23,7 @@ import { cn } from '@/lib/utils'
 import { GOAL_KIND_UNITS, type GoalSummary } from '@/lib/types'
 import { goalTemplateByKey } from '@/lib/goals/goal-templates'
 import { NO_CONNECTION_SOURCES } from '@/lib/goals/metric-sources'
+import type { DashboardLayout } from '@/lib/goals/dashboard'
 import { fmtValue } from '@/components/goals/chart-math'
 import {
   SOURCE_HINTS,
@@ -101,6 +102,9 @@ export default function NewGoalPage() {
     startValue: '',
   })
   const [csvIntent, setCsvIntent] = useState(false)
+  // Set when a template is applied — the layout the user previewed in the
+  // template modal, sent verbatim so the created goal's dashboard matches.
+  const [templateLayout, setTemplateLayout] = useState<DashboardLayout | null>(null)
 
   // Template prefill (?template=<key>): window.location instead of
   // useSearchParams so the page needs no Suspense boundary at build time.
@@ -117,6 +121,7 @@ export default function NewGoalPage() {
         recurrence: entry.recurrence,
         personal: entry.scope === 'personal',
       }))
+      setTemplateLayout(entry.layout)
       toast.info(
         `Template applied — set your target${entry.scope === 'personal' ? '' : ' for the org'} and pick a source.`,
       )
@@ -303,6 +308,7 @@ export default function NewGoalPage() {
           ...(state.personal && state.parentGoalId
             ? { parentGoalId: state.parentGoalId }
             : {}),
+          ...(templateLayout ? { dashboardLayout: templateLayout } : {}),
           metric: {
             source: state.source,
             metricKey: state.metricKey,
