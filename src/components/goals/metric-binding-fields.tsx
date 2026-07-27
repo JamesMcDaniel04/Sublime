@@ -1,5 +1,6 @@
 'use client'
 
+import { useEffect, useState } from 'react'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import {
@@ -43,6 +44,7 @@ export function metricBindingIssue(binding: MetricBinding): string | null {
       ['spreadsheetId', 'Enter the spreadsheet id for'],
       ['range', 'Enter the A1 range for'],
     ],
+    google_analytics: [['propertyId', 'Pick the GA4 property for']],
     postgres: [['query', 'Enter the SQL query for']],
     url: [['url', 'Enter the URL that reports']],
     slack_assisted: [['channel', 'Enter the Slack channel that reports']],
@@ -184,6 +186,13 @@ export function MetricBindingFields({
           />
         </div>
       )}
+      {binding.source === 'google_analytics' && (
+        <Ga4PropertyField
+          connectionRef={binding.connectionRef}
+          value={text('propertyId')}
+          onChange={(propertyId) => setConfig('propertyId', propertyId)}
+        />
+      )}
       {binding.source === 'postgres' && (
         <Textarea
           value={text('query')}
@@ -249,5 +258,67 @@ export function MetricBindingFields({
         </div>
       )}
     </div>
+  )
+}
+
+/** GA4 property chooser. A numeric property id is not something anyone can
+ *  recite, so offer names — but degrade to a raw input when discovery returns
+ *  nothing, rather than blocking goal creation on a failed probe. */
+function Ga4PropertyField({
+  connectionRef,
+  value,
+  onChange,
+}: {
+  readonly connectionRef: string | null
+  readonly value: string
+  readonly onChange: (propertyId: string) => void
+}) {
+  const [properties, setProperties] = useState<Array<{ propertyId: string; displayName: string }>>([])
+  const [loaded, setLoaded] = useState(false)
+
+  useEffect(() => {
+    if (!connectionRef) return
+    let cancelled = false
+    setLoaded(false)
+    fetch(`/api/goals/metrics/ga4/properties?connectionRef=${encodeURIComponent(connectionRef)}`)
+      .then((response) => response.json())
+      .then((body: { properties?: Array<{ propertyId: string; displayName: string }> }) => {
+        if (!cancelled) setProperties(body.properties ?? [])
+      })
+      .catch(() => {
+        if (!cancelled) setProperties([])
+      })
+      .finally(() => {
+        if (!cancelled) setLoaded(true)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [connectionRef])
+
+  if (loaded && properties.length === 0) {
+    return (
+      <Input
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        placeholder="GA4 property id (493820104)"
+        aria-label="GA4 property id"
+      />
+    )
+  }
+
+  return (
+    <Select value={value || undefined} onValueChange={onChange}>
+      <SelectTrigger aria-label="GA4 property">
+        <SelectValue placeholder={loaded ? 'Choose a property' : 'Loading properties…'} />
+      </SelectTrigger>
+      <SelectContent>
+        {properties.map((property) => (
+          <SelectItem key={property.propertyId} value={property.propertyId}>
+            {property.displayName}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
   )
 }
