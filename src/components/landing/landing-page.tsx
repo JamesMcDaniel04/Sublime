@@ -125,7 +125,7 @@ export function LandingPage({ fontClassName = '' }: { fontClassName?: string }) 
               </h1>
               <p className="mt-6 text-base leading-relaxed text-muted-foreground max-w-[420px]">
                 Sublime connects to your tech stack, connects the dots, and deploys specialized
-                agents against the goals that matter: Quota, ARR, launch dates, ETC. Every run shows
+                agents against the goals that matter: Quota, ARR, KPIs, etc. Every run shows
                 its work and every goal shows its progress.
               </p>
               <div className="mt-10 flex items-center gap-4">
@@ -471,7 +471,7 @@ export function LandingPage({ fontClassName = '' }: { fontClassName?: string }) 
           <div className="border border-border bg-background p-10 max-w-[720px] mx-auto">
             <blockquote className="text-[20px] font-[400] leading-[1.5] tracking-[-0.01em] text-foreground/85">
               &ldquo;We pointed Sublime&rsquo;s agents at our quarterly pipeline goal. They ship the
-              digests and follow-ups nobody had time for — and for the first time I have an ROI
+              digests and follow-ups nobody had time for and for the first time I have an ROI
               number I can show in the QBR.&rdquo;
             </blockquote>
             <div className="mt-6 flex items-center gap-3">
