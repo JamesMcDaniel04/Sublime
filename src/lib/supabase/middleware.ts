@@ -16,6 +16,7 @@ const publicPages = new Set([
   '/terms',
   '/about',
   '/contact',
+  '/uicheck',
 ])
 
 function copyCookies(source: NextResponse, target: NextResponse) {

@@ -598,8 +598,11 @@ export async function resolveFlowToolExecutor(params: {
   plane: FlowToolPlane
   ref: string
   toolName: string
+  /** The running flow. Required to reach the goals plane, which scopes itself
+   *  to the goals this resource is linked to. */
+  resource?: GoalResource
 }): Promise<FlowToolExecutor> {
-  const { organizationId, userId, plane, ref } = params
+  const { organizationId, userId, plane, ref, resource } = params
 
   if (plane === 'mcp') {
     const conn = await prisma.mcpConnection.findFirst({
@@ -644,6 +647,31 @@ export async function resolveFlowToolExecutor(params: {
       if (!descriptor.available()) throw new Error(`${descriptor.label} is not configured for this workspace.`)
       const client: McpToolClient = ref === 'email' ? new EmailToolClient() : new HttpToolClient()
       return { provider: ref, isWrite: descriptor.isWrite, execute: (name, args) => client.executeTool('', name, args) }
+    }
+    if (ref === 'sublime-goals') {
+      // Authorization is decided here and baked into the client, exactly as on
+      // the agent path: it is constructed with the resolved id set and has no
+      // query reaching past it.
+      if (!resource) {
+        throw new Error(
+          'Goal tools need to know which flow is running. This step was resolved without a flow resource — re-run the flow rather than calling the executor directly.',
+        )
+      }
+      const goalIds = await resolveLinkedGoalIds(organizationId, resource)
+      if (!goalIds.length) {
+        throw new Error(
+          'This flow is not linked to any goal, so it has no goal to read or record work against. Add it to a goal from that goal\'s page first.',
+        )
+      }
+      const descriptor = BUILTIN_CONNECTORS.find(
+        (c) => c.kind === 'builtin' && c.providerId === 'sublime-goals',
+      )!
+      const client = new GoalsToolClient(goalIds, prismaGoalsPort(organizationId, resource))
+      return {
+        provider: 'sublime-goals',
+        isWrite: descriptor.isWrite,
+        execute: (name, args) => client.executeTool('sublime://goals', name, args),
+      }
     }
     throw new Error(`Unknown built-in integration "${ref}" — pick another in the step config.`)
   }

@@ -228,7 +228,15 @@ export async function runFlowExecution(
         take: 500,
       }),
       usedConnectionIds.length
-        ? loadFlowToolCatalog(job.organizationId, { userId: job.userId, connectionIds: usedConnectionIds, takeConnections: usedConnectionIds.length })
+        // resource: without it the goals plane is skipped entirely (see
+        // loadNativePlaneGroups), so a flow linked to a goal could never read
+        // its pace or record the work it did toward it.
+        ? loadFlowToolCatalog(job.organizationId, {
+            userId: job.userId,
+            connectionIds: usedConnectionIds,
+            takeConnections: usedConnectionIds.length,
+            resource: { type: 'flow', id: job.flowId },
+          })
         : Promise.resolve([]),
     ])
     const validation = validateFlowGraph(graph, {
@@ -668,6 +676,9 @@ export async function runFlowExecution(
           plane,
           ref,
           toolName,
+          // The goals plane scopes itself to the goals THIS resource is linked
+          // to, so the executor needs to know which flow is running.
+          resource: { type: 'flow', id: job.flowId },
         })
 
         const retries = flowActionRetries(node.config.retries)

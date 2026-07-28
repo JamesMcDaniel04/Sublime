@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import { resolveLinkedGoalIds } from '@/lib/integrations/goals-port'
 import { goalWorkSection } from '../strategy'
 import { goalsTools } from '@/lib/integrations/goals'
+import { BUILTIN_CONNECTORS } from '@/lib/connectors/registry'
 
 type Row = { goalId: string }
 
@@ -89,4 +90,28 @@ test('the tools the goals plane exposes are exactly the ones that trigger the in
   const section = goalWorkSection(goalsTools())
   assert.ok(section, 'a goal-linked agent must be told to record its work')
   assert.match(section, /list_work/, 'the plane ships list_work, so the guidance must use it')
+})
+
+// ── Flows reach the goals plane ────────────────────────────────────────────
+// GoalContribution and GoalWork both model resourceType 'flow'. Until the
+// executor could construct a goals client for a flow, that was a promise the
+// schema made and the runtime could not keep.
+
+test('the goals connector is a builtin the flow executor must be able to resolve', () => {
+  const goalsConn = BUILTIN_CONNECTORS.find((c) => c.providerId === 'sublime-goals')
+  assert.ok(goalsConn, 'sublime-goals must be a registered builtin connector')
+  assert.equal(goalsConn.kind, 'builtin')
+})
+
+test('a flow resource resolves its own linked goals, scoped to the flow', async () => {
+  // Same authorization input agents use — the returned set is the client's
+  // entire reachable universe, so a flow can only ever touch goals it is
+  // actually linked to.
+  const db = fakeDb([{ goalId: 'goal-1' }, { goalId: 'goal-1' }, { goalId: 'goal-2' }])
+  const ids = await resolveLinkedGoalIds('org-1', { type: 'flow', id: 'flow-9' }, db as never)
+  assert.deepEqual(ids, ['goal-1', 'goal-2'], 'deduped')
+  assert.deepEqual(db.calls[0], {
+    where: { organizationId: 'org-1', resourceType: 'flow', resourceId: 'flow-9' },
+    select: { goalId: true },
+  })
 })
