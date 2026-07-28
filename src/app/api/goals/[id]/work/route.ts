@@ -34,14 +34,16 @@ export const GET = withAuthenticatedApi(async (request, auth) => {
 
   const open = { disposition: 'pending' as const }
   const scope = { organizationId: auth.organizationId, goalId }
-  const where =
-    filter === 'mine'
-      ? { ...scope, ...open, assigneeUserId: auth.dbUser.id }
-      : filter === 'unassigned'
-        ? { ...scope, ...open, assigneeUserId: null }
-        : filter === 'done'
-          ? { ...scope, disposition: { in: ['used', 'edited', 'skipped'] } }
-          : { ...scope, ...open }
+
+  // 'done' is the only filter that looks past open work; the rest narrow the
+  // pending queue by who owns it.
+  const WHERE_BY_FILTER: Record<Filter, Record<string, unknown>> = {
+    mine: { ...scope, ...open, assigneeUserId: auth.dbUser.id },
+    unassigned: { ...scope, ...open, assigneeUserId: null },
+    all: { ...scope, ...open },
+    done: { ...scope, disposition: { in: ['used', 'edited', 'skipped'] } },
+  }
+  const where = WHERE_BY_FILTER[filter]
 
   const items = await prisma.goalWork.findMany({
     where,
@@ -79,5 +81,7 @@ export const GET = withAuthenticatedApi(async (request, auth) => {
     })),
   )
 
-  return { items, stats }
+  // The viewer's id rides along so the queue can offer Claim without a
+  // separate /api/me round trip or a prop threaded down the goal page.
+  return { items, stats, viewerId: auth.dbUser.id }
 })

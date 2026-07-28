@@ -28,16 +28,13 @@ const EMPTY_STATS: WorkStats = {
  * Sits above the dashboard on the goal page because the work is the point and
  * the number is the evidence, not the other way round.
  */
-export function WorkQueue({
-  goalId,
-  currentUserId,
-}: {
-  goalId: string
-  currentUserId: string
-}) {
+export function WorkQueue({ goalId }: { goalId: string }) {
   const [filter, setFilter] = useState<string>('mine')
   const [items, setItems] = useState<WorkItemData[]>([])
   const [stats, setStats] = useState<WorkStats>(EMPTY_STATS)
+  // Learned from the same fetch that loads the queue — no /api/me round trip
+  // and nothing for the goal page to thread down.
+  const [viewerId, setViewerId] = useState<string | undefined>(undefined)
   const [loaded, setLoaded] = useState(false)
 
   const load = useCallback(async () => {
@@ -49,6 +46,7 @@ export function WorkQueue({
       if (!response.ok) throw new Error(body.error || 'could not load work')
       setItems(body.items ?? [])
       setStats(body.stats ?? EMPTY_STATS)
+      setViewerId(body.viewerId ?? undefined)
     } catch {
       // Best-effort, like the rest of the goal page: an unreachable queue
       // renders as empty rather than breaking the goal.
@@ -124,7 +122,7 @@ export function WorkQueue({
             <WorkItem
               key={item.id}
               item={item}
-              currentUserId={currentUserId}
+              currentUserId={viewerId}
               onPatch={(body) => void patch(item.id, body)}
             />
           ))}

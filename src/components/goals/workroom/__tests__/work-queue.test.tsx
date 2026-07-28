@@ -33,7 +33,7 @@ beforeEach(() => {
 })
 
 test('an empty queue explains itself and points at the agent bundle', async () => {
-  render(<WorkQueue goalId="g1" currentUserId="u1" />)
+  render(<WorkQueue goalId="g1" />)
   await waitFor(() => {
     assert.ok(screen.getByText(/no work yet/i))
     assert.ok(screen.getByText(/deploy an agent below/i))
@@ -44,7 +44,7 @@ test('items render with their subject', async () => {
   globalThis.fetch = (async () =>
     respond({ items: [item()], stats: emptyStats })) as typeof fetch
 
-  render(<WorkQueue goalId="g1" currentUserId="u1" />)
+  render(<WorkQueue goalId="g1" />)
   await waitFor(() => assert.ok(screen.getByText('Acme — deal 412')))
 })
 
@@ -55,7 +55,7 @@ test('switching a filter tab refetches with that filter', async () => {
     return respond({ items: [], stats: emptyStats })
   }) as typeof fetch
 
-  render(<WorkQueue goalId="g1" currentUserId="u1" />)
+  render(<WorkQueue goalId="g1" />)
   await waitFor(() => assert.ok(urls.some((url) => url.includes('filter=mine'))))
   fireEvent.click(screen.getByRole('tab', { name: 'Unassigned' }))
   await waitFor(() => assert.ok(urls.some((url) => url.includes('filter=unassigned'))))
@@ -74,7 +74,7 @@ test('the outcome prompt asks only about used work older than a week', async () 
       stats: emptyStats,
     })) as typeof fetch
 
-  render(<WorkQueue goalId="g1" currentUserId="u1" />)
+  render(<WorkQueue goalId="g1" />)
   await waitFor(() => assert.ok(screen.getByText(/did these land/i)))
 
   const prompt = screen.getByText(/did these land/i).parentElement!
@@ -96,6 +96,23 @@ test('a failed load renders an empty queue rather than breaking the goal page', 
     throw new Error('offline')
   }) as typeof fetch
 
-  render(<WorkQueue goalId="g1" currentUserId="u1" />)
+  render(<WorkQueue goalId="g1" />)
   await waitFor(() => assert.ok(screen.getByText(/no work yet/i)))
+})
+
+test('Claim appears once the viewer id arrives with the queue', async () => {
+  globalThis.fetch = (async () =>
+    respond({ items: [item()], stats: emptyStats, viewerId: 'u-viewer' })) as typeof fetch
+
+  render(<WorkQueue goalId="g1" />)
+  await waitFor(() => assert.ok(screen.getByRole('button', { name: /claim/i })))
+})
+
+test('without a viewer id there is no Claim to click', async () => {
+  globalThis.fetch = (async () =>
+    respond({ items: [item()], stats: emptyStats })) as typeof fetch
+
+  render(<WorkQueue goalId="g1" />)
+  await waitFor(() => assert.ok(screen.getByText('Acme — deal 412')))
+  assert.equal(screen.queryByRole('button', { name: /claim/i }), null)
 })

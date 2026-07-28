@@ -34,6 +34,7 @@ import { CompositionStrip } from '@/components/goals/composition-strip'
 import { CompositionEditDialog } from '@/components/goals/composition-edit'
 import type { MetricSourceOption } from '@/lib/metrics/available-sources'
 import { AgentBundleCard } from '@/components/goals/agent-bundle-card'
+import { WorkQueue } from '@/components/goals/workroom/work-queue'
 import { connectedSlugSet } from '@/lib/templates/relevance'
 import {
   GoalDashboard,
@@ -356,6 +357,11 @@ export default function GoalDetailPage() {
           (Stripe, your CRM, or SQL) for exact, automatic tracking.
         </p>
       )}
+
+      {/* Order is deliberate: the work first, the agents that produce it
+          directly beneath (so the empty state's "deploy an agent below" is
+          literally true), and the number last as evidence. */}
+      <WorkQueue goalId={goalId} />
 
       <AgentBundleCard
         goalId={goalId}
