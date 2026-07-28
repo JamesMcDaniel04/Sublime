@@ -2,7 +2,6 @@ import type { Metadata } from 'next'
 import { Anonymous_Pro, Geist } from 'next/font/google'
 import { Analytics } from '@vercel/analytics/next'
 import { ClientProviders } from '@/components/providers/client-providers'
-import { AppShell } from '@/components/layout/app-shell'
 import './globals.css'
 
 // PRIMARY DISPLAY/BODY — Geist, the landing page's typeface, so the marketing

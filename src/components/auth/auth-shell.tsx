@@ -9,7 +9,7 @@ import { Geist } from 'next/font/google'
 import { Moon, Sun } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { StackedLogo } from '@/components/landing/stacked-logo'
-import '@/app/landing.css'
+import '@/app/(public)/landing.css'
 
 const geist = Geist({ subsets: ['latin'], display: 'swap' })
 
