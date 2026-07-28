@@ -4,6 +4,7 @@ import { evaluateGoal, type EvalGoal } from '../evaluate'
 import {
   evaluateComposite,
   parseCompositionSpec,
+  type ComponentReading,
 } from '../composition/evaluate-composite'
 
 const DAY = 24 * 60 * 60 * 1000
@@ -152,7 +153,7 @@ test('components that do not reconcile to the headline drift', () => {
 })
 
 test('a component with a null value counts as missing, not as zero', () => {
-  const nulled = components()
+  const nulled: ComponentReading[] = components()
   nulled[0] = { ...nulled[0], value: null }
   const composite = evaluateComposite({
     goal,
