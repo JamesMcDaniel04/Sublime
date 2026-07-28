@@ -5,6 +5,8 @@ import { evaluateAndPersistGoal } from '@/lib/goals/refresh'
 import { surfaceGoalBenchmark } from '@/lib/goals/aggregate-benchmarks'
 import { ApiError, withAuthenticatedApi } from '@/lib/server/api-handler'
 import { parseDashboardLayout } from '@/lib/goals/dashboard'
+import { validateComposition } from '@/lib/goals/composition'
+import type { GoalKind } from '@/lib/goals/kind-migration'
 
 export const runtime = 'nodejs'
 
@@ -19,6 +21,7 @@ const patchSchema = z
     recurrence: z.enum(RECURRENCES).nullable().optional(),
     status: z.enum(['active', 'paused', 'achieved', 'missed']).optional(),
     dashboardLayout: z.unknown().optional(),
+    composition: z.unknown().optional(),
   })
   .refine((body) => Object.keys(body).length > 0, { message: 'No changes supplied.' })
   .refine((body) => body.targetDate === undefined || body.targetDate.getTime() > Date.now(), {
@@ -200,11 +203,36 @@ export const PATCH = withAuthenticatedApi(async (request, auth) => {
   const input = patchSchema.parse(await request.json().catch(() => ({})))
   const goal = await prisma.goal.findFirst({
     where: visibleWhere(auth.organizationId, auth.dbUser.id, id),
-    select: { id: true, startValue: true },
+    select: { id: true, startValue: true, kind: true },
   })
   if (!goal) throw new ApiError('Goal not found', 404, 'GOAL_NOT_FOUND')
   if (input.targetValue !== undefined && input.targetValue === goal.startValue) {
     throw new ApiError('Target must differ from the baseline.', 400, 'INVALID_TARGET')
+  }
+
+  // Composition is validated against the slots ACTUALLY bound on this goal, not
+  // against a client-supplied list: declaring a shape whose components do not
+  // exist would leave the goal permanently gated with no way to see why.
+  let compositionUpdate: Record<string, unknown> = {}
+  if ('composition' in input && input.composition !== undefined) {
+    if (input.composition === null) {
+      compositionUpdate = { composition: null, compositionState: null }
+    } else {
+      const bound = await prisma.goalMetric.findMany({
+        where: {
+          organizationId: auth.organizationId,
+          goalId: goal.id,
+          role: 'component',
+        },
+        select: { slot: true },
+      })
+      const slots = bound
+        .map((metric) => metric.slot)
+        .filter((slot): slot is string => Boolean(slot))
+      const message = validateComposition(goal.kind as GoalKind, input.composition, slots)
+      if (message) throw new ApiError(message, 400, 'INVALID_COMPOSITION')
+      compositionUpdate = { composition: input.composition }
+    }
   }
 
   let layoutUpdate: Record<string, unknown> = {}
@@ -245,11 +273,12 @@ export const PATCH = withAuthenticatedApi(async (request, auth) => {
       layoutUpdate = { dashboardLayout: layout as never }
     }
   }
-  const { dashboardLayout, ...rest } = input
+  const { dashboardLayout, composition, ...rest } = input
   void dashboardLayout
+  void composition
   await prisma.goal.update({
     where: { id: goal.id, organizationId: auth.organizationId },
-    data: { ...rest, ...layoutUpdate },
+    data: { ...rest, ...layoutUpdate, ...compositionUpdate },
   })
   // Re-evaluate when the target moved or the goal was un-paused — the cron
   // sweep skips paused goals, so without this the badge stays stale until the

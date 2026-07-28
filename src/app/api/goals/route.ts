@@ -8,6 +8,7 @@ import { validateReadOnlyQuery } from '@/lib/metrics/sources/postgres'
 import { assertSafeUrl } from '@/lib/metrics/sources/url'
 import { GOAL_KIND_UNITS } from '@/lib/types'
 import { GOAL_KIND_VALUES } from '@/lib/goals/kind-migration'
+import { validateComposition } from '@/lib/goals/composition'
 import { parseDraftLayout, resolveLayoutMetricRefs } from '@/lib/goals/dashboard'
 import { METRIC_SOURCES, NO_CONNECTION_SOURCES } from '@/lib/goals/metric-sources'
 
@@ -26,7 +27,9 @@ const metricInputSchema = z.object({
 })
 const metricListItemSchema = metricInputSchema.extend({
   label: z.string().min(1).max(80),
-  role: z.enum(['primary', 'supporting']),
+  role: z.enum(['primary', 'supporting', 'component']),
+  /** Required for role 'component', forbidden otherwise (refined below). */
+  slot: z.string().min(1).max(64).optional(),
   unit: z.enum(['usd', 'count', 'percent']).optional(),
 })
 const metricListOf = (body: {
@@ -35,7 +38,17 @@ const metricListOf = (body: {
 }) =>
   body.metrics ??
   (body.metric
-    ? [{ ...body.metric, label: null as string | null, role: 'primary' as const, unit: undefined }]
+    ? [
+        {
+          ...body.metric,
+          label: null as string | null,
+          role: 'primary' as const,
+          // The legacy single-metric shape is always the headline, never a
+          // component, so it carries no slot.
+          slot: undefined as string | undefined,
+          unit: undefined,
+        },
+      ]
     : [])
 
 const createSchema = z
@@ -52,8 +65,10 @@ const createSchema = z
     personal: z.boolean().default(false),
     parentGoalId: z.string().optional(),
     metric: metricInputSchema.optional(),
-    metrics: z.array(metricListItemSchema).min(1).max(4).optional(),
+    // 12, not 4: a composed goal carries its headline plus its components.
+    metrics: z.array(metricListItemSchema).min(1).max(12).optional(),
     dashboardLayout: z.unknown().optional(),
+    composition: z.unknown().optional(),
     templateKey: z.string().max(120).optional(),
   })
   .refine((body) => (body.metric !== undefined) !== (body.metrics !== undefined), {
@@ -65,6 +80,28 @@ const createSchema = z
       body.metrics.filter((metric) => metric.role === 'primary').length === 1,
     { message: 'Exactly one metric must be primary.' },
   )
+  .refine(
+    (body) =>
+      !body.metrics ||
+      body.metrics.every(
+        (metric) => (metric.role === 'component') === (metric.slot !== undefined),
+      ),
+    {
+      message:
+        'Component metrics need a slot; primary and supporting must not have one.',
+    },
+  )
+  .superRefine((body, ctx) => {
+    // The kind check stays a discrete predicate so the editions entitlement
+    // gate (spec 2026-07-28 §8) can compose with it rather than duplicate it.
+    const slots = (body.metrics ?? [])
+      .filter((metric) => metric.role === 'component')
+      .map((metric) => metric.slot!)
+    const message = validateComposition(body.kind, body.composition ?? null, slots)
+    if (message) {
+      ctx.addIssue({ code: 'custom', path: ['composition'], message })
+    }
+  })
   .refine((body) => body.targetValue !== body.startValue, {
     message: 'Target must differ from the baseline.',
   })
@@ -216,7 +253,13 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
   }
 
   const metricList = input.metrics ?? [
-    { ...input.metric!, label: null, role: 'primary' as const, unit: undefined },
+    {
+      ...input.metric!,
+      label: null,
+      role: 'primary' as const,
+      slot: undefined as string | undefined,
+      unit: undefined,
+    },
   ]
   const draftLayout =
     input.dashboardLayout === undefined
@@ -237,6 +280,7 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
         name: input.name,
         description: input.description ?? null,
         kind: input.kind,
+        composition: (input.composition ?? null) as never,
         direction: input.direction,
         // The kind implies the unit — client input is honored only for
         // custom_kpi, so the invariant holds even for direct API callers.
@@ -255,6 +299,7 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
           organizationId: auth.organizationId,
           goalId: created.id,
           role: metric.role,
+          slot: metric.slot ?? null,
           label: metric.label,
           unit: metric.role === 'primary' ? null : (metric.unit ?? null),
           source: metric.source,

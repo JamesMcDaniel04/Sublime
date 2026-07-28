@@ -33,6 +33,7 @@ export {
   type CompletenessResult,
 } from './completeness'
 export { RISK_SEVERITY, applyCompositionGates } from './gates'
+export { assertKindAllowed, validateComposition } from './presets'
 export {
   compositionRequiredSlots,
   evaluateComposite,
