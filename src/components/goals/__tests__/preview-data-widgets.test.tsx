@@ -21,7 +21,7 @@ const SINGLE_METRIC_WIDGETS: WidgetType[] = [
 
 const { data } = buildPreviewDashboardData({
   name: 'Preview goal',
-  kind: 'revenue',
+  kind: 'arr',
   direction: 'increase',
   unit: 'usd',
   startValue: 1000,

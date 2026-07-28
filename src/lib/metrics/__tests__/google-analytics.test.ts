@@ -123,12 +123,13 @@ test('an empty report throws rather than silently reading zero', async () => {
 
 test('goal kinds that GA4 cannot measure are offered nothing', () => {
   const source = makeGoogleAnalyticsMetricSource(async () => ({ data: {} }), () => NOW)
-  assert.equal(source.availableMetrics('custom_kpi').length, 6)
-  assert.deepEqual(
-    source.availableMetrics('lead_gen').map((metric) => metric.key).sort(),
-    ['ga4.key_events_mtd', 'ga4.new_users_mtd'],
-  )
-  for (const kind of ['revenue', 'arr', 'mrr', 'quota', 'savings']) {
+  // KPI goals see the whole list. The former lead_gen narrowing is gone: after
+  // the kind reduction (spec 2026-07-28) lead_gen and custom_kpi are both
+  // 'kpi', so no signal remains to narrow on.
+  assert.equal(source.availableMetrics('kpi').length, GA4_METRICS.length)
+  // Sessions are not revenue, and quota lives in a CRM — offering GA4 to
+  // either invites a binding that produces a confidently wrong number.
+  for (const kind of ['arr', 'quota']) {
     assert.deepEqual(source.availableMetrics(kind), [], `${kind} must offer no GA4 metric`)
   }
 })

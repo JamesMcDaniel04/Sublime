@@ -46,9 +46,24 @@ test('every template has a valid kind, a kind-consistent unit, and a unique key'
   }
 })
 
-test('savings templates trend down; lookup by key round-trips', () => {
-  for (const entry of GOAL_TEMPLATES.filter((candidate) => candidate.kind === 'savings')) {
-    assert.equal(entry.direction, 'decrease', entry.key)
+test('spend-reduction templates keep usd and decrease; lookup by key round-trips', () => {
+  // These three were kind 'savings', which implied BOTH usd and decrease. That
+  // kind collapsed into 'kpi' (spec 2026-07-28), which implies neither — so
+  // they now state both outright and this locks it. Without the explicit unit
+  // they would silently fall through to 'count' and report dollars as a tally.
+  //
+  // Keyed by name rather than by category: 'Cost' also covers DSO (a count),
+  // gross margin (a percent that should go UP), and action templates counting
+  // reviews — so category is not the invariant.
+  for (const key of [
+    'engineering-org-infra-savings',
+    'finance-org-vendor-savings',
+    'finance-personal-cost-center',
+  ]) {
+    const entry = goalTemplateByKey(key)
+    assert.ok(entry, `${key} missing`)
+    assert.equal(entry.unit, 'usd', `${key}: spend is money, not a count`)
+    assert.equal(entry.direction, 'decrease', `${key}: spending less is the win`)
   }
   assert.equal(goalTemplateByKey('sales-personal-quota')?.kind, 'quota')
   assert.equal(goalTemplateByKey('no-such-template'), null)

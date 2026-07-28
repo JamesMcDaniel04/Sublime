@@ -6,6 +6,7 @@
 import { z } from 'zod'
 import { DEFAULT_AGENT_MODEL, generateStructured } from '@/lib/llm/model-runner'
 import { GOAL_KIND_LABELS, GOAL_KIND_UNITS, type GoalSummary } from '@/lib/types'
+import { GOAL_KIND_VALUES } from '@/lib/goals/kind-migration'
 import { GOAL_TEMPLATES } from './goal-templates'
 import { WIDGET_TYPES, parseDraftLayout, type DashboardLayout } from './dashboard'
 import {
@@ -15,15 +16,7 @@ import {
 
 export class CopilotDraftError extends Error {}
 
-const GOAL_KINDS = [
-  'arr',
-  'mrr',
-  'revenue',
-  'quota',
-  'savings',
-  'lead_gen',
-  'custom_kpi',
-] as const
+const GOAL_KINDS = GOAL_KIND_VALUES
 const MAX_DESCRIPTION_CHARS = 2000
 
 /**
@@ -128,7 +121,8 @@ export const COPILOT_DRAFT_SCHEMA = {
 const SYSTEM = [
   'You design a goal-tracking dashboard from a user description.',
   'Rules:',
-  `- kind MUST be one of: ${GOAL_KINDS.join(', ')}. Pick the closest; blends use the dominant kind plus supporting metrics from other kinds.`,
+  `- kind MUST be one of: ${GOAL_KINDS.join(', ')}. "arr" is any recurring or closed revenue number, "quota" is sales attainment against a committed number, "kpi" is everything else — funnels, rates, counts and cost. Blends use the dominant kind plus supporting metrics.`,
+  '- direction is yours to choose and is NOT implied by the kind: use "decrease" whenever a falling number is the win (cost, spend, churn, cycle time, defects) and "increase" otherwise. Do not default to increase for a cost-reduction goal.',
   '- Use ONLY the metric sources listed as available in the input. When nothing fits, use source "manual" with metricKey "manual.value".',
   '- Use 1-4 metrics and exactly one role "primary"; it drives progress and risk. More than 4 metrics is rejected.',
   '- Every config field is a JSON object SERIALIZED AS A STRING, not an object. Send "{}" when empty.',
@@ -350,7 +344,9 @@ export function validateCopilotDraft(
       name: data.name,
       description: data.description,
       kind,
-      direction: kind === 'savings' ? 'decrease' : data.direction,
+      // The kind no longer implies direction — 'savings' collapsed into
+      // 'kpi' (spec 2026-07-28), so the model chooses and the prompt says so.
+      direction: data.direction,
       unit: GOAL_KIND_UNITS[kind] ?? data.unit,
       recurrence: data.recurrence,
       personal: data.personal,

@@ -7,20 +7,13 @@ import { bucketKeyFor } from '@/lib/goals/refresh'
 import { validateReadOnlyQuery } from '@/lib/metrics/sources/postgres'
 import { assertSafeUrl } from '@/lib/metrics/sources/url'
 import { GOAL_KIND_UNITS } from '@/lib/types'
+import { GOAL_KIND_VALUES } from '@/lib/goals/kind-migration'
 import { parseDraftLayout, resolveLayoutMetricRefs } from '@/lib/goals/dashboard'
 import { METRIC_SOURCES, NO_CONNECTION_SOURCES } from '@/lib/goals/metric-sources'
 
 export const runtime = 'nodejs'
 
-const GOAL_KINDS = [
-  'arr',
-  'mrr',
-  'revenue',
-  'quota',
-  'savings',
-  'lead_gen',
-  'custom_kpi',
-] as const
+const GOAL_KINDS = GOAL_KIND_VALUES
 const RECURRENCES = ['monthly', 'quarterly', 'yearly'] as const
 const HOUR_MS = 60 * 60 * 1000
 const SPARKLINE_POINTS = 30

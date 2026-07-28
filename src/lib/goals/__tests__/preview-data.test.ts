@@ -4,7 +4,7 @@ import { buildPreviewDashboardData } from '../preview-data'
 
 const base = {
   name: 'Quarterly revenue target',
-  kind: 'revenue' as const,
+  kind: 'arr' as const,
   direction: 'increase' as const,
   unit: 'usd' as const,
   startValue: 100_000,
@@ -61,7 +61,7 @@ test('a seeded decreasing series stays between target and start', () => {
   const { data } = buildPreviewDashboardData({
     ...base,
     direction: 'decrease',
-    kind: 'savings',
+    kind: 'kpi',
     startValue: 90_000,
     targetValue: 40_000,
     seed: 'down',

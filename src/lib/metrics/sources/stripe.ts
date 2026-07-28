@@ -91,7 +91,9 @@ export function makeStripeMetricSource(fetchImpl: typeof fetch = fetch): MetricS
   return {
     source: 'stripe',
     availableMetrics(goalKind) {
-      if (goalKind === 'custom_kpi' || goalKind === 'savings') return METRICS
+      // Quota is tracked in a CRM, never in Stripe. Every other kind can read
+      // a Stripe number. (The pre-reduction branches were already equivalent
+      // apart from quota — spec 2026-07-28.)
       return goalKind === 'quota' ? [] : METRICS
     },
     async fetchValue(ctx, metricKey): Promise<MetricReading> {

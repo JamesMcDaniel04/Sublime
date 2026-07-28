@@ -51,9 +51,6 @@ const GA4: Ga4Metric[] = [
 /** Public descriptors — the adapter's own metadata, without the API details. */
 export const GA4_METRICS: MetricDescriptor[] = GA4.map(({ key, label, unit }) => ({ key, label, unit }))
 
-/** GA4 metrics that answer "how many leads did we get". */
-const LEAD_GEN_KEYS = new Set(['ga4.key_events_mtd', 'ga4.new_users_mtd'])
-
 function utcFirstOfMonth(now: Date): string {
   const year = now.getUTCFullYear()
   const month = String(now.getUTCMonth() + 1).padStart(2, '0')
@@ -73,11 +70,14 @@ export function makeGoogleAnalyticsMetricSource(
     source: 'google_analytics',
 
     availableMetrics(goalKind) {
-      if (goalKind === 'custom_kpi') return GA4_METRICS
-      if (goalKind === 'lead_gen') return GA4_METRICS.filter((metric) => LEAD_GEN_KEYS.has(metric.key))
       // Sessions are not revenue. Offering GA4 against an ARR or quota goal
       // invites a binding that produces a confidently wrong number.
-      return []
+      if (goalKind !== 'kpi') return []
+      // The former lead_gen narrowing died with the kind reduction (spec
+      // 2026-07-28): lead_gen and custom_kpi both became 'kpi', so there is no
+      // signal left to narrow on. Template prefill still picks the right
+      // metricKey, so the only cost is a longer picker.
+      return GA4_METRICS
     },
 
     async fetchValue(ctx: MetricSourceContext, metricKey): Promise<MetricReading> {

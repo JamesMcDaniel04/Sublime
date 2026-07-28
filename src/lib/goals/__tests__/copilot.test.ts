@@ -41,7 +41,7 @@ const SOURCES: MetricSourceOption[] = [
 const baseOutput = () => ({
   name: 'Grow demo-sourced revenue',
   description: null,
-  kind: 'revenue',
+  kind: 'arr',
   direction: 'increase' as const,
   unit: 'usd' as const,
   recurrence: 'monthly' as const,
@@ -98,7 +98,7 @@ const makeRaw = (
 test('a clean draft validates with no notes', () => {
   const { draft, notes } = validateCopilotDraft(makeRaw(), SOURCES, NOW)
   assert.deepEqual(notes, [])
-  assert.equal(draft.kind, 'revenue')
+  assert.equal(draft.kind, 'arr')
   assert.equal(draft.metrics.length, 2)
   assert.equal(draft.metrics[0].connectionRef, 'credential:c1')
   assert.equal(draft.layout?.widgets.length, 4)
@@ -189,16 +189,35 @@ test('invalid widgets and target dates degrade with notes', () => {
   assert.ok(date.notes.some((note) => note.toLowerCase().includes('date')))
 })
 
-test('kind implies unit even when the model disagrees', () => {
-  const { draft } = validateCopilotDraft(
-    makeRaw((value) => {
-      value.kind = 'lead_gen'
-      value.unit = 'usd'
-    }),
-    SOURCES,
-    NOW,
-  )
-  assert.equal(draft.unit, 'count')
+test('arr and quota imply usd even when the model disagrees', () => {
+  for (const kind of ['arr', 'quota']) {
+    const { draft } = validateCopilotDraft(
+      makeRaw((value) => {
+        value.kind = kind
+        ;(value as { unit: string }).unit = 'count'
+      }),
+      SOURCES,
+      NOW,
+    )
+    assert.equal(draft.unit, 'usd', `${kind} must override the model's unit`)
+  }
+})
+
+test("kpi implies no unit, so the model's choice stands", () => {
+  // 'kpi' absorbed savings (usd), lead_gen (count) and custom KPIs, so it
+  // cannot imply a unit — GOAL_KIND_UNITS.kpi is null and the draft keeps
+  // whatever the model picked (spec 2026-07-28).
+  for (const unit of ['usd', 'count', 'percent']) {
+    const { draft } = validateCopilotDraft(
+      makeRaw((value) => {
+        value.kind = 'kpi'
+        ;(value as { unit: string }).unit = unit
+      }),
+      SOURCES,
+      NOW,
+    )
+    assert.equal(draft.unit, unit, `kpi must keep the model's ${unit}`)
+  }
 })
 
 test('draftGoalDashboard threads an injected generator', async () => {

@@ -115,7 +115,7 @@ export async function listMetricSourceOptions(auth: {
     metrics:
       name === 'manual'
         ? [{ key: 'manual.value', label: 'Manually recorded value', unit: 'usd' }]
-        : (getMetricSource(name)?.availableMetrics('custom_kpi') ?? []),
+        : (getMetricSource(name)?.availableMetrics('kpi') ?? []),
     connections:
       // Postgres offers the native integration's databases FIRST, then any
       // pre-integration vault credential whose secret is a connection string.

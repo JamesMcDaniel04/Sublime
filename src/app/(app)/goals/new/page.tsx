@@ -393,8 +393,11 @@ export default function NewGoalPage() {
                   setState((current) => ({
                     ...current,
                     kind: value as GoalKind,
-                    direction: value === 'savings' ? 'decrease' : 'increase',
-                    // The kind implies the unit; custom_kpi keeps the picker.
+                    // arr and quota only ever go up. kpi spans cost-reduction
+                    // and growth, so it keeps the direction picker below —
+                    // picking a kind must not silently reverse a choice.
+                    direction: value === 'kpi' ? current.direction : 'increase',
+                    // The kind implies the unit; kpi keeps the picker.
                     unit: GOAL_KIND_UNITS[value as GoalKind] ?? current.unit,
                     recurrence: defaultRecurrence(value as GoalKind),
                   }))
@@ -410,7 +413,7 @@ export default function NewGoalPage() {
                 </SelectContent>
               </Select>
             </label>
-            {state.kind === 'custom_kpi' ? (
+            {state.kind === 'kpi' ? (
               <label className="space-y-1.5 text-sm">
                 <span className="font-medium">Unit</span>
                 <Select
@@ -481,10 +484,30 @@ export default function NewGoalPage() {
               </Select>
             </label>
           </div>
-          {state.kind === 'savings' && (
-            <p className="rounded-lg bg-muted p-3 text-sm text-muted-foreground">
-              Savings goals count down: progress increases as the tracked value falls.
-            </p>
+          {state.kind === 'kpi' && (
+            <label className="space-y-1.5 text-sm">
+              <span className="font-medium">Which way is winning?</span>
+              <Select
+                value={state.direction}
+                onValueChange={(value) =>
+                  setState((current) => ({
+                    ...current,
+                    direction: value as 'increase' | 'decrease',
+                  }))
+                }
+              >
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="increase">Up — a rising number is the win</SelectItem>
+                  <SelectItem value="decrease">Down — a falling number is the win</SelectItem>
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                {state.direction === 'decrease'
+                  ? 'Progress increases as the tracked value falls — right for cost, spend, churn or cycle time.'
+                  : 'Progress increases as the tracked value rises.'}
+              </p>
+            </label>
           )}
           <div className="flex items-center justify-between rounded-xl border p-4">
             <div>
