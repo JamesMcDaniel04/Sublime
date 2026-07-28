@@ -320,8 +320,12 @@ if (TEST_DB) {
     })
     const first = await sendWeeklyGoalDigests(digestNow)
     const second = await sendWeeklyGoalDigests(digestNow)
-    assert.equal(first.sent, 1)
-    assert.equal(second.sent, 0)
+    // sendWeeklyGoalDigests is a GLOBAL sweep, so any other test file that
+    // seeded an org with an active goal also gets a send. What this test owns is
+    // the claim: the second sweep must send nothing, and this org's own
+    // notification count must rise by exactly one.
+    assert.ok(first.sent >= 1, `expected at least this org's digest, got ${first.sent}`)
+    assert.equal(second.sent, 0, 'the weekly claim must block the retry')
     assert.equal(
       await prisma.notification.count({
         where: { organizationId: seeded.organizationId, type: 'goal.digest' },
