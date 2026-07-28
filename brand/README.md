@@ -24,6 +24,13 @@ Live in the app, not this folder:
 
 "Ratio" is glyph height as a fraction of the tile.
 
+`src/app/opengraph-image.png` (1200×630) is the social card, with its alt text in
+`opengraph-image.alt.txt`. Its headline uses the landing hero's exact treatment —
+weight 500, `tracking -0.04em`, `leading 1.08`
+([landing-page.tsx:123](../src/components/landing/landing-page.tsx#L123)) — not a
+generic bold, so the card reads as the page it links to. Copy is verbatim from
+the hero. No `twitter-image` is needed: X falls back to `og:image`.
+
 **Why 78% for the favicon.** The binding constraint at a 16px tab render is the
 1.5u gap between bars, which is 11.1% of glyph height. Measured brightness of
 the gap pixel at 16px (background `#0E0E10` = greyscale 14):
