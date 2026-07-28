@@ -225,4 +225,68 @@ if (TEST_DB) {
     })
     assert.deepEqual(after.composition, { kind: 'kpi', shape: 'ratio' })
   })
+
+  test('GET surfaces compositionState and component slots to the client', async () => {
+    const created = await post(arrBody({ name: 'ARR for the strip' }))
+    const { goal } = await created.json()
+
+    // Evaluate once so compositionState exists — nothing is bound, so this is
+    // the unbound case the strip renders as "not bound yet".
+    const { evaluateAndPersistGoal } = await import('../refresh')
+    await evaluateAndPersistGoal(goal.id, organizationId)
+
+    const route = await import('@/app/api/goals/[id]/route')
+    const response = await route.GET(
+      new NextRequest(`http://test/api/goals/${goal.id}`),
+    )
+    const body = await response.json()
+    assert.equal(response.status, 200, JSON.stringify(body))
+
+    assert.ok(body.goal.compositionState, 'compositionState reaches the client')
+    assert.equal(body.goal.compositionState.level, 'unbound')
+    assert.equal(body.goal.compositionState.missing.length, 4)
+
+    // Component series carry their slot so the UI can label them.
+    const components = body.goal.metrics.filter((m: any) => m.role === 'component')
+    assert.equal(components.length, 4)
+    assert.deepEqual(
+      components.map((m: any) => m.slot).sort(),
+      ['churned_arr', 'contraction_arr', 'expansion_arr', 'new_arr'],
+    )
+
+    // And the strip turns that into copy rather than raw slot keys.
+    const { compositionSummary } = await import(
+      '@/components/goals/composition-strip'
+    )
+    const summary = compositionSummary(body.goal.compositionState)
+    assert.equal(summary?.tone, 'unknown')
+    assert.ok(summary.detail.join(' ').includes('Churned ARR'))
+  })
+
+  test('an uncomposed goal reports a null compositionState', async () => {
+    const created = await post({
+      name: 'No composition',
+      kind: 'kpi',
+      direction: 'increase',
+      unit: 'count',
+      startValue: 0,
+      targetValue: 10,
+      targetDate,
+      recurrence: null,
+      personal: false,
+      metric: { source: 'manual', metricKey: 'manual.value', config: {} },
+    })
+    const { goal } = await created.json()
+    const { evaluateAndPersistGoal } = await import('../refresh')
+    await evaluateAndPersistGoal(goal.id, organizationId)
+    const route = await import('@/app/api/goals/[id]/route')
+    const body = await (
+      await route.GET(new NextRequest(`http://test/api/goals/${goal.id}`))
+    ).json()
+    assert.equal(body.goal.compositionState, null)
+    const { compositionSummary } = await import(
+      '@/components/goals/composition-strip'
+    )
+    assert.equal(compositionSummary(body.goal.compositionState), null)
+  })
 }

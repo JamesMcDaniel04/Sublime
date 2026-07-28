@@ -127,6 +127,9 @@ export function buildPreviewDashboardData(input: PreviewGoalInput): {
     // A preview goal has no persisted provenance — the dashboard widgets it
     // feeds never read this, and no bundle is resolved from sample data.
     templateKey: null,
+    // The wizard preview never evaluates, so there is no composition state
+    // to show — the strip renders nothing for null.
+    compositionState: null,
     name: input.name,
     description: input.description ?? null,
     kind: input.kind,

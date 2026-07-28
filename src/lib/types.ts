@@ -4,6 +4,7 @@
  * that need a subset should `Pick<Agent, …>` from here so there's one source.
  */
 import type { GoalKind } from '@/lib/goals/kind-migration'
+import type { CompositionState } from '@/lib/goals/composition'
 
 export type { GoalKind }
 
@@ -130,6 +131,8 @@ export interface GoalDetail extends Omit<GoalSummary, 'sparkline'> {
   metric: (GoalSummary['metric'] & { id: string }) | null
   metrics: GoalMetricSeries[]
   dashboardLayout: unknown | null
+  /** Per-evaluation composition summary; null for uncomposed goals. */
+  compositionState: CompositionState | null
   /** The GoalTemplate this goal was created from; null for Copilot-drafted and
    *  manually-created goals. Drives the curated agent bundle. */
   templateKey: string | null

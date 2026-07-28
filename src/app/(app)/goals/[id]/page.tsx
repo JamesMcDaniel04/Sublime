@@ -30,6 +30,7 @@ import { fmtValue } from '@/components/goals/chart-math'
 import { RiskBadge } from '@/components/goals/goal-viz'
 import { DashboardEditDialog } from '@/components/goals/dashboard-edit'
 import { RecoveryPlanStrip } from '@/components/goals/recovery-plan-strip'
+import { CompositionStrip } from '@/components/goals/composition-strip'
 import { AgentBundleCard } from '@/components/goals/agent-bundle-card'
 import { connectedSlugSet } from '@/lib/templates/relevance'
 import {
@@ -316,6 +317,8 @@ export default function GoalDetailPage() {
           </>
         }
       />
+
+      <CompositionStrip state={goal.compositionState} />
 
       {goal.recoveryPlan && (
         <RecoveryPlanStrip goalId={goalId} plan={goal.recoveryPlan} onChanged={load} />

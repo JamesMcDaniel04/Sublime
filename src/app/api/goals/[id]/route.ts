@@ -5,7 +5,7 @@ import { evaluateAndPersistGoal } from '@/lib/goals/refresh'
 import { surfaceGoalBenchmark } from '@/lib/goals/aggregate-benchmarks'
 import { ApiError, withAuthenticatedApi } from '@/lib/server/api-handler'
 import { parseDashboardLayout } from '@/lib/goals/dashboard'
-import { validateComposition } from '@/lib/goals/composition'
+import { validateComposition, type CompositionState } from '@/lib/goals/composition'
 import type { GoalKind } from '@/lib/goals/kind-migration'
 
 export const runtime = 'nodejs'
@@ -143,6 +143,8 @@ export const GET = withAuthenticatedApi(async (request, auth) => {
       expectedProgress: evaluation.expectedProgress,
       projectedValue: evaluation.projectedValue,
       dashboardLayout: goal.dashboardLayout ?? null,
+      // Written by evaluateAndPersistGoal; null for an uncomposed goal.
+      compositionState: (goal.compositionState ?? null) as CompositionState | null,
       templateKey: goal.templateKey,
       metric: metric
         ? {
@@ -156,7 +158,8 @@ export const GET = withAuthenticatedApi(async (request, auth) => {
       metrics: goal.metrics.map((series) => ({
         id: series.id,
         label: series.label,
-        role: series.role as 'primary' | 'supporting',
+        role: series.role as 'primary' | 'supporting' | 'component',
+        slot: series.slot,
         unit: (series.unit ?? goal.unit) as 'usd' | 'count' | 'percent',
         source: series.source,
         metricKey: series.metricKey,
