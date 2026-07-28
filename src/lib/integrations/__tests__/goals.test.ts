@@ -309,3 +309,49 @@ test('list_work filters by disposition so an agent can see only what was skipped
   }
   assert.deepEqual(result.items.map((item) => item.id), ['w1'])
 })
+
+test('log_work carries signals and a probe rule id through to the port', async () => {
+  const port = fakePort({ 'goal-a': goalView() })
+  const client = new GoalsToolClient(['goal-a'], port, () => NOW)
+
+  await client.executeTool('', 'log_work', {
+    subject: 'Acme — deal 412',
+    produced: 're-entry email',
+    body: 'x',
+    signals: { daysCold: 21, stage: 'negotiation' },
+    probeRuleId: 'rul_8f2',
+  })
+
+  assert.deepEqual(port.workWrites[0].input.signals, { daysCold: 21, stage: 'negotiation' })
+  assert.equal(port.workWrites[0].input.probeRuleId, 'rul_8f2')
+})
+
+test('log_work without signals stores null rather than an empty object', async () => {
+  // An empty object would mean "the agent reported no features", which is
+  // different from "the agent reported nothing".
+  const port = fakePort({ 'goal-a': goalView() })
+  const client = new GoalsToolClient(['goal-a'], port, () => NOW)
+  await client.executeTool('', 'log_work', { subject: 'A', produced: 'b', body: 'c' })
+  assert.equal(port.workWrites[0].input.signals, null)
+  assert.equal(port.workWrites[0].input.probeRuleId, null)
+})
+
+test('log_work rejects non-object signals instead of storing junk', async () => {
+  const port = fakePort({ 'goal-a': goalView() })
+  const client = new GoalsToolClient(['goal-a'], port, () => NOW)
+  for (const bad of ['daysCold=21', 42, [1, 2]]) {
+    await assert.rejects(
+      () => client.executeTool('', 'log_work', { subject: 'A', produced: 'b', body: 'c', signals: bad }),
+      /signals/i,
+      `${JSON.stringify(bad)} must be refused`,
+    )
+  }
+  assert.equal(port.workWrites.length, 0, 'nothing may be written on a refusal')
+})
+
+test('the log_work schema documents signals and probeRuleId', async () => {
+  const tool = goalsTools().find((entry) => entry.name === 'log_work')!
+  const properties = (tool.inputSchema as { properties: Record<string, unknown> }).properties
+  assert.ok(properties.signals, 'signals must be discoverable in the schema')
+  assert.ok(properties.probeRuleId, 'probeRuleId must be discoverable in the schema')
+})

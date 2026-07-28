@@ -55,6 +55,11 @@ export type WriteWorkInput = {
   /** A name or email the agent read while producing. Resolved server-side; an
    *  unresolvable hint yields no assignee rather than an error. */
   assigneeHint: string | null
+  /** Flat features the agent used to pick this subject. Null when it reported
+   *  none — distinct from an empty object, which would mean "no features". */
+  signals: Record<string, unknown> | null
+  /** Set when this item is a probe against an active rule. */
+  probeRuleId: string | null
 }
 
 export type GoalWorkItem = {
@@ -154,6 +159,16 @@ export function goalsTools(): ToolDefinition[] {
             type: 'string',
             description:
               'Name or email of the person who should act on it — usually the record owner. Unrecognized names are fine; the item goes to the unassigned pool rather than failing.',
+          },
+          signals: {
+            type: 'object',
+            description:
+              'Why you picked THIS subject — the features you judged it on, as a flat object: {"daysCold": 21, "stage": "negotiation", "contacts": 3}. This is what lets the team learn which targeting works, so record the numbers you actually used rather than a summary.',
+          },
+          probeRuleId: {
+            type: 'string',
+            description:
+              'Only when you are deliberately working a subject a stated rule tells you to skip, to test whether that rule still holds. Pass the rule id from your instructions.',
           },
         },
         required: ['subject', 'produced', 'body'],
@@ -314,6 +329,15 @@ export class GoalsToolClient {
       const produced = String(args.produced ?? '').trim()
       if (!produced) throw new Error('produced is required — name what you made')
 
+      const rawSignals = args.signals
+      if (
+        rawSignals !== undefined &&
+        rawSignals !== null &&
+        (typeof rawSignals !== 'object' || Array.isArray(rawSignals))
+      ) {
+        throw new Error('signals must be a flat object of the features you judged this subject on')
+      }
+
       const written = await this.port.writeWork(goal.id, {
         subject,
         subjectRef: args.subjectRef ? String(args.subjectRef) : null,
@@ -321,6 +345,8 @@ export class GoalsToolClient {
         body: args.body === undefined || args.body === null ? null : String(args.body),
         bodyFormat: args.bodyFormat === 'html' ? 'html' : 'markdown',
         assigneeHint: args.assigneeHint ? String(args.assigneeHint) : null,
+        signals: (rawSignals as Record<string, unknown> | undefined) ?? null,
+        probeRuleId: args.probeRuleId ? String(args.probeRuleId) : null,
       })
       return {
         ok: true,

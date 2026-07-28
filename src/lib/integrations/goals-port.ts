@@ -165,6 +165,10 @@ export function prismaGoalsPort(
           body: input.body,
           bodyFormat: input.bodyFormat,
           assigneeUserId,
+          // undefined rather than null so Prisma omits the JSON column instead
+          // of writing SQL NULL over it — both read back as null.
+          signals: input.signals === null ? undefined : (input.signals as object),
+          probeForRuleId: input.probeRuleId,
         },
         select: { id: true },
       })
