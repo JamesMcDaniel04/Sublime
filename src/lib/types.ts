@@ -78,6 +78,8 @@ export interface GoalSummary {
   currentValue: number | null
   progress: number | null
   expectedProgress: number
+  /** Per-evaluation composition summary; null or absent when uncomposed. */
+  compositionState?: CompositionState | null
   sparkline: Array<{ value: number; capturedAt: string }>
 }
 

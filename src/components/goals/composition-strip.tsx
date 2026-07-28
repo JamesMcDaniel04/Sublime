@@ -69,6 +69,31 @@ export function compositionSummary(
   return { tone: 'ok', headline: 'Drivers reconcile to the headline', detail }
 }
 
+/**
+ * The one-line form for a goal card. Returns null when there is nothing worth
+ * saying — a healthy composition should not add noise to a wall of cards, and
+ * an uncomposed goal has nothing to report at all.
+ */
+export function compositionBadge(
+  state: CompositionState | null | undefined,
+): { label: string; tone: 'warn' | 'unknown' } | null {
+  const summary = compositionSummary(state)
+  if (!summary || summary.tone === 'ok' || !state) return null
+  if (summary.tone === 'unknown') {
+    return { label: 'Drivers not bound', tone: 'unknown' }
+  }
+  if (state.reconciliation === 'drifted' && state.variancePct !== null) {
+    return {
+      label: `Drivers off by ${Math.abs(state.variancePct).toFixed(0)}%`,
+      tone: 'warn',
+    }
+  }
+  if (state.breachedGates.length > 0) {
+    return { label: `${slotLabel(state.breachedGates[0])} low`, tone: 'warn' }
+  }
+  return { label: `${state.missing.length} driver(s) missing`, tone: 'warn' }
+}
+
 const TONE = {
   ok: { icon: CircleCheck, className: 'border-success/30 bg-success/5' },
   warn: { icon: AlertTriangle, className: 'border-warning/30 bg-warning/5' },

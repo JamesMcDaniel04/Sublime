@@ -5,6 +5,7 @@ import { Card } from '@/components/ui/card'
 import type { GoalSummary } from '@/lib/types'
 import { fmtValue } from './chart-math'
 import { GoalProgressBar, RiskBadge, Sparkline } from './goal-viz'
+import { compositionBadge } from './composition-strip'
 
 /** Risk → the card's top hairline gradient. Status is still named by the
  *  RiskBadge (icon + label); the hairline just lets a wall of cards scan. */
@@ -16,6 +17,9 @@ const RISK_BAR: Record<GoalSummary['riskLevel'], string> = {
 }
 
 export function GoalCard({ goal }: { readonly goal: GoalSummary }) {
+  // Quiet when the composition is healthy or absent — a wall of cards should
+  // only surface the ones that need attention.
+  const badge = compositionBadge(goal.compositionState)
   return (
     <Link href={`/goals/${goal.id}`} className="block h-full">
       <Card
@@ -35,7 +39,21 @@ export function GoalCard({ goal }: { readonly goal: GoalSummary }) {
               </Badge>
             )}
           </div>
-          <RiskBadge riskLevel={goal.riskLevel} />
+          <div className="flex shrink-0 flex-col items-end gap-1">
+            <RiskBadge riskLevel={goal.riskLevel} />
+            {badge && (
+              <Badge
+                variant="outline"
+                className={
+                  badge.tone === 'warn'
+                    ? 'whitespace-nowrap border-warning/30 bg-warning/10 text-[10px] text-warning'
+                    : 'whitespace-nowrap text-[10px] text-muted-foreground'
+                }
+              >
+                {badge.label}
+              </Badge>
+            )}
+          </div>
         </div>
         <div className="flex items-end justify-between gap-3">
           <div>

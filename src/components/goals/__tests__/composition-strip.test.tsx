@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { compositionSummary } from '../composition-strip'
+import { compositionBadge, compositionSummary } from '../composition-strip'
 
 const base = {
   level: 'complete' as const,
@@ -102,4 +102,59 @@ test('a reconciled composition with no detail still has a headline', () => {
   assert.equal(summary?.tone, 'ok')
   assert.ok(summary.headline.length > 0)
   assert.deepEqual(summary.detail, [])
+})
+
+test('the card badge is silent for a healthy or absent composition', () => {
+  // A wall of cards should surface only what needs attention.
+  assert.equal(compositionBadge(null), null)
+  assert.equal(compositionBadge(undefined), null)
+  assert.equal(compositionBadge(base), null, 'reconciled composition is quiet')
+})
+
+test('the card badge names the size of a drift', () => {
+  const badge = compositionBadge({
+    ...base,
+    variancePct: -42.4,
+    reconciliation: 'drifted',
+  })
+  assert.equal(badge?.tone, 'warn')
+  assert.equal(badge.label, 'Drivers off by 42%')
+})
+
+test('the card badge reports unbound as neutral, not as a warning', () => {
+  const badge = compositionBadge({
+    ...base,
+    level: 'unbound',
+    boundPct: 0,
+    derived: null,
+    variancePct: null,
+    reconciliation: 'unmeasured',
+    missing: ['new_arr'],
+  })
+  assert.equal(badge?.tone, 'unknown')
+  assert.equal(badge.label, 'Drivers not bound')
+})
+
+test('the card badge names a breached gate by its label', () => {
+  const badge = compositionBadge({
+    ...base,
+    breachedGates: ['pipeline_coverage'],
+    reasons: ['pipeline_coverage is 1.9 against a 3 floor.'],
+  })
+  assert.equal(badge?.tone, 'warn')
+  assert.ok(badge.label.includes('Pipeline coverage'))
+})
+
+test('the card badge counts missing drivers when partially bound', () => {
+  const badge = compositionBadge({
+    ...base,
+    level: 'partial',
+    boundPct: 50,
+    derived: null,
+    variancePct: null,
+    reconciliation: 'read_only',
+    missing: ['churned_arr', 'contraction_arr'],
+  })
+  assert.equal(badge?.tone, 'warn')
+  assert.ok(badge.label.includes('2'))
 })

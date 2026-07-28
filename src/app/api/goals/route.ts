@@ -8,7 +8,10 @@ import { validateReadOnlyQuery } from '@/lib/metrics/sources/postgres'
 import { assertSafeUrl } from '@/lib/metrics/sources/url'
 import { GOAL_KIND_UNITS } from '@/lib/types'
 import { GOAL_KIND_VALUES } from '@/lib/goals/kind-migration'
-import { validateComposition } from '@/lib/goals/composition'
+import {
+  validateComposition,
+  type CompositionState,
+} from '@/lib/goals/composition'
 import { parseDraftLayout, resolveLayoutMetricRefs } from '@/lib/goals/dashboard'
 import { METRIC_SOURCES, NO_CONNECTION_SOURCES } from '@/lib/goals/metric-sources'
 
@@ -211,6 +214,10 @@ export const GET = withAuthenticatedApi(async (_request, auth) => {
         recurrence: goal.recurrence,
         status: goal.status,
         riskLevel: goal.riskLevel,
+        // Read straight off the goal row: the column exists precisely so the
+        // list can show composition health without loading every component
+        // for every card.
+        compositionState: (goal.compositionState ?? null) as CompositionState | null,
         personal: goal.ownerUserId !== null,
         parentGoalId: goal.parentGoalId,
         metric: metric
