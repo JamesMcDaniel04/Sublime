@@ -25,6 +25,11 @@ export type BundleEntry = {
   name: string
   description: string
   requiredIntegrations: string[]
+  /** Sources the agent can read from but does not need. Rendered as
+   *  capabilities, never as a Connect prerequisite — the collector reads a
+   *  Slack channel OR an inbox OR a URL, which `requiredIntegrations` (an AND
+   *  check) cannot express. */
+  recommendedIntegrations: string[]
   origin: BundleOrigin
   /** True when applicability depends on a choice not yet made (the metric
    *  source, before the goal exists). The UI renders a qualifier. */
@@ -78,6 +83,7 @@ export function bundleForGoal(input: BundleInput): BundleEntry[] {
       name: seed.name,
       description: seed.description,
       requiredIntegrations: seed.requiredIntegrations,
+      recommendedIntegrations: seed.recommendedIntegrations ?? [],
       origin,
       conditional,
       deployed: deployed.has(seed.seedKey),

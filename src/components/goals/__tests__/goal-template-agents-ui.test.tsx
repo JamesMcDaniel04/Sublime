@@ -8,7 +8,7 @@ import { goalTemplateByKey } from '@/lib/goals/goal-templates'
 
 afterEach(cleanup)
 
-const template = goalTemplateByKey('sales-org-pipeline-coverage')!
+const template = goalTemplateByKey('sales-org-multithread-open-deals')!
 
 test('the detail dialog lists the agents that work on the goal', () => {
   render(
@@ -22,7 +22,7 @@ test('the detail dialog lists the agents that work on the goal', () => {
   assert.ok(screen.getByText('Works on it'))
   // A curated seed and a goal-native seed both appear.
   assert.ok(screen.getByText('Goal Pace Auditor'))
-  assert.ok(screen.getByText(/Pipeline Hygiene/i))
+  assert.ok(screen.getByText(/Buying Committee Mapper/i))
 })
 
 test('a percent template preview shows a believable percentage', () => {
@@ -30,7 +30,7 @@ test('a percent template preview shows a believable percentage', () => {
   // fractions. Whole numbers render "8500%".
   render(
     <GoalTemplateDetail
-      template={goalTemplateByKey('sales-org-pipeline-coverage')!}
+      template={goalTemplateByKey('csm-org-nrr')!}
       sources={[]}
       sourcesFailed={false}
       onClose={() => {}}

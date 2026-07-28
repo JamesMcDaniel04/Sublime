@@ -3,8 +3,11 @@ import test from 'node:test'
 import {
   GOAL_TEMPLATES,
   GOAL_TEMPLATE_CATEGORIES,
+  VISIBLE_GOAL_TEMPLATES,
   goalTemplateByKey,
 } from '../goal-templates'
+import { AGENT_WRITABLE_SOURCES } from '@/lib/goals/agent-tool-policy'
+import { getSeedByKey } from '@/lib/templates/catalogue'
 import { parseDraftLayout } from '../dashboard'
 import { METRIC_SOURCES } from '../metric-sources'
 import { GOAL_KIND_LABELS, GOAL_KIND_UNITS } from '@/lib/types'
@@ -21,11 +24,11 @@ const LEGACY_KEYS = [
   'csm-org-nrr', 'csm-org-expansion-mrr', 'csm-personal-renewals', 'csm-personal-churn-saves',
 ]
 
-test('catalogue shape: 9 per served department, 5 org + 4 personal', () => {
-  assert.equal(GOAL_TEMPLATES.length, PRODUCT_DEPARTMENTS.length * 9)
+test('catalogue shape: 9 visible per served department, 5 org + 4 personal', () => {
+  assert.equal(VISIBLE_GOAL_TEMPLATES.length, PRODUCT_DEPARTMENTS.length * 9)
   for (const department of PRODUCT_DEPARTMENTS) {
-    const entries = GOAL_TEMPLATES.filter((entry) => entry.department === department)
-    assert.equal(entries.length, 9, `${department} should have 9 templates`)
+    const entries = VISIBLE_GOAL_TEMPLATES.filter((entry) => entry.department === department)
+    assert.equal(entries.length, 9, `${department} should have 9 visible templates`)
     assert.equal(entries.filter((entry) => entry.scope === 'org').length, 5, `${department} org split`)
     assert.equal(entries.filter((entry) => entry.scope === 'personal').length, 4, `${department} personal split`)
   }
@@ -118,4 +121,80 @@ test('every pre-v2 template key still resolves', () => {
   for (const key of LEGACY_KEYS) {
     assert.ok(goalTemplateByKey(key), `${key} disappeared — bookmarked links would 404`)
   }
+})
+
+test('every template declares a motion', () => {
+  for (const entry of GOAL_TEMPLATES) {
+    assert.ok(
+      entry.motion === 'outcome' || entry.motion === 'action',
+      `${entry.key}: motion must be outcome or action, got ${entry.motion}`,
+    )
+  }
+})
+
+test('produces belongs to action templates and only to them', () => {
+  for (const entry of GOAL_TEMPLATES) {
+    if (entry.motion === 'action') {
+      assert.ok(
+        entry.produces && entry.produces.trim().length > 0,
+        `${entry.key}: an action template must name what it produces`,
+      )
+    } else {
+      assert.equal(entry.produces, undefined, `${entry.key}: outcome templates do not produce`)
+    }
+  }
+})
+
+test('action templates count agent output, outcome templates never do', () => {
+  for (const entry of GOAL_TEMPLATES) {
+    const selfReporting = entry.sources.every((source) => AGENT_WRITABLE_SOURCES.has(source))
+    assert.equal(
+      selfReporting,
+      entry.motion === 'action',
+      `${entry.key}: an action template's sources must all be agent-writable, and an ` +
+        `outcome template's must not all be — otherwise the goal-native collector ` +
+        `can or cannot log it, contradicting the motion`,
+    )
+  }
+})
+
+test('retired templates resolve by key but leave the visible catalogue', () => {
+  const retired = GOAL_TEMPLATES.filter((entry) => entry.retired)
+  for (const entry of retired) {
+    assert.ok(goalTemplateByKey(entry.key), `${entry.key}: must still resolve for bookmarks`)
+    assert.ok(
+      !VISIBLE_GOAL_TEMPLATES.includes(entry),
+      `${entry.key}: retired templates must not reach the gallery`,
+    )
+  }
+  assert.equal(VISIBLE_GOAL_TEMPLATES.length, GOAL_TEMPLATES.length - retired.length)
+})
+
+test('every curated agent on an action template exists in the seed catalogue', () => {
+  for (const entry of GOAL_TEMPLATES.filter((candidate) => candidate.motion === 'action')) {
+    assert.ok(entry.agents.length > 0, `${entry.key}: an action template needs curated agents`)
+    for (const seedKey of entry.agents) {
+      assert.ok(getSeedByKey(seedKey), `${entry.key}: unknown seed ${seedKey}`)
+    }
+  }
+})
+
+test('sales leads with the work: 6 action, 3 outcome, 1 retired', () => {
+  const sales = VISIBLE_GOAL_TEMPLATES.filter((entry) => entry.department === 'sales')
+  assert.equal(sales.filter((entry) => entry.motion === 'action').length, 6)
+  assert.equal(sales.filter((entry) => entry.motion === 'outcome').length, 3)
+  assert.equal(goalTemplateByKey('sales-org-arr-growth')?.retired, true)
+})
+
+test('every department carries action templates in the agreed mix', () => {
+  const expected: Record<string, number> = {
+    sales: 6, marketing: 4, engineering: 3, finance: 3, csm: 4,
+  }
+  for (const [department, count] of Object.entries(expected)) {
+    const actual = VISIBLE_GOAL_TEMPLATES.filter(
+      (entry) => entry.department === department && entry.motion === 'action',
+    ).length
+    assert.equal(actual, count, `${department}: expected ${count} action templates, got ${actual}`)
+  }
+  assert.equal(VISIBLE_GOAL_TEMPLATES.filter((entry) => entry.motion === 'action').length, 20)
 })

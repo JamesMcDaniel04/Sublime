@@ -132,13 +132,21 @@ export function AgentBundleCard({
                     )}
                   </p>
                 )}
-                {entry.requiredIntegrations.length > 0 && !blocked && (
-                  <div className="flex flex-wrap items-center gap-1.5">
-                    {entry.requiredIntegrations.map((integration) => (
-                      <IntegrationChip key={integration} name={integration} />
-                    ))}
-                  </div>
-                )}
+                {/* Falls back to the recommended list so an agent that needs
+                    "one of these" still shows what it works with, rather than
+                    rendering no chips at all. */}
+                {!blocked &&
+                  (entry.requiredIntegrations.length > 0 ||
+                    entry.recommendedIntegrations.length > 0) && (
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      {(entry.requiredIntegrations.length > 0
+                        ? entry.requiredIntegrations
+                        : entry.recommendedIntegrations
+                      ).map((integration) => (
+                        <IntegrationChip key={integration} name={integration} />
+                      ))}
+                    </div>
+                  )}
               </div>
 
               {entry.deployed ? (

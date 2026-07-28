@@ -10,9 +10,11 @@ import { SOURCE_LABELS } from '@/components/goals/source-labels'
 import { SourceLogo } from '@/components/goals/source-logo'
 import { bundleForGoal } from '@/lib/goals/agent-bundle'
 import type { GoalTemplate } from '@/lib/goals/goal-templates'
+import { templateIsReady } from '@/lib/goals/template-readiness'
 import { cn } from '@/lib/utils'
 
 const VISIBLE_SOURCES = 3
+const VISIBLE_AGENTS = 2
 
 /**
  * A goal template in the catalogue grid. Same chrome as the agent and flow
@@ -22,36 +24,41 @@ const VISIBLE_SOURCES = 3
 export function GoalTemplateCard({
   template,
   connectedSources,
+  connectedIntegrations,
   onOpen,
 }: {
   template: GoalTemplate
   /** Metric sources the workspace has a working connection for. */
   connectedSources: Set<string>
+  /** Canonical integration slugs the workspace has connected. Drives readiness
+   *  for action templates, whose prerequisite is their agents, not a source. */
+  connectedIntegrations: Set<string>
   onOpen: (template: GoalTemplate) => void
 }) {
   const accent = CATEGORY_ACCENTS[template.category]
   const shown = template.sources.slice(0, VISIBLE_SOURCES)
   const overflow = template.sources.length - shown.length
   // Same signal the agent catalogue card carries: a filled CTA when the
-  // workspace can already feed this template, an outline one when it would
-  // start on manual entry. `manual` is excluded — it is always available, so
-  // counting it would make every card look connected.
-  const ready = template.sources.some(
-    (source) => source !== 'manual' && connectedSources.has(source),
-  )
+  // workspace can already start this template, an outline one when it cannot.
+  // The rule differs by motion — see templateIsReady.
+  const ready = templateIsReady(template, connectedSources, connectedIntegrations)
   // source: null — the metric source is chosen later in the wizard, so this
-  // counts the agents any goal from this template could run. Memoized because
+  // covers the agents any goal from this template could run. Memoized because
   // the gallery renders a grid of these and each call scans the seed catalogue.
-  const agentCount = useMemo(
+  const bundle = useMemo(
     () =>
       bundleForGoal({
         templateKey: template.key,
         kind: template.kind,
         source: null,
         recurrence: template.recurrence,
-      }).length,
+      }),
     [template.key, template.kind, template.recurrence],
   )
+  const agentCount = bundle.length
+  const curated = bundle.filter((entry) => entry.origin === 'curated')
+  const shownAgents = curated.slice(0, VISIBLE_AGENTS)
+  const agentOverflow = curated.length - shownAgents.length
 
   return (
     <button
@@ -81,31 +88,51 @@ export function GoalTemplateCard({
           </>
         }
         tools={
-          <div className="space-y-1.5">
-            <p className="text-xs font-medium text-muted-foreground">Reads from</p>
-            <div className="flex flex-wrap items-center gap-1.5">
-              {shown.map((source) => (
-                <span
-                  key={source}
-                  data-connected={connectedSources.has(source)}
-                  className={cn(!connectedSources.has(source) && 'opacity-55')}
-                >
-                  <IntegrationChip
-                    name={SOURCE_LABELS[source] ?? source}
-                    logo={<SourceLogo source={source} className="h-4 w-4" />}
-                  />
-                </span>
-              ))}
-              {overflow > 0 && (
-                <span className="text-xs font-medium text-muted-foreground">+{overflow}</span>
+          // An action template's metric needs nothing connected, so leading
+          // with a source row would say nothing. It leads with the work
+          // instead: who does it, and what lands in your hands.
+          template.motion === 'action' ? (
+            <div className="space-y-1.5">
+              <p className="text-xs font-medium text-muted-foreground">Agents do</p>
+              <div className="flex flex-wrap items-center gap-1.5">
+                {shownAgents.map((entry) => (
+                  <IntegrationChip key={entry.seedKey} name={entry.name} />
+                ))}
+                {agentOverflow > 0 && (
+                  <span className="text-xs font-medium text-muted-foreground">
+                    +{agentOverflow}
+                  </span>
+                )}
+              </div>
+              <p className="text-xs text-muted-foreground">Produces {template.produces}</p>
+            </div>
+          ) : (
+            <div className="space-y-1.5">
+              <p className="text-xs font-medium text-muted-foreground">Reads from</p>
+              <div className="flex flex-wrap items-center gap-1.5">
+                {shown.map((source) => (
+                  <span
+                    key={source}
+                    data-connected={connectedSources.has(source)}
+                    className={cn(!connectedSources.has(source) && 'opacity-55')}
+                  >
+                    <IntegrationChip
+                      name={SOURCE_LABELS[source] ?? source}
+                      logo={<SourceLogo source={source} className="h-4 w-4" />}
+                    />
+                  </span>
+                ))}
+                {overflow > 0 && (
+                  <span className="text-xs font-medium text-muted-foreground">+{overflow}</span>
+                )}
+              </div>
+              {agentCount > 0 && (
+                <p className="text-xs font-medium text-muted-foreground">
+                  {agentCount} {agentCount === 1 ? 'agent' : 'agents'} work on it
+                </p>
               )}
             </div>
-            {agentCount > 0 && (
-              <p className="text-xs font-medium text-muted-foreground">
-                {agentCount} {agentCount === 1 ? 'agent' : 'agents'} work on it
-              </p>
-            )}
-          </div>
+          )
         }
         cta={
           <Button size="sm" variant={ready ? 'default' : 'outline'} className="w-full" asChild>

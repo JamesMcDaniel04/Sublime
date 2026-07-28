@@ -9,7 +9,7 @@ afterEach(cleanup)
 
 const base = {
   goalId: 'goal-1',
-  templateKey: 'sales-org-pipeline-coverage',
+  templateKey: 'sales-org-multithread-open-deals',
   kind: 'custom_kpi',
   source: 'hubspot',
   recurrence: null,
@@ -36,7 +36,7 @@ test('an already-deployed agent is shown as deployed, not re-offered', () => {
   render(
     <AgentBundleCard
       {...base}
-      deployedSeedKeys={['sales-pipeline-hygiene-nudger']}
+      deployedSeedKeys={['sales-multithreading-map']}
       connectedIntegrations={['slack', 'salesforce', 'granola']}
     />,
   )

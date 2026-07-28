@@ -231,9 +231,13 @@ export function GoalTemplateDetail({
                       Available if you track this goal manually or with AI-read.
                     </p>
                   )}
-                  {agent.requiredIntegrations.length > 0 && (
+                  {(agent.requiredIntegrations.length > 0 ||
+                    agent.recommendedIntegrations.length > 0) && (
                     <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
-                      {agent.requiredIntegrations.map((integration) => (
+                      {(agent.requiredIntegrations.length > 0
+                        ? agent.requiredIntegrations
+                        : agent.recommendedIntegrations
+                      ).map((integration) => (
                         <IntegrationChip key={integration} name={integration} />
                       ))}
                     </div>

@@ -11,7 +11,7 @@ const keys = (entries: { seedKey: string }[]) => entries.map((entry) => entry.se
 
 test('curated entries lead, then goal-native, and no fallback appears', () => {
   const bundle = bundleForGoal({
-    templateKey: 'sales-org-pipeline-coverage',
+    templateKey: 'sales-org-multithread-open-deals',
     kind: 'custom_kpi',
     source: 'hubspot',
     recurrence: null,
@@ -98,12 +98,12 @@ test('an unknown templateKey degrades to the fallback rather than throwing', () 
 
 test('a deployed seed is marked, not dropped', () => {
   const bundle = bundleForGoal({
-    templateKey: 'sales-org-pipeline-coverage',
+    templateKey: 'sales-org-multithread-open-deals',
     kind: 'custom_kpi',
     source: 'hubspot',
-    deployedSeedKeys: ['sales-pipeline-hygiene-nudger'],
+    deployedSeedKeys: ['sales-multithreading-map'],
   })
-  const entry = bundle.find((item) => item.seedKey === 'sales-pipeline-hygiene-nudger')
+  const entry = bundle.find((item) => item.seedKey === 'sales-multithreading-map')
   assert.ok(entry, 'a deployed seed must still be listed')
   assert.equal(entry.deployed, true)
   assert.equal(bundle.filter((item) => item.deployed).length, 1)
@@ -116,4 +116,16 @@ test('a seed both curated and kind-matched appears once, as curated', () => {
     source: 'stripe',
   })
   assert.equal(new Set(keys(bundle)).size, bundle.length, 'bundle contains a duplicate')
+})
+
+test('the metric collector carries its recommended integrations', () => {
+  const bundle = bundleForGoal({
+    templateKey: null,
+    kind: 'custom_kpi',
+    source: 'manual',
+  })
+  const collector = bundle.find((entry) => entry.seedKey === 'goal-metric-collector')
+  assert.ok(collector, 'the collector should be offered on an agent-writable source')
+  assert.deepEqual(collector.requiredIntegrations, [], 'it requires neither Slack nor Gmail')
+  assert.deepEqual(collector.recommendedIntegrations, ['slack', 'gmail'])
 })

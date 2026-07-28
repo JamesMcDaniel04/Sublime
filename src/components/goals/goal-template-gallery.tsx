@@ -7,8 +7,10 @@ import { EmptyState } from '@/components/ui/empty-state'
 import { Pagination, paginate } from '@/components/ui/pagination'
 import { GoalTemplateCard } from '@/components/goals/goal-template-card'
 import { GoalTemplateDetail } from '@/components/goals/goal-template-detail'
-import { GOAL_TEMPLATES, type GoalTemplate } from '@/lib/goals/goal-templates'
+import { VISIBLE_GOAL_TEMPLATES, type GoalTemplate } from '@/lib/goals/goal-templates'
+import { templateIsReady } from '@/lib/goals/template-readiness'
 import { connectedSourceSet, type MetricSourceOption } from '@/lib/metrics/source-options'
+import { connectedSlugSet } from '@/lib/templates/relevance'
 import { PRODUCT_DEPARTMENTS } from '@/lib/templates/departments'
 
 const PAGE_SIZE = 9
@@ -21,17 +23,18 @@ const DEPARTMENT_LABELS: Record<string, string> = {
   csm: 'Customer Success',
 }
 
-/** A template is "ready" when some source it reads is already connected.
- *  `manual` never counts — every template can fall back to manual entry, so
- *  counting it would mark all 45 ready and the signal would say nothing. */
-const isReady = (template: GoalTemplate, connected: Set<string>) =>
-  template.sources.some((source) => source !== 'manual' && connected.has(source))
-
 /** Stable partition: ready templates first, never dropping any. Mirrors
- *  sortByReadiness on the agent catalogue — sort and annotate, never hide. */
-const byReadiness = (templates: readonly GoalTemplate[], connected: Set<string>) =>
+ *  sortByReadiness on the agent catalogue — sort and annotate, never hide.
+ *  Readiness itself branches on motion; see templateIsReady. */
+const byReadiness = (
+  templates: readonly GoalTemplate[],
+  connectedSources: Set<string>,
+  connectedIntegrations: Set<string>,
+) =>
   [...templates].sort(
-    (a, b) => Number(isReady(b, connected)) - Number(isReady(a, connected)),
+    (a, b) =>
+      Number(templateIsReady(b, connectedSources, connectedIntegrations)) -
+      Number(templateIsReady(a, connectedSources, connectedIntegrations)),
   )
 
 /**
@@ -53,6 +56,7 @@ export function GoalTemplateGallery() {
   const [selected, setSelected] = useState<GoalTemplate | null>(null)
   const [sources, setSources] = useState<MetricSourceOption[]>([])
   const [sourcesFailed, setSourcesFailed] = useState(false)
+  const [integrations, setIntegrations] = useState<Parameters<typeof connectedSlugSet>[0]>([])
 
   // Best-effort: connection state decorates the cards, it never gates them.
   const loadSources = useCallback(async () => {
@@ -67,20 +71,36 @@ export function GoalTemplateGallery() {
     }
   }, [])
 
+  // Action templates rank by whether their agents can run, which is an
+  // integration question rather than a metric-source one. Best-effort in the
+  // same way: a failure degrades to "nothing connected", never gates a card.
+  const loadIntegrations = useCallback(async () => {
+    try {
+      const response = await fetch('/api/integrations/available', { cache: 'no-store' })
+      const body = await response.json()
+      if (!response.ok || !body.success) throw new Error('integrations unavailable')
+      setIntegrations(body.tools ?? [])
+    } catch {
+      setIntegrations([])
+    }
+  }, [])
+
   useEffect(() => { void loadSources() }, [loadSources])
+  useEffect(() => { void loadIntegrations() }, [loadIntegrations])
 
   const connected = useMemo(
     () => (sourcesFailed ? new Set<string>() : connectedSourceSet(sources)),
     [sources, sourcesFailed],
   )
+  const connectedIntegrations = useMemo(() => connectedSlugSet(integrations), [integrations])
 
   const visible = useMemo(() => {
     const inDepartment =
       department === 'all'
-        ? GOAL_TEMPLATES
-        : GOAL_TEMPLATES.filter((entry) => entry.department === department)
-    return byReadiness(inDepartment, connected)
-  }, [department, connected])
+        ? VISIBLE_GOAL_TEMPLATES
+        : VISIBLE_GOAL_TEMPLATES.filter((entry) => entry.department === department)
+    return byReadiness(inDepartment, connected, connectedIntegrations)
+  }, [department, connected, connectedIntegrations])
   const { pageItems, pageCount, page: currentPage } = paginate(visible, page, PAGE_SIZE)
 
   return (
@@ -133,6 +153,7 @@ export function GoalTemplateGallery() {
               key={entry.key}
               template={entry}
               connectedSources={connected}
+              connectedIntegrations={connectedIntegrations}
               onOpen={setSelected}
             />
           ))}

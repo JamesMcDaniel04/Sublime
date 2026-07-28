@@ -18,8 +18,11 @@ test('it presents as a real branded source, not a connection-free one', () => {
   assert.equal(NO_CONNECTION_SOURCES.has('google_analytics'), false)
 })
 
-test('the two GA4-shaped marketing templates prefer it', () => {
-  for (const key of ['marketing-org-organic-traffic', 'marketing-personal-conversion-rate']) {
+// One GA4-first template survives the action-motion catalogue rework on
+// purpose — a wired connector with nothing in the gallery preferring it would
+// be effectively invisible. See the comment on the template itself.
+test('a GA4-shaped marketing template still prefers it', () => {
+  for (const key of ['marketing-org-organic-traffic']) {
     const template = GOAL_TEMPLATES.find((candidate) => candidate.key === key)!
     assert.equal(
       template.sources[0],
