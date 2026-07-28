@@ -40,6 +40,7 @@ model Organization {
   mcpConnections            McpConnection[]
   nangoConnections          NangoConnection[]
   googleOAuthConnections    GoogleOAuthConnection[]
+  postgresConnections       PostgresConnection[]
   integrationSecrets        IntegrationSecret[]
   activityEvents            ActivityEvent[]
   activityBackfills         ActivityBackfill[]
@@ -594,6 +595,47 @@ model GoogleOAuthConnection {
   @@unique([organizationId, userId, service, accountEmail])
   @@index([organizationId, service])
   @@map("google_oauth_connections")
+}
+
+/// A customer-owned Postgres database connected natively (Nango has no
+/// Postgres provider). The connection string lives HERE, encrypted with the
+/// same helpers the credential vault uses; a NangoConnection row with provider
+/// 'postgres-native' mirrors each record so every existing read path (the
+/// integrations grid, /api/nango/status, the tool plane, the scan plane) works
+/// unchanged — the same trick GoogleOAuthConnection uses above.
+///
+/// Org-scoped, not per-user: a production database is org infrastructure, so
+/// writes to this table require an ADMIN.
+///
+/// `allowWrites` is a COLUMN, never a field inside authConfig, so the tool
+/// catalog can filter on "may this be written to?" without decrypting a secret
+/// to read a policy flag.
+model PostgresConnection {
+  id             String    @id @default(cuid())
+  organizationId String    @db.Uuid
+  name           String
+  /// encryptSecret() blobs: { connectionString, caCert? }. Never returned to a client.
+  authConfig     Json      @default("{}")
+  /// Non-secret display target derived from the connection string at save
+  /// time — 'host:5432/dbname', never user or password. Lets the list endpoint
+  /// stay a plain read with no decryption.
+  displayTarget  String    @default("")
+  /// Opt-in per database, OFF by default. Even when true, writes are data-only
+  /// (no DDL) and always pause an agent run for human approval.
+  allowWrites    Boolean   @default(false)
+  defaultSchema  String    @default("public")
+  status         String    @default("untested") // untested | connected | error
+  lastError      String?   @db.Text
+  createdById    String?
+  lastUsedAt     DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, name])
+  @@index([organizationId, status])
+  @@map("postgres_connections")
 }
 
 // Per-organization secret for built-in integrations (e.g. the Granola API
