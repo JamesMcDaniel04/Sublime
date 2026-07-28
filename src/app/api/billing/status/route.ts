@@ -1,13 +1,12 @@
 import { NextResponse } from 'next/server'
 import { requireAuth } from '@/lib/supabase/auth-utils'
-import { billingStateFor } from '@/lib/billing/trial'
+import { billingStateFor, trialDaysRemaining } from '@/lib/billing/trial'
 import { limitsForOrg, tokensToCredits, formatLimit } from '@/lib/billing/limits'
 import { orgUsageSummary } from '@/lib/billing/enforce'
 import { checkMonthlyTokenBudget } from '@/lib/usage/budget'
 import { topupCreditsForMonth } from '@/lib/billing/topups'
 import { capabilitiesForPlan } from '@/lib/billing/capabilities'
 import { entitlementPlanFor, isGrandfatheredOrganization } from '@/lib/billing/entitlements'
-import { trialDaysRemaining } from '@/lib/billing/access'
 
 export const dynamic = 'force-dynamic'
 

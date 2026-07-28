@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { requireAuth } from '@/lib/supabase/auth-utils'
 import { prisma } from '@/lib/prisma'
 import { getStripe, appOrigin } from '@/lib/stripe'
-import { isPaidPlanKey, priceIdFor, TRIAL_DAYS, type PaidPlanKey } from '@/lib/stripe/plans'
+import { isPaidPlanKey, priceIdFor, trialParamsFor, type PaidPlanKey } from '@/lib/stripe/plans'
 import { apiLogger } from '@/lib/logger'
 import { isGrandfatheredOrganization } from '@/lib/billing/entitlements'
 
@@ -66,11 +66,6 @@ async function startCheckout(plan: PaidPlanKey, origin: string) {
     })
   }
 
-  // One free trial per workspace, ever. trialStartedAt is stamped by the
-  // webhook (not here), so abandoning checkout costs a prospect nothing —
-  // but cancelling on day 13 and coming back charges from day one.
-  const eligibleForTrial = organization.trialStartedAt == null
-
   const session = await stripe.checkout.sessions.create({
     mode: 'subscription',
     customer: customerId,
@@ -83,13 +78,10 @@ async function startCheckout(plan: PaidPlanKey, origin: string) {
     metadata: { organizationId: organization.id, planKey: plan },
     subscription_data: {
       metadata: { organizationId: organization.id, planKey: plan },
-      ...(eligibleForTrial && {
-        trial_period_days: TRIAL_DAYS,
-        // Defense in depth: `payment_method_collection: 'always'` should make
-        // a card-less trial impossible. If that invariant ever breaks, cancel
-        // rather than hand out free access.
-        trial_settings: { end_behavior: { missing_payment_method: 'cancel' as const } },
-      }),
+      // One free trial per workspace, ever. trialStartedAt is stamped by the
+      // webhook (not here), so abandoning this checkout costs a prospect
+      // nothing — but cancelling on day 13 and coming back charges from day one.
+      ...trialParamsFor(organization.trialStartedAt),
     },
     success_url: `${origin}/dashboard?billing=success`,
     cancel_url: `${origin}/#pricing`,

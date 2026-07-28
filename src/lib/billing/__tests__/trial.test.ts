@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { Plan } from '@prisma/client'
-import { billingStateFor } from '../trial'
+import { billingStateFor, trialDaysRemaining } from '../trial'
 
 test('paid plans are never trial-gated, even past an old trial deadline', () => {
   const billing = billingStateFor({
@@ -49,4 +49,25 @@ test('grandfathered test accounts remain paid and unrestricted without a subscri
   })
   assert.equal(billing.state, 'paid')
   assert.equal(billing.plan, Plan.ENTERPRISE)
+})
+
+const NOW = new Date('2026-07-28T12:00:00.000Z')
+const daysFromNow = (days: number) => new Date(NOW.getTime() + days * 24 * 60 * 60 * 1000)
+
+test('no trial end date means the workspace is not trialing', () => {
+  assert.equal(trialDaysRemaining(null, NOW), null)
+  assert.equal(trialDaysRemaining(undefined, NOW), null)
+})
+
+test('a fresh 14-day trial reads as 14 days', () => {
+  assert.equal(trialDaysRemaining(daysFromNow(14), NOW), 14)
+})
+
+test('a partial day rounds up so the last hours never read as zero', () => {
+  assert.equal(trialDaysRemaining(new Date(NOW.getTime() + 6 * 60 * 60 * 1000), NOW), 1)
+})
+
+test('an elapsed trial clamps to zero rather than going negative', () => {
+  assert.equal(trialDaysRemaining(daysFromNow(-3), NOW), 0)
+  assert.equal(trialDaysRemaining(NOW, NOW), 0)
 })
