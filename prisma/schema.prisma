@@ -1289,6 +1289,15 @@ model Goal {
   /// render defaultLayoutForGoal(). Invalid persisted layouts fail soft to
   /// that default in the detail renderer.
   dashboardLayout Json?
+  /// Composition shape: the kind's declared rollup config (KPI shape, weights,
+  /// per-rep targets, variance tolerance, coverage threshold). Null =
+  /// uncomposed; such a goal evaluates exactly as it did before composition.
+  composition      Json?
+  /// Per-evaluation summary { level, boundPct, derived, variancePct,
+  /// reconciliation, breachedGates, missing, reasons }. Written by
+  /// evaluateAndPersistGoal so the goals list renders a composition badge
+  /// without an N+1 over components.
+  compositionState Json?
   /// The GoalTemplate.key this goal was created from, or null for
   /// Copilot-drafted and manually-created goals. Read by the agent-bundle
   /// lookup to offer the template's curated agents; never edited after create.
@@ -1323,6 +1332,10 @@ model GoalPeriod {
   targetValue    Float
   finalValue     Float
   outcome        String // 'achieved' | 'missed'
+  /// Component values that decided this settlement, frozen at settlement time.
+  compositionSnapshot       Json?
+  /// Read-vs-derived headline variance at settlement, in percent.
+  reconciliationVariancePct Float?
   createdAt      DateTime @default(now()) @db.Timestamptz(6)
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
@@ -1339,7 +1352,11 @@ model GoalMetric {
   id                   String    @id @default(cuid())
   organizationId       String    @db.Uuid
   goalId               String
-  role                 String    @default("primary") // 'primary' | 'supporting'
+  role                 String    @default("primary") // 'primary' | 'supporting' | 'component'
+  /// Component slot within the goal's composition — 'new_arr', 'stage:2',
+  /// 'pipeline_coverage', 'driver:aws'. NULL for primary/supporting metrics;
+  /// NULLs are distinct in Postgres unique indexes so they never collide.
+  slot                 String?
   label                String?
   unit                 String? // null = inherit the goal's unit
   source               String // 'stripe' | 'hubspot' | 'salesforce' | 'google_sheets' | 'postgres' | 'url' | 'slack_assisted' | 'gmail_assisted' | 'manual'
@@ -1356,6 +1373,7 @@ model GoalMetric {
   goal         Goal              @relation(fields: [goalId], references: [id], onDelete: Cascade)
   datapoints   MetricDatapoint[]
 
+  @@unique([goalId, slot])
   @@index([goalId])
   @@index([organizationId, source])
   @@map("goal_metrics")
