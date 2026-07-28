@@ -9,6 +9,7 @@
  *   - Every other plane uses a `<plane>:<ref>` synthetic id:
  *       native:<providerId>   — a built-in integration (granola|slack|http|email)
  *       nango:<capability>    — a Nango delivery capability (slack|gmail|salesforce)
+ *       postgres:<id>         — one natively-connected Postgres database
  *       flow:<flowId>         — an agent-callable flow (workflows-as-tools)
  *
  * Parsing is pure so execution routing and the catalog agree on one scheme.
@@ -16,11 +17,11 @@
  * technically legal there), which preserves backward compatibility.
  */
 
-export const FLOW_TOOL_PLANES = ['mcp', 'native', 'nango', 'flow'] as const
+export const FLOW_TOOL_PLANES = ['mcp', 'native', 'nango', 'postgres', 'flow'] as const
 export type FlowToolPlane = (typeof FLOW_TOOL_PLANES)[number]
 
 /** Planes that use a `<plane>:<ref>` prefix (mcp rows stay raw). */
-const PREFIXED_PLANES = new Set<FlowToolPlane>(['native', 'nango', 'flow'])
+const PREFIXED_PLANES = new Set<FlowToolPlane>(['native', 'nango', 'postgres', 'flow'])
 
 export type ParsedFlowToolConnectionId = { plane: FlowToolPlane; ref: string }
 

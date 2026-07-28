@@ -21,6 +21,7 @@ import {
   loadMcpConnectionPlaneGroups,
   loadNangoPlaneGroups,
   loadNativePlaneGroups,
+  loadPostgresPlaneGroups,
   type ToolPlaneGroup,
 } from '@/features/agents/tool-planes'
 import type { GoalResource } from '@/lib/integrations/goals-port'
@@ -49,9 +50,9 @@ export async function loadFlowToolCatalog(
   // When the caller only needs specific connections (run/publish validation),
   // load just the planes those ids reference.
   const wanted = options.connectionIds?.length ? planesForConnectionIds(options.connectionIds) : null
-  const wantPlane = (plane: 'mcp' | 'native' | 'nango') => !wanted || wanted.planes.has(plane)
+  const wantPlane = (plane: 'mcp' | 'native' | 'nango' | 'postgres') => !wanted || wanted.planes.has(plane)
 
-  const [mcp, native, nango] = await Promise.all([
+  const [mcp, native, nango, postgres] = await Promise.all([
     wantPlane('mcp') && (!wanted || wanted.mcpIds.length)
       ? loadMcpConnectionPlaneGroups(organizationId, options.userId, {
           connectionIds: wanted?.mcpIds,
@@ -64,11 +65,12 @@ export async function loadFlowToolCatalog(
         )
       : [],
     wantPlane('nango') ? loadNangoPlaneGroups(organizationId, options.userId).catch(() => [] as ToolPlaneGroup[]) : [],
+    wantPlane('postgres') ? loadPostgresPlaneGroups(organizationId).catch(() => [] as ToolPlaneGroup[]) : [],
   ])
 
   // MCP rows stay first so existing pickers/graphs see a stable ordering, then
   // the remaining planes.
-  const groups = [...mcp, ...native, ...nango]
+  const groups = [...mcp, ...native, ...nango, ...postgres]
   const wantedIds = wanted ? new Set(options.connectionIds) : null
   // Whether each connection has actually been proven to work. A missing row
   // reads as `unverified` — never as healthy, which is the point.

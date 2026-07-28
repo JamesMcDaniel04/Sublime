@@ -9,7 +9,7 @@
  * connection-scan.ts re-exports these for its own (server-side) callers.
  */
 
-export const SCAN_PLANES = ['nango', 'mcp'] as const
+export const SCAN_PLANES = ['nango', 'mcp', 'postgres'] as const
 export type ScanPlane = (typeof SCAN_PLANES)[number]
 
 /** Pure: the stable key identifying one connection across settings, memory

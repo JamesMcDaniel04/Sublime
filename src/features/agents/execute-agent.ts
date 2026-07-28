@@ -16,6 +16,7 @@ import {
   loadMcpConnectionPlaneGroups,
   loadNativePlaneGroups,
   loadNangoPlaneGroups,
+  loadPostgresPlaneGroups,
   toolName,
   type McpToolClient,
   type ToolBinding,
@@ -286,6 +287,12 @@ async function loadTools(
   for (const group of await loadNangoPlaneGroups(organizationId, ownerUserId, { providers })) {
     pushGroup(group, { namePrefix: 'nango' })
   }
+
+  // ---- Native Postgres (one group per connected database) ------------------
+  // Gated on a matching providers entry — either the generic plane name or the
+  // database's own name — so an agent attached to one database does not spend
+  // the tool cap on every database the org has connected.
+  for (const group of await loadPostgresPlaneGroups(organizationId, { providers })) pushGroup(group)
 
   // ---- Flow tool plane (agent -> flow) -------------------------------------
   // Flows appear as `flow_<slug>` tools whose input schema is the flow's input

@@ -20,7 +20,7 @@
 import { slackConfigured } from '@/lib/integrations/slack'
 import { emailConfigured } from '@/lib/integrations/email'
 
-export type ConnectorKind = 'builtin' | 'nango'
+export type ConnectorKind = 'builtin' | 'nango' | 'postgres'
 
 export type ConnectorDescriptor = {
   /** Canonical key persisted on the agent + shown in the UI. */
@@ -31,6 +31,13 @@ export type ConnectorDescriptor = {
   kind: ConnectorKind
   /** True for outbound/delivery planes (writes) — reserved cap budget. */
   isWrite: boolean
+  /**
+   * Human approval is MANDATORY for this plane's calls, regardless of whether
+   * the agent opted into approvals. Reserved for planes where the model
+   * authors the side effect itself against customer-owned infrastructure —
+   * today only Postgres writes.
+   */
+  alwaysRequiresApproval?: boolean
   /** The runtime `binding.provider` this plane produces (e.g. 'nango:slack'). */
   providerId: string
   /** Does a user-selected integration string activate this connector? */
@@ -92,6 +99,35 @@ export const BUILTIN_CONNECTORS: ConnectorDescriptor[] = [
     providerId: 'sublime-goals',
     matches: has('goal'),
     available: () => true, // no credentials; scoped by GoalContribution at load time
+  },
+  // Native Postgres. Unlike every plane above, this one is not a single
+  // connection: an org connects N named databases, and the plane loader builds
+  // one group per database (see loadPostgresPlaneGroups). The descriptor here
+  // exists for selection matching, the picker chip, and audit classification.
+  {
+    key: 'postgres',
+    label: 'PostgreSQL',
+    slug: 'postgresql',
+    kind: 'postgres',
+    isWrite: false,
+    providerId: 'postgres',
+    matches: (selected) => /postgres|postgresql|database/i.test(selected),
+    available: () => true, // gated per-org by a connected database at the call site
+  },
+  {
+    // Never user-selected and never shown in a picker: the write plane is
+    // activated per-database by the connection's allowWrites column. It exists
+    // as its own descriptor so isWriteProvider classifies its audit events and
+    // alwaysRequiresApproval resolves for the approval gate.
+    key: 'postgres:write',
+    label: 'PostgreSQL (write)',
+    slug: 'postgresql',
+    kind: 'postgres',
+    isWrite: true,
+    alwaysRequiresApproval: true,
+    providerId: 'postgres:write',
+    matches: () => false,
+    available: () => true,
   },
   // Nango delivery planes (outbound as the acting user). One per capability.
   {
@@ -254,6 +290,19 @@ export function isSelected(descriptor: ConnectorDescriptor, selected: string[]):
 export function isWriteProvider(providerId: string): boolean {
   if (providerId.startsWith('nango:')) return true
   return BUILTIN_CONNECTORS.some((c) => c.providerId === providerId && c.isWrite)
+}
+
+/**
+ * Whether this plane's calls must pause for a human EVEN IF the agent never
+ * opted into approvals.
+ *
+ * The ordinary approval gate is per-agent and defaults off, which is the right
+ * default for planes whose blast radius is a message. It is the wrong default
+ * for a model-authored statement against a customer's production database, so
+ * that plane carries the requirement itself.
+ */
+export function alwaysRequiresApproval(providerId: string): boolean {
+  return BUILTIN_CONNECTORS.some((c) => c.providerId === providerId && c.alwaysRequiresApproval === true)
 }
 
 // ── UI key derivation (shared with /api/integrations/available) ───────────────

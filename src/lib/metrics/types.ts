@@ -5,7 +5,7 @@ export interface MetricSourceContext {
   organizationId: string
   /** User who authorized the binding. Required for personal credentials. */
   userId?: string
-  /** 'credential:<id>' | 'nango:<connectionId>' | 'google:<id>' | null */
+  /** 'credential:<id>' | 'nango:<connectionId>' | 'google:<id>' | 'postgres:<id>' | null */
   connectionRef: string | null
   config: Record<string, unknown>
 }
@@ -29,7 +29,7 @@ export interface MetricSource {
 
 /** 'credential:abc' → 'abc'; throws on plane mismatch so a misfiled binding
  * fails loudly at fetch time, not silently with someone else's connection. */
-export function refId(connectionRef: string | null, plane: 'credential' | 'nango' | 'google'): string {
+export function refId(connectionRef: string | null, plane: 'credential' | 'nango' | 'google' | 'postgres'): string {
   const prefix = `${plane}:`
   if (!connectionRef || !connectionRef.startsWith(prefix)) {
     throw new Error(`Metric binding expected a ${plane} connection, got '${connectionRef ?? 'none'}'`)

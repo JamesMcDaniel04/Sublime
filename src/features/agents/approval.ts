@@ -10,7 +10,7 @@
  * path only applies to ask_user questions.
  */
 import type { ToolResult } from '@/lib/llm/model-runner'
-import { isWriteProvider } from '@/lib/connectors/registry'
+import { alwaysRequiresApproval, isWriteProvider } from '@/lib/connectors/registry'
 
 /** A write tool call held for approval; persisted on execution metadata. */
 export type PendingApproval = {
@@ -34,9 +34,21 @@ export function isApprovalReply(reply: string | null | undefined): boolean {
   return APPROVE_RE.test(reply.trim())
 }
 
-/** True when this call must pause for a human: agent opted in AND the plane writes. */
+/**
+ * True when this call must pause for a human.
+ *
+ * Two independent paths reach a pause:
+ *   - the plane requires approval unconditionally (Postgres writes — a
+ *     model-authored statement against a customer database), or
+ *   - the agent opted in AND the plane writes (every other write plane).
+ *
+ * Both derive from the connector registry rather than a local regex, so a new
+ * plane cannot drift out of the gate.
+ */
 export function toolNeedsApproval(params: { requireApproval: boolean; provider: string | null | undefined }): boolean {
-  if (!params.requireApproval || !params.provider) return false
+  if (!params.provider) return false
+  if (alwaysRequiresApproval(params.provider)) return true
+  if (!params.requireApproval) return false
   return isWriteProvider(params.provider)
 }
 
