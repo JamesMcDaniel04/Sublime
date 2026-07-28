@@ -34,6 +34,15 @@ import { sourceIsAvailable } from '@/lib/metrics/source-options'
 import { CompositionFields } from '@/components/goals/composition-fields'
 import type { MetricBinding } from '@/components/goals/metric-binding-fields'
 import type { KpiShape } from '@/lib/goals/composition/rollup-kpi'
+import {
+  KPI_SHAPE_OPTIONS,
+  KpiShapeFields,
+} from '@/components/goals/kpi-shape-fields'
+import {
+  MIN_FUNNEL_STAGES,
+  kpiConfigFrom,
+  type Driver,
+} from '@/components/goals/kpi-shape'
 import { invalidateCachedJson } from '@/lib/client/use-cached-json'
 
 type Step = 1 | 2 | 3
@@ -75,6 +84,8 @@ export default function NewGoalPage() {
   // uncomposed goal still posts the legacy `metric` body unchanged.
   const [components, setComponents] = useState<MetricBinding[]>([])
   const [kpiShape, setKpiShape] = useState<KpiShape | ''>('')
+  const [kpiStages, setKpiStages] = useState(MIN_FUNNEL_STAGES)
+  const [kpiDrivers, setKpiDrivers] = useState<Driver[]>([])
   const [orgGoals, setOrgGoals] = useState<GoalSummary[]>([])
   const [loadingSources, setLoadingSources] = useState(true)
   const [creating, setCreating] = useState(false)
@@ -189,14 +200,21 @@ export default function NewGoalPage() {
     if (components.length === 0) return null
     if (state.kind === 'arr') return { kind: 'arr' as const }
     if (state.kind === 'quota') return { kind: 'quota' as const }
-    return kpiShape ? { kind: 'kpi' as const, shape: kpiShape } : null
-  }, [components.length, kpiShape, state.kind])
+    if (!kpiShape) return null
+    return {
+      kind: 'kpi' as const,
+      shape: kpiShape,
+      ...kpiConfigFrom(kpiShape, kpiStages, kpiDrivers),
+    }
+  }, [components.length, kpiDrivers, kpiShape, kpiStages, state.kind])
 
   // Changing the kind invalidates every bound slot — an arr slot means nothing
   // on a quota goal, and leaving them would post a body the route rejects.
   useEffect(() => {
     setComponents([])
     setKpiShape('')
+    setKpiStages(MIN_FUNNEL_STAGES)
+    setKpiDrivers([])
   }, [state.kind])
 
   const chooseSource = (source: Source) => {
@@ -976,10 +994,11 @@ export default function NewGoalPage() {
               >
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="none">Track it as one number</SelectItem>
-                  <SelectItem value="ratio">A ratio — numerator over denominator</SelectItem>
-                  <SelectItem value="funnel">A funnel — stage to stage</SelectItem>
-                  <SelectItem value="weighted_sum">A weighted sum of drivers</SelectItem>
+                  {KPI_SHAPE_OPTIONS.map((option) => (
+                    <SelectItem key={option.value} value={option.value}>
+                      {option.label}
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
               <p className="text-xs text-muted-foreground">
@@ -988,10 +1007,28 @@ export default function NewGoalPage() {
               </p>
             </label>
           )}
+          {state.kind === 'kpi' && kpiShape && (
+            <KpiShapeFields
+              shape={kpiShape}
+              stages={kpiStages}
+              drivers={kpiDrivers}
+              onStagesChange={(next) => {
+                setKpiStages(next)
+                // Slots are stage-indexed, so a changed count invalidates the
+                // tail of what is already bound.
+                setComponents([])
+              }}
+              onDriversChange={(next) => {
+                setKpiDrivers(next)
+                setComponents([])
+              }}
+            />
+          )}
           <CompositionFields
             kind={state.kind}
             shape={kpiShape || undefined}
-            stages={kpiShape === 'funnel' ? 3 : undefined}
+            stages={kpiStages}
+            weights={compositionSpec && 'weights' in compositionSpec ? compositionSpec.weights : undefined}
             unit={state.unit}
             bindings={components}
             sources={sources}

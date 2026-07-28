@@ -22,6 +22,7 @@ export function CompositionFields({
   kind,
   shape,
   stages,
+  weights,
   unit,
   bindings,
   sources,
@@ -30,12 +31,14 @@ export function CompositionFields({
   kind: GoalKind
   shape?: KpiShape
   stages?: number
+  /** weighted_sum only: the declared drivers, which ARE its slots. */
+  weights?: Record<string, number>
   unit: MetricBinding['unit']
   bindings: MetricBinding[]
   sources: MetricSourceOption[]
   onChange: (next: MetricBinding[]) => void
 }) {
-  const slots = slotsForKind(kind, shape, stages)
+  const slots = slotsForKind(kind, shape, stages, weights)
   if (slots.length === 0) return null
 
   const bindingFor = (slot: string) =>

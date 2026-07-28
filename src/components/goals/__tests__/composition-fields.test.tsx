@@ -70,6 +70,27 @@ test('every ARR and quota slot explains itself', () => {
 })
 
 test('slotLabel falls back to the raw slot rather than rendering blank', () => {
-  assert.equal(slotLabel('stage:2'), 'stage:2')
+  // A slot from a future vocabulary must still render as something.
+  assert.equal(slotLabel('some_unknown_slot'), 'some_unknown_slot')
   assert.equal(slotLabel('new_arr'), 'New ARR')
+})
+
+test('driver and stage slots get readable labels, not raw keys', () => {
+  // These slots are generated, so they have no entry in SLOT_LABELS — without
+  // the fallbacks the UI would render 'driver:data-dog' at the user.
+  assert.equal(slotLabel('driver:data-dog'), 'Data dog')
+  assert.equal(slotLabel('driver:aws'), 'Aws')
+  assert.equal(slotLabel('stage:2'), 'Stage 2')
+})
+
+test('weighted_sum slots follow the declared drivers', () => {
+  const slots = slotsForKind('kpi', 'weighted_sum', undefined, {
+    'driver:aws': 1,
+    'driver:gcp': 2,
+  })
+  assert.deepEqual(
+    slots.map((entry) => entry.slot).sort(),
+    ['driver:aws', 'driver:gcp'],
+  )
+  assert.ok(slots.every((entry) => entry.required))
 })

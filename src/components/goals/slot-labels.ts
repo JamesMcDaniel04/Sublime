@@ -38,12 +38,25 @@ export const SLOT_HINTS: Record<string, string> = {
   sales_cycle_days: 'Mean days from qualified to closed.',
 }
 
-export const slotLabel = (slot: string): string => SLOT_LABELS[slot] ?? slot
+export const slotLabel = (slot: string): string => {
+  const known = SLOT_LABELS[slot]
+  if (known) return known
+  // Driver slots are user-named, so their label is the name they were slugged
+  // from — 'driver:data-dog' reads as 'Data dog', not as a raw key.
+  if (slot.startsWith('driver:')) {
+    const name = slot.slice('driver:'.length).replace(/-/g, ' ')
+    return name.charAt(0).toUpperCase() + name.slice(1)
+  }
+  // Funnel stages are positional: 'stage:2' reads as 'Stage 2'.
+  if (slot.startsWith('stage:')) return `Stage ${slot.slice('stage:'.length)}`
+  return slot
+}
 
 export function slotsForKind(
   kind: GoalKind,
   shape?: KpiShape,
   stages?: number,
+  weights?: Record<string, number>,
 ): Array<{ slot: string; required: boolean }> {
   if (kind === 'arr') {
     return [
@@ -58,7 +71,7 @@ export function slotsForKind(
   }
   // KPI has no shape until the user declares one, and nothing to offer until then.
   if (!shape) return []
-  return kpiRequiredSlots(shape, { stages }).map((slot) => ({
+  return kpiRequiredSlots(shape, { stages, weights }).map((slot) => ({
     slot,
     required: true,
   }))
