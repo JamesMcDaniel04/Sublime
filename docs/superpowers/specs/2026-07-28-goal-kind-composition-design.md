@@ -2,6 +2,7 @@
 
 **Date:** 2026-07-28
 **Status:** approved, ready for planning
+**Line references as of:** `3e1c10c`
 
 ## Problem
 
@@ -16,7 +17,7 @@ The per-kind depth that does exist is prefill-only and evaporates at creation.
 `motion`, and `produces` — all of it wizard prefill. After the goal row is
 written only `templateKey` survives, read solely to offer agent bundles.
 
-The structural blocker is single-metric evaluation. `refresh.ts:147` evaluates
+The structural blocker is single-metric evaluation. `refresh.ts:148` evaluates
 `metrics: { where: { role: 'primary' }, take: 1 }`. Risk, projection,
 settlement, the trend chart, and the entire report hang off one scalar.
 `role: 'supporting'` metrics render in widgets but never touch risk or
@@ -27,8 +28,8 @@ ARR, Quota, and KPI each need to stand on its own as a product that a workspace
 could build its whole ROI story around. That means each must track a
 *composition* that rolls up, not one number with decorative context.
 
-This spec is sub-project 1 of a five-part program (§8). It is the keystone:
-the evidence-row shape, the widget set, and what the report can prove are all
+This spec is sub-project 1 of a five-part program (§9). It is the keystone: the
+evidence-row shape, the widget set, and what the report can prove are all
 downstream of the decisions here.
 
 ## 1. Kind reduction
@@ -69,14 +70,17 @@ Three inferred defaults lose their basis and become explicit values:
 | `copilot.ts:353` | `kind === 'savings' ? 'decrease' : data.direction` | `data.direction`, with prompt guidance so the model picks `decrease` for cost-reduction KPIs |
 
 Mechanical remapping surface: the kind literals across the 46 `template(...)`
-entries in `GOAL_TEMPLATES`, the six `goalKinds` arrays in `SEED_CATALOGUE`, the
-two `GOAL_KINDS` enums (`copilot.ts:18`, `api/goals/route.ts:15`), and
-`GOAL_KIND_LABELS` / `GOAL_KIND_UNITS` in `types.ts`.
+entries in `GOAL_TEMPLATES` (currently 33 `custom_kpi`, 4 `revenue`, 4
+`savings`, 3 `mrr`, 3 `lead_gen`, 2 `quota`, 1 `arr`), the six `goalKinds`
+arrays in `SEED_CATALOGUE`, the two `GOAL_KINDS` enums (`copilot.ts:18`,
+`api/goals/route.ts:15`), and `GOAL_KIND_LABELS` / `GOAL_KIND_UNITS` in
+`types.ts`.
 
-`goalKinds` arrays must **dedupe** after remapping — `['arr','mrr','revenue','quota']`
-collapses to `['arr','quota']`, and `['lead_gen','revenue']` to `['kpi','arr']`.
-A naive map leaves duplicates that skew nothing functionally but make
-`goalTemplatesFor` matching read as though a seed were listed twice.
+`goalKinds` arrays must **dedupe** after remapping —
+`['arr','mrr','revenue','quota']` collapses to `['arr','quota']`, and
+`['lead_gen','revenue']` to `['kpi','arr']`. A naive map leaves duplicates that
+break nothing functionally but make `goalTemplatesFor` matching read as though a
+seed were listed twice.
 
 ## 2. Components are `GoalMetric` rows
 
@@ -106,16 +110,21 @@ model Goal {
 }
 ```
 
-The metric cap in the create route rises from `max(4)` to `max(12)`. With
-Quota's per-rep tracking living in child goals (§3), no kind needs more than
-about six metrics, so the `MAX_METRICS_PER_TICK = 200` refresh budget is
-unaffected. A cap of 12 leaves headroom without letting one goal consume a
-meaningful share of a cron tick.
+`@@unique([goalId, slot])` is safe alongside a nullable `slot` because Postgres
+treats NULLs as distinct in unique indexes. Every `primary` and `supporting`
+metric carries `slot = NULL` and none of them collide; the constraint binds only
+component rows, which is exactly the intent — one metric per slot per goal.
+
+The metric cap in the create route rises from `max(4)` (`api/goals/route.ts:62`)
+to `max(12)`. With Quota's per-rep tracking living in child goals (§3), no kind
+needs more than about six metrics, so the `MAX_METRICS_PER_TICK = 200` refresh
+budget is unaffected. A cap of 12 leaves headroom without letting one goal
+consume a meaningful share of a cron tick.
 
 `GoalMetricSeries` in `types.ts` gains `slot: string | null` and the widened
 `role`. The `role` zod enums at `api/goals/route.ts:36`, `copilot.ts:86` (JSON
-schema) and `copilot.ts:202` (zod) widen to three values. `preview-data.ts:16`
-follows.
+schema) and `copilot.ts:202` (zod) widen to three values; the inline unions at
+`copilot.ts:217` and `preview-data.ts:16` follow.
 
 ## 3. Slot vocabularies
 
@@ -246,18 +255,26 @@ returning the `Evaluation` plus a composition block.
 `evaluateAndPersistGoal` in `refresh.ts` branches on
 `goal.composition !== null` and otherwise takes the existing path unchanged.
 
-Of the six `role: 'primary'` call sites, only `refresh.ts` loads components.
-`impact.ts:224`, `grounding.ts:91`, `digest.ts:172`, `api/goals/route.ts:141`
-and `api/goals/[id]/datapoints/route.ts:22` stay headline-only. The goals list
-renders its composition badge from `Goal.compositionState`, avoiding an N+1
-across cards.
+There are **eight** `where: { role: 'primary' }` query sites. Only `refresh.ts`
+changes here; the rest stay headline-only, each for a stated reason:
+
+| Site | Decision |
+|---|---|
+| `refresh.ts:148` | **Loads components.** The evaluation path. |
+| `api/goals/route.ts:141` | Headline only — the list renders its composition badge from `Goal.compositionState`, avoiding an N+1 across cards. |
+| `report/report-data.ts:163` | Headline only in this spec. Per-kind report sections are sub-project 5. |
+| `impact.ts:224` | Headline only — impact attribution is about automation runs, not composition. |
+| `grounding.ts:91` | Headline only in this spec; composition in prompts is a later call. |
+| `digest.ts:172` | Headline only — the Monday digest reports status, not decomposition. |
+| `api/goals/[id]/datapoints/route.ts:22` | Headline only — manual entry targets the primary series. |
+| `api/goals/[id]/datapoints/import/route.ts:24` | Headline only — CSV import targets the primary series. |
 
 ## 5. Settlement as a receipt
 
 `GoalPeriod` already has the exact shape of a settlement record —
 `periodStart`, `periodEnd`, `startValue`, `targetValue`, `finalValue`,
 `outcome` — but is written only for recurring goals. Non-recurring goals just
-flip `status: 'achieved'` at `refresh.ts:327` with no timestamp and no recorded
+flip `status: 'achieved'` in `refresh.ts` with no timestamp and no recorded
 final value, which makes the most common goal kind the one with the weakest
 receipt.
 
@@ -296,7 +313,7 @@ unverifiable by hand.
   reason. This is the surface that makes gating legible rather than mysterious
   — a goal capped at `at_risk` must say why.
 
-Full per-kind dashboards are out of scope (§8).
+Full per-kind dashboards are out of scope (§9).
 
 ## 7. Testing
 
@@ -330,7 +347,7 @@ the QA Postgres before any failure there is trusted.
 
 The platform is becoming four editions — ARR, Quota, KPI, and Full — where the
 edition gates creatable goal kinds, premade template visibility, and
-kind-specific widgets. That is sub-project 2 and is out of scope here (§9), but
+kind-specific widgets. That is sub-project 3 and is out of scope here (§9), but
 two things in *this* spec must be built so the gate drops in rather than
 requiring a rewrite.
 
@@ -342,12 +359,13 @@ weaving it into the zod `.refine()` chain, so the edition check composes with it
 instead of duplicating it.
 
 **The Copilot's kind list must be a parameter, not a module constant.** §1
-reduces `GOAL_KINDS` in `copilot.ts:18` to three values. Editions require the
+reduces `GOAL_KINDS` at `copilot.ts:18` to three values. Editions require the
 Copilot to draft *only* entitled kinds, because a model that proposes a Quota
 goal to an ARR workspace produces a dead end after the user has already been
-promised something. Thread the allowed-kind list into draft generation (JSON
-schema enum, prompt text, and the `copilot.ts:270` validation) rather than
-reading a module-level constant. Cheap now, invasive later.
+promised something. Thread the allowed-kind list into draft generation — the
+JSON schema enum at `copilot.ts:57`, the prompt line at `copilot.ts:131`, and
+the validation at `copilot.ts:270` — rather than reading a module-level
+constant. Cheap now, invasive later.
 
 Nothing else in this spec is edition-dependent. Composition defines *what a
 kind tracks*; editions define *how the platform is arranged around it*.
@@ -371,13 +389,12 @@ Sub-project 4 has no dependency on 2 or 3 and can run in parallel with them.
 
 Recorded here so the sub-project 3 spec does not re-litigate it:
 
-- `Organization.edition` is a **real column**, not a key in the
-  `settings` JSON grab-bag, because it gates pricing and routing. It is
-  orthogonal to `Plan` — `Plan` sells seats, support and retention; `edition`
-  sells goal kinds. `capabilitiesForPlan(plan)` becomes
-  `capabilitiesFor(plan, edition)`.
-- Set by the Stripe webhook from the purchased product. Trials run on `full`
-  so evaluation shows the whole product; checkout narrows it. Grandfathered and
+- `Organization.edition` is a **real column**, not a key in the `settings` JSON
+  grab-bag, because it gates pricing and routing. It is orthogonal to `Plan` —
+  `Plan` sells seats, support and retention; `edition` sells goal kinds.
+  `capabilitiesForPlan(plan)` becomes `capabilitiesFor(plan, edition)`.
+- Set by the Stripe webhook from the purchased product. Trials run on `full` so
+  evaluation shows the whole product; checkout narrows it. Grandfathered and
   `ENTERPRISE` workspaces are `full`.
 - **Gated:** goal creation (API + Copilot draft), premade `GOAL_TEMPLATES` and
   `SEED_CATALOGUE` agent bundles, and kind-specific widgets via the sub-project
@@ -393,3 +410,21 @@ Recorded here so the sub-project 3 spec does not re-litigate it:
 Motion in sub-project 2 follows the established `useReducedMotion()` +
 `animate()` pattern from `stat-tile.tsx`; CSS-driven motion is already
 neutralized under reduced-motion by `globals.css:142`.
+
+### Evidence-spine decisions, as decided
+
+Recorded so the sub-project 4 spec does not re-litigate them:
+
+- **Granularity: one row per evaluation**, append-only, carrying `riskLevel`,
+  `previousRiskLevel`, `currentValue`, `progress`, `expectedProgress`,
+  `projectedValue`, `readingCount`, `latestReadingAt`, `metricErrored`, plus the
+  composition block from §4. Transitions are derivable as
+  `riskLevel !== previousRiskLevel`. At the `refreshIntervalHours` throttle
+  (default 24) this is roughly 1–3 rows per goal per day, ~500/goal/year.
+- **Coverage needs no new storage.** `MetricDatapoint` is uniquely keyed on
+  `([goalMetricId, bucketKey])` with `bucketKey` a `YYYY-MM-DD` string, so
+  expected buckets from `startAt` at the metric's cadence, minus the buckets
+  that exist, yields coverage and gap detection as a pure function.
+- **Sync health needs counters, not a table.** `GoalMetric.lastError` is
+  last-write-wins, so a metric that failed twenty consecutive days reads clean
+  after one success. Add `consecutiveFailures` and `lastSuccessAt` columns.
