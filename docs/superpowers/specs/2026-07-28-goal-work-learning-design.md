@@ -211,13 +211,15 @@ refresh.
 
 A **one-split decision stump**, because that is exactly the shape of the
 statement we want. For each numeric signal, try every midpoint between observed
-values and pick the split that best separates skipped from used. For categorical
-signals, count per value. This yields "under 14 days" rather than a correlation
+values and pick the split that best separates skipped from used, ranking
+candidates by **purity first, then evidence** — ranking by size alone prefers a
+sloppy wide band that swallows used rows over the clean split that actually
+explains the skips. For categorical signals, count per value. This yields "under 14 days" rather than a correlation
 coefficient nobody can act on, and it is deterministic and testable.
 
 | constant | value | why |
 |---|---|---|
-| `MIN_RULE_SAMPLE` | 5 subjects in the band | below this, one bad week invents a rule |
+| `MIN_RULE_SAMPLE` | 5 **skips** in the band | the skips are the evidence; a band of 5 that is 4 skips and 1 use rests on four observations however wide you draw it |
 | `MIN_SKIP_RATE` | 0.7 of the band skipped | a rule should be nearly always right |
 | `EVIDENCE_WINDOW` | 90 days | long enough to accumulate, short enough to stay current |
 | `STATS_WINDOW` | 30 days | what Tier 1 reports |
