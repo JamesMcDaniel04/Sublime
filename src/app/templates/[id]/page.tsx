@@ -13,6 +13,8 @@ import { missingIntegrations, connectedSlugSet } from '@/lib/templates/relevance
 import { findTemplateForRoute } from '@/lib/templates/route-id'
 import { exampleArtifactHtml } from '@/lib/templates/example-artifact'
 import { getCachedJson } from '@/lib/client/use-cached-json'
+import { describeSchedule } from '@/lib/scheduling/describe-schedule'
+import { useViewerTimeZone } from '@/lib/scheduling/use-viewer-time-zone'
 
 type Template = {
   id: string
@@ -67,12 +69,10 @@ function templateSchedule(template: Template) {
     : template.schedule ?? MANUAL_SCHEDULE
 }
 
-function scheduleLabel(template: Template): string {
+function scheduleLabel(template: Template, viewerTimeZone: string): string {
   const schedule = templateSchedule(template)
   if (!schedule.isActive || schedule.type === 'manual') return 'Run manually or add a schedule after connecting'
-  if (schedule.type === 'cron' && schedule.cron === '0 14 * * 1') return `Every Monday at 14:00 (${schedule.timezone})`
-  if (schedule.type === 'cron') return `Scheduled with cron ${schedule.cron} (${schedule.timezone})`
-  return `${schedule.type.charAt(0).toUpperCase()}${schedule.type.slice(1)} (${schedule.timezone})`
+  return describeSchedule(schedule, viewerTimeZone, new Date())
 }
 
 function escapeHtml(value: string): string {
@@ -103,6 +103,11 @@ export default function TemplateDetails() {
   const [catalog, setCatalog] = useState<CatalogConnection[]>([])
   // Multi-account workspaces: provider slug → pinned catalog connection id.
   const [accountChoices, setAccountChoices] = useState<Record<string, string>>({})
+  // Falls back to the schedule's own zone until the browser resolves the
+  // reader's, so the first paint matches what the server rendered.
+  const viewerTimeZone = useViewerTimeZone(
+    template ? templateSchedule(template).timezone : 'UTC',
+  )
 
   useEffect(() => {
     setLoading(true)
@@ -271,7 +276,7 @@ export default function TemplateDetails() {
                 <p className="eyebrow mb-2">Automation</p>
                 <div className="flex items-start gap-2 text-sm text-muted-foreground">
                   <CalendarClock className="mt-0.5 h-4 w-4 shrink-0 text-indigo-600" />
-                  <span>{scheduleLabel(template)}</span>
+                  <span>{scheduleLabel(template, viewerTimeZone)}</span>
                 </div>
               </div>
 

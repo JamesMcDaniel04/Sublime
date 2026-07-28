@@ -25,6 +25,12 @@ type TemplateCatalogueCardProps = {
   description: string
   category: string
   integrations: readonly string[]
+  /** Shown only when nothing is required — these are capabilities, not
+   *  prerequisites, so they never receive the missing/blocked treatment.
+   *  Without this, a seed that needs "Slack OR Gmail OR a URL" renders no
+   *  tool row at all, because expressing that as `required` would demand
+   *  every one of them. */
+  recommendedIntegrations?: readonly string[]
   kind?: 'agent' | 'flow'
   missingIntegrations?: readonly string[]
   actionLabel?: string
@@ -38,6 +44,7 @@ export function TemplateCatalogueCard({
   description,
   category,
   integrations,
+  recommendedIntegrations = [],
   kind = 'agent',
   missingIntegrations = [],
   actionLabel = 'Use template',
@@ -73,6 +80,15 @@ export function TemplateCatalogueCard({
                   <span key={integration} className={cn(missingIntegrations.includes(integration) && 'saturate-150')}>
                     <IntegrationChip name={integration} />
                   </span>
+                ))}
+              </div>
+            </div>
+          ) : recommendedIntegrations.length > 0 ? (
+            <div className="space-y-1.5">
+              <p className="text-xs font-medium text-muted-foreground">Works with</p>
+              <div className="flex flex-wrap gap-1.5">
+                {recommendedIntegrations.map((integration) => (
+                  <IntegrationChip key={integration} name={integration} />
                 ))}
               </div>
             </div>

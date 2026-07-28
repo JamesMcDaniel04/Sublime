@@ -11,6 +11,8 @@ import { Markdown } from '@/components/ui/markdown'
 import { notifyAgentsChanged } from '@/components/layout/sidebar'
 import { cn } from '@/lib/utils'
 import type { Agent } from '@/lib/types'
+import { describeSchedule } from '@/lib/scheduling/describe-schedule'
+import { useViewerTimeZone } from '@/lib/scheduling/use-viewer-time-zone'
 
 /**
  * Persistent assistant chat for the selected agent. The thread is agent-scoped
@@ -71,14 +73,14 @@ function relativeTime(iso: string): string {
   return `${Math.floor(days / 30)}mo`
 }
 
-function scheduleLabel(schedule: ProposalSchedule): string {
-  if (schedule.type === 'manual') return 'manual'
-  if (schedule.type === 'hourly') return `hourly${schedule.isActive ? '' : ' (paused)'}`
-  if (schedule.type === 'cron') return `cron ${schedule.cron || ''} (${schedule.timezone})${schedule.isActive ? '' : ' (paused)'}`
-  return `${schedule.type}${schedule.time ? ` at ${schedule.time}` : ''} (${schedule.timezone})${schedule.isActive ? '' : ' (paused)'}`
+function scheduleLabel(schedule: ProposalSchedule, viewerTimeZone: string): string {
+  return describeSchedule(schedule, viewerTimeZone, new Date())
 }
 
-function proposalRows(proposal: AssistantProposal): Array<{ label: string; value: string }> {
+function proposalRows(
+  proposal: AssistantProposal,
+  viewerTimeZone: string,
+): Array<{ label: string; value: string }> {
   const rows: Array<{ label: string; value: string }> = []
   if (proposal.title) rows.push({ label: 'Name', value: proposal.title })
   if (proposal.description) rows.push({ label: 'Description', value: proposal.description })
@@ -86,7 +88,7 @@ function proposalRows(proposal: AssistantProposal): Array<{ label: string; value
   if (proposal.model) rows.push({ label: 'Model', value: proposal.model })
   if (proposal.integrations) rows.push({ label: 'Connected tools', value: proposal.integrations.join(', ') || 'none' })
   if (proposal.skills) rows.push({ label: 'Skills', value: proposal.skills.join(', ') || 'none' })
-  if (proposal.schedule) rows.push({ label: 'Schedule', value: scheduleLabel(proposal.schedule) })
+  if (proposal.schedule) rows.push({ label: 'Schedule', value: scheduleLabel(proposal.schedule, viewerTimeZone) })
   return rows
 }
 
@@ -100,8 +102,9 @@ function ProposalCard({
   onApply: () => void
 }) {
   const proposal = message.proposal
+  const viewerTimeZone = useViewerTimeZone(proposal?.schedule?.timezone || 'UTC')
   if (!proposal) return null
-  const rows = proposalRows(proposal)
+  const rows = proposalRows(proposal, viewerTimeZone)
   return (
     <div className="mt-2 rounded-lg border bg-card p-3">
       <div className="mb-2 flex items-center justify-between gap-2">

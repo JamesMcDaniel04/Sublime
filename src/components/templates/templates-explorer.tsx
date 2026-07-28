@@ -391,6 +391,7 @@ export function TemplatesExplorer() {
         description={t.description}
         category={department ? deptLabel(department) : t.category}
         integrations={t.requiredIntegrations ?? []}
+        recommendedIntegrations={t.recommendedIntegrations ?? []}
         kind={t.kind ?? 'agent'}
         missingIntegrations={missing}
         advancesGoal={matchingGoal?.name}

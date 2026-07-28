@@ -64,3 +64,30 @@ test('the integrations block is omitted when there are none', () => {
   render(<TemplateCatalogueCard {...props} integrations={[]} />)
   assert.equal(screen.queryByText('Requires'), null)
 })
+
+test('falls back to a Works with row when nothing is required', () => {
+  render(
+    <TemplateCatalogueCard
+      {...props}
+      integrations={[]}
+      recommendedIntegrations={['Slack', 'Gmail']}
+    />,
+  )
+  assert.ok(screen.getByText('Works with'))
+  assert.ok(screen.getByText('Slack'))
+  assert.ok(screen.getByText('Gmail'))
+  assert.equal(screen.queryByText('Requires'), null)
+})
+
+test('required integrations win — recommended ones stay hidden', () => {
+  render(
+    <TemplateCatalogueCard
+      {...props}
+      integrations={['HubSpot']}
+      recommendedIntegrations={['Slack']}
+    />,
+  )
+  assert.ok(screen.getByText('Requires'))
+  assert.equal(screen.queryByText('Works with'), null)
+  assert.equal(screen.queryByText('Slack'), null)
+})

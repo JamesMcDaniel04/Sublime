@@ -8,6 +8,8 @@ import { FIELD_TYPES, type ConditionClause, type FlowNode, type OutputField, typ
 import { KNOWN_SIGNALS, triggerInputFieldsFromTrigger } from '@/lib/flows/trigger'
 import { SLACK_EVENT_KINDS, type SlackEventKind } from '@/lib/slack/payload'
 import { nextOccurrence, type AgentSchedule } from '@/lib/scheduling/due'
+import { describeSchedule } from '@/lib/scheduling/describe-schedule'
+import { useViewerTimeZone } from '@/lib/scheduling/use-viewer-time-zone'
 import { Button } from '@/components/ui/button'
 import { TriggerFilterEditor } from '../trigger-filter-editor'
 import { INPUT_TYPES, controlClass, inputTypeForField, isRecord, labelClass, uniqueFieldName } from './field-primitives'
@@ -138,6 +140,8 @@ function TriggerBody({
   // far too slow to call on every render/keystroke. So this memo only ever
   // calls nextOccurrence for the fast schedule types (hourly/daily/weekly/once);
   // cron gets a static, non-computed label below instead.
+  const viewerTimeZone = useViewerTimeZone(schedule.timezone ?? 'UTC')
+
   const nextRunLabel = useMemo(() => {
     if (schedule.type === 'cron') return null
     const merged: AgentSchedule = {
@@ -270,7 +274,9 @@ function TriggerBody({
             />
           </div>
           <p className="text-xs text-muted-foreground">
-            {schedule.type === 'cron' ? `Next run: per cron "${schedule.cron ?? ''}"` : `Next run: ${nextRunLabel}`}
+            {schedule.type === 'cron'
+              ? `Next run: ${describeSchedule({ ...schedule, type: 'cron' }, viewerTimeZone, new Date())}`
+              : `Next run: ${nextRunLabel}`}
           </p>
           <p className="text-xs text-muted-foreground">Scheduled runs execute the <strong>published</strong> version — publish the flow to arm the schedule.</p>
         </div>
