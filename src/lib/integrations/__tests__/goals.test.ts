@@ -14,7 +14,7 @@ function goalView(overrides: Partial<AgentGoalView> = {}): AgentGoalView {
   return {
     id: 'goal-a',
     name: 'Quarterly revenue',
-    kind: 'revenue',
+    kind: 'arr',
     unit: 'usd',
     direction: 'increase',
     startValue: 0,

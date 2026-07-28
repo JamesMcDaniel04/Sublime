@@ -28,7 +28,7 @@ if (TEST_DB) {
       data: {
         organizationId: seeded.organizationId,
         name,
-        kind: 'custom_kpi',
+        kind: 'kpi',
         direction: 'increase',
         unit: 'count',
         startValue: 0,
@@ -81,7 +81,7 @@ if (TEST_DB) {
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
           name: 'Organic sessions',
-          kind: 'custom_kpi',
+          kind: 'kpi',
           unit: 'count',
           startValue: 0,
           targetValue: 5000,
@@ -116,7 +116,7 @@ if (TEST_DB) {
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
           name: 'Copilot drafted',
-          kind: 'custom_kpi',
+          kind: 'kpi',
           unit: 'count',
           startValue: 0,
           targetValue: 10,
@@ -203,7 +203,7 @@ if (TEST_DB) {
       data: {
         organizationId: otherOrg.organizationId,
         name: 'Other org goal',
-        kind: 'custom_kpi',
+        kind: 'kpi',
         direction: 'increase',
         unit: 'count',
         startValue: 0,

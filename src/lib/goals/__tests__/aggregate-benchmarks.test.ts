@@ -14,15 +14,15 @@ const seed = (seedKey: string, name: string) =>
     departments: ['sales'],
     requiredIntegrations: [],
     recommendedIntegrations: [],
-    goalKinds: ['mrr'],
+    goalKinds: ['arr'],
   }) as never
 
 test('benchmark math counts outcomes, distinct orgs, and ranks adopted seeds', () => {
   const rows = computeGoalBenchmarks(
     [
-      { kind: 'mrr', organizationId: 'a', outcome: 'achieved' },
-      { kind: 'mrr', organizationId: 'a', outcome: 'missed' },
-      { kind: 'mrr', organizationId: 'b', outcome: 'achieved' },
+      { kind: 'arr', organizationId: 'a', outcome: 'achieved' },
+      { kind: 'arr', organizationId: 'a', outcome: 'missed' },
+      { kind: 'arr', organizationId: 'b', outcome: 'achieved' },
     ],
     [seed('a', 'A'), seed('b', 'B')],
     {
@@ -32,7 +32,7 @@ test('benchmark math counts outcomes, distinct orgs, and ranks adopted seeds', (
   )
   assert.deepEqual(rows, [
     {
-      kind: 'mrr',
+      kind: 'arr',
       orgCount: 2,
       settledCount: 3,
       achievedCount: 2,

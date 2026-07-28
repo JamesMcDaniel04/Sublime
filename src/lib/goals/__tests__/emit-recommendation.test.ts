@@ -192,7 +192,7 @@ test('dedupe: an open goal suggestion blocks a fallback re-emission', async () =
 test('no tagged template produces a plain-action fallback suggestion', async () => {
   const d = legacyDeps({ seeds: [] })
   const result = await emitGoalRecommendation(
-    { ...goal, kind: 'savings' },
+    { ...goal, kind: 'kpi' },
     offTrack,
     d as never,
   )

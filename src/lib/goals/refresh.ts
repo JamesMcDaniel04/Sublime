@@ -10,6 +10,12 @@ import { notify } from '@/lib/notifications/service'
 import { getMetricSource } from '@/lib/metrics/registry'
 import type { MetricReading, MetricSourceContext } from '@/lib/metrics/types'
 import { evaluateGoal, settleStatus, type Evaluation } from './evaluate'
+import {
+  evaluateComposite,
+  parseCompositionSpec,
+  type ComponentReading,
+} from './composition'
+import type { GoalKind } from './kind-migration'
 import { emitGoalRecommendation } from './emit-recommendation'
 import { reconcileRecoveryPlan } from './recovery-lifecycle'
 import { addPeriod, type GoalRecurrence } from './recurrence'
@@ -23,6 +29,30 @@ const MAX_CATCHUP_WINDOWS = 24
 
 export function bucketKeyFor(date: Date): string {
   return date.toISOString().slice(0, 10)
+}
+
+/**
+ * The audit half of a settlement: what the components read, and how far they
+ * were from the reported headline. Both are omitted (rather than written null)
+ * for an uncomposed goal, so a receipt never implies a composition existed.
+ */
+function compositionReceipt(
+  components: ComponentReading[],
+  state: { variancePct: number | null } | null,
+): { compositionSnapshot?: never; reconciliationVariancePct?: number } {
+  if (components.length === 0) return {}
+  return {
+    compositionSnapshot: components.map((reading) => ({
+      slot: reading.slot,
+      value: reading.value,
+      capturedAt: reading.capturedAt?.toISOString() ?? null,
+      stale: reading.stale,
+      errored: reading.errored,
+    })) as never,
+    ...(state?.variancePct === null || state?.variancePct === undefined
+      ? {}
+      : { reconciliationVariancePct: state.variancePct }),
+  }
 }
 
 type FetchReading = (
@@ -144,16 +174,36 @@ export async function evaluateAndPersistGoal(
   const foundGoal = await prisma.goal.findFirst({
     where: { id: goalId, organizationId },
     include: {
+      // Components ride along with the primary — one query, not one per slot.
       metrics: {
-        where: { role: 'primary' },
-        take: 1,
-        select: { id: true, refreshIntervalHours: true, lastError: true },
+        where: { role: { in: ['primary', 'component'] } },
+        select: {
+          id: true,
+          role: true,
+          slot: true,
+          refreshIntervalHours: true,
+          lastError: true,
+        },
+      },
+      // Quota's rollup sums child goals rather than component metrics, so the
+      // children and their own primary metrics come along too.
+      children: {
+        select: {
+          id: true,
+          targetValue: true,
+          metrics: {
+            where: { role: 'primary' },
+            take: 1,
+            select: { id: true },
+          },
+        },
       },
     },
   })
   if (!foundGoal || foundGoal.status === 'archived' || foundGoal.status === 'paused') return false
   let goal = foundGoal
-  const metric = goal.metrics[0]
+  const metric = goal.metrics.find((entry) => entry.role === 'primary') ?? null
+  const componentMetrics = goal.metrics.filter((entry) => entry.role === 'component')
   const descending = metric
     ? await prisma.metricDatapoint.findMany({
         where: { organizationId, goalMetricId: metric.id },
@@ -165,6 +215,76 @@ export async function evaluateAndPersistGoal(
   const points = descending.reverse()
   const staleAfterMs = 2 * (metric?.refreshIntervalHours ?? 24) * HOUR_MS
   let rolledOver = false
+
+  // Latest reading per component, in one query rather than one per slot. A goal
+  // is capped at 12 metrics by the create route, so ordering in SQL and taking
+  // the first row per metric in memory beats a query per component.
+  const componentReadings: ComponentReading[] = []
+  if (componentMetrics.length > 0) {
+    const rows = await prisma.metricDatapoint.findMany({
+      where: {
+        organizationId,
+        goalMetricId: { in: componentMetrics.map((entry) => entry.id) },
+      },
+      orderBy: { capturedAt: 'desc' },
+      select: { goalMetricId: true, value: true, capturedAt: true },
+    })
+    const latest = new Map<string, { value: number; capturedAt: Date }>()
+    for (const row of rows) {
+      if (!latest.has(row.goalMetricId)) {
+        latest.set(row.goalMetricId, { value: row.value, capturedAt: row.capturedAt })
+      }
+    }
+    for (const entry of componentMetrics) {
+      if (!entry.slot) continue
+      const reading = latest.get(entry.id) ?? null
+      const componentStaleMs = 2 * entry.refreshIntervalHours * HOUR_MS
+      componentReadings.push({
+        slot: entry.slot,
+        value: reading?.value ?? null,
+        capturedAt: reading?.capturedAt ?? null,
+        // A component with NO reading is *missing*, not stale — completeness
+        // distinguishes them and they gate differently (at_risk vs no_data).
+        stale:
+          reading !== null &&
+          now.getTime() - reading.capturedAt.getTime() > componentStaleMs,
+        errored: Boolean(entry.lastError),
+      })
+    }
+  }
+
+  // Child current values for the quota rollup. `Goal` has no currentValue
+  // column — it is computed per evaluation — so the latest primary reading of
+  // each child is read here with the same single-query shape as above.
+  const childInputs: Array<{ currentValue: number | null; targetValue: number }> = []
+  if (goal.children.length > 0) {
+    const childMetricIds = goal.children
+      .map((child) => child.metrics[0]?.id)
+      .filter((id): id is string => Boolean(id))
+    const latestByMetric = new Map<string, number>()
+    if (childMetricIds.length > 0) {
+      const rows = await prisma.metricDatapoint.findMany({
+        where: { organizationId, goalMetricId: { in: childMetricIds } },
+        orderBy: { capturedAt: 'desc' },
+        select: { goalMetricId: true, value: true },
+      })
+      for (const row of rows) {
+        if (!latestByMetric.has(row.goalMetricId)) {
+          latestByMetric.set(row.goalMetricId, row.value)
+        }
+      }
+    }
+    for (const child of goal.children) {
+      const childMetricId = child.metrics[0]?.id
+      childInputs.push({
+        currentValue:
+          childMetricId === undefined
+            ? null
+            : (latestByMetric.get(childMetricId) ?? null),
+        targetValue: child.targetValue,
+      })
+    }
+  }
 
   // A recurring Goal row advances in place. Each elapsed window settles in
   // its own transaction so a crash can resume from the still-expired
@@ -238,6 +358,10 @@ export async function evaluateAndPersistGoal(
           targetValue: goal.targetValue,
           finalValue,
           outcome,
+          // The rollover settles BEFORE the final evaluation runs, so no
+          // variance figure exists yet for this window — the component
+          // snapshot is still recorded, which is the auditable half.
+          ...compositionReceipt(componentReadings, null),
         },
       })
       await tx.goal.update({
@@ -303,15 +427,21 @@ export async function evaluateAndPersistGoal(
         ...points.filter((point) => point.capturedAt.getTime() > goal.startAt.getTime()),
       ]
     : points
-  const evaluated = evaluateGoal(
-    {
-      ...goal,
-      direction: goal.direction as 'increase' | 'decrease',
-    },
-    evaluationPoints,
+  // evaluateComposite calls evaluateGoal unchanged for the base, then applies
+  // rollup/reconcile/completeness/gates that can only DOWNGRADE. With
+  // composition null it returns the base evaluation verbatim, so every
+  // uncomposed goal behaves exactly as before (locked by
+  // evaluate-composite.test.ts).
+  const { composition: compositionState, ...evaluated } = evaluateComposite({
+    goal: { ...goal, direction: goal.direction as 'increase' | 'decrease' },
+    kind: goal.kind as GoalKind,
+    headlinePoints: evaluationPoints,
+    composition: parseCompositionSpec(goal.composition),
+    components: componentReadings,
+    children: childInputs,
     now,
     staleAfterMs,
-  )
+  })
   // A source failure is itself a no-data signal even when an older reading is
   // still inside its freshness window.
   const evaluation: Evaluation = metric?.lastError
@@ -324,13 +454,38 @@ export async function evaluateAndPersistGoal(
   )
 
   const changed = evaluation.riskLevel !== goal.riskLevel
-  await prisma.goal.update({
-    where: { id: goal.id, organizationId },
-    data: {
-      riskLevel: evaluation.riskLevel,
-      lastEvaluatedAt: now,
-      ...(settled && goal.status === 'active' ? { status: settled } : {}),
-    },
+  const settling = Boolean(settled) && goal.status === 'active'
+  await prisma.$transaction(async (tx) => {
+    await tx.goal.update({
+      where: { id: goal.id, organizationId },
+      data: {
+        riskLevel: evaluation.riskLevel,
+        lastEvaluatedAt: now,
+        compositionState: (compositionState ?? null) as never,
+        ...(settling ? { status: settled! } : {}),
+      },
+    })
+    // Universal settlement receipt (spec 2026-07-28 §5). Recurring goals
+    // already write one per rollover above; this covers the non-recurring
+    // case, which previously flipped a status column with no record of what
+    // decided it. Gated on `settling` — the status TRANSITION, not merely a
+    // past deadline — so a later tick on an already-settled goal cannot write
+    // a duplicate.
+    if (settling) {
+      await tx.goalPeriod.create({
+        data: {
+          organizationId,
+          goalId: goal.id,
+          periodStart: goal.startAt,
+          periodEnd: goal.targetDate,
+          startValue: goal.startValue,
+          targetValue: goal.targetValue,
+          finalValue: evaluation.currentValue ?? goal.startValue,
+          outcome: settled!,
+          ...compositionReceipt(componentReadings, compositionState),
+        },
+      })
+    }
   })
 
   // Recovery-plan lifecycle: back-on-track resolves the open plan, and

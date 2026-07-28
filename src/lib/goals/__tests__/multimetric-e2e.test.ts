@@ -21,7 +21,7 @@ if (TEST_DB) {
 
   const createBody = () => ({
     name: 'Revenue from demos',
-    kind: 'revenue',
+    kind: 'arr',
     direction: 'increase',
     unit: 'usd',
     startValue: 100,
@@ -243,7 +243,7 @@ if (TEST_DB) {
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
           name: 'Legacy goal',
-          kind: 'custom_kpi',
+          kind: 'kpi',
           direction: 'increase',
           unit: 'count',
           startValue: 0,

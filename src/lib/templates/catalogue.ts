@@ -58,7 +58,7 @@ const BASE_SEED_CATALOGUE: SeedTemplate[] = [
     description: 'Webhook a new lead in, qualify it against Salesforce context, create the opportunity in Salesforce, and announce it in Slack.',
     departments: ['sales'], requiredIntegrations: ['salesforce'], recommendedIntegrations: ['slack'],
     kind: 'flow', icon: '🎯',
-    goalKinds: ['arr', 'mrr', 'revenue', 'quota'],
+    goalKinds: ['arr', 'quota'],
     estimatedMinutesSaved: 30,
     trigger: { type: 'manual' },
     agents: [{
@@ -82,7 +82,7 @@ const BASE_SEED_CATALOGUE: SeedTemplate[] = [
     description: 'Pulls the latest Granola discovery notes, drafts a crisp follow-up email with next steps, logs a Salesforce task, and DMs you the draft to send.',
     departments: ['sales'], requiredIntegrations: ['granola', 'salesforce'], recommendedIntegrations: ['gmail', 'slack'],
     kind: 'agent', icon: '✍️', model: 'gpt-4o',
-    goalKinds: ['quota', 'revenue'],
+    goalKinds: ['quota', 'arr'],
     estimatedMinutesSaved: 25,
     integrations: ['granola', 'salesforce', 'gmail', 'slack'],
     instructions: 'You are a sales follow-up writer. 1) Read the most recent Granola meeting note for the named account. 2) Draft a follow-up email: thank-you, 3 bullet recap, explicit next steps with dates, and a clear CTA. 3) Create a Salesforce Task capturing the next step and due date. 4) Send the draft to the rep over Slack for a final review before it goes out. Keep the email under 180 words and match the prospect\'s seniority.',
@@ -94,7 +94,7 @@ const BASE_SEED_CATALOGUE: SeedTemplate[] = [
     description: 'Every weekday morning, finds stale or past-close-date opportunities in Salesforce and nudges each owner in Slack with exactly what to fix.',
     departments: ['sales'], requiredIntegrations: ['salesforce'], recommendedIntegrations: ['slack'],
     kind: 'flow', icon: '🔔',
-    goalKinds: ['arr', 'mrr', 'revenue', 'quota'],
+    goalKinds: ['arr', 'quota'],
     estimatedMinutesSaved: 20,
     trigger: schedule('0 13 * * 1-5'),
     agents: [{
@@ -117,7 +117,7 @@ const BASE_SEED_CATALOGUE: SeedTemplate[] = [
     description: 'Monday 8am: summarizes HubSpot pipeline movement for the week, appends the snapshot to a Google Sheet, and posts the highlights to Slack.',
     departments: ['sales'], requiredIntegrations: ['hubspot', 'google_sheets'], recommendedIntegrations: ['slack'],
     kind: 'flow', icon: '📈',
-    goalKinds: ['arr', 'mrr', 'revenue', 'quota'],
+    goalKinds: ['arr', 'quota'],
     estimatedMinutesSaved: 35,
     trigger: schedule('0 12 * * 1'),
     agents: [{
@@ -222,7 +222,7 @@ const BASE_SEED_CATALOGUE: SeedTemplate[] = [
     description: 'On a form-fill webhook, scores the lead against ICP, upserts it to HubSpot with the score, and routes hot MQLs to the right AE in Slack.',
     departments: ['marketing'], requiredIntegrations: ['hubspot'], recommendedIntegrations: ['slack'],
     kind: 'flow', icon: '🧲',
-    goalKinds: ['lead_gen'], estimatedMinutesSaved: 20,
+    goalKinds: ['kpi'], estimatedMinutesSaved: 20,
     trigger: { type: 'manual' },
     agents: [{
       ref: 'mql-scorer', title: 'MQL Scorer',
@@ -254,7 +254,7 @@ const BASE_SEED_CATALOGUE: SeedTemplate[] = [
     description: 'Monday morning: rolls up HubSpot campaign and funnel metrics for the week, appends them to a Google Sheet, and posts a highlights digest to Slack.',
     departments: ['marketing'], requiredIntegrations: ['hubspot', 'google_sheets'], recommendedIntegrations: ['slack'],
     kind: 'flow', icon: '📊',
-    goalKinds: ['lead_gen', 'revenue'], estimatedMinutesSaved: 35,
+    goalKinds: ['kpi', 'arr'], estimatedMinutesSaved: 35,
     trigger: schedule('0 13 * * 1'),
     agents: [{
       ref: 'mkt-analyst', title: 'Marketing Performance Analyst',

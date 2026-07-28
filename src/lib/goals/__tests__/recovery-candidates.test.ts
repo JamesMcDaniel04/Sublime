@@ -33,7 +33,7 @@ const seeds = [
     requiredIntegrations: [],
     recommendedIntegrations: [],
     kind: 'agent',
-    goalKinds: ['savings'],
+    goalKinds: ['kpi'],
   },
 ] as never[]
 

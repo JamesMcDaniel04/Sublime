@@ -217,7 +217,7 @@ if (TEST_DB) {
           data: {
             organizationId: org.id,
             name: 'Calibration goal',
-            kind: 'mrr',
+            kind: 'arr',
             startValue: 1,
             targetValue: 2,
             targetDate: new Date('2027-01-01T00:00:00Z'),
@@ -359,6 +359,20 @@ if (TEST_DB) {
   test('benchmark surfaces at five organizations and stays hidden at four', async () => {
     const peerOrgIds: string[] = []
     try {
+      // Baseline BEFORE seeding peers. This test used to rely on 'mrr' being a
+      // kind nothing else in the database used; with only three kinds
+      // (spec 2026-07-28) this org's own settled 'arr' goals land in the same
+      // benchmark row, so isolation has to be measured rather than assumed.
+      const { aggregateGoalBenchmarks: baselineSweep } = await import(
+        '../aggregate-benchmarks'
+      )
+      await baselineSweep()
+      // GoalBenchmark is a global model with no organizationId, like
+      // PlatformArchetype — the tenant guard does not apply.
+      const baselineArr = await prisma.goalBenchmark.findUnique({
+        where: { kind: 'arr' },
+      })
+      const baseArrOrgs = baselineArr?.orgCount ?? 0
       for (let index = 0; index < 5; index += 1) {
         const org = await prisma.organization.create({
           data: { name: `MRR peer ${index}`, slug: `mrr-peer-${crypto.randomUUID()}` },
@@ -368,7 +382,7 @@ if (TEST_DB) {
           data: {
             organizationId: org.id,
             name: 'Settled MRR',
-            kind: 'mrr',
+            kind: 'arr',
             startValue: 10,
             targetValue: 20,
             targetDate: new Date('2026-06-01T00:00:00Z'),
@@ -385,7 +399,7 @@ if (TEST_DB) {
           data: {
             organizationId: org.id,
             name: 'Settled CARR',
-            kind: 'lead_gen',
+            kind: 'kpi',
             startValue: 10,
             targetValue: 20,
             targetDate: new Date('2026-06-01T00:00:00Z'),
@@ -393,7 +407,7 @@ if (TEST_DB) {
           },
         })
       }
-      const target = async (kind: 'mrr' | 'lead_gen') =>
+      const target = async (kind: 'arr' | 'kpi') =>
         prisma.goal.create({
           data: {
             organizationId: seeded.organizationId,
@@ -405,7 +419,7 @@ if (TEST_DB) {
             createdByUserId: seeded.userId,
           },
         })
-      const [mrrTarget, leadGenTarget] = await Promise.all([target('mrr'), target('lead_gen')])
+      const [mrrTarget, leadGenTarget] = await Promise.all([target('arr'), target('kpi')])
       const { aggregateGoalBenchmarks } = await import('../aggregate-benchmarks')
       await aggregateGoalBenchmarks()
       const route = await import('@/app/api/goals/[id]/route')
@@ -417,8 +431,23 @@ if (TEST_DB) {
         mrrResponse.json(),
         leadGenResponse.json(),
       ])
-      assert.equal(mrrBody.goal.benchmark.orgCount, 5)
-      assert.equal(mrrBody.goal.benchmark.achievedRate, 60)
+      // Exact delta: the five peers must all be counted.
+      assert.equal(mrrBody.goal.benchmark.orgCount, baseArrOrgs + 5)
+      // The rate is a ratio over every settled 'arr' outcome in the database,
+      // which now includes this org's own goals, so only its shape can be
+      // asserted here. surfaceGoalBenchmark's rate math is covered exactly by
+      // aggregate-benchmarks.test.ts.
+      const rate = mrrBody.goal.benchmark.achievedRate
+      assert.ok(Number.isInteger(rate) && rate >= 0 && rate <= 100, `rate ${rate}`)
+
+      // The four-peer kind stays hidden. State the precondition rather than
+      // assuming it: if something else had pushed 'kpi' over the floor, a null
+      // assertion would be passing for the wrong reason.
+      const kpiRow = await prisma.goalBenchmark.findUnique({ where: { kind: 'kpi' } })
+      assert.ok(
+        (kpiRow?.orgCount ?? 0) < 5,
+        `precondition: kpi must be below the floor, saw ${kpiRow?.orgCount}`,
+      )
       assert.equal(leadGenBody.goal.benchmark, null)
     } finally {
       await Promise.all(

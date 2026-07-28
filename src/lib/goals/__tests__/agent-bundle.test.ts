@@ -12,7 +12,7 @@ const keys = (entries: { seedKey: string }[]) => entries.map((entry) => entry.se
 test('curated entries lead, then goal-native, and no fallback appears', () => {
   const bundle = bundleForGoal({
     templateKey: 'sales-org-multithread-open-deals',
-    kind: 'custom_kpi',
+    kind: 'kpi',
     source: 'hubspot',
     recurrence: null,
   })
@@ -24,20 +24,20 @@ test('curated entries lead, then goal-native, and no fallback appears', () => {
 })
 
 test('the pace auditor is offered for every goal', () => {
-  const bundle = bundleForGoal({ templateKey: null, kind: 'custom_kpi', source: 'stripe' })
+  const bundle = bundleForGoal({ templateKey: null, kind: 'kpi', source: 'stripe' })
   assert.ok(keys(bundle).includes(GOAL_PACE_AUDITOR_KEY))
 })
 
 test('the metric collector is offered only where the write policy permits', () => {
   for (const source of ['manual', 'slack_assisted', 'gmail_assisted']) {
-    const bundle = bundleForGoal({ templateKey: null, kind: 'custom_kpi', source })
+    const bundle = bundleForGoal({ templateKey: null, kind: 'kpi', source })
     assert.ok(
       keys(bundle).includes(GOAL_METRIC_COLLECTOR_KEY),
       `collector should be offered for ${source}`,
     )
   }
   for (const source of ['stripe', 'hubspot', 'salesforce', 'google_sheets', 'postgres', 'url']) {
-    const bundle = bundleForGoal({ templateKey: null, kind: 'custom_kpi', source })
+    const bundle = bundleForGoal({ templateKey: null, kind: 'kpi', source })
     assert.ok(
       !keys(bundle).includes(GOAL_METRIC_COLLECTOR_KEY),
       `collector must NOT be offered for ${source} — log_datapoint would refuse`,
@@ -46,7 +46,7 @@ test('the metric collector is offered only where the write policy permits', () =
 })
 
 test('an unknown source means pre-creation, so the collector is conditional not excluded', () => {
-  const bundle = bundleForGoal({ templateKey: null, kind: 'custom_kpi', source: null })
+  const bundle = bundleForGoal({ templateKey: null, kind: 'kpi', source: null })
   const collector = bundle.find((entry) => entry.seedKey === GOAL_METRIC_COLLECTOR_KEY)
   assert.ok(collector, 'collector should appear when the source is not yet chosen')
   assert.equal(collector.conditional, true)
@@ -55,7 +55,7 @@ test('an unknown source means pre-creation, so the collector is conditional not 
 test('the period close reporter needs a recurrence', () => {
   const recurring = bundleForGoal({
     templateKey: null,
-    kind: 'revenue',
+    kind: 'arr',
     source: 'stripe',
     recurrence: 'quarterly',
   })
@@ -63,7 +63,7 @@ test('the period close reporter needs a recurrence', () => {
 
   const oneOff = bundleForGoal({
     templateKey: null,
-    kind: 'revenue',
+    kind: 'arr',
     source: 'stripe',
     recurrence: null,
   })
@@ -74,7 +74,7 @@ test('fallback fires only when curation is empty or absent', () => {
   // marketing-personal-newsletter is curated as a deliberate [].
   const emptyCurated = bundleForGoal({
     templateKey: 'marketing-personal-newsletter',
-    kind: 'lead_gen',
+    kind: 'kpi',
     source: 'google_sheets',
   })
   assert.ok(
@@ -82,14 +82,14 @@ test('fallback fires only when curation is empty or absent', () => {
     'an empty curated list must fall back',
   )
 
-  const noTemplate = bundleForGoal({ templateKey: null, kind: 'lead_gen', source: 'hubspot' })
+  const noTemplate = bundleForGoal({ templateKey: null, kind: 'kpi', source: 'hubspot' })
   assert.ok(noTemplate.some((entry) => entry.origin === 'kind_match'))
 })
 
 test('an unknown templateKey degrades to the fallback rather than throwing', () => {
   const bundle = bundleForGoal({
     templateKey: 'deleted-template',
-    kind: 'revenue',
+    kind: 'arr',
     source: 'stripe',
   })
   assert.ok(bundle.length > 0)
@@ -99,7 +99,7 @@ test('an unknown templateKey degrades to the fallback rather than throwing', () 
 test('a deployed seed is marked, not dropped', () => {
   const bundle = bundleForGoal({
     templateKey: 'sales-org-multithread-open-deals',
-    kind: 'custom_kpi',
+    kind: 'kpi',
     source: 'hubspot',
     deployedSeedKeys: ['sales-multithreading-map'],
   })
@@ -112,7 +112,7 @@ test('a deployed seed is marked, not dropped', () => {
 test('a seed both curated and kind-matched appears once, as curated', () => {
   const bundle = bundleForGoal({
     templateKey: 'sales-org-quarterly-revenue',
-    kind: 'revenue',
+    kind: 'arr',
     source: 'stripe',
   })
   assert.equal(new Set(keys(bundle)).size, bundle.length, 'bundle contains a duplicate')
@@ -121,7 +121,7 @@ test('a seed both curated and kind-matched appears once, as curated', () => {
 test('the metric collector carries its recommended integrations', () => {
   const bundle = bundleForGoal({
     templateKey: null,
-    kind: 'custom_kpi',
+    kind: 'kpi',
     source: 'manual',
   })
   const collector = bundle.find((entry) => entry.seedKey === 'goal-metric-collector')

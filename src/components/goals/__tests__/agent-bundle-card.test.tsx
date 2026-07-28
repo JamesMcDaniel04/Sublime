@@ -10,7 +10,7 @@ afterEach(cleanup)
 const base = {
   goalId: 'goal-1',
   templateKey: 'sales-org-multithread-open-deals',
-  kind: 'custom_kpi',
+  kind: 'kpi',
   source: 'hubspot',
   recurrence: null,
   onChanged: async () => {},
