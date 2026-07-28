@@ -78,6 +78,7 @@ model Organization {
   goalRecoveryPlans         GoalRecoveryPlan[]
   goalRecoveryActions       GoalRecoveryAction[]
   goalWork                  GoalWork[]
+  goalWorkRules             GoalWorkRule[]
 
   @@map("organizations")
 }
@@ -1349,6 +1350,16 @@ model GoalWork {
   body           String?   @db.Text
   bodyFormat     String    @default("markdown") // 'markdown' | 'html'
 
+  /// Flat, untyped features the agent used to pick this subject. The miner
+  /// reads numbers and short strings and ignores anything else — a schema
+  /// over this would be a taxonomy nobody maintains.
+  signals        Json?
+  /// Set when the agent works something an active rule would have suppressed.
+  /// The entire falsification mechanism: a rule that suppresses a category
+  /// destroys the evidence that would revise it, and these probes are that
+  /// evidence. Deliberately not an FK — a retired rule's probes stay readable.
+  probeForRuleId String?
+
   /// User.id is a cuid — supabaseId is the uuid — so user references here are
   /// plain text, matching Goal.ownerUserId and Goal.createdByUserId.
   assigneeUserId String?
@@ -1371,7 +1382,50 @@ model GoalWork {
   @@index([organizationId, goalId, disposition])
   @@index([goalId, assigneeUserId, disposition])
   @@index([goalId, resourceId])
+  @@index([probeForRuleId])
   @@map("goal_work")
+}
+
+/// A targeting lesson learned from what humans did with an agent's work.
+///
+/// Level 1: goalId + resourceId set — this agent, on this goal.
+/// Level 2: seedKey set, goalId and resourceId null — every deployment of
+/// this seed in this org, promoted when the lesson repeats on 2+ goals.
+///
+/// `statement` is prose the agent applies, NOT a predicate code enforces: the
+/// agent is the only thing that knows a subject's signals BEFORE producing,
+/// and enforcing in code would mean producing first and discarding after —
+/// wasting exactly the work the rule exists to prevent. `signal` exists only
+/// to dedupe and group rules for display.
+model GoalWorkRule {
+  id             String    @id @default(cuid())
+  organizationId String    @db.Uuid
+
+  goalId         String?
+  resourceId     String?
+  seedKey        String?
+
+  signal         String
+  statement      String
+
+  skippedCount   Int
+  totalCount     Int
+  topSkipReason  String?
+
+  status         String    @default("active") // active | retired
+  /// Share of suppressed subjects the agent must work anyway, as probes.
+  /// Without it a rule can never be disproved.
+  exploreRate    Float     @default(0.2)
+
+  learnedAt      DateTime  @default(now()) @db.Timestamptz(6)
+  retiredAt      DateTime? @db.Timestamptz(6)
+  retiredReason  String? // 'probes_contradicted' | 'unprobed'
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, goalId, status])
+  @@index([organizationId, seedKey, status])
+  @@map("goal_work_rules")
 }
 
 /// Immutable settlement history for a recurring goal window. The Goal row
