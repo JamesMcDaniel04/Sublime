@@ -6,7 +6,7 @@
 import { z } from 'zod'
 import { DEFAULT_AGENT_MODEL, generateStructured } from '@/lib/llm/model-runner'
 import { GOAL_KIND_LABELS, GOAL_KIND_UNITS, type GoalSummary } from '@/lib/types'
-import { GOAL_KIND_VALUES } from '@/lib/goals/kind-migration'
+import { GOAL_KIND_VALUES, type GoalKind } from '@/lib/goals/kind-migration'
 import { GOAL_TEMPLATES } from './goal-templates'
 import { WIDGET_TYPES, parseDraftLayout, type DashboardLayout } from './dashboard'
 import {
@@ -76,13 +76,17 @@ export const COPILOT_DRAFT_SCHEMA = {
         type: 'object',
         properties: {
           label: { type: 'string' },
-          role: { type: 'string', enum: ['primary', 'supporting'] },
+          role: { type: 'string', enum: ['primary', 'supporting', 'component'] },
+          /** Required when role is 'component'; null otherwise. Strict mode
+           *  requires every property in `required`, so "optional" is expressed
+           *  as nullable — same idiom as description/recurrence above. */
+          slot: nullable({ type: 'string' }),
           source: { type: 'string' },
           metricKey: { type: 'string' },
           unit: { type: 'string', enum: ['usd', 'count', 'percent'] },
           config: CONFIG_JSON,
         },
-        required: ['label', 'role', 'source', 'metricKey', 'unit', 'config'],
+        required: ['label', 'role', 'slot', 'source', 'metricKey', 'unit', 'config'],
         additionalProperties: false,
       },
     },
@@ -118,13 +122,41 @@ export const COPILOT_DRAFT_SCHEMA = {
   additionalProperties: false,
 } as const
 
+/**
+ * Edition seam (spec 2026-07-28 §8): the allowed-kind list is a PARAMETER, not
+ * a module constant, so the platform-editions gate can narrow what the model is
+ * even able to propose. A model that drafts a quota goal for an ARR-only
+ * workspace produces a dead end after the user has been promised something.
+ */
+export function copilotDraftSchemaFor(
+  allowedKinds: readonly GoalKind[] = GOAL_KIND_VALUES,
+): Record<string, unknown> {
+  return {
+    ...COPILOT_DRAFT_SCHEMA,
+    properties: {
+      ...COPILOT_DRAFT_SCHEMA.properties,
+      kind: { type: 'string', enum: [...allowedKinds] },
+    },
+  }
+}
+
+export function copilotSystemPrompt(
+  allowedKinds: readonly GoalKind[] = GOAL_KIND_VALUES,
+): string {
+  return SYSTEM.replace(
+    `kind MUST be one of: ${GOAL_KIND_VALUES.join(', ')}.`,
+    `kind MUST be one of: ${allowedKinds.join(', ')}.`,
+  )
+}
+
 const SYSTEM = [
   'You design a goal-tracking dashboard from a user description.',
   'Rules:',
   `- kind MUST be one of: ${GOAL_KINDS.join(', ')}. "arr" is any recurring or closed revenue number, "quota" is sales attainment against a committed number, "kpi" is everything else — funnels, rates, counts and cost. Blends use the dominant kind plus supporting metrics.`,
   '- direction is yours to choose and is NOT implied by the kind: use "decrease" whenever a falling number is the win (cost, spend, churn, cycle time, defects) and "increase" otherwise. Do not default to increase for a cost-reduction goal.',
   '- Use ONLY the metric sources listed as available in the input. When nothing fits, use source "manual" with metricKey "manual.value".',
-  '- Use 1-4 metrics and exactly one role "primary"; it drives progress and risk. More than 4 metrics is rejected.',
+  '- Use 1-4 metrics and exactly one role "primary"; it drives progress and risk.',
+  '- OPTIONALLY decompose the goal so its headline can be checked against its drivers. Add role "component" metrics, each with a "slot". For kind "arr" the slots are exactly new_arr, expansion_arr, contraction_arr and churned_arr — include ALL FOUR or none, since a partial set leaves the goal flagged. Set slot to null on primary and supporting metrics. At most 12 metrics in total.',
   '- Every config field is a JSON object SERIALIZED AS A STRING, not an object. Send "{}" when empty.',
   `- Widget config references metrics by array INDEX, as a JSON string: kpi/trend/history {"metric":0}, comparison {"metrics":[0,1]}, ratio {"numerator":0,"denominator":1,"format":"percent"} (or "ratio"), narrative {"text":"..."}, and progress/impact/benchmark/periods/contributions/rollups {}.`,
   '- Use at most 12 widgets.',
@@ -193,7 +225,8 @@ const rawDraftSchema = z.object({
     .array(
       z.object({
         label: z.string().min(1).max(80),
-        role: z.enum(['primary', 'supporting']),
+        role: z.enum(['primary', 'supporting', 'component']),
+        slot: z.string().min(1).max(64).nullable().optional(),
         source: z.string(),
         metricKey: z.string(),
         unit: z.enum(['usd', 'count', 'percent']),
@@ -201,14 +234,17 @@ const rawDraftSchema = z.object({
       }),
     )
     .min(1)
-    .max(4),
+    // Matches the create route: a composed goal carries components too.
+    .max(12),
   widgets: z.array(z.unknown()).max(12),
   rationale: z.string().max(1000),
 })
 
 export type CopilotDraftMetric = {
   label: string
-  role: 'primary' | 'supporting'
+  role: 'primary' | 'supporting' | 'component'
+  /** Set only for role 'component'. */
+  slot?: string
   source: string
   metricKey: string
   unit: 'usd' | 'count' | 'percent'
@@ -245,6 +281,7 @@ export function validateCopilotDraft(
   raw: string,
   sources: MetricSourceOption[],
   now: Date = new Date(),
+  allowedKinds: readonly GoalKind[] = GOAL_KIND_VALUES,
 ): { draft: CopilotDraft; notes: string[] } {
   let parsedJson: unknown
   try {
@@ -261,7 +298,7 @@ export function validateCopilotDraft(
     )
   }
   const data = shell.data
-  if (!(GOAL_KINDS as readonly string[]).includes(data.kind)) {
+  if (!(allowedKinds as readonly string[]).includes(data.kind)) {
     throw new CopilotDraftError(
       'The Copilot could not map this to a supported goal kind — try rephrasing.',
     )
@@ -274,7 +311,14 @@ export function validateCopilotDraft(
       .map((option) => [option.source, option]),
   )
 
-  const metrics: CopilotDraftMetric[] = data.metrics.map((metric) => {
+  const metrics: CopilotDraftMetric[] = data.metrics.map((raw) => {
+    // The schema carries slot as nullable (strict mode has no optionals), and
+    // a slot only means anything on a component — a stray one on the primary
+    // would be rejected by the create route's role/slot pairing refine.
+    const metric = {
+      ...raw,
+      slot: raw.role === 'component' && raw.slot ? raw.slot : undefined,
+    }
     const option = availableBySource.get(metric.source)
     if (!option) {
       notes.push(
@@ -365,16 +409,19 @@ export async function draftGoalDashboard(params: {
   sources: MetricSourceOption[]
   generate?: typeof generateStructured
   now?: Date
+  /** Narrow what the model may propose — see copilotDraftSchemaFor. */
+  allowedKinds?: readonly GoalKind[]
 }): Promise<{ draft: CopilotDraft; notes: string[] }> {
   const generate = params.generate ?? generateStructured
+  const allowedKinds = params.allowedKinds ?? GOAL_KIND_VALUES
   const raw = await generate({
     schemaName: 'goal_copilot_draft',
-    schema: COPILOT_DRAFT_SCHEMA as unknown as Record<string, unknown>,
-    system: SYSTEM,
+    schema: copilotDraftSchemaFor(allowedKinds),
+    system: copilotSystemPrompt(allowedKinds),
     user: JSON.stringify({
       description: params.description.slice(0, MAX_DESCRIPTION_CHARS),
       today: (params.now ?? new Date()).toISOString().slice(0, 10),
-      kinds: GOAL_KINDS.map((kindName) => ({
+      kinds: allowedKinds.map((kindName) => ({
         kind: kindName,
         label: GOAL_KIND_LABELS[kindName],
         unit: GOAL_KIND_UNITS[kindName],
@@ -388,5 +435,5 @@ export async function draftGoalDashboard(params: {
     maxTokens: 2000,
     model: DEFAULT_AGENT_MODEL,
   })
-  return validateCopilotDraft(raw, params.sources, params.now)
+  return validateCopilotDraft(raw, params.sources, params.now, allowedKinds)
 }

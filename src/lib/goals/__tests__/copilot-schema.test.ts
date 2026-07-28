@@ -135,3 +135,95 @@ test('the violation walker actually detects the constructs it screens for', () =
   assert.ok(problems.some((problem) => problem.includes('type union')))
   assert.ok(problems.some((problem) => problem.includes('enum contains null')))
 })
+
+test('the narrowed schema offers only the allowed kinds', async () => {
+  const { copilotDraftSchemaFor } = await import('../copilot')
+  const narrowed = copilotDraftSchemaFor(['arr']) as any
+  assert.deepEqual(narrowed.properties.kind.enum, ['arr'])
+  // Narrowing must not break the structured-outputs contract.
+  const strict = strictifySchema(narrowed) as Record<string, unknown>
+  assert.ok(strict)
+})
+
+test('the narrowed prompt names only the allowed kinds', async () => {
+  const { copilotSystemPrompt } = await import('../copilot')
+  const prompt = copilotSystemPrompt(['arr', 'kpi'])
+  assert.ok(prompt.includes('kind MUST be one of: arr, kpi.'))
+  assert.ok(!prompt.includes('kind MUST be one of: arr, quota, kpi.'))
+})
+
+test('a draft naming a disallowed kind is rejected', async () => {
+  const { validateCopilotDraft, CopilotDraftError } = await import('../copilot')
+  assert.throws(
+    () =>
+      validateCopilotDraft(
+        JSON.stringify({
+          name: 'Quota goal',
+          description: null,
+          kind: 'quota',
+          direction: 'increase',
+          unit: 'usd',
+          recurrence: null,
+          personal: false,
+          suggestedTarget: null,
+          suggestedTargetDate: null,
+          metrics: [
+            {
+              label: 'x',
+              role: 'primary',
+              slot: null,
+              source: 'manual',
+              metricKey: 'manual.value',
+              unit: 'usd',
+              config: '{}',
+            },
+          ],
+          widgets: [],
+          rationale: 'r',
+        }),
+        [],
+        new Date(),
+        ['arr'],
+      ),
+    CopilotDraftError,
+  )
+})
+
+test('a component metric keeps its slot; a primary metric drops one', async () => {
+  const { validateCopilotDraft } = await import('../copilot')
+  const metric = (over: Record<string, unknown>) => ({
+    label: 'm',
+    role: 'primary',
+    slot: null,
+    source: 'manual',
+    metricKey: 'manual.value',
+    unit: 'usd',
+    config: '{}',
+    ...over,
+  })
+  const { draft } = validateCopilotDraft(
+    JSON.stringify({
+      name: 'ARR',
+      description: null,
+      kind: 'arr',
+      direction: 'increase',
+      unit: 'usd',
+      recurrence: null,
+      personal: false,
+      suggestedTarget: null,
+      suggestedTargetDate: null,
+      metrics: [
+        // A stray slot on the primary would be rejected by the create route's
+        // role/slot pairing refine, so it is dropped here.
+        metric({ slot: 'new_arr' }),
+        metric({ role: 'component', slot: 'new_arr', label: 'New ARR' }),
+      ],
+      widgets: [],
+      rationale: 'r',
+    }),
+    [],
+    new Date(),
+  )
+  assert.equal(draft.metrics[0].slot, undefined, 'primary carries no slot')
+  assert.equal(draft.metrics[1].slot, 'new_arr', 'component keeps its slot')
+})

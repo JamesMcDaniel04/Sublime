@@ -20,7 +20,10 @@ import { NO_CONNECTION_SOURCES } from '@/lib/goals/metric-sources'
 
 export type MetricBinding = {
   label: string
-  role: 'primary' | 'supporting'
+  role: 'primary' | 'supporting' | 'component'
+  /** Which composition slot this binding fills. Set only for role
+   *  'component' — the create route rejects a slot on any other role. */
+  slot?: string
   source: string
   metricKey: string
   unit: 'usd' | 'count' | 'percent'

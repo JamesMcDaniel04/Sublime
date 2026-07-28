@@ -13,7 +13,7 @@ import type { DashboardData } from '@/components/goals/widgets/goal-dashboard'
 
 export type PreviewMetricInput = {
   label: string | null
-  role: 'primary' | 'supporting'
+  role: 'primary' | 'supporting' | 'component'
   unit: GoalSummary['unit']
   source: string
   metricKey: string

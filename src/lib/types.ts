@@ -83,7 +83,10 @@ export interface GoalSummary {
 export interface GoalMetricSeries {
   id: string
   label: string | null
-  role: 'primary' | 'supporting'
+  role: 'primary' | 'supporting' | 'component'
+  /** Which composition slot this series fills — 'new_arr', 'stage:2',
+   *  'pipeline_coverage'. Null for primary and supporting series. */
+  slot?: string | null
   unit: GoalSummary['unit']
   source: string
   metricKey: string
