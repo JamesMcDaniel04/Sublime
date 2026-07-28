@@ -133,6 +133,8 @@ export interface GoalDetail extends Omit<GoalSummary, 'sparkline'> {
   metric: (GoalSummary['metric'] & { id: string }) | null
   metrics: GoalMetricSeries[]
   dashboardLayout: unknown | null
+  /** The declared composition shape, so the editor can recover what was saved. */
+  composition: unknown | null
   /** Per-evaluation composition summary; null for uncomposed goals. */
   compositionState: CompositionState | null
   /** The GoalTemplate this goal was created from; null for Copilot-drafted and

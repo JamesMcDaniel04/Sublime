@@ -31,6 +31,8 @@ import { RiskBadge } from '@/components/goals/goal-viz'
 import { DashboardEditDialog } from '@/components/goals/dashboard-edit'
 import { RecoveryPlanStrip } from '@/components/goals/recovery-plan-strip'
 import { CompositionStrip } from '@/components/goals/composition-strip'
+import { CompositionEditDialog } from '@/components/goals/composition-edit'
+import type { MetricSourceOption } from '@/lib/metrics/available-sources'
 import { AgentBundleCard } from '@/components/goals/agent-bundle-card'
 import { connectedSlugSet } from '@/lib/templates/relevance'
 import {
@@ -81,6 +83,15 @@ export default function GoalDetailPage() {
         ),
       ),
     [integrationsQuery.data],
+  )
+  // Metric sources for the driver editor. A failed probe yields [], which
+  // renders the binding control with manual entry only rather than hiding it.
+  const sourcesQuery = useCachedJson<{ sources?: MetricSourceOption[] }>(
+    '/api/goals/metrics/sources',
+  )
+  const metricSources = useMemo(
+    () => sourcesQuery.data?.sources ?? [],
+    [sourcesQuery.data],
   )
   const [editOpen, setEditOpen] = useState(false)
   const [archiveOpen, setArchiveOpen] = useState(false)
@@ -207,6 +218,11 @@ export default function GoalDetailPage() {
             <Badge variant="outline">
               {GOAL_KIND_LABELS[goal.kind]}
             </Badge>
+            <CompositionEditDialog
+              goal={goal}
+              sources={metricSources}
+              onSaved={load}
+            />
             <DashboardEditDialog goal={goal} onSaved={load} />
             <Dialog open={editOpen} onOpenChange={setEditOpen}>
               <DialogTrigger asChild>

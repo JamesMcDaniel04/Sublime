@@ -129,6 +129,7 @@ export function buildPreviewDashboardData(input: PreviewGoalInput): {
     templateKey: null,
     // The wizard preview never evaluates, so there is no composition state
     // to show — the strip renders nothing for null.
+    composition: null,
     compositionState: null,
     name: input.name,
     description: input.description ?? null,

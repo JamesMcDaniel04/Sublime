@@ -143,6 +143,7 @@ export const GET = withAuthenticatedApi(async (request, auth) => {
       expectedProgress: evaluation.expectedProgress,
       projectedValue: evaluation.projectedValue,
       dashboardLayout: goal.dashboardLayout ?? null,
+      composition: goal.composition ?? null,
       // Written by evaluateAndPersistGoal; null for an uncomposed goal.
       compositionState: (goal.compositionState ?? null) as CompositionState | null,
       templateKey: goal.templateKey,
