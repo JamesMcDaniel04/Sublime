@@ -31,6 +31,9 @@ import {
 } from '@/components/goals/source-labels'
 import { SourceLogo } from '@/components/goals/source-logo'
 import { sourceIsAvailable } from '@/lib/metrics/source-options'
+import { CompositionFields } from '@/components/goals/composition-fields'
+import type { MetricBinding } from '@/components/goals/metric-binding-fields'
+import type { KpiShape } from '@/lib/goals/composition/rollup-kpi'
 import { invalidateCachedJson } from '@/lib/client/use-cached-json'
 
 type Step = 1 | 2 | 3
@@ -68,6 +71,10 @@ export default function NewGoalPage() {
   const router = useRouter()
   const [step, setStep] = useState<Step>(1)
   const [sources, setSources] = useState<Source[]>([])
+  // Component bindings live apart from the flat primary-metric fields so an
+  // uncomposed goal still posts the legacy `metric` body unchanged.
+  const [components, setComponents] = useState<MetricBinding[]>([])
+  const [kpiShape, setKpiShape] = useState<KpiShape | ''>('')
   const [orgGoals, setOrgGoals] = useState<GoalSummary[]>([])
   const [loadingSources, setLoadingSources] = useState(true)
   const [creating, setCreating] = useState(false)
@@ -175,6 +182,22 @@ export default function NewGoalPage() {
                 : {},
     [state.channel, state.gmailQuery, state.jsonPath, state.metricHint, state.query, state.range, state.source, state.spreadsheetId, state.urlValue],
   )
+
+  // The declared shape, or null when nothing is bound. KPI needs the user to
+  // pick a shape first; arr and quota have exactly one each.
+  const compositionSpec = useMemo(() => {
+    if (components.length === 0) return null
+    if (state.kind === 'arr') return { kind: 'arr' as const }
+    if (state.kind === 'quota') return { kind: 'quota' as const }
+    return kpiShape ? { kind: 'kpi' as const, shape: kpiShape } : null
+  }, [components.length, kpiShape, state.kind])
+
+  // Changing the kind invalidates every bound slot — an arr slot means nothing
+  // on a quota goal, and leaving them would post a body the route rejects.
+  useEffect(() => {
+    setComponents([])
+    setKpiShape('')
+  }, [state.kind])
 
   const chooseSource = (source: Source) => {
     const selectable = sourceIsAvailable(source)
@@ -312,14 +335,46 @@ export default function NewGoalPage() {
             : {}),
           ...(templateLayout ? { dashboardLayout: templateLayout } : {}),
           ...(templateKey ? { templateKey } : {}),
-          metric: {
-            source: state.source,
-            metricKey: state.metricKey,
-            connectionRef: NO_CONNECTION_SOURCES.has(state.source)
-              ? null
-              : state.connectionRef,
-            config,
-          },
+          // Components force the metrics[] form; without them the body stays
+          // byte-identical to what it has always been.
+          ...(components.length > 0
+            ? {
+                composition: compositionSpec,
+                metrics: [
+                  {
+                    label: state.name.trim() || 'Headline',
+                    role: 'primary' as const,
+                    source: state.source,
+                    metricKey: state.metricKey,
+                    connectionRef: NO_CONNECTION_SOURCES.has(state.source)
+                      ? null
+                      : state.connectionRef,
+                    config,
+                  },
+                  ...components.map((binding) => ({
+                    label: binding.label,
+                    role: 'component' as const,
+                    slot: binding.slot,
+                    source: binding.source,
+                    metricKey: binding.metricKey,
+                    unit: binding.unit,
+                    connectionRef: NO_CONNECTION_SOURCES.has(binding.source)
+                      ? null
+                      : binding.connectionRef,
+                    config: binding.config,
+                  })),
+                ],
+              }
+            : {
+                metric: {
+                  source: state.source,
+                  metricKey: state.metricKey,
+                  connectionRef: NO_CONNECTION_SOURCES.has(state.source)
+                    ? null
+                    : state.connectionRef,
+                  config,
+                },
+              }),
         }),
       })
       const body = await response.json()
@@ -904,6 +959,44 @@ export default function NewGoalPage() {
               </label>
             </div>
           ) : null}
+        </Card>
+      )}
+
+      {step === 3 && (
+        <Card className="space-y-4 p-6">
+          {state.kind === 'kpi' && (
+            <label className="space-y-1.5 text-sm">
+              <span className="font-medium">Break this number down? (optional)</span>
+              <Select
+                value={kpiShape || 'none'}
+                onValueChange={(value) => {
+                  setKpiShape(value === 'none' ? '' : (value as KpiShape))
+                  setComponents([])
+                }}
+              >
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">Track it as one number</SelectItem>
+                  <SelectItem value="ratio">A ratio — numerator over denominator</SelectItem>
+                  <SelectItem value="funnel">A funnel — stage to stage</SelectItem>
+                  <SelectItem value="weighted_sum">A weighted sum of drivers</SelectItem>
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                Breaking it down lets the goal check its own headline against its
+                parts, and say so when they disagree.
+              </p>
+            </label>
+          )}
+          <CompositionFields
+            kind={state.kind}
+            shape={kpiShape || undefined}
+            stages={kpiShape === 'funnel' ? 3 : undefined}
+            unit={state.unit}
+            bindings={components}
+            sources={sources}
+            onChange={setComponents}
+          />
         </Card>
       )}
 

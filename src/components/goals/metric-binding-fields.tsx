@@ -11,6 +11,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { SOURCE_LABELS } from './source-labels'
+import { slotLabel } from './slot-labels'
 import { SourceLogo } from './source-logo'
 import {
   sourceIsAvailable,
@@ -38,7 +39,13 @@ export type MetricBinding = {
 export function metricBindingIssue(binding: MetricBinding): string | null {
   const text = (key: string) =>
     typeof binding.config[key] === 'string' ? (binding.config[key] as string).trim() : ''
-  if (!binding.label.trim()) return `Name the ${binding.role} series.`
+  // A component names its slot, not its role — "Name the component series"
+  // tells the user nothing about which driver is unnamed.
+  const noun =
+    binding.role === 'component' && binding.slot
+      ? `"${slotLabel(binding.slot)}" driver`
+      : `${binding.role} series`
+  if (!binding.label.trim()) return `Name the ${noun}.`
   if (!NO_CONNECTION_SOURCES.has(binding.source) && !binding.connectionRef) {
     return `Pick the account "${binding.label}" reads from.`
   }
