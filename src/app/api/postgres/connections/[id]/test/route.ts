@@ -1,6 +1,6 @@
-import { after } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { ApiError, withAuthenticatedApi } from '@/lib/server/api-handler'
+import { afterResponse } from '@/lib/server/after-response'
 import { verifyPostgresConnection } from '@/lib/postgres/verify'
 import { scanConnection } from '@/lib/intelligence/connection-scan'
 
@@ -31,14 +31,14 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
   // successful test is also a connect event.
   if (verification.ok) {
     const organizationId = auth.organizationId
-    after(() =>
+    afterResponse(() =>
       scanConnection({
         organizationId,
         userId: auth.dbUser.id,
         plane: 'postgres',
         connectionRef: row.id,
         connectionName: row.name,
-      }).catch(() => undefined),
+      }),
     )
   }
 

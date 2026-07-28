@@ -33,6 +33,18 @@ test('toolNeedsApproval: gated only when the agent opted in AND the provider is 
   }
 })
 
+test('toolNeedsApproval: Postgres writes pause even when the agent never opted in', () => {
+  // The opt-in default is OFF, so gating a model-authored statement against a
+  // customer database on it would mean no gate at all for most agents.
+  assert.equal(toolNeedsApproval({ requireApproval: false, provider: 'postgres:write' }), true)
+  assert.equal(toolNeedsApproval({ requireApproval: true, provider: 'postgres:write' }), true)
+
+  // Reading is not gated on either setting — that is the whole point of
+  // keeping the read and write planes on separate providers.
+  assert.equal(toolNeedsApproval({ requireApproval: false, provider: 'postgres' }), false)
+  assert.equal(toolNeedsApproval({ requireApproval: true, provider: 'postgres' }), false)
+})
+
 test('approvalQuestion: names the tool, includes bounded input, asks for "approve"', () => {
   const q = approvalQuestion('slack.post_message', { channel: '#general', text: 'hi' })
   assert.ok(q.includes('slack.post_message'))

@@ -1,7 +1,7 @@
 import { z } from 'zod'
-import { after } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { ApiError, withAuthenticatedApi } from '@/lib/server/api-handler'
+import { afterResponse } from '@/lib/server/after-response'
 import { recordAudit } from '@/lib/audit'
 import { buildPostgresAuthConfig, redactPostgresConnection, displayTargetFor } from '@/lib/postgres/connections'
 import { buildClientConfig } from '@/lib/postgres/client'
@@ -65,8 +65,11 @@ export const PATCH = withAuthenticatedApi(async (request, auth) => {
     displayTarget = displayTargetFor(input.connectionString)
   }
 
-  const row = await prisma.postgresConnection.update({
-    where: { id: existing.id },
+  // updateMany, not update: the tenant guard requires organizationId in the
+  // where clause, and `update` takes only a unique selector. Scoping the write
+  // itself — not just the preceding read — is the invariant.
+  await prisma.postgresConnection.updateMany({
+    where: { id: existing.id, organizationId: auth.organizationId },
     data: {
       ...(input.name ? { name: input.name } : {}),
       ...(displayTarget ? { displayTarget } : {}),
@@ -76,6 +79,9 @@ export const PATCH = withAuthenticatedApi(async (request, auth) => {
         ? { authConfig: buildPostgresAuthConfig(input, existing.authConfig) }
         : {}),
     },
+  })
+  const row = await prisma.postgresConnection.findFirstOrThrow({
+    where: { id: existing.id, organizationId: auth.organizationId },
     select: SELECT,
   })
 
@@ -129,11 +135,10 @@ export const DELETE = withAuthenticatedApi(async (request, auth) => {
   })
 
   // Disconnecting must also drop what the scan learned from this database —
-  // the same purge-on-disconnect rule Nango connections follow.
+  // the same purge-on-disconnect rule Nango connections follow. The row is
+  // already gone, so a purge failure must not fail the response.
   const organizationId = auth.organizationId
-  after(() =>
-    purgeConnectionLearnings({ organizationId, plane: 'postgres', connectionRef: existing.id }).catch(() => undefined),
-  )
+  afterResponse(() => purgeConnectionLearnings({ organizationId, plane: 'postgres', connectionRef: existing.id }))
 
   return { success: true }
 })

@@ -1,7 +1,7 @@
 'use client'
 
 import Link from 'next/link'
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import { Check } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -19,6 +19,7 @@ import { CATEGORY_ACCENTS, CATEGORY_ICONS } from '@/components/goals/goal-templa
 import { SOURCE_HINTS, SOURCE_LABELS } from '@/components/goals/source-labels'
 import { SourceLogo } from '@/components/goals/source-logo'
 import { IntegrationChip } from '@/components/integrations/integration-chip'
+import { ConnectIntegrationDialog, canConnectInline } from '@/components/integrations/connect-integration-dialog'
 import { bundleForGoal } from '@/lib/goals/agent-bundle'
 import { buildPreviewDashboardData } from '@/lib/goals/preview-data'
 import { resolveLayoutMetricRefs } from '@/lib/goals/dashboard'
@@ -42,17 +43,22 @@ export function GoalTemplateDetail({
   sources,
   sourcesFailed,
   onClose,
+  onSourcesChanged,
 }: {
   template: GoalTemplate | null
   sources: MetricSourceOption[]
   /** True when /api/goals/metrics/sources failed — render neutral, never block. */
   sourcesFailed: boolean
   onClose: () => void
+  /** Fired after an in-place connect, so the caller can re-read source state. */
+  onSourcesChanged?: () => void
 }) {
   const connected = useMemo(
     () => (sourcesFailed ? new Set<string>() : connectedSourceSet(sources)),
     [sources, sourcesFailed],
   )
+  /** The source whose connect dialog is open, if any. */
+  const [connecting, setConnecting] = useState<string | null>(null)
 
   // source: null — the user picks the metric source in the wizard, after this
   // dialog. Source-dependent agents come back flagged conditional.
@@ -187,9 +193,17 @@ export function GoalTemplateDetail({
                     </div>
                   </div>
                   {!isConnected && !sourcesFailed && source !== 'manual' && (
-                    <Button size="sm" variant="outline" asChild>
-                      <Link href="/integrations">Connect</Link>
-                    </Button>
+                    // Connect in place: leaving for /integrations would abandon
+                    // the template the user is part-way through choosing.
+                    canConnectInline(source) ? (
+                      <Button size="sm" variant="outline" onClick={() => setConnecting(source)}>
+                        Connect
+                      </Button>
+                    ) : (
+                      <Button size="sm" variant="outline" asChild>
+                        <Link href="/integrations">Connect</Link>
+                      </Button>
+                    )
                   )}
                 </li>
               )
@@ -253,6 +267,15 @@ export function GoalTemplateDetail({
           </Button>
         </DialogFooter>
       </DialogContent>
+
+      {connecting && (
+        <ConnectIntegrationDialog
+          source={connecting}
+          open
+          onOpenChange={(open) => { if (!open) setConnecting(null) }}
+          onConnected={() => onSourcesChanged?.()}
+        />
+      )}
     </Dialog>
   )
 }

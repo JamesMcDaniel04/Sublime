@@ -18,6 +18,13 @@ type IntegrationChip = {
   capability?: DeliveryCapability
   /** True when connecting goes through our native Google OAuth flow. */
   native?: boolean
+  /**
+   * When present, this integration is configured on its own page rather than
+   * through a Connect flow — the card navigates here instead. Used by
+   * integrations that hold several named connections (Postgres), which no
+   * binary Connect/Disconnect card can express.
+   */
+  configPath?: string
 }
 
 // The enabled integrations are a property of the Nango ENVIRONMENT (one per
@@ -78,14 +85,30 @@ function withNativeGoogle(integrations: IntegrationChip[]): IntegrationChip[] {
   ]
 }
 
+/** Postgres has no Nango provider, so its tile is added here unconditionally.
+ *  It carries a configPath rather than a Connect flow because one org holds
+ *  several named databases. */
+const POSTGRES_CHIP: IntegrationChip = {
+  id: 'postgres',
+  provider: 'postgresql',
+  name: 'PostgreSQL',
+  native: true,
+  configPath: '/integrations/postgres',
+}
+
+const withNativeIntegrations = (integrations: IntegrationChip[]): IntegrationChip[] => [
+  ...withNativeGoogle(integrations),
+  POSTGRES_CHIP,
+]
+
 // Lists the integrations enabled on the Nango environment. These are the
 // apps a user can connect from the integrations page.
 export const GET = withAuthenticatedApi(async () => {
-  // Native-only deployments (no Nango key) still offer Gmail.
-  if (!nangoConfigured()) return { success: true, integrations: withNativeGoogle([]) }
+  // Native-only deployments (no Nango key) still offer Gmail and Postgres.
+  if (!nangoConfigured()) return { success: true, integrations: withNativeIntegrations([]) }
 
   const hit = await cacheGet<IntegrationChip[]>(CACHE_KEY)
-  if (hit) return { success: true, integrations: withNativeGoogle(hit) }
+  if (hit) return { success: true, integrations: withNativeIntegrations(hit) }
 
   let configs
   try {
@@ -103,5 +126,5 @@ export const GET = withAuthenticatedApi(async () => {
   }))
 
   if (integrations.length) await cacheSet(CACHE_KEY, integrations, CACHE_TTL_MS)
-  return { success: true, integrations: withNativeGoogle(integrations) }
+  return { success: true, integrations: withNativeIntegrations(integrations) }
 })

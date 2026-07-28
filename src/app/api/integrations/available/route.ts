@@ -28,7 +28,7 @@ type ToolChip = { key: string; label: string; slug: string; connected: boolean }
 
 export const GET = withAuthenticatedApi(async (_request, auth) => {
   const organizationId = auth.organizationId
-  const [connections, hasGranola, nango] = await Promise.all([
+  const [connections, hasGranola, nango, postgresCount] = await Promise.all([
     prisma.mcpConnection.findMany({
       where: {
         organizationId,
@@ -43,6 +43,7 @@ export const GET = withAuthenticatedApi(async (_request, auth) => {
       where: { organizationId, status: 'connected' },
       select: { providerConfigKey: true },
     }),
+    prisma.postgresConnection.count({ where: { organizationId } }),
   ])
 
   // Merge planes, deduping by lowercased key and OR-ing connected state. Builtins
@@ -64,6 +65,14 @@ export const GET = withAuthenticatedApi(async (_request, auth) => {
     // for any agent that already has it selected.
     if (c.providerId === 'email') continue
     add({ key: c.key, label: c.label, slug: c.slug, connected: c.key === 'Granola' ? hasGranola : c.available() })
+  }
+
+  // Postgres: one chip for the plane, connected once the org has any database.
+  // The runtime resolves WHICH databases from the agent's selection, so the
+  // picker stays a single chip rather than one per database.
+  const postgres = BUILTIN_CONNECTORS.find((c) => c.providerId === 'postgres')
+  if (postgres) {
+    add({ key: postgres.key, label: postgres.label, slug: postgres.slug, connected: postgresCount > 0 })
   }
 
   for (const c of nango) {

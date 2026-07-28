@@ -87,19 +87,26 @@ export async function describeSchema(
   schema: string,
   table?: string,
 ): Promise<ColumnSummary[]> {
+  // The table cap applies ONLY to the describe-everything case. Applying it
+  // when a specific table was named would silently return no columns for any
+  // table sorting past the cap — which is most of them in a real schema.
   const columns = await client.query(
-    `SELECT c.table_name, c.column_name, c.data_type, c.is_nullable
-       FROM information_schema.columns c
-      WHERE c.table_schema = $1
-        AND ($2::text IS NULL OR c.table_name = $2)
-        AND c.table_name IN (
-          SELECT table_name FROM information_schema.tables
-           WHERE table_schema = $1
-           ORDER BY table_name
-           LIMIT $3
-        )
-      ORDER BY c.table_name, c.ordinal_position`,
-    [schema, table ?? null, MAX_DESCRIBED_TABLES],
+    table
+      ? `SELECT c.table_name, c.column_name, c.data_type, c.is_nullable
+           FROM information_schema.columns c
+          WHERE c.table_schema = $1 AND c.table_name = $2
+          ORDER BY c.ordinal_position`
+      : `SELECT c.table_name, c.column_name, c.data_type, c.is_nullable
+           FROM information_schema.columns c
+          WHERE c.table_schema = $1
+            AND c.table_name IN (
+              SELECT table_name FROM information_schema.tables
+               WHERE table_schema = $1
+               ORDER BY table_name
+               LIMIT $2
+            )
+          ORDER BY c.table_name, c.ordinal_position`,
+    table ? [schema, table] : [schema, MAX_DESCRIBED_TABLES],
   )
 
   const constraints = await client.query(

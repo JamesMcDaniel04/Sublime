@@ -1,7 +1,7 @@
 import { z } from 'zod'
-import { after } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { ApiError, withAuthenticatedApi } from '@/lib/server/api-handler'
+import { afterResponse } from '@/lib/server/after-response'
 import { recordAudit } from '@/lib/audit'
 import {
   buildPostgresAuthConfig,
@@ -95,18 +95,18 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
   // on the row rather than blocking the save.
   const verification = await verifyPostgresConnection(auth.organizationId, row.id)
 
-  // Scan on connect, mirroring the Nango path. Fire-and-forget via `after` so
-  // it survives past the response on serverless.
+  // Scan on connect, mirroring the Nango path. Fire-and-forget: the connection
+  // is already saved, so nothing here may fail the response.
   if (verification.ok) {
     const organizationId = auth.organizationId
-    after(() =>
+    afterResponse(() =>
       scanConnection({
         organizationId,
         userId: auth.dbUser.id,
         plane: 'postgres',
         connectionRef: row.id,
         connectionName: row.name,
-      }).catch(() => undefined),
+      }),
     )
   }
 

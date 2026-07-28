@@ -15,6 +15,7 @@ import { Bot, Check, Rocket } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { IntegrationChip } from '@/components/integrations/integration-chip'
+import { ConnectIntegrationDialog, canConnectInline } from '@/components/integrations/connect-integration-dialog'
 import { bundleForGoal } from '@/lib/goals/agent-bundle'
 import { missingIntegrations } from '@/lib/templates/relevance'
 import { cn } from '@/lib/utils'
@@ -42,6 +43,8 @@ export function AgentBundleCard({
   readonly hideWhenAllDeployed?: boolean
 }) {
   const [busySeedKey, setBusySeedKey] = useState<string | null>(null)
+  /** The integration whose connect dialog is open, if any. */
+  const [connecting, setConnecting] = useState<string | null>(null)
 
   // Keyed on the joined seed keys, not the array: the goal page rebuilds
   // deployedSeedKeys from contributions on every render, so depending on its
@@ -109,12 +112,24 @@ export function AgentBundleCard({
                 {blocked && !entry.deployed && (
                   <p className="text-xs text-muted-foreground">
                     Needs {missing.join(', ')} —{' '}
-                    <Link
-                      href="/integrations"
-                      className="font-medium text-foreground underline-offset-2 hover:underline"
-                    >
-                      connect
-                    </Link>
+                    {/* Connect in place: sending the user to /integrations
+                        loses the goal page they were about to deploy from. */}
+                    {canConnectInline(missing[0]) ? (
+                      <button
+                        type="button"
+                        onClick={() => setConnecting(missing[0])}
+                        className="font-medium text-foreground underline-offset-2 hover:underline"
+                      >
+                        connect
+                      </button>
+                    ) : (
+                      <Link
+                        href="/integrations"
+                        className="font-medium text-foreground underline-offset-2 hover:underline"
+                      >
+                        connect
+                      </Link>
+                    )}
                   </p>
                 )}
                 {entry.requiredIntegrations.length > 0 && !blocked && (
@@ -148,6 +163,17 @@ export function AgentBundleCard({
           )
         })}
       </ul>
+
+      {connecting && (
+        <ConnectIntegrationDialog
+          source={connecting}
+          open
+          onOpenChange={(open) => { if (!open) setConnecting(null) }}
+          // A new connection changes which agents are deployable, so re-read
+          // the goal page's state and let the blocked rows unblock in place.
+          onConnected={() => void onChanged()}
+        />
+      )}
     </section>
   )
 }

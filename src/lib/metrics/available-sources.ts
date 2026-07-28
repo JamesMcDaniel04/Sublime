@@ -29,7 +29,7 @@ export async function listMetricSourceOptions(auth: {
   organizationId: string
   dbUser: { id: string }
 }): Promise<MetricSourceOption[]> {
-  const [credentials, nangoConnections, googleConnections] = await Promise.all([
+  const [credentials, nangoConnections, googleConnections, postgresConnections] = await Promise.all([
     prisma.credential.findMany({
       where: {
         ...credentialScope(auth.organizationId, auth.dbUser.id),
@@ -57,6 +57,13 @@ export async function listMetricSourceOptions(auth: {
       },
       select: { id: true, accountEmail: true, service: true },
       orderBy: { accountEmail: 'asc' },
+    }),
+    // Org-scoped, not per-user: a connected database is workspace
+    // infrastructure, so every member can bind a metric to it.
+    prisma.postgresConnection.findMany({
+      where: { organizationId: auth.organizationId },
+      select: { id: true, name: true },
+      orderBy: { name: 'asc' },
     }),
   ])
   const sheetsConnections = googleConnections.filter(
@@ -110,7 +117,21 @@ export async function listMetricSourceOptions(auth: {
         ? [{ key: 'manual.value', label: 'Manually recorded value', unit: 'usd' }]
         : (getMetricSource(name)?.availableMetrics('custom_kpi') ?? []),
     connections:
-      name === 'stripe' || name === 'postgres'
+      // Postgres offers the native integration's databases FIRST, then any
+      // pre-integration vault credential whose secret is a connection string.
+      // Both refs resolve at fetch time, so bindings made either way keep
+      // reading — see resolveConnection in sources/postgres.ts.
+      name === 'postgres'
+        ? [
+            ...postgresConnections.map((connection) => ({
+              ref: `postgres:${connection.id}`,
+              label: connection.name,
+            })),
+            ...credentials
+              .filter((credential) => credentialSourceOf(credential.type, credential.authConfig) === 'postgres')
+              .map((credential) => ({ ref: `credential:${credential.id}`, label: credential.name })),
+          ]
+        : name === 'stripe'
         ? credentials
             .filter(
               (credential) =>

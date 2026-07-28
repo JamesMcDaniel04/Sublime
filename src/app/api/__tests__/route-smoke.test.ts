@@ -108,6 +108,9 @@ if (TEST_DB) {
     { name: 'GET /api/flows/[id]/pins', run: async () => (await import('../flows/[id]/pins/route')).GET(req('/api/flows/no-such-id/pins')) },
     { name: 'GET /api/credentials', run: async () => (await import('../credentials/route')).GET(req('/api/credentials')) },
     { name: 'GET /api/credentials/[id]', run: async () => (await import('../credentials/[id]/route')).GET(req('/api/credentials/no-such-id')) },
+    // Listing connected databases is a plain scoped read — it never decrypts a
+    // connection string, so it works against an empty seeded org.
+    { name: 'GET /api/postgres/connections', run: async () => (await import('../postgres/connections/route')).GET(req('/api/postgres/connections')) },
     { name: 'GET /api/intelligence/health', run: async () => (await import('../intelligence/health/route')).GET(req('/api/intelligence/health')) },
     { name: 'GET /api/intelligence/patterns', run: async () => (await import('../intelligence/patterns/route')).GET(req('/api/intelligence/patterns')) },
     { name: 'GET /api/intelligence/readiness', run: async () => (await import('../intelligence/readiness/route')).GET(req('/api/intelligence/readiness')) },

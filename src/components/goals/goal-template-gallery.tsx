@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Sparkles } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { EmptyState } from '@/components/ui/empty-state'
@@ -55,19 +55,19 @@ export function GoalTemplateGallery() {
   const [sourcesFailed, setSourcesFailed] = useState(false)
 
   // Best-effort: connection state decorates the cards, it never gates them.
-  useEffect(() => {
-    let cancelled = false
-    fetch('/api/goals/metrics/sources', { cache: 'no-store' })
-      .then(async (response) => {
-        const body = await response.json()
-        if (!response.ok) throw new Error(body.error || 'sources unavailable')
-        if (!cancelled) setSources(body.sources ?? [])
-      })
-      .catch(() => {
-        if (!cancelled) setSourcesFailed(true)
-      })
-    return () => { cancelled = true }
+  const loadSources = useCallback(async () => {
+    try {
+      const response = await fetch('/api/goals/metrics/sources', { cache: 'no-store' })
+      const body = await response.json()
+      if (!response.ok) throw new Error(body.error || 'sources unavailable')
+      setSources(body.sources ?? [])
+      setSourcesFailed(false)
+    } catch {
+      setSourcesFailed(true)
+    }
   }, [])
+
+  useEffect(() => { void loadSources() }, [loadSources])
 
   const connected = useMemo(
     () => (sourcesFailed ? new Set<string>() : connectedSourceSet(sources)),
@@ -146,6 +146,10 @@ export function GoalTemplateGallery() {
         sources={sources}
         sourcesFailed={sourcesFailed}
         onClose={() => setSelected(null)}
+        // Connecting from inside the detail dialog changes what is connected,
+        // so re-read the sources and let the readiness badges catch up without
+        // the user leaving the gallery.
+        onSourcesChanged={() => void loadSources()}
       />
     </section>
   )

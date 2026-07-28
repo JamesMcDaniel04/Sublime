@@ -1,6 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useRouter } from 'next/navigation'
 import Nango, { type ConnectUI } from '@nangohq/frontend'
 import { CheckCircle2, RefreshCw } from 'lucide-react'
 import { toast } from 'sonner'
@@ -28,6 +29,9 @@ type Integration = {
   capability?: string
   /** True when connecting goes through our native Google OAuth flow. */
   native?: boolean
+  /** When present, the card opens this configuration page instead of a
+   *  Connect flow — for integrations holding several named connections. */
+  configPath?: string
 }
 
 type Connection = {
@@ -43,6 +47,7 @@ type Connection = {
 const INTEGRATIONS_PAGE_SIZE = 9
 
 export function OAuthIntegrationsGrid() {
+  const router = useRouter()
   // Cached (stale-while-revalidate): the integration catalog is static (also
   // server-cached), connections revalidate in the background. A revisit paints
   // the last-seen grid instantly instead of the loading skeleton. Both persist
@@ -148,6 +153,11 @@ export function OAuthIntegrationsGrid() {
   }, [confirmConnected])
 
   const connect = async (integration: Integration) => {
+    // Configured on its own page (several named connections behind one tile).
+    if (integration.configPath) {
+      router.push(integration.configPath)
+      return
+    }
     // Native Google OAuth: full-page redirect to our own consent flow —
     // Google blocks Nango's, and a popup would lose the session on return.
     if (integration.native) {
@@ -273,10 +283,20 @@ export function OAuthIntegrationsGrid() {
               </CardHeader>
               <CardContent className="space-y-3">
                 <p className="line-clamp-2 min-h-10 text-sm text-muted-foreground">
-                  Connect your {integration.name} account so agents can act on your behalf.
+                  {integration.configPath
+                    ? `Connect one or more ${integration.name} databases so agents, flows, and goals can read from them.`
+                    : `Connect your ${integration.name} account so agents can act on your behalf.`}
                 </p>
                 {connection?.error && <p className="text-sm text-red-600">{connection.error}</p>}
-                {connection?.connected
+                {/* A configPath tile manages N connections, so its action is
+                    always "open the page" — never a binary disconnect. */}
+                {integration.configPath ? (
+                  <Button className="w-full" variant={connection?.connected ? 'outline' : 'default'} onClick={() => connect(integration)}>
+                    {connection?.connected
+                      ? `Manage${connection.connectionIds.length > 1 ? ` (${connection.connectionIds.length})` : ''}`
+                      : 'Connect'}
+                  </Button>
+                ) : connection?.connected
                   ? <Button className="w-full" variant="outline" onClick={() => disconnect(integration)} loading={busy === integration.id}>Disconnect</Button>
                   : <Button className="w-full" onClick={() => connect(integration)} loading={busy === integration.id || confirmingId === integration.id}>
                       Connect
