@@ -234,6 +234,27 @@ export async function orgIntelligenceAgentId(organizationId: string): Promise<st
   }
 }
 
+/**
+ * Postgres cannot use the tool-sampling path below (its useful read tool needs
+ * SQL, and the generic sampler calls tools with empty args), so it supplies its
+ * own authored sampler. Returns the same `{ tool, result }` shape the rest of
+ * the pipeline consumes, plus the tool catalog to index.
+ */
+async function collectPostgresScan(
+  organizationId: string,
+  connectionRef: string,
+): Promise<{ samples: { tool: string; result: string }[]; tools: { name: string; description: string }[] }> {
+  const { collectPostgresSamples } = await import('@/lib/postgres/scan')
+  const { postgresTools } = await import('@/lib/postgres/tools')
+  const raw = await withTimeout(collectPostgresSamples(organizationId, connectionRef), SCAN_TOOL_TIMEOUT_MS)
+  return {
+    samples: raw.map((sample) => ({ tool: sample.tool, result: truncateSample(sample.result) })),
+    // The catalog indexes the READ surface only: whether this database also
+    // permits writes is a per-connection setting, not a property of the plane.
+    tools: postgresTools(false).map((tool) => ({ name: tool.name, description: tool.description })),
+  }
+}
+
 async function loadScanGroup(
   organizationId: string,
   userId: string | null,
@@ -267,34 +288,51 @@ export async function scanConnection(params: {
     const sourceRef = connectionSourceRef(plane, connectionRef)
     if (isScanExcluded(org?.settings, sourceRef)) return { skipped: 'excluded' }
 
-    const group = await loadScanGroup(organizationId, userId, plane, connectionRef)
-    if (!group?.client || group.tools.length === 0) return { skipped: 'no-tools' }
-
-    // Materialize this connection's tool topology as org-shared tool +
-    // capability nodes (cross-tool spec §4) — runs on connect AND rescan so
-    // the graph tracks the live catalog. Fire-and-forget: never blocks the scan.
-    void indexToolCatalog(organizationId, [{
-      provider: group.provider,
-      name: connectionName,
-      tools: group.tools.map((tool) => ({ name: tool.name, description: tool.description })),
-    }]).catch(() => undefined)
-
-    const toolNames = selectScanTools(group.tools)
-    if (toolNames.length === 0) return { skipped: 'no-safe-tools' }
-
     const samples: { tool: string; result: string }[] = []
-    for (const name of toolNames) {
+
+    if (plane === 'postgres') {
+      let scan: Awaited<ReturnType<typeof collectPostgresScan>>
       try {
-        const result = await withTimeout(group.client.executeTool(group.serverUrl, name, {}), SCAN_TOOL_TIMEOUT_MS)
-        samples.push({ tool: name, result: truncateSample(result) })
+        scan = await collectPostgresScan(organizationId, connectionRef)
       } catch (error) {
-        apiLogger.warn('connectionScan: tool call failed, skipping', {
-          organizationId, plane, connectionRef, tool: name,
+        apiLogger.warn('connectionScan: postgres sampling failed', {
+          organizationId, plane, connectionRef,
           error: error instanceof Error ? error.message : String(error),
         })
+        return { skipped: 'sample-failed' }
       }
+      if (scan.samples.length === 0) return { skipped: 'no-samples' }
+      void indexToolCatalog(organizationId, [{ provider: 'postgres', name: connectionName, tools: scan.tools }]).catch(() => undefined)
+      samples.push(...scan.samples)
+    } else {
+      const group = await loadScanGroup(organizationId, userId, plane, connectionRef)
+      if (!group?.client || group.tools.length === 0) return { skipped: 'no-tools' }
+
+      // Materialize this connection's tool topology as org-shared tool +
+      // capability nodes (cross-tool spec §4) — runs on connect AND rescan so
+      // the graph tracks the live catalog. Fire-and-forget: never blocks the scan.
+      void indexToolCatalog(organizationId, [{
+        provider: group.provider,
+        name: connectionName,
+        tools: group.tools.map((tool) => ({ name: tool.name, description: tool.description })),
+      }]).catch(() => undefined)
+
+      const toolNames = selectScanTools(group.tools)
+      if (toolNames.length === 0) return { skipped: 'no-safe-tools' }
+
+      for (const name of toolNames) {
+        try {
+          const result = await withTimeout(group.client.executeTool(group.serverUrl, name, {}), SCAN_TOOL_TIMEOUT_MS)
+          samples.push({ tool: name, result: truncateSample(result) })
+        } catch (error) {
+          apiLogger.warn('connectionScan: tool call failed, skipping', {
+            organizationId, plane, connectionRef, tool: name,
+            error: error instanceof Error ? error.message : String(error),
+          })
+        }
+      }
+      if (samples.length === 0) return { skipped: 'no-samples' }
     }
-    if (samples.length === 0) return { skipped: 'no-samples' }
 
     const { system, user } = buildScanPrompt(connectionName, samples)
     // Distillation is a background, non-user-facing pass — run it on the

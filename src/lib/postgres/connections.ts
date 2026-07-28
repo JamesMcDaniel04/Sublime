@@ -71,7 +71,7 @@ export function redactPostgresConnection(row: {
  * a user removes a private CA after moving to a publicly-trusted certificate.
  */
 export function buildPostgresAuthConfig(
-  input: PostgresConnectionInput,
+  input: { connectionString?: string; caCert?: string },
   existing: unknown = {},
 ): Record<string, unknown> {
   const stored = asRecord(existing)

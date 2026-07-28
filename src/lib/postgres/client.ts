@@ -94,9 +94,15 @@ export function safeError(error: unknown, connectionString: string): Error {
   return new Error(`${message}${tlsHint}`)
 }
 
-/** The slice of `pg.Client` this codebase uses — narrowed so tests can fake it. */
+/**
+ * The slice of `pg.Client` this codebase uses — narrowed so tests can fake it.
+ *
+ * `connect` resolves to `unknown` rather than `void` because pg's own typings
+ * resolve it to the Client instance; every caller here awaits it for its
+ * effect and ignores the value.
+ */
 export type PgClient = {
-  connect(): Promise<void>
+  connect(): Promise<unknown>
   query(query: string, values?: unknown[]): Promise<QueryResult<Record<string, unknown>>>
   end(): Promise<void>
 }

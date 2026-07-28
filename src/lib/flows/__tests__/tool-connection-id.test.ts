@@ -12,6 +12,7 @@ test('format/parse round-trips every plane', () => {
     mcp: 'cmcpconnrow456',
     native: 'slack',
     nango: 'gmail',
+    postgres: 'cpgconnrow789',
     flow: 'flw_1',
   } as const
   for (const plane of FLOW_TOOL_PLANES) {
