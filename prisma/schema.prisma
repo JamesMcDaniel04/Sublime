@@ -1349,10 +1349,12 @@ model GoalWork {
   body           String?   @db.Text
   bodyFormat     String    @default("markdown") // 'markdown' | 'html'
 
-  assigneeUserId String?   @db.Uuid
+  /// User.id is a cuid — supabaseId is the uuid — so user references here are
+  /// plain text, matching Goal.ownerUserId and Goal.createdByUserId.
+  assigneeUserId String?
 
   disposition    String    @default("pending") // pending | used | edited | skipped
-  dispositionBy  String?   @db.Uuid
+  dispositionBy  String?
   dispositionAt  DateTime? @db.Timestamptz(6)
   skipReason     String?
 

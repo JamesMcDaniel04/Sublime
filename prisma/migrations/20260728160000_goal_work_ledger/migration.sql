@@ -10,9 +10,10 @@ CREATE TABLE "goal_work" (
     "produced"       TEXT NOT NULL,
     "body"           TEXT,
     "bodyFormat"     TEXT NOT NULL DEFAULT 'markdown',
-    "assigneeUserId" UUID,
+    -- User.id is a cuid (supabaseId is the uuid), so user references are TEXT.
+    "assigneeUserId" TEXT,
     "disposition"    TEXT NOT NULL DEFAULT 'pending',
-    "dispositionBy"  UUID,
+    "dispositionBy"  TEXT,
     "dispositionAt"  TIMESTAMPTZ(6),
     "skipReason"     TEXT,
     "outcome"        TEXT NOT NULL DEFAULT 'unknown',
