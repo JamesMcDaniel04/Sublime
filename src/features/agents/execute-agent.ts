@@ -42,7 +42,7 @@ import { turnStopOutcome, turnEffortFor } from './turn-policy'
 import { retrieveAgentMemory, renderAgentMemories, bestAnswerMatch, markMemoriesUsed, saveAgentMemory } from '@/lib/memory/agent-memory'
 import { findOrgIntelligenceAgentId } from '@/lib/intelligence/connection-scan'
 import { reflectAndRemember } from './reflection'
-import { shouldStrategize, goalSection, strategizeSection, STRATEGIZE_RETRIEVAL } from './strategy'
+import { shouldStrategize, goalSection, goalWorkSection, strategizeSection, STRATEGIZE_RETRIEVAL } from './strategy'
 import { isWriteProvider } from '@/lib/connectors/registry'
 import { approvalQuestion, isApprovalReply, toolNeedsApproval, type PendingApproval } from './approval'
 import { serializeToolResult } from '@/lib/agents/tool-result'
@@ -676,6 +676,10 @@ export async function runAgentExecution(
     if (goalBlock) system += `\n\n${goalBlock}`
     const organizationGoals = await goalGroundingBlock(organizationId)
     if (organizationGoals) system += `\n\n${organizationGoals}`
+    // Derived from the tools this run actually loaded, so an agent is only
+    // ever told to log work when it genuinely holds log_work.
+    const goalWork = goalWorkSection(tools)
+    if (goalWork) system += `\n\n${goalWork}`
     const strategize = shouldStrategize({ objective: agent.objective, metadata: agentMetadata, toolCount: tools.length })
     if (strategize) system += `\n\n${strategizeSection()}`
 
