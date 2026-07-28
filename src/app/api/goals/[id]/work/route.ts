@@ -81,7 +81,38 @@ export const GET = withAuthenticatedApi(async (request, auth) => {
     })),
   )
 
+  // Every active rule steering work on this goal, across agents. Rules change
+  // what agents produce; a person must be able to see the inference and the
+  // evidence behind it, and turn one off. Returned here rather than from a
+  // second endpoint so the workroom stays one round trip.
+  const ruleRows = await prisma.goalWorkRule.findMany({
+    where: {
+      organizationId: auth.organizationId,
+      status: 'active',
+      OR: [
+        { goalId },
+        // Seed-level rules apply to this goal through whichever of its agents
+        // came from that seed.
+        { goalId: null, seedKey: { in: [...new Set(contributions.map((row) => row.seedKey).filter(Boolean) as string[])] } },
+      ],
+    },
+    orderBy: { learnedAt: 'desc' },
+  })
+
+  const rules = ruleRows.map((rule) => ({
+    id: rule.id,
+    statement: rule.statement,
+    signal: rule.signal,
+    skippedCount: rule.skippedCount,
+    totalCount: rule.totalCount,
+    topSkipReason: rule.topSkipReason,
+    exploreRate: rule.exploreRate,
+    learnedAt: rule.learnedAt,
+    scope: rule.goalId ? ('agent' as const) : ('org' as const),
+    agentName: rule.resourceId ? nameFor(rule.resourceId) : null,
+  }))
+
   // The viewer's id rides along so the queue can offer Claim without a
   // separate /api/me round trip or a prop threaded down the goal page.
-  return { items, stats, viewerId: auth.dbUser.id }
+  return { items, stats, rules, viewerId: auth.dbUser.id }
 })

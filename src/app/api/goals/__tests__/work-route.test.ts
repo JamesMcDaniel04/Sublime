@@ -176,4 +176,96 @@ if (TEST_DB) {
       'switching tabs must not change the funnel',
     )
   })
+
+  test('a skip note is recorded alongside the other reason', async () => {
+    const item = await makeItem({ subjectRef: 'note-1' })
+    const response = await patch(item.id, {
+      disposition: 'skipped',
+      skipReason: 'other',
+      skipNote: 'The account merged last week.',
+    })
+    assert.equal(response.status, 200)
+
+    const after = await prisma.goalWork.findFirstOrThrow({
+      where: { id: item.id, organizationId: seeded.organizationId },
+    })
+    assert.equal(after.skipReason, 'other', 'the enum stays countable')
+    assert.equal(after.skipNote, 'The account merged last week.')
+  })
+
+  test('revoking a rule retires it as revoked, distinct from evidence killing it', async () => {
+    const rule = await prisma.goalWorkRule.create({
+      data: {
+        organizationId: seeded.organizationId,
+        goalId,
+        resourceId: 'agent-1',
+        signal: 'daysCold',
+        statement: 'Skip cold under 14.',
+        skippedCount: 6,
+        totalCount: 7,
+      },
+    })
+
+    const { DELETE } = await import('../[id]/rules/[ruleId]/route')
+    const response = await DELETE(
+      new NextRequest(`http://test/api/goals/${goalId}/rules/${rule.id}`, { method: 'DELETE' }),
+    )
+    assert.equal(response.status, 200)
+
+    const after = await prisma.goalWorkRule.findFirstOrThrow({
+      where: { id: rule.id, organizationId: seeded.organizationId },
+    })
+    assert.equal(after.status, 'retired')
+    assert.equal(after.retiredReason, 'revoked')
+    assert.equal(after.revokedByUserId, seeded.userId, 'who turned it off is recorded')
+  })
+
+  test('an already-retired rule cannot be revoked again', async () => {
+    const rule = await prisma.goalWorkRule.create({
+      data: {
+        organizationId: seeded.organizationId,
+        goalId,
+        resourceId: 'agent-1',
+        signal: 'contacts',
+        statement: 'Skip single-contact deals.',
+        skippedCount: 6,
+        totalCount: 7,
+        status: 'retired',
+        retiredAt: new Date(),
+        retiredReason: 'probes_contradicted',
+      },
+    })
+    const { DELETE } = await import('../[id]/rules/[ruleId]/route')
+    const response = await DELETE(
+      new NextRequest(`http://test/api/goals/${goalId}/rules/${rule.id}`, { method: 'DELETE' }),
+    )
+    assert.equal(response.status, 404)
+
+    const after = await prisma.goalWorkRule.findFirstOrThrow({
+      where: { id: rule.id, organizationId: seeded.organizationId },
+    })
+    assert.equal(after.retiredReason, 'probes_contradicted', 'the original reason is preserved')
+  })
+
+  test('the work route returns the rules steering this goal', async () => {
+    await prisma.goalWorkRule.create({
+      data: {
+        organizationId: seeded.organizationId,
+        goalId,
+        resourceId: 'agent-1',
+        signal: 'stage',
+        statement: 'Skip prospecting-stage deals.',
+        skippedCount: 8,
+        totalCount: 9,
+      },
+    })
+    const { GET } = await import('../[id]/work/route')
+    const body = await (
+      await GET(new NextRequest(`http://test/api/goals/${goalId}/work?filter=all`))
+    ).json()
+    assert.ok(
+      body.rules.some((rule: { statement: string }) => rule.statement === 'Skip prospecting-stage deals.'),
+      'active rules must be visible to a person',
+    )
+  })
 }

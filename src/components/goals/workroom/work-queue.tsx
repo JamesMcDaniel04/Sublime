@@ -9,6 +9,7 @@ import type { WorkStats } from '@/lib/goals/work-stats'
 import { WorkItem, type WorkItemData } from './work-item'
 import { WorkFunnelStrip } from './work-funnel-strip'
 import { WorkOutcomePrompt, needsOutcome } from './work-outcome-prompt'
+import { WorkRulesStrip, type WorkRule } from './work-rules-strip'
 
 const FILTERS = [
   { key: 'mine', label: 'Mine' },
@@ -35,6 +36,7 @@ export function WorkQueue({ goalId }: { goalId: string }) {
   // Learned from the same fetch that loads the queue — no /api/me round trip
   // and nothing for the goal page to thread down.
   const [viewerId, setViewerId] = useState<string | undefined>(undefined)
+  const [rules, setRules] = useState<WorkRule[]>([])
   const [loaded, setLoaded] = useState(false)
 
   const load = useCallback(async () => {
@@ -47,11 +49,13 @@ export function WorkQueue({ goalId }: { goalId: string }) {
       setItems(body.items ?? [])
       setStats(body.stats ?? EMPTY_STATS)
       setViewerId(body.viewerId ?? undefined)
+      setRules(body.rules ?? [])
     } catch {
       // Best-effort, like the rest of the goal page: an unreachable queue
       // renders as empty rather than breaking the goal.
       setItems([])
       setStats(EMPTY_STATS)
+      setRules([])
     } finally {
       setLoaded(true)
     }
@@ -73,6 +77,14 @@ export function WorkQueue({ goalId }: { goalId: string }) {
     [goalId, load],
   )
 
+  const revoke = useCallback(
+    async (ruleId: string) => {
+      await fetch(`/api/goals/${goalId}/rules/${ruleId}`, { method: 'DELETE' })
+      await load()
+    },
+    [goalId, load],
+  )
+
   // Computed from the loaded page rather than fetched separately: the prompt
   // is a nudge, not a report, so it only asks about what is already on screen.
   const awaitingOutcome = useMemo(() => {
@@ -87,6 +99,8 @@ export function WorkQueue({ goalId }: { goalId: string }) {
       </h2>
 
       <WorkFunnelStrip stats={stats} />
+
+      <WorkRulesStrip rules={rules} onRevoke={(ruleId) => void revoke(ruleId)} />
 
       <div className="flex flex-wrap gap-1.5" role="tablist" aria-label="Filter work">
         {FILTERS.map((entry) => (

@@ -47,6 +47,8 @@ export function WorkItem({
 }) {
   const open = item.disposition === 'pending'
   const [askingWhy, setAskingWhy] = useState(false)
+  const [writingNote, setWritingNote] = useState(false)
+  const [note, setNote] = useState('')
 
   const copy = () => {
     // Best-effort: jsdom and older browsers have no clipboard, and failing to
@@ -95,7 +97,7 @@ export function WorkItem({
       {/* "Skipped" alone says something is wrong; the reason says what to
           change. This one extra tap is the only structured signal the
           learning layer has about why work misses. */}
-      {open && askingWhy && (
+      {open && askingWhy && !writingNote && (
         <div className="space-y-1.5">
           <p className="text-xs text-muted-foreground">Why are you skipping it?</p>
           <div className="flex flex-wrap gap-1.5">
@@ -104,13 +106,60 @@ export function WorkItem({
                 key={reason.value}
                 size="sm"
                 variant="outline"
-                onClick={() => onPatch({ disposition: 'skipped', skipReason: reason.value })}
+                onClick={() =>
+                  // "Other" is exactly where the five fixed reasons failed, so
+                  // it is the one case where recording the words matters more
+                  // than recording the count.
+                  reason.value === 'other'
+                    ? setWritingNote(true)
+                    : onPatch({ disposition: 'skipped', skipReason: reason.value })
+                }
               >
                 {reason.label}
               </Button>
             ))}
             <Button size="sm" variant="ghost" onClick={() => setAskingWhy(false)}>
               Never mind
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {open && writingNote && (
+        <div className="space-y-1.5">
+          <label className="text-xs text-muted-foreground" htmlFor={`skip-note-${item.id}`}>
+            What was wrong with it?
+          </label>
+          <textarea
+            id={`skip-note-${item.id}`}
+            rows={2}
+            value={note}
+            onChange={(event) => setNote(event.target.value)}
+            className="w-full rounded-lg border bg-background px-2.5 py-1.5 text-sm"
+            placeholder="The account merged last week, so this is moot."
+          />
+          <div className="flex flex-wrap gap-1.5">
+            <Button
+              size="sm"
+              onClick={() =>
+                onPatch({
+                  disposition: 'skipped',
+                  skipReason: 'other',
+                  skipNote: note.trim() || null,
+                })
+              }
+            >
+              Skip it
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => {
+                setWritingNote(false)
+                setNote('')
+              }}
+            >
+              Back
             </Button>
           </div>
         </div>

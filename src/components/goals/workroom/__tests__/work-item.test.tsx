@@ -126,3 +126,45 @@ test('the funnel strip renders nothing before any work exists', () => {
   )
   assert.equal(container.textContent, '')
 })
+
+test('"Other" asks what was wrong instead of recording a bare enum', () => {
+  // `other` is exactly where the five fixed reasons failed, so recording only
+  // the string "other" throws away the one case worth reading.
+  const patches: unknown[] = []
+  render(<WorkItem item={item} onPatch={(patch) => patches.push(patch)} />)
+  fireEvent.click(screen.getByRole('button', { name: /^skip$/i }))
+  fireEvent.click(screen.getByRole('button', { name: /^other$/i }))
+  assert.deepEqual(patches, [], 'choosing Other records nothing yet')
+  assert.ok(screen.getByLabelText(/what was wrong/i))
+})
+
+test('the note is recorded alongside the other reason', () => {
+  const patches: unknown[] = []
+  render(<WorkItem item={item} onPatch={(patch) => patches.push(patch)} />)
+  fireEvent.click(screen.getByRole('button', { name: /^skip$/i }))
+  fireEvent.click(screen.getByRole('button', { name: /^other$/i }))
+  fireEvent.change(screen.getByLabelText(/what was wrong/i), {
+    target: { value: 'The account merged last week.' },
+  })
+  fireEvent.click(screen.getByRole('button', { name: /skip it/i }))
+  assert.deepEqual(patches, [
+    { disposition: 'skipped', skipReason: 'other', skipNote: 'The account merged last week.' },
+  ])
+})
+
+test('an empty note still skips, recording null rather than an empty string', () => {
+  const patches: unknown[] = []
+  render(<WorkItem item={item} onPatch={(patch) => patches.push(patch)} />)
+  fireEvent.click(screen.getByRole('button', { name: /^skip$/i }))
+  fireEvent.click(screen.getByRole('button', { name: /^other$/i }))
+  fireEvent.click(screen.getByRole('button', { name: /skip it/i }))
+  assert.deepEqual(patches, [{ disposition: 'skipped', skipReason: 'other', skipNote: null }])
+})
+
+test('the five fixed reasons still record in one tap', () => {
+  const patches: unknown[] = []
+  render(<WorkItem item={item} onPatch={(patch) => patches.push(patch)} />)
+  fireEvent.click(screen.getByRole('button', { name: /^skip$/i }))
+  fireEvent.click(screen.getByRole('button', { name: /already handled/i }))
+  assert.deepEqual(patches, [{ disposition: 'skipped', skipReason: 'already_handled' }])
+})

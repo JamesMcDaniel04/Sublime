@@ -21,6 +21,7 @@ const patchSchema = z
     assigneeUserId: z.string().min(1).max(64).nullable().optional(),
     body: z.string().max(50_000).optional(),
     skipReason: z.string().max(500).nullable().optional(),
+    skipNote: z.string().max(2000).nullable().optional(),
   })
   .refine((value) => Object.keys(value).length > 0, 'Nothing to change')
 
@@ -80,6 +81,7 @@ export const PATCH = withAuthenticatedApi(async (request, auth) => {
       ...(patch.assigneeUserId !== undefined ? { assigneeUserId: patch.assigneeUserId } : {}),
       ...(patch.body !== undefined ? { body: patch.body } : {}),
       ...(patch.skipReason !== undefined ? { skipReason: patch.skipReason } : {}),
+      ...(patch.skipNote !== undefined ? { skipNote: patch.skipNote } : {}),
     },
   })
 

@@ -23,6 +23,7 @@ export type WorkPatch = {
   assigneeUserId?: string | null
   body?: string
   skipReason?: string | null
+  skipNote?: string | null
 }
 
 /** Dispositions that mean a human actually put the work to use. */

@@ -1367,7 +1367,13 @@ model GoalWork {
   disposition    String    @default("pending") // pending | used | edited | skipped
   dispositionBy  String?
   dispositionAt  DateTime? @db.Timestamptz(6)
+  /// The closed vocabulary value. Kept separate from skipNote so reasons stay
+  /// countable without an LLM — that countability is what makes rules derivable.
   skipReason     String?
+  /// Free text, offered only when skipReason is 'other'. `other` is exactly
+  /// where the five fixed reasons failed, so it is the one case where the
+  /// words matter more than the count.
+  skipNote       String?
 
   outcome        String    @default("unknown") // unknown | worked | no_response | failed
   outcomeSource  String? // 'agent' | 'human'
@@ -1419,7 +1425,10 @@ model GoalWorkRule {
 
   learnedAt      DateTime  @default(now()) @db.Timestamptz(6)
   retiredAt      DateTime? @db.Timestamptz(6)
-  retiredReason  String? // 'probes_contradicted' | 'unprobed'
+  retiredReason  String? // 'probes_contradicted' | 'unprobed' | 'revoked'
+  /// Set when a human revoked it, so a rule someone deliberately turned off is
+  /// distinguishable from one the evidence killed.
+  revokedByUserId String?
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
