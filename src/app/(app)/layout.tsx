@@ -12,6 +12,15 @@ import { resolveBillingAccess, trialDaysRemaining } from '@/lib/billing/access'
  *
  * The route group adds no URL segment: /dashboard is still /dashboard.
  */
+/**
+ * Every route in this group is per-request by construction — the gate below
+ * reads the session cookie. Declaring it removes a wall of misleading
+ * "Dynamic server usage ... couldn't be rendered statically" lines from the
+ * build log, and makes the intent explicit: an app route that ever rendered
+ * statically would be served without consulting billing state at all.
+ */
+export const dynamic = 'force-dynamic'
+
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const access = await resolveBillingAccess()
 
