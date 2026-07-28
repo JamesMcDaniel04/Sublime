@@ -497,6 +497,28 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
   const backingGraph = seed?.kind === 'flow' ? seed.flowGraph : undefined
   const needsBackingFlow = desiredKind === 'agent' && backingGraph != null && graphNeedsBackingFlow(backingGraph)
 
+  // Re-deploying a seed that already backs this goal must NOT materialize a
+  // second resource. GoalContribution is unique on (goalId, resourceType,
+  // resourceId), so a freshly-created agent carries a new id and slips past it
+  // — leaving two links for one seed and double-counting that agent's runs and
+  // minutes-saved in goalImpact(). Return the resource already linked, and
+  // still run attribution so a retry after a partial failure completes its
+  // recovery action and suggestion flip.
+  if (goalId && seedKey) {
+    const existing = await prisma.goalContribution.findFirst({
+      where: { organizationId, goalId, seedKey },
+      select: { resourceType: true, resourceId: true },
+      orderBy: { createdAt: 'asc' },
+    })
+    if (existing) {
+      const kind = existing.resourceType === 'flow' ? ('flow' as const) : ('agent' as const)
+      await attributeProvision(kind, existing.resourceId)
+      return kind === 'flow'
+        ? { success: true, kind, flowId: existing.resourceId, alreadyDeployed: true }
+        : { success: true, kind, agentId: existing.resourceId, alreadyDeployed: true }
+    }
+  }
+
   try {
     if (desiredKind === 'agent' && !needsBackingFlow) {
       const spec = seed ? combinedAgentSpec(seed) : dbRecipe!.spec

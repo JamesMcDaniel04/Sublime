@@ -43,9 +43,13 @@ export function AgentBundleCard({
 }) {
   const [busySeedKey, setBusySeedKey] = useState<string | null>(null)
 
+  // Keyed on the joined seed keys, not the array: the goal page rebuilds
+  // deployedSeedKeys from contributions on every render, so depending on its
+  // identity would recompute the bundle every time.
+  const deployedKey = deployedSeedKeys.join(',')
   const bundle = useMemo(
-    () => bundleForGoal({ templateKey, kind, source, recurrence, deployedSeedKeys }),
-    [templateKey, kind, source, recurrence, deployedSeedKeys],
+    () => bundleForGoal({ templateKey, kind, source, recurrence, deployedSeedKeys: deployedKey ? deployedKey.split(',') : [] }),
+    [templateKey, kind, source, recurrence, deployedKey],
   )
 
   const deploy = async (seedKey: string) => {
@@ -56,13 +60,18 @@ export function AgentBundleCard({
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ seedKey, goalId }),
       })
-      const body = (await response.json()) as { error?: string }
+      // A non-JSON body (an HTML error page, a proxy timeout) must not throw
+      // past this handler: an unhandled rejection would leave the user with a
+      // re-enabled button and no idea the deploy failed.
+      const body = (await response.json().catch(() => ({}))) as { error?: string }
       if (!response.ok) {
         toast.error(body.error || 'Could not deploy — try again.')
         return
       }
       toast.success('Agent deployed and linked to this goal.')
       await onChanged()
+    } catch {
+      toast.error('Could not reach the server — check your connection and try again.')
     } finally {
       setBusySeedKey(null)
     }

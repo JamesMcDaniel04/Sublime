@@ -12,6 +12,13 @@
  * 2. GA4 processes data with a lag, so the current day's row is always partial.
  *    Every window ends at 'yesterday'; including today would make each reading
  *    dip below the true value and produce a sawtooth against the pace line.
+ *
+ * Metric names follow GA4's post-2024 vocabulary. Per the Data API changelog of
+ * 2024-05-06, `conversions` was renamed `keyEvents` and `sessionConversionRate`
+ * was renamed `sessionKeyEventRate`; the old names are deprecated. Our own
+ * metric KEYS mirror that vocabulary so the label a user picks matches what
+ * they see in the GA4 UI.
+ * https://developers.google.com/analytics/devguides/reporting/data/v1/changelog
  */
 import { googleProxy } from '@/lib/google/proxy'
 import type { NangoProxy } from '@/lib/nango/delivery'
@@ -33,10 +40,10 @@ const GA4: Ga4Metric[] = [
   { key: 'ga4.new_users_mtd', label: 'New users (month to date)', unit: 'count', apiName: 'newUsers', window: 'mtd' },
   { key: 'ga4.key_events_mtd', label: 'Key events (month to date)', unit: 'count', apiName: 'keyEvents', window: 'mtd' },
   {
-    key: 'ga4.conversion_rate_28d',
-    label: 'Session conversion rate (last 28 days)',
+    key: 'ga4.key_event_rate_28d',
+    label: 'Session key event rate (last 28 days)',
     unit: 'percent',
-    apiName: 'sessionConversionRate',
+    apiName: 'sessionKeyEventRate',
     window: '28d',
   },
 ]

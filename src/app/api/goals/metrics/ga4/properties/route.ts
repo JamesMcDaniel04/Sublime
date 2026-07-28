@@ -7,15 +7,25 @@
  * relies on.
  */
 import { googleProxy } from '@/lib/google/proxy'
-import { withAuthenticatedApi } from '@/lib/server/api-handler'
+import { ApiError, withAuthenticatedApi } from '@/lib/server/api-handler'
 import { parseAccountSummaries, type Ga4Property } from '@/lib/metrics/ga4-properties'
-import { refId } from '@/lib/metrics/types'
 
 export const runtime = 'nodejs'
 
+const GOOGLE_PLANE = 'google:'
+
 export const GET = withAuthenticatedApi(async (request, auth) => {
-  const connectionRef = request.nextUrl.searchParams.get('connectionRef')
-  const connectionId = refId(connectionRef, 'google')
+  const connectionRef = request.nextUrl.searchParams.get('connectionRef') ?? ''
+  // Validated here rather than via refId(), which throws a plain Error and so
+  // would surface a caller's missing query param as a logged 500.
+  if (!connectionRef.startsWith(GOOGLE_PLANE) || connectionRef.length <= GOOGLE_PLANE.length) {
+    throw new ApiError(
+      'Pass the Google Analytics connection as connectionRef=google:<id>.',
+      400,
+      'INVALID_CONNECTION_REF',
+    )
+  }
+  const connectionId = connectionRef.slice(GOOGLE_PLANE.length)
   const proxy = googleProxy({ organizationId: auth.organizationId, connectionId })
   try {
     const { data } = await proxy({

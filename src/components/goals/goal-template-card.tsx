@@ -1,5 +1,6 @@
 'use client'
 
+import { useMemo } from 'react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { IntegrationChip } from '@/components/integrations/integration-chip'
@@ -39,13 +40,18 @@ export function GoalTemplateCard({
     (source) => source !== 'manual' && connectedSources.has(source),
   )
   // source: null — the metric source is chosen later in the wizard, so this
-  // counts the agents any goal from this template could run.
-  const agentCount = bundleForGoal({
-    templateKey: template.key,
-    kind: template.kind,
-    source: null,
-    recurrence: template.recurrence,
-  }).length
+  // counts the agents any goal from this template could run. Memoized because
+  // the gallery renders a grid of these and each call scans the seed catalogue.
+  const agentCount = useMemo(
+    () =>
+      bundleForGoal({
+        templateKey: template.key,
+        kind: template.kind,
+        source: null,
+        recurrence: template.recurrence,
+      }).length,
+    [template.key, template.kind, template.recurrence],
+  )
 
   return (
     <button

@@ -37,7 +37,7 @@ test('every metric key maps to its documented GA4 metric name', async () => {
     'ga4.active_users_28d': 'activeUsers',
     'ga4.new_users_mtd': 'newUsers',
     'ga4.key_events_mtd': 'keyEvents',
-    'ga4.conversion_rate_28d': 'sessionConversionRate',
+    'ga4.key_event_rate_28d': 'sessionKeyEventRate',
   }
   for (const [key, metricName] of Object.entries(expected)) {
     const { calls, proxy } = fakeProxy()
@@ -90,12 +90,12 @@ test('on the first of the month, month-to-date is zero without calling GA4', asy
   assert.equal(calls.length, 0, 'must not issue an inverted date range')
 })
 
-test('the conversion rate passes through as a fraction, unscaled', async () => {
+test('the key event rate passes through as a fraction, unscaled', async () => {
   // fmtValue multiplies percents by 100 for display, so Sublime stores 0-1.
   // GA4 already returns a fraction; scaling here would render 431%.
   const { proxy } = fakeProxy('0.0431')
   const source = makeGoogleAnalyticsMetricSource(proxy, () => NOW)
-  const reading = await source.fetchValue(ctx, 'ga4.conversion_rate_28d')
+  const reading = await source.fetchValue(ctx, 'ga4.key_event_rate_28d')
   assert.equal(reading.value, 0.0431)
 })
 
@@ -133,7 +133,7 @@ test('goal kinds that GA4 cannot measure are offered nothing', () => {
   }
 })
 
-test('the conversion rate is the only percent metric', () => {
+test('the key event rate is the only percent metric', () => {
   const percent = GA4_METRICS.filter((metric) => metric.unit === 'percent')
-  assert.deepEqual(percent.map((metric) => metric.key), ['ga4.conversion_rate_28d'])
+  assert.deepEqual(percent.map((metric) => metric.key), ['ga4.key_event_rate_28d'])
 })
