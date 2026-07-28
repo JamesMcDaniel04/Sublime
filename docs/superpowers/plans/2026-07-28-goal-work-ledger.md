@@ -1281,8 +1281,12 @@ export const PATCH = withAuthenticatedApi(async (request, auth) => {
   if (refusal) throw new ApiError(refusal, 400, 'ILLEGAL_TRANSITION')
 
   const now = new Date()
-  const updated = await prisma.goalWork.update({
-    where: { id: current.id },
+  // updateMany, NOT update: `src/lib/tenant-guard.ts` throws on any update
+  // whose where clause lacks organizationId, and `update` requires a unique
+  // key that organizationId cannot be part of. Same shape as
+  // src/app/api/goals/[id]/recovery/route.ts:26.
+  await prisma.goalWork.updateMany({
+    where: { id: current.id, organizationId: auth.organizationId },
     data: {
       ...(patch.disposition !== undefined
         ? { disposition: patch.disposition, dispositionAt: now, dispositionBy: auth.dbUser.id }
@@ -1297,7 +1301,11 @@ export const PATCH = withAuthenticatedApi(async (request, auth) => {
     },
   })
 
-  return { item: updated }
+  // updateMany returns a count, so re-read the row to return it.
+  const item = await prisma.goalWork.findFirst({
+    where: { id: current.id, organizationId: auth.organizationId },
+  })
+  return { item }
 })
 ```
 

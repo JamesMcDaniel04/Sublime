@@ -77,6 +77,7 @@ model Organization {
   goalPeriods               GoalPeriod[]
   goalRecoveryPlans         GoalRecoveryPlan[]
   goalRecoveryActions       GoalRecoveryAction[]
+  goalWork                  GoalWork[]
 
   @@map("organizations")
 }
@@ -1314,10 +1315,61 @@ model Goal {
   contributions GoalContribution[]
   periods       GoalPeriod[]
   recoveryPlans GoalRecoveryPlan[]
+  work          GoalWork[]
 
   @@index([organizationId, status])
   @@index([organizationId, ownerUserId, status])
   @@map("goals")
+}
+
+/// One unit of work an agent or flow did toward a goal — one row per SUBJECT
+/// (deal, lead, account), never one per run. `disposition` records what a
+/// human did with it; `outcome` records whether it landed. They are separate
+/// on purpose: "a person used the draft" and "it moved the goal" are different
+/// facts, and merging them would make the funnel unreadable.
+///
+/// One PENDING item per subject is enforced by a partial unique index
+/// (migration-managed, not expressible here — same discipline as
+/// goal_recovery_plans_one_open_per_goal).
+model GoalWork {
+  id             String    @id @default(cuid())
+  organizationId String    @db.Uuid
+  goalId         String
+
+  /// Provenance. runId is an AgentExecution.id or FlowRun.id depending on
+  /// resourceType — deliberately not an FK, because work outlives run pruning.
+  resourceType   String // 'agent' | 'flow'
+  resourceId     String
+  runId          String?
+
+  subject        String
+  /// Stable external id. The dedupe key; null means this row is never deduped.
+  subjectRef     String?
+  produced       String
+  body           String?   @db.Text
+  bodyFormat     String    @default("markdown") // 'markdown' | 'html'
+
+  assigneeUserId String?   @db.Uuid
+
+  disposition    String    @default("pending") // pending | used | edited | skipped
+  dispositionBy  String?   @db.Uuid
+  dispositionAt  DateTime? @db.Timestamptz(6)
+  skipReason     String?
+
+  outcome        String    @default("unknown") // unknown | worked | no_response | failed
+  outcomeSource  String? // 'agent' | 'human'
+  outcomeNote    String?
+  outcomeAt      DateTime? @db.Timestamptz(6)
+
+  createdAt      DateTime  @default(now()) @db.Timestamptz(6)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  goal         Goal         @relation(fields: [goalId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, goalId, disposition])
+  @@index([goalId, assigneeUserId, disposition])
+  @@index([goalId, resourceId])
+  @@map("goal_work")
 }
 
 /// Immutable settlement history for a recurring goal window. The Goal row
