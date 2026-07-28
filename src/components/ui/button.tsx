@@ -6,20 +6,25 @@ import { Loader2 } from "lucide-react"
 import { cn } from "@/lib/utils"
 
 const buttonVariants = cva(
-  "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-semibold transition-all duration-fast ease-out-quart focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 active:scale-[0.98] disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0",
+  // `disabled:opacity-50` lives on the VARIANTS, not here. Fading a solid fill
+  // works on a light theme but inverts on a dark one: half-strength white over
+  // black is mid-grey, so a disabled primary rendered LOUDER than the enabled
+  // buttons beside it. Solid fills therefore swap to an inert surface instead
+  // of fading, and only the transparent variants fade.
+  "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-semibold transition-all duration-fast ease-out-quart focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 active:scale-[0.98] disabled:pointer-events-none [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0",
   {
     variants: {
       variant: {
         default:
-          "bg-primary text-primary-foreground shadow-1 hover:bg-primary/90 hover:shadow-2",
+          "bg-primary text-primary-foreground shadow-1 hover:bg-primary/90 hover:shadow-2 disabled:bg-muted disabled:text-muted-foreground disabled:shadow-none",
         destructive:
-          "bg-destructive text-destructive-foreground shadow-1 hover:bg-destructive/90",
+          "bg-destructive text-destructive-foreground shadow-1 hover:bg-destructive/90 disabled:bg-muted disabled:text-muted-foreground disabled:shadow-none",
         outline:
-          "border border-input bg-background text-foreground shadow-1 hover:border-ring hover:bg-accent hover:text-accent-foreground",
+          "border border-input bg-background text-foreground shadow-1 hover:border-ring hover:bg-accent hover:text-accent-foreground disabled:opacity-50",
         secondary:
-          "bg-secondary text-secondary-foreground shadow-1 hover:bg-secondary/80",
-        ghost: "hover:bg-accent hover:text-accent-foreground",
-        link: "text-primary underline-offset-4 hover:underline active:scale-100",
+          "bg-secondary text-secondary-foreground shadow-1 hover:bg-secondary/80 disabled:opacity-50",
+        ghost: "hover:bg-accent hover:text-accent-foreground disabled:opacity-50",
+        link: "text-primary underline-offset-4 hover:underline active:scale-100 disabled:opacity-50",
       },
       size: {
         default: "h-9 px-4 py-2",

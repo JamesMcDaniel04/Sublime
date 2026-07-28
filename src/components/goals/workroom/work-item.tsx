@@ -1,9 +1,21 @@
 'use client'
 
+import { useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Markdown } from '@/components/ui/markdown'
 import { HtmlPreview } from '@/components/ui/html-preview'
 import type { Disposition, Outcome, WorkPatch } from '@/lib/goals/work-transitions'
+
+/** Closed vocabulary so reasons are countable without an LLM. Ordered most
+ *  common first — the first tap should usually be the right one. */
+const SKIP_REASONS: Array<{ value: string; label: string }> = [
+  { value: 'too_early', label: 'Too early' },
+  { value: 'wrong_contact', label: 'Wrong contact' },
+  { value: 'wrong_content', label: 'Wrong content' },
+  { value: 'already_handled', label: 'Already handled' },
+  { value: 'not_relevant', label: 'Not relevant' },
+  { value: 'other', label: 'Other' },
+]
 
 export type WorkItemData = {
   id: string
@@ -34,6 +46,7 @@ export function WorkItem({
   currentUserId?: string
 }) {
   const open = item.disposition === 'pending'
+  const [askingWhy, setAskingWhy] = useState(false)
 
   const copy = () => {
     // Best-effort: jsdom and older browsers have no clipboard, and failing to
@@ -59,16 +72,12 @@ export function WorkItem({
         </div>
       )}
 
-      {open && (
+      {open && !askingWhy && (
         <div className="flex flex-wrap gap-1.5">
           <Button size="sm" onClick={copy}>
             Copy
           </Button>
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={() => onPatch({ disposition: 'skipped' })}
-          >
+          <Button size="sm" variant="outline" onClick={() => setAskingWhy(true)}>
             Skip
           </Button>
           {item.assigneeUserId === null && currentUserId && (
@@ -80,6 +89,30 @@ export function WorkItem({
               Claim
             </Button>
           )}
+        </div>
+      )}
+
+      {/* "Skipped" alone says something is wrong; the reason says what to
+          change. This one extra tap is the only structured signal the
+          learning layer has about why work misses. */}
+      {open && askingWhy && (
+        <div className="space-y-1.5">
+          <p className="text-xs text-muted-foreground">Why are you skipping it?</p>
+          <div className="flex flex-wrap gap-1.5">
+            {SKIP_REASONS.map((reason) => (
+              <Button
+                key={reason.value}
+                size="sm"
+                variant="outline"
+                onClick={() => onPatch({ disposition: 'skipped', skipReason: reason.value })}
+              >
+                {reason.label}
+              </Button>
+            ))}
+            <Button size="sm" variant="ghost" onClick={() => setAskingWhy(false)}>
+              Never mind
+            </Button>
+          </div>
         </div>
       )}
     </li>

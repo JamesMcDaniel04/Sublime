@@ -34,11 +34,38 @@ test('Copy records used — the act IS the disposition', () => {
   assert.deepEqual(patches, [{ disposition: 'used' }])
 })
 
-test('Skip records skipped', () => {
+test('Skip asks why before recording anything', () => {
+  // "Skipped" alone says something is wrong; the reason says what to change.
   const patches: unknown[] = []
   render(<WorkItem item={item} onPatch={(patch) => patches.push(patch)} />)
-  fireEvent.click(screen.getByRole('button', { name: /skip/i }))
-  assert.deepEqual(patches, [{ disposition: 'skipped' }])
+  fireEvent.click(screen.getByRole('button', { name: /^skip$/i }))
+  assert.deepEqual(patches, [], 'the first click only opens the reasons')
+  assert.ok(screen.getByRole('button', { name: /too early/i }))
+})
+
+test('choosing a reason records it with the skip', () => {
+  const patches: unknown[] = []
+  render(<WorkItem item={item} onPatch={(patch) => patches.push(patch)} />)
+  fireEvent.click(screen.getByRole('button', { name: /^skip$/i }))
+  fireEvent.click(screen.getByRole('button', { name: /too early/i }))
+  assert.deepEqual(patches, [{ disposition: 'skipped', skipReason: 'too_early' }])
+})
+
+test('every vocabulary reason is offered', () => {
+  render(<WorkItem item={item} onPatch={() => {}} />)
+  fireEvent.click(screen.getByRole('button', { name: /^skip$/i }))
+  for (const label of [/too early/i, /wrong contact/i, /wrong content/i, /already handled/i, /not relevant/i, /other/i]) {
+    assert.ok(screen.getByRole('button', { name: label }), `${label} must be offered`)
+  }
+})
+
+test('the reason picker can be dismissed without skipping', () => {
+  const patches: unknown[] = []
+  render(<WorkItem item={item} onPatch={(patch) => patches.push(patch)} />)
+  fireEvent.click(screen.getByRole('button', { name: /^skip$/i }))
+  fireEvent.click(screen.getByRole('button', { name: /never mind/i }))
+  assert.deepEqual(patches, [])
+  assert.ok(screen.getByRole('button', { name: /^copy$/i }), 'the normal actions come back')
 })
 
 test('a dispositioned item offers no Copy or Skip', () => {

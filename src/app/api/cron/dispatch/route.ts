@@ -477,6 +477,12 @@ export async function GET(request: Request) {
     })
     for (const { organizationId } of recentBehaviorOrgs) {
       void runBehaviorIntelligence(organizationId).catch(() => undefined)
+      // Goal work learning: earn targeting rules from what humans did with
+      // agent output, retire the ones probes disproved. Best-effort in the
+      // same shape — a learning failure must not break the tick.
+      void import('@/lib/goals/run-work-learning')
+        .then((module) => module.runGoalWorkLearning(organizationId))
+        .catch(() => undefined)
     }
 
     // Goal metric freshness + evaluation: per-metric throttling happens

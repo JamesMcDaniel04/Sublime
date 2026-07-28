@@ -680,6 +680,32 @@ export async function runAgentExecution(
     // ever told to log work when it genuinely holds log_work.
     const goalWork = goalWorkSection(tools)
     if (goalWork) system += `\n\n${goalWork}`
+    // What this agent's own work has taught us, per linked goal. Best-effort:
+    // a learning-layer failure must never stop a run that would otherwise do
+    // useful work. Bounded to two goals so a many-goal agent cannot grow an
+    // unbounded prompt.
+    if (goalWork) {
+      try {
+        const [{ resolveLinkedGoalIds }, { loadWorkFeedback }, { renderWorkFeedback }] =
+          await Promise.all([
+            import('@/lib/integrations/goals-port'),
+            import('@/lib/goals/work-rules-port'),
+            import('@/lib/goals/work-feedback'),
+          ])
+        const linkedGoalIds = await resolveLinkedGoalIds(organizationId, {
+          type: 'agent',
+          id: agent.id,
+        })
+        for (const linkedGoalId of linkedGoalIds.slice(0, 2)) {
+          const feedback = await loadWorkFeedback(organizationId, linkedGoalId, agent.id)
+          if (!feedback) continue
+          const block = renderWorkFeedback(feedback)
+          if (block) system += `\n\n${block}`
+        }
+      } catch {
+        // Non-fatal by design.
+      }
+    }
     const strategize = shouldStrategize({ objective: agent.objective, metadata: agentMetadata, toolCount: tools.length })
     if (strategize) system += `\n\n${strategizeSection()}`
 

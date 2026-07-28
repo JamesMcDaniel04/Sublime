@@ -47,21 +47,31 @@
   --radius: 0.375rem;
 }
 
+/* Dark canvas: a true-black ladder, not a grey wash. Every neutral here is
+   hue 0 / saturation 0 — the previous scale sat on hue 240, so #0F0F10 and
+   #16161A were dark blue-greys rather than black, and the whole product read
+   "black and grey". Surfaces step 0% → 4% → 8% and separate by a hairline;
+   there is no elevation from shadow (see the shadow overrides below). */
 .dark {
-  --background: 240 6% 6%;
-  --foreground: 0 0% 90%;
-  --card: 240 5% 9%;
-  --card-foreground: 0 0% 90%;
-  --popover: 240 5% 9%;
-  --popover-foreground: 0 0% 90%;
-  --primary: 215 14% 55%;
-  --primary-foreground: 0 0% 100%;
-  --secondary: 240 4% 14%;
-  --secondary-foreground: 0 0% 90%;
-  --muted: 240 4% 14%;
-  --muted-foreground: 0 0% 50%;
-  --accent: 240 4% 14%;
-  --accent-foreground: 0 0% 90%;
+  --background: 0 0% 0%;             /* #000000 — page canvas */
+  --foreground: 0 0% 93%;            /* #EDEDED — 16.9:1 on a card */
+  --card: 0 0% 4%;                   /* #0A0A0A — panels, raised on the void */
+  --card-foreground: 0 0% 93%;
+  --popover: 0 0% 8%;                /* #141414 — floats above cards */
+  --popover-foreground: 0 0% 93%;
+  /* White IS the accent. The primary action is the brightest element on a black
+     page, and it is what makes the UI read black-and-white instead of
+     grey-on-grey. The old slate (#7E8B9B) fill was the washed-out CTA. */
+  --primary: 0 0% 93%;
+  --primary-foreground: 0 0% 4%;
+  --secondary: 0 0% 12%;             /* #1F1F1F */
+  --secondary-foreground: 0 0% 93%;
+  --muted: 0 0% 9%;                  /* #171717 — soft fills */
+  --muted-foreground: 0 0% 63%;      /* #A1A1A1 — 7.7:1 on a card, was 4.9:1 */
+  --accent: 0 0% 16%;                /* #292929 — hover lifts just past the hairline */
+  --accent-foreground: 0 0% 100%;
+  /* Status hues are the only color left in the product, so they carry further
+     here than they did over grey. Left at full strength deliberately. */
   --destructive: 345 90% 60%;
   --destructive-foreground: 0 0% 100%;
   --success: 142 60% 55%;
@@ -70,13 +80,50 @@
   --warning-foreground: 0 0% 9%;
   --info: 199 85% 60%;
   --info-foreground: 0 0% 9%;
-  --border: 240 4% 26%;
-  --input: 240 4% 26%;
-  --ring: 215 14% 55%;
+  /* Darker than the old #40404A on purpose: contrast is relational. A light
+     border floating on a grey card is a gradient; #262626 against true black
+     is an edge. */
+  --border: 0 0% 15%;                /* #262626 */
+  --input: 0 0% 20%;                 /* #333333 — fields need a self-evident edge */
+  --ring: 0 0% 83%;                  /* white focus ring */
+
+  /* The type helpers (.h1–.h4, .eyebrow, .mono-label) read these directly from
+     sublime-design.css, which defines them ONLY for light mode. Without this
+     block --fg-2 resolved to graphite-700 (#55555E) = 2.61:1 on the canvas,
+     which is why every stat-tile label and page eyebrow was the faintest thing
+     on screen. */
+  --fg-1: #EDEDED;
+  --fg-2: #A1A1A1;
+  --fg-3: #808080;
+
+  /* Same omission, same fix: the <Badge variant="good|warn|risk|info"> fills
+     are pale pastels (#D1EFDD, #FFE9B0, …) defined only for light mode, so
+     every status pill on Integrations, Flows, Agents and Connections was a
+     bright block punched into the dark canvas. Dark mode wants the inverse —
+     a low-alpha tint carrying bright text. */
+  --status-good-bg: rgba(52, 211, 153, 0.14);   --status-good-fg: #34D399;
+  --status-warn-bg: rgba(251, 191, 36, 0.14);   --status-warn-fg: #FBBF24;
+  --status-risk-bg: rgba(251, 113, 133, 0.14);  --status-risk-fg: #FB7185;
+  --status-info-bg: rgba(153, 193, 209, 0.14);  --status-info-fg: #99C1D1;
+
+  /* The base shadows are blue-tinted at 5–15% alpha — invisible over black, so
+     they were costing paint work for nothing. Dark-mode elevation comes from
+     the surface step plus the hairline. Only true floats (menus, dialogs) still
+     need a shadow, and theirs is black with a ring to define the edge. */
+  --shadow-1: none;
+  --shadow-2: none;
+  --shadow-3: 0 8px 24px rgba(0, 0, 0, 0.7);
+  --shadow-4: 0 16px 48px rgba(0, 0, 0, 0.8);
+  --shadow-popover: 0 0 0 1px hsl(0 0% 18%), 0 12px 32px rgba(0, 0, 0, 0.75);
 }
 
 * {
   border-color: hsl(var(--border));
+  /* Buttons, switches and cards use `focus-visible:ring-offset-2` without ever
+     naming an offset color, so they inherited Tailwind's default of #fff — a
+     white halo punched around every focused control on the dark canvas. Bind
+     the offset to the current surface so the ring reads as a ring. */
+  --tw-ring-offset-color: hsl(var(--background));
 }
 
 /* Pages sit on graphite-50 so white surfaces (cards, dialogs, inputs — all on

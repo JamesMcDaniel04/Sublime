@@ -115,3 +115,19 @@ test('a flow resource resolves its own linked goals, scoped to the flow', async 
     select: { goalId: true },
   })
 })
+
+test('the feedback block and the goal-work instruction stay separate', async () => {
+  // goalWorkSection tells the agent HOW to log; the feedback block tells it
+  // WHAT its work has taught us. Merging them would mean an agent with no
+  // history loses its logging instructions and never starts producing any.
+  const { renderWorkFeedback } = await import('@/lib/goals/work-feedback')
+  const instruction = goalWorkSection(goalsTools())
+  const feedback = renderWorkFeedback({
+    goalName: 'G',
+    stats: { produced: 0, used: 0, worked: 0, usedRate: null, workedRate: null },
+    skipReasons: [],
+    rules: [],
+  })
+  assert.ok(instruction, 'logging instructions exist regardless of history')
+  assert.equal(feedback, '', 'no history means no feedback block')
+})

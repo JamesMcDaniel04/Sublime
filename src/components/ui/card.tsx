@@ -3,7 +3,10 @@ import { cva, type VariantProps } from "class-variance-authority"
 
 import { cn } from "@/lib/utils"
 
-const cardVariants = cva("rounded-2xl border border-border/80 bg-card text-card-foreground", {
+// Full-strength border, not border/80: the hairline is the ONLY thing
+// separating a card from the canvas in dark mode (shadows resolve to none
+// there), so softening it to 80% just blurs the edge back into the page.
+const cardVariants = cva("rounded-2xl border border-border bg-card text-card-foreground", {
   variants: {
     variant: {
       flat: "",
