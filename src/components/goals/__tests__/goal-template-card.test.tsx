@@ -102,3 +102,25 @@ test('an outcome card still reads from its sources', () => {
   assert.ok(screen.getByText('Reads from'))
   assert.equal(screen.queryByText('Agents do'), null)
 })
+
+test('agent names render as labels, never as brand chips', () => {
+  // This template curates "New Lead → Enrich → Salesforce Opportunity". Run
+  // through IntegrationChip, that name matches the `salesforce` slug by
+  // substring and renders the Salesforce mark — implying a connector the agent
+  // does not require. Every other agent name resolves to no brand at all and
+  // gets a meaningless initial tile. Agents are labels, not integrations.
+  const { container } = render(
+    <GoalTemplateCard
+      template={goalTemplateByKey('sales-org-qualify-inbound-same-day')!}
+      connectedSources={new Set()}
+      connectedIntegrations={new Set()}
+      onOpen={() => {}}
+    />,
+  )
+  assert.ok(screen.getByText('New Lead → Enrich → Salesforce Opportunity'))
+  assert.equal(
+    container.querySelectorAll('img').length,
+    0,
+    'an action card must carry no brand logos — its agents are not integrations',
+  )
+})

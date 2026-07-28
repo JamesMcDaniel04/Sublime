@@ -94,16 +94,21 @@ export function GoalTemplateCard({
           template.motion === 'action' ? (
             <div className="space-y-1.5">
               <p className="text-xs font-medium text-muted-foreground">Agents do</p>
-              <div className="flex flex-wrap items-center gap-1.5">
+              {/* Plain labels, deliberately NOT IntegrationChip: that component
+                  resolves a brand logo by substring, so agent names either get
+                  a meaningless initial tile or — for "New Lead → Enrich →
+                  Salesforce Opportunity" — the actual Salesforce mark, which
+                  reads as a connector the agent does not require. */}
+              <ul className="space-y-0.5">
                 {shownAgents.map((entry) => (
-                  <IntegrationChip key={entry.seedKey} name={entry.name} />
+                  <li key={entry.seedKey} className="text-xs leading-snug text-foreground/80">
+                    {entry.name}
+                  </li>
                 ))}
                 {agentOverflow > 0 && (
-                  <span className="text-xs font-medium text-muted-foreground">
-                    +{agentOverflow}
-                  </span>
+                  <li className="text-xs text-muted-foreground">+{agentOverflow} more</li>
                 )}
-              </div>
+              </ul>
               <p className="text-xs text-muted-foreground">Produces {template.produces}</p>
             </div>
           ) : (
