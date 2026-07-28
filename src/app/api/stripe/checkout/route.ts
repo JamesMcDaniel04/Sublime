@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { requireAuth } from '@/lib/supabase/auth-utils'
 import { prisma } from '@/lib/prisma'
 import { getStripe, appOrigin } from '@/lib/stripe'
-import { isPaidPlanKey, priceIdFor, type PaidPlanKey } from '@/lib/stripe/plans'
+import { isPaidPlanKey, priceIdFor, TRIAL_DAYS, type PaidPlanKey } from '@/lib/stripe/plans'
 import { apiLogger } from '@/lib/logger'
 import { isGrandfatheredOrganization } from '@/lib/billing/entitlements'
 
@@ -43,7 +43,7 @@ async function startCheckout(plan: PaidPlanKey, origin: string) {
 
   const organization = await prisma.organization.findUnique({
     where: { id: auth.organizationId },
-    select: { id: true, name: true, stripeCustomerId: true, plan: true, createdAt: true, grandfatheredAt: true },
+    select: { id: true, name: true, stripeCustomerId: true, plan: true, createdAt: true, grandfatheredAt: true, trialStartedAt: true },
   })
   if (!organization) return NextResponse.redirect(new URL('/dashboard', origin))
   if (isGrandfatheredOrganization(organization)) {
@@ -66,16 +66,30 @@ async function startCheckout(plan: PaidPlanKey, origin: string) {
     })
   }
 
+  // One free trial per workspace, ever. trialStartedAt is stamped by the
+  // webhook (not here), so abandoning checkout costs a prospect nothing —
+  // but cancelling on day 13 and coming back charges from day one.
+  const eligibleForTrial = organization.trialStartedAt == null
+
   const session = await stripe.checkout.sessions.create({
     mode: 'subscription',
     customer: customerId,
     line_items: [{ price: priceIdFor(plan), quantity: 1 }],
     allow_promotion_codes: true,
+    // Load-bearing with a trial: without it Stripe lets the customer through
+    // checkout with no card, which is the entire thing we're preventing.
     payment_method_collection: 'always',
     client_reference_id: organization.id,
     metadata: { organizationId: organization.id, planKey: plan },
     subscription_data: {
       metadata: { organizationId: organization.id, planKey: plan },
+      ...(eligibleForTrial && {
+        trial_period_days: TRIAL_DAYS,
+        // Defense in depth: `payment_method_collection: 'always'` should make
+        // a card-less trial impossible. If that invariant ever breaks, cancel
+        // rather than hand out free access.
+        trial_settings: { end_behavior: { missing_payment_method: 'cancel' as const } },
+      }),
     },
     success_url: `${origin}/dashboard?billing=success`,
     cancel_url: `${origin}/#pricing`,

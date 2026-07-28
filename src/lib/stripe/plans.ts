@@ -1,5 +1,12 @@
 import { Plan } from '@prisma/client'
 
+/**
+ * Free days granted on a workspace's first subscription. A pricing decision,
+ * not a deployment one — deliberately a constant rather than an env var so it
+ * can't drift between environments or be changed without a code review.
+ */
+export const TRIAL_DAYS = 14
+
 /** Marketing tier → Stripe price env var → internal Plan enum. */
 export type PaidPlanKey = 'individual' | 'team' | 'business'
 

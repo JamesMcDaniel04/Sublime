@@ -20,9 +20,17 @@ model Organization {
   // subscription id tracks the single active subscription for the org.
   stripeCustomerId     String?   @unique
   stripeSubscriptionId String?
-  // Legacy field retained for migration compatibility. Trial access was
-  // removed; plan=TRIAL now means payment is required immediately.
+  // Mirrors the Stripe subscription's trial_end while it is trialing, and is
+  // cleared once it isn't. Display only — access is decided by `plan`.
   trialEndsAt          DateTime? @db.Timestamptz(6)
+  // Stamped by the Stripe webhook the first time a `trialing` subscription is
+  // seen. Non-null means the one free trial is spent, so a later checkout
+  // charges immediately. Never reset, never moved forward.
+  trialStartedAt       DateTime? @db.Timestamptz(6)
+  // Stamped on the first invoice we actually collect money on. Distinguishes
+  // "card failed on day 15, never paid us" (lock out) from "long-time customer
+  // whose card expired" (keep access while Stripe retries) on past_due.
+  firstPaidAt          DateTime? @db.Timestamptz(6)
   // Existing test workspaces were permanently comped when paid activation
   // launched. New workspaces leave this null and must subscribe.
   grandfatheredAt      DateTime? @db.Timestamptz(6)
