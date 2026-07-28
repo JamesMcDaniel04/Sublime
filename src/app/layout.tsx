@@ -31,9 +31,11 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
   return (
     <html lang="en" suppressHydrationWarning className={`${geist.variable} ${anonymousPro.variable}`}>
       <body>
-        <ClientProviders>
-          <AppShell>{children}</AppShell>
-        </ClientProviders>
+        {/* Chrome and the billing gate belong to the (app) route group; the
+            (public) group renders its own bare <main>. The root layout stays
+            free of cookies()/DB access so /about, /contact, /privacy, and
+            /terms can still render statically. */}
+        <ClientProviders>{children}</ClientProviders>
         <Analytics />
       </body>
     </html>

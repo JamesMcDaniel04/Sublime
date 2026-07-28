@@ -7,6 +7,7 @@ import { checkMonthlyTokenBudget } from '@/lib/usage/budget'
 import { topupCreditsForMonth } from '@/lib/billing/topups'
 import { capabilitiesForPlan } from '@/lib/billing/capabilities'
 import { entitlementPlanFor, isGrandfatheredOrganization } from '@/lib/billing/entitlements'
+import { trialDaysRemaining } from '@/lib/billing/access'
 
 export const dynamic = 'force-dynamic'
 
@@ -35,6 +36,8 @@ export async function GET() {
     plan: billing.plan,
     grandfathered: isGrandfatheredOrganization(organization),
     hasSubscription: Boolean(organization.stripeSubscriptionId),
+    trialEndsAt: organization.trialEndsAt?.toISOString() ?? null,
+    trialDaysRemaining: trialDaysRemaining(organization.trialEndsAt),
     capabilities: capabilitiesForPlan(entitlementPlan),
     limits: {
       label: limits.label,

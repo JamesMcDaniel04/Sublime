@@ -426,7 +426,7 @@ export default function SettingsPage() {
             <p className="text-sm text-muted-foreground">Grandfathered test account — Enterprise access is permanently included and no payment is required.</p>
           ) : orgPlan === 'TRIAL' ? (
             <div className="space-y-2">
-              <p className="text-sm text-muted-foreground">Pick a plan to start using the platform. Billing begins at checkout, you can cancel anytime, and payments are handled securely by Stripe.</p>
+              <p className="text-sm text-muted-foreground">Pick a plan to start using the platform. Your card is required up front but isn&rsquo;t charged for 14 days — cancel before then and you pay nothing. Payments are handled securely by Stripe.</p>
               <div className="flex flex-wrap gap-2">
                 <Button onClick={() => { window.location.href = '/api/stripe/checkout?plan=individual' }}>Individual — {BILLING_PLAN_CATALOG.individual.priceWithCadence}</Button>
                 <Button onClick={() => { window.location.href = '/api/stripe/checkout?plan=team' }}>Team — {BILLING_PLAN_CATALOG.team.priceWithCadence}</Button>

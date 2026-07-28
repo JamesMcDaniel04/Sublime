@@ -1,6 +1,6 @@
 import { Plan } from '@prisma/client'
 import { getAuthWithUser } from '@/lib/supabase/auth-utils'
-import { billingStateFor } from './trial'
+import { billingStateFor, trialDaysRemaining } from './trial'
 import { apiLogger } from '@/lib/logger'
 
 export type BillingAccess =
@@ -47,10 +47,4 @@ export async function resolveBillingAccess(): Promise<BillingAccess> {
   }
 }
 
-/** Whole days left in the trial, or null when not trialing. Never negative. */
-export function trialDaysRemaining(trialEndsAt: Date | null | undefined, now = new Date()): number | null {
-  if (!trialEndsAt) return null
-  const ms = trialEndsAt.getTime() - now.getTime()
-  if (ms <= 0) return 0
-  return Math.ceil(ms / (24 * 60 * 60 * 1000))
-}
+export { trialDaysRemaining }

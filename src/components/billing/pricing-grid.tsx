@@ -9,7 +9,7 @@ export const PRICING_TIERS = [
     desc: 'For solo builders getting real work out of AI.',
     features: ['1 seat included', '10,000 credits / month', '5 agents · 5 flows', '1 core specialist area', 'Unlimited knowledge & connections'],
     href: '/api/stripe/checkout?plan=individual',
-    cta: 'Start with Individual',
+    cta: 'Start 14-day trial',
     featured: false,
   },
   {
@@ -19,7 +19,7 @@ export const PRICING_TIERS = [
     desc: 'For teams running shared agents and workflows.',
     features: ['10 seats included', '50,000 credits / month', '25 agents · 25 flows', 'Every core specialist area', 'Knowledge sync, sharing & history'],
     href: '/api/stripe/checkout?plan=team',
-    cta: 'Start with Team',
+    cta: 'Start 14-day trial',
     featured: true,
   },
   {
@@ -29,7 +29,7 @@ export const PRICING_TIERS = [
     desc: 'For companies scaling AI across departments.',
     features: ['20 seats included', '200,000 credits / month', 'Unlimited agents & flows', 'Unlimited knowledge & connections', 'Priority support & security scopes'],
     href: '/api/stripe/checkout?plan=business',
-    cta: 'Start with Business',
+    cta: 'Start 14-day trial',
     featured: false,
   },
   {
