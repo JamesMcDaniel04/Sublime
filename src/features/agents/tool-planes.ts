@@ -310,7 +310,7 @@ export async function loadNativePlaneGroups(
           group(
             goalsConn,
             'sublime://goals',
-            new GoalsToolClient(goalIds, prismaGoalsPort(organizationId)),
+            new GoalsToolClient(goalIds, prismaGoalsPort(organizationId, options.resource)),
             goalsTools(),
           ),
         )

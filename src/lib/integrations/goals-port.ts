@@ -42,7 +42,35 @@ export async function resolveLinkedGoalIds(
   return [...new Set(rows.map((row) => row.goalId))]
 }
 
-export function prismaGoalsPort(organizationId: string): GoalsDataPort {
+export type OrgMember = { id: string; email: string | null; name: string | null }
+
+/**
+ * Resolve an agent's free-text assignee hint to an org member. Exported and
+ * pure so the matching rules are testable without a database.
+ *
+ * Returns null rather than throwing or guessing. An agent that read a name off
+ * a CRM record must never fail its run because that person is not a Sublime
+ * user, and an ambiguous match is worse than no match: the unassigned pool is
+ * visible and claimable, whereas a mis-assignment is silent.
+ */
+export function resolveAssignee(
+  hint: string | null | undefined,
+  members: OrgMember[],
+): string | null {
+  const needle = (hint ?? '').trim().toLowerCase()
+  if (!needle) return null
+
+  const byEmail = members.filter((member) => (member.email ?? '').toLowerCase() === needle)
+  if (byEmail.length === 1) return byEmail[0].id
+
+  const byName = members.filter((member) => (member.name ?? '').toLowerCase() === needle)
+  return byName.length === 1 ? byName[0].id : null
+}
+
+export function prismaGoalsPort(
+  organizationId: string,
+  resource?: GoalResource,
+): GoalsDataPort {
   const primaryMetric = async (goalId: string) =>
     prisma.goalMetric.findFirst({
       where: { organizationId, goalId },
@@ -110,6 +138,54 @@ export function prismaGoalsPort(organizationId: string): GoalsDataPort {
           origin: AGENT_DATAPOINT_ORIGIN,
         },
         update: { value, capturedAt, origin: AGENT_DATAPOINT_ORIGIN },
+      })
+    },
+
+    async writeWork(goalId: string, input) {
+      // Resolve the hint against real members; unresolvable means Unassigned,
+      // never an error — see resolveAssignee.
+      const members = await prisma.user.findMany({
+        where: { organizationId },
+        select: { id: true, email: true, name: true },
+      })
+      const assigneeUserId = resolveAssignee(input.assigneeHint, members)
+
+      const created = await prisma.goalWork.create({
+        data: {
+          organizationId,
+          goalId,
+          // The plane loader always constructs this port with its resource;
+          // the fallback exists so a mis-wired caller records provenance it
+          // can still be filtered on rather than throwing mid-run.
+          resourceType: resource?.type ?? 'agent',
+          resourceId: resource?.id ?? 'unknown',
+          subject: input.subject,
+          subjectRef: input.subjectRef,
+          produced: input.produced,
+          body: input.body,
+          bodyFormat: input.bodyFormat,
+          assigneeUserId,
+        },
+        select: { id: true },
+      })
+      return { id: created.id, assigned: assigneeUserId !== null }
+    },
+
+    async listWork(goalId: string, limit: number, disposition?: string) {
+      return prisma.goalWork.findMany({
+        where: { organizationId, goalId, ...(disposition ? { disposition } : {}) },
+        orderBy: { createdAt: 'desc' },
+        take: limit,
+        select: {
+          id: true,
+          subject: true,
+          subjectRef: true,
+          produced: true,
+          disposition: true,
+          outcome: true,
+          assigneeUserId: true,
+          createdAt: true,
+        },
       })
     },
   }

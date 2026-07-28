@@ -6,6 +6,8 @@ import {
   goalsTools,
   type AgentGoalView,
   type GoalsDataPort,
+  type GoalWorkItem,
+  type WriteWorkInput,
 } from '@/lib/integrations/goals'
 
 const NOW = new Date('2026-07-27T12:00:00Z')
@@ -29,13 +31,21 @@ function goalView(overrides: Partial<AgentGoalView> = {}): AgentGoalView {
   }
 }
 
+type WorkWrite = { goalId: string; input: WriteWorkInput }
+
 function fakePort(
   goals: Record<string, AgentGoalView>,
   points: Record<string, { value: number; capturedAt: Date }[]> = {},
-): GoalsDataPort & { writes: { goalId: string; value: number; capturedAt: Date }[] } {
+  work: Record<string, GoalWorkItem[]> = {},
+): GoalsDataPort & {
+  writes: { goalId: string; value: number; capturedAt: Date }[]
+  workWrites: WorkWrite[]
+} {
   const writes: { goalId: string; value: number; capturedAt: Date }[] = []
+  const workWrites: WorkWrite[] = []
   return {
     writes,
+    workWrites,
     async getGoal(goalId) {
       return goals[goalId] ?? null
     },
@@ -45,12 +55,24 @@ function fakePort(
     async writeDatapoint(goalId, value, capturedAt) {
       writes.push({ goalId, value, capturedAt })
     },
+    async writeWork(goalId, input) {
+      workWrites.push({ goalId, input })
+      return { id: `work-${workWrites.length}`, assigned: input.assigneeHint !== null }
+    },
+    async listWork(goalId, limit, disposition) {
+      const rows = work[goalId] ?? []
+      return rows
+        .filter((row) => (disposition ? row.disposition === disposition : true))
+        .slice(0, limit)
+    },
   }
 }
 
-test('goalsTools exposes exactly the four documented tools, one of them a write', () => {
+test('goalsTools exposes exactly the six documented tools', () => {
   const names = goalsTools().map((tool) => tool.name).sort()
-  assert.deepEqual(names, ['get_goal', 'get_pace', 'list_datapoints', 'log_datapoint'])
+  assert.deepEqual(names, [
+    'get_goal', 'get_pace', 'list_datapoints', 'list_work', 'log_datapoint', 'log_work',
+  ])
   for (const tool of goalsTools()) {
     assert.ok(tool.description.length > 20, `${tool.name} needs a usable description`)
     assert.equal((tool.inputSchema as { type: string }).type, 'object')
@@ -183,4 +205,107 @@ test('an unlinked goal cannot be written to even when its source is writable', a
     /not linked/,
   )
   assert.deepEqual(port.writes, [])
+})
+
+test('log_work writes one row per subject and reports whether it found an assignee', async () => {
+  const port = fakePort({ 'goal-a': goalView() })
+  const client = new GoalsToolClient(['goal-a'], port, () => NOW)
+
+  const result = await client.executeTool('', 'log_work', {
+    subject: 'Acme Corp — deal 412',
+    subjectRef: 'deal-412',
+    produced: 're-entry email',
+    body: 'Following up on the pricing question…',
+    assigneeHint: 'dana@acme.com',
+  })
+
+  assert.equal(port.workWrites.length, 1, 'exactly one row per call')
+  assert.equal(port.workWrites[0].input.subject, 'Acme Corp — deal 412')
+  assert.equal(port.workWrites[0].input.subjectRef, 'deal-412')
+  assert.equal(port.workWrites[0].input.bodyFormat, 'markdown', 'markdown is the default')
+  assert.deepEqual(result, {
+    ok: true,
+    id: 'work-1',
+    goalId: 'goal-a',
+    subject: 'Acme Corp — deal 412',
+    assigned: true,
+  })
+})
+
+test('log_work is permitted on a goal owned by a system of record', async () => {
+  // Unlike log_datapoint, work has no system of record — this agent IS the
+  // author — so AGENT_WRITABLE_SOURCES must not gate it.
+  const port = fakePort({ 'goal-a': goalView({ primarySource: 'stripe' }) })
+  const client = new GoalsToolClient(['goal-a'], port, () => NOW)
+  const result = (await client.executeTool('', 'log_work', {
+    subject: 'Acme',
+    produced: 're-entry email',
+    body: 'x',
+  })) as { ok: boolean }
+  assert.equal(result.ok, true)
+  assert.equal(port.workWrites.length, 1)
+})
+
+test('log_work requires a subject and something produced', async () => {
+  const client = new GoalsToolClient(['goal-a'], fakePort({ 'goal-a': goalView() }), () => NOW)
+  await assert.rejects(
+    () => client.executeTool('', 'log_work', { produced: 'email', body: 'x' }),
+    /subject/i,
+  )
+  await assert.rejects(
+    () => client.executeTool('', 'log_work', { subject: 'Acme', body: 'x' }),
+    /produced/i,
+  )
+})
+
+test('log_work refuses a goal this agent is not linked to', async () => {
+  const client = new GoalsToolClient(['goal-a'], fakePort({ 'goal-a': goalView() }), () => NOW)
+  await assert.rejects(
+    () =>
+      client.executeTool('', 'log_work', {
+        goalId: 'goal-elsewhere',
+        subject: 'A',
+        produced: 'b',
+        body: 'c',
+      }),
+    /not linked/i,
+  )
+})
+
+test('list_work returns queued items with their disposition and outcome', async () => {
+  const port = fakePort({ 'goal-a': goalView() }, {}, {
+    'goal-a': [
+      {
+        id: 'w1',
+        subject: 'Acme',
+        subjectRef: 'deal-412',
+        produced: 're-entry email',
+        disposition: 'skipped',
+        outcome: 'unknown',
+        assigneeUserId: null,
+        createdAt: new Date('2026-07-20T00:00:00Z'),
+      },
+    ],
+  })
+  const client = new GoalsToolClient(['goal-a'], port, () => NOW)
+  const result = (await client.executeTool('', 'list_work', {})) as {
+    items: Array<{ disposition: string; createdAt: string; assigned: boolean }>
+  }
+  assert.equal(result.items[0].disposition, 'skipped')
+  assert.equal(result.items[0].createdAt, '2026-07-20T00:00:00.000Z')
+  assert.equal(result.items[0].assigned, false)
+})
+
+test('list_work filters by disposition so an agent can see only what was skipped', async () => {
+  const port = fakePort({ 'goal-a': goalView() }, {}, {
+    'goal-a': [
+      { id: 'w1', subject: 'A', subjectRef: null, produced: 'e', disposition: 'skipped', outcome: 'unknown', assigneeUserId: null, createdAt: NOW },
+      { id: 'w2', subject: 'B', subjectRef: null, produced: 'e', disposition: 'used', outcome: 'worked', assigneeUserId: null, createdAt: NOW },
+    ],
+  })
+  const client = new GoalsToolClient(['goal-a'], port, () => NOW)
+  const result = (await client.executeTool('', 'list_work', { disposition: 'skipped' })) as {
+    items: Array<{ id: string }>
+  }
+  assert.deepEqual(result.items.map((item) => item.id), ['w1'])
 })

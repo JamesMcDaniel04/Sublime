@@ -21,6 +21,10 @@ import {
 
 /** Bounded history: a multi-year goal must not flood the context window. */
 export const DATAPOINT_LIMIT = 90
+/** Bounded like DATAPOINT_LIMIT so a busy goal cannot flood an agent's
+ *  context. An agent deciding what to produce next needs the recent shape of
+ *  the queue, not its whole history. */
+export const WORK_LIMIT = 50
 
 const HOUR_MS = 60 * 60 * 1000
 const DAY_MS = 24 * HOUR_MS
@@ -42,10 +46,34 @@ export type AgentGoalView = {
   refreshIntervalHours: number
 }
 
+export type WriteWorkInput = {
+  subject: string
+  subjectRef: string | null
+  produced: string
+  body: string | null
+  bodyFormat: 'markdown' | 'html'
+  /** A name or email the agent read while producing. Resolved server-side; an
+   *  unresolvable hint yields no assignee rather than an error. */
+  assigneeHint: string | null
+}
+
+export type GoalWorkItem = {
+  id: string
+  subject: string
+  subjectRef: string | null
+  produced: string
+  disposition: string
+  outcome: string
+  assigneeUserId: string | null
+  createdAt: Date
+}
+
 export type GoalsDataPort = {
   getGoal(goalId: string): Promise<AgentGoalView | null>
   listDatapoints(goalId: string, limit: number): Promise<{ value: number; capturedAt: Date }[]>
   writeDatapoint(goalId: string, value: number, capturedAt: Date): Promise<void>
+  writeWork(goalId: string, input: WriteWorkInput): Promise<{ id: string; assigned: boolean }>
+  listWork(goalId: string, limit: number, disposition?: string): Promise<GoalWorkItem[]>
 }
 
 export function goalsTools(): ToolDefinition[] {
@@ -88,6 +116,64 @@ export function goalsTools(): ToolDefinition[] {
           },
         },
         required: ['value'],
+      },
+    },
+    {
+      name: 'log_work',
+      description:
+        'Record ONE thing you produced toward this goal. Call it once per subject — one call per deal, lead or account, never one call summarizing a batch. The per-subject record is what lets the team see which work landed and what to stop producing.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          goalId,
+          subject: {
+            type: 'string',
+            description:
+              'Who or what this work is about, as a person would say it: "Acme Corp — deal 412".',
+          },
+          subjectRef: {
+            type: 'string',
+            description:
+              'A stable id for the subject (the CRM record id). Supplying it stops you re-drafting the same subject while an earlier draft is still waiting on a human.',
+          },
+          produced: {
+            type: 'string',
+            description:
+              'What you made, as a short noun phrase: "re-entry email", "buying-committee map".',
+          },
+          body: {
+            type: 'string',
+            description: 'The artifact itself, ready for a person to use.',
+          },
+          bodyFormat: {
+            type: 'string',
+            enum: ['markdown', 'html'],
+            description: 'Defaults to markdown.',
+          },
+          assigneeHint: {
+            type: 'string',
+            description:
+              'Name or email of the person who should act on it — usually the record owner. Unrecognized names are fine; the item goes to the unassigned pool rather than failing.',
+          },
+        },
+        required: ['subject', 'produced', 'body'],
+      },
+    },
+    {
+      name: 'list_work',
+      description:
+        "What you have already queued for this goal, newest first, with each item's disposition and outcome. Read it before producing: it stops you re-drafting something a human has not dealt with yet, and it shows what people skipped so you can stop producing that kind of thing.",
+      inputSchema: {
+        type: 'object',
+        properties: {
+          goalId,
+          disposition: {
+            type: 'string',
+            enum: ['pending', 'used', 'edited', 'skipped'],
+            description: 'Optional filter. Omit to see everything recent.',
+          },
+        },
+        required: [],
       },
     },
   ]
@@ -212,6 +298,58 @@ export class GoalsToolClient {
         value,
         capturedAt: capturedAt.toISOString(),
         labeledAs: 'AI-read',
+      }
+    }
+
+    if (name === 'log_work') {
+      const goal = await this.loadGoal(args.goalId)
+      // Deliberately NO canWriteDatapoint check. That guard exists because a
+      // system of record owns the NUMBER and a model's guess must never
+      // overwrite it. Work has no system of record — this agent is its author
+      // — so the allowlist is the wrong shape here and must not be applied.
+      const subject = String(args.subject ?? '').trim()
+      if (!subject) {
+        throw new Error('subject is required — name who or what this work is about')
+      }
+      const produced = String(args.produced ?? '').trim()
+      if (!produced) throw new Error('produced is required — name what you made')
+
+      const written = await this.port.writeWork(goal.id, {
+        subject,
+        subjectRef: args.subjectRef ? String(args.subjectRef) : null,
+        produced,
+        body: args.body === undefined || args.body === null ? null : String(args.body),
+        bodyFormat: args.bodyFormat === 'html' ? 'html' : 'markdown',
+        assigneeHint: args.assigneeHint ? String(args.assigneeHint) : null,
+      })
+      return {
+        ok: true,
+        id: written.id,
+        goalId: goal.id,
+        subject,
+        assigned: written.assigned,
+      }
+    }
+
+    if (name === 'list_work') {
+      const goal = await this.loadGoal(args.goalId)
+      const items = await this.port.listWork(
+        goal.id,
+        WORK_LIMIT,
+        args.disposition ? String(args.disposition) : undefined,
+      )
+      return {
+        goalId: goal.id,
+        items: items.map((item) => ({
+          id: item.id,
+          subject: item.subject,
+          subjectRef: item.subjectRef,
+          produced: item.produced,
+          disposition: item.disposition,
+          outcome: item.outcome,
+          assigned: item.assigneeUserId !== null,
+          createdAt: item.createdAt.toISOString(),
+        })),
       }
     }
 
