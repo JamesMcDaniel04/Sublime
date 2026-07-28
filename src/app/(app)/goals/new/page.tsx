@@ -46,13 +46,9 @@ type Source = {
 }
 
 const KINDS: Array<{ value: GoalKind; label: string }> = [
-  { value: 'arr', label: 'ARR' },
-  { value: 'mrr', label: 'MRR' },
-  { value: 'revenue', label: 'Revenue' },
+  { value: 'arr', label: 'Recurring revenue' },
   { value: 'quota', label: 'Sales quota' },
-  { value: 'savings', label: 'Savings' },
-  { value: 'lead_gen', label: 'Lead generation' },
-  { value: 'custom_kpi', label: 'Custom KPI' },
+  { value: 'kpi', label: 'KPI' },
 ]
 
 const tomorrow = () => {
@@ -62,8 +58,9 @@ const tomorrow = () => {
 }
 
 const defaultRecurrence = (kind: GoalKind): GoalRecurrence => {
+  // Only quota implies a cadence now. The former mrr/lead_gen monthly default
+  // died with those kinds (spec 2026-07-28) — the user picks it.
   if (kind === 'quota') return 'quarterly'
-  if (kind === 'mrr' || kind === 'lead_gen') return 'monthly'
   return null
 }
 

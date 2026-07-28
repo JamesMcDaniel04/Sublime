@@ -3,6 +3,9 @@
  * `Agent`/`Activity` shapes per component (which drift out of sync). Components
  * that need a subset should `Pick<Agent, …>` from here so there's one source.
  */
+import type { GoalKind } from '@/lib/goals/kind-migration'
+
+export type { GoalKind }
 
 export type Agent = {
   id: string
@@ -36,31 +39,24 @@ export type Activity = {
 }
 
 /** Human labels for goal kinds — raw enum text ("CUSTOM_KPI") never renders. */
-export const GOAL_KIND_LABELS: Record<GoalSummary['kind'], string> = {
+export const GOAL_KIND_LABELS: Record<GoalKind, string> = {
   arr: 'ARR',
-  mrr: 'MRR',
-  revenue: 'Revenue',
   quota: 'Quota',
-  savings: 'Savings',
-  lead_gen: 'Lead Gen',
-  custom_kpi: 'Custom KPI',
+  kpi: 'KPI',
 }
 
-/** The kind implies the unit; only custom_kpi lets the user choose (null). */
-export const GOAL_KIND_UNITS: Record<GoalSummary['kind'], GoalSummary['unit'] | null> = {
+/** The kind implies the unit; only `kpi` lets the user choose (null), since it
+ *  spans former savings (usd), lead_gen (count) and custom KPIs. */
+export const GOAL_KIND_UNITS: Record<GoalKind, GoalSummary['unit'] | null> = {
   arr: 'usd',
-  mrr: 'usd',
-  revenue: 'usd',
   quota: 'usd',
-  savings: 'usd',
-  lead_gen: 'count',
-  custom_kpi: null,
+  kpi: null,
 }
 
 export interface GoalSummary {
   id: string
   name: string
-  kind: 'arr' | 'mrr' | 'revenue' | 'quota' | 'savings' | 'lead_gen' | 'custom_kpi'
+  kind: GoalKind
   direction: 'increase' | 'decrease'
   unit: 'usd' | 'count' | 'percent'
   startValue: number
