@@ -6,6 +6,7 @@ import { surfaceGoalBenchmark } from '@/lib/goals/aggregate-benchmarks'
 import { recordUserEvent } from '@/lib/behavior/record-event'
 import { ApiError, withAuthenticatedApi } from '@/lib/server/api-handler'
 import { assertGoalCapacity } from '@/lib/billing/enforce'
+import { goalReadWhere } from '@/lib/server/goal-scope'
 import { parseDashboardLayout } from '@/lib/goals/dashboard'
 import { validateComposition, type CompositionState } from '@/lib/goals/composition'
 import type { GoalKind } from '@/lib/goals/kind-migration'
@@ -31,10 +32,13 @@ const patchSchema = z
   })
 
 const idFrom = (pathname: string) => decodeURIComponent(pathname.split('/').at(-1) ?? '')
+// The visibility rule itself lives in goal-scope.ts — the goals list route had
+// already reimplemented this inline, and restricted goals add a clause to it
+// that a rule living in two files would only ever get in one.
 const visibleWhere = (organizationId: string, userId: string, id: string) => ({
   id,
   organizationId,
-  OR: [{ ownerUserId: null }, { ownerUserId: userId }],
+  ...goalReadWhere(userId),
 })
 
 export const GET = withAuthenticatedApi(async (request, auth) => {
