@@ -74,3 +74,15 @@ test('a failed source probe still renders the gallery', async () => {
     assert.equal(screen.getAllByText('View goal').length, PAGE_SIZE)
   })
 })
+
+test('the RevOps tab shows only the plays a process owner rolls out', () => {
+  render(<GoalTemplateGallery />)
+  fireEvent.click(screen.getByRole('tab', { name: 'RevOps' }))
+  // 8 templates, one page, so every one renders.
+  assert.equal(screen.getAllByText('View goal').length, 8)
+  assert.equal(
+    screen.queryByText('Hit my quarterly quota'),
+    null,
+    'a personal target is not a play',
+  )
+})

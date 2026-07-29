@@ -4,6 +4,7 @@ import {
   GOAL_TEMPLATES,
   GOAL_TEMPLATE_CATEGORIES,
   VISIBLE_GOAL_TEMPLATES,
+  REVOPS_TEMPLATES,
   goalTemplateByKey,
 } from '../goal-templates'
 import { AGENT_WRITABLE_SOURCES } from '@/lib/goals/agent-tool-policy'
@@ -212,4 +213,62 @@ test('every department carries action templates in the agreed mix', () => {
     assert.equal(actual, count, `${department}: expected ${count} action templates, got ${actual}`)
   }
   assert.equal(VISIBLE_GOAL_TEMPLATES.filter((entry) => entry.motion === 'action').length, 20)
+})
+
+test('the RevOps lens is the standards a process owner rolls out', () => {
+  assert.equal(REVOPS_TEMPLATES.length, 8)
+  for (const entry of REVOPS_TEMPLATES) {
+    assert.equal(entry.scope, 'org', `${entry.key}: a RevOps buyer carries no personal number`)
+    assert.equal(entry.motion, 'action', `${entry.key}: a play is work, not a metric`)
+    assert.ok(
+      ['sales', 'marketing', 'csm'].includes(entry.department),
+      `${entry.key}: RevOps spans the revenue-owning departments only`,
+    )
+  }
+})
+
+test('the lens never surfaces a personal or outcome template', () => {
+  const keys = new Set(REVOPS_TEMPLATES.map((entry) => entry.key))
+  // The buyer owns the process; these are for the people doing the work.
+  assert.equal(keys.has('sales-personal-revive-stalled-deals'), false)
+  assert.equal(keys.has('sales-personal-quota'), false)
+  assert.equal(keys.has('sales-org-quarterly-revenue'), false, 'an outcome is not a play')
+})
+
+test('every RevOps template is also in the visible catalogue', () => {
+  // The lens is a filter, never a second source of templates.
+  for (const entry of REVOPS_TEMPLATES) {
+    assert.ok(VISIBLE_GOAL_TEMPLATES.includes(entry), `${entry.key}: must be the same object`)
+  }
+})
+
+test("RevOps plays are phrased as standards, not as a rep's to-do", () => {
+  // "Multithread every open deal" is something you do. "Every open deal is
+  // multithreaded" is something you can be FAILING at — which is what a
+  // process owner buys a tool to find out.
+  const IMPERATIVE_OPENERS =
+    /^(work|multithread|qualify|close|revive|follow|ship|build|review|capture|explain|plan)\b/i
+  for (const entry of REVOPS_TEMPLATES) {
+    assert.equal(
+      IMPERATIVE_OPENERS.test(entry.name),
+      false,
+      `${entry.key}: "${entry.name}" reads as an instruction to a person`,
+    )
+  }
+})
+
+test('renaming never changes a key', () => {
+  // Bookmarked /goals/new?template=<key> links outlive any amount of copy.
+  for (const key of [
+    'sales-org-multithread-open-deals',
+    'sales-org-qualify-inbound-same-day',
+    'sales-org-close-plan-on-commit',
+    'sales-org-work-the-whitespace',
+    'marketing-org-work-every-event-lead',
+    'marketing-org-brief-every-launch',
+    'csm-org-plan-every-new-account',
+    'csm-org-close-every-adoption-gap',
+  ]) {
+    assert.ok(goalTemplateByKey(key), `${key} must still resolve`)
+  }
 })

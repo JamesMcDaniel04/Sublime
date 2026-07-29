@@ -165,28 +165,28 @@ export const GOAL_TEMPLATES: GoalTemplate[] = [
   }),
   // The four org action templates trace the seller's sequence:
   // identify → qualify → engage → close.
-  template('sales-org-work-the-whitespace', 'sales', 'org', 'Work the whitespace list', 'Unworked accounts get ranked and turned into a next-best play every week.', 'kpi', {
+  template('sales-org-work-the-whitespace', 'sales', 'org', 'Whitespace gets worked every week', 'The standard: unworked accounts are ranked and opened, rather than waiting to be noticed.', 'kpi', {
     motion: 'action', category: 'Pipeline', unit: 'count', recurrence: 'monthly', layout: COUNT_LAYOUT,
     produces: 'a ranked whitespace list with a next-best play per account',
     tracks: 'Whitespace accounts the team opened a first touch on this month.',
     sources: ['slack_assisted', 'manual'],
     agents: ['sales-territory-white-space', 'sales-account-intent-brief'],
   }),
-  template('sales-org-qualify-inbound-same-day', 'sales', 'org', 'Qualify every inbound within a day', 'Every inbound lead gets scored, enriched, and routed before it goes cold.', 'kpi', {
+  template('sales-org-qualify-inbound-same-day', 'sales', 'org', 'Inbound is qualified within a day', 'The standard: every inbound lead is scored, enriched and routed before it goes cold.', 'kpi', {
     motion: 'action', category: 'Pipeline', unit: 'count', recurrence: 'monthly', layout: COUNT_LAYOUT,
     produces: 'a scored qualification brief and a routed owner per lead',
     tracks: 'Inbound leads qualified and routed within 24 hours this month.',
     sources: ['slack_assisted', 'manual'],
     agents: ['sales-new-lead-to-sf-opportunity', 'sales-account-intent-brief'],
   }),
-  template('sales-org-multithread-open-deals', 'sales', 'org', 'Multithread every open deal', 'Every open deal gets its buying committee mapped and the missing roles worked.', 'kpi', {
+  template('sales-org-multithread-open-deals', 'sales', 'org', 'Every open deal is multithreaded', 'The standard: no deal advances on a single contact. Coverage is three or more engaged people.', 'kpi', {
     motion: 'action', category: 'Pipeline', unit: 'count', recurrence: 'monthly', layout: COUNT_LAYOUT,
     produces: 'a buying-committee map and a named intro plan per deal',
     tracks: 'Open deals brought to three or more engaged contacts this month.',
     sources: ['slack_assisted', 'manual'],
     agents: ['sales-multithreading-map', 'sales-account-intent-brief'],
   }),
-  template('sales-org-close-plan-on-commit', 'sales', 'org', 'A close plan on every commit deal', 'Nothing sits in commit without an agreed path to signature.', 'kpi', {
+  template('sales-org-close-plan-on-commit', 'sales', 'org', 'Every commit deal has a close plan', 'The standard: nothing sits in commit without an agreed, dated path to signature.', 'kpi', {
     motion: 'action', category: 'Revenue', unit: 'count', recurrence: 'monthly', layout: COUNT_LAYOUT,
     produces: 'a mutual action plan with owners and dates, ready to send',
     tracks: 'Commit-stage deals with a customer-agreed action plan this month.',
@@ -232,7 +232,7 @@ export const GOAL_TEMPLATES: GoalTemplate[] = [
     sources: ['google_sheets', 'url', 'hubspot'],
     agents: [],
   }),
-  template('marketing-org-work-every-event-lead', 'marketing', 'org', 'Work every event lead within a week', 'Event leads get segmented, enriched, and handed to sales before they cool.', 'kpi', {
+  template('marketing-org-work-every-event-lead', 'marketing', 'org', 'Event leads are worked within a week', 'The standard: event leads are segmented and handed to sales before they cool.', 'kpi', {
     motion: 'action', category: 'Demand', unit: 'count', recurrence: 'monthly', layout: COUNT_LAYOUT,
     produces: 'a segmented follow-up and a sales handoff per lead',
     tracks: 'Event leads followed up within a week this month.',
@@ -248,7 +248,7 @@ export const GOAL_TEMPLATES: GoalTemplate[] = [
     sources: ['google_analytics', 'google_sheets', 'url', 'postgres'],
     agents: ['marketing-content-repurpose-engine', 'marketing-editorial-operations'],
   }),
-  template('marketing-org-brief-every-launch', 'marketing', 'org', 'A readiness brief before every launch', 'No launch ships without tasks, creative, and enablement reconciled.', 'kpi', {
+  template('marketing-org-brief-every-launch', 'marketing', 'org', 'Every launch has a readiness brief', 'The standard: no launch ships without tasks, creative and enablement reconciled.', 'kpi', {
     motion: 'action', category: 'Delivery', unit: 'count', recurrence: 'monthly', layout: COUNT_LAYOUT,
     produces: 'a launch readiness scorecard with named blockers and owners',
     tracks: 'Launches with a completed readiness brief this month.',
@@ -416,14 +416,14 @@ export const GOAL_TEMPLATES: GoalTemplate[] = [
     sources: ['stripe', 'hubspot', 'salesforce', 'postgres'],
     agents: ['csm-churn-risk-early-warning', 'csm-health-score-explainer'],
   }),
-  template('csm-org-plan-every-new-account', 'csm', 'org', 'A plan for every new account', 'Onboarding starts from a plan with owners and dates, not an intro call.', 'kpi', {
+  template('csm-org-plan-every-new-account', 'csm', 'org', 'Every new account starts with a plan', 'The standard: onboarding begins from owners and dates, not an intro call.', 'kpi', {
     motion: 'action', category: 'Retention', unit: 'count', recurrence: 'monthly', layout: COUNT_LAYOUT,
     produces: 'an onboarding plan with owners, dates, and risk flags',
     tracks: 'New accounts that started with a completed onboarding plan this month.',
     sources: ['slack_assisted', 'manual'],
     agents: ['csm-onboarding-task-orchestrator', 'csm-onboarding-risk-radar'],
   }),
-  template('csm-org-close-every-adoption-gap', 'csm', 'org', 'Close every adoption gap', 'Unused capability becomes a named play, not a health-score number.', 'kpi', {
+  template('csm-org-close-every-adoption-gap', 'csm', 'org', 'Adoption gaps get closed', 'The standard: unused capability becomes a named play, not a health-score number.', 'kpi', {
     motion: 'action', category: 'Retention', unit: 'count', recurrence: 'monthly', layout: COUNT_LAYOUT,
     produces: 'a named adoption gap and the play to close it',
     tracks: 'Adoption gaps worked to a close this month.',
@@ -454,4 +454,24 @@ export function goalTemplateByKey(key: string): GoalTemplate | null {
  *  see GoalTemplate.retired — so bookmarked links never 404. */
 export const VISIBLE_GOAL_TEMPLATES: GoalTemplate[] = GOAL_TEMPLATES.filter(
   (entry) => !entry.retired,
+)
+
+/** Departments that own revenue. RevOps spans all three, which is why it is a
+ *  lens rather than a department of its own. */
+const REVENUE_DEPARTMENTS = ['sales', 'marketing', 'csm'] as const
+
+/**
+ * The catalogue a RevOps buyer should see: the standards a process owner rolls
+ * out across the revenue-owning departments.
+ *
+ * Org scope because a RevOps person carries no quota and works no deals;
+ * action motion because a play is work the team performs, not a number someone
+ * watches. A filter over VISIBLE_GOAL_TEMPLATES, never a second source of
+ * templates — the same objects appear in both.
+ */
+export const REVOPS_TEMPLATES: GoalTemplate[] = VISIBLE_GOAL_TEMPLATES.filter(
+  (entry) =>
+    (REVENUE_DEPARTMENTS as readonly string[]).includes(entry.department) &&
+    entry.scope === 'org' &&
+    entry.motion === 'action',
 )

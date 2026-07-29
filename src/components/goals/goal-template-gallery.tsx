@@ -7,7 +7,7 @@ import { EmptyState } from '@/components/ui/empty-state'
 import { Pagination, paginate } from '@/components/ui/pagination'
 import { GoalTemplateCard } from '@/components/goals/goal-template-card'
 import { GoalTemplateDetail } from '@/components/goals/goal-template-detail'
-import { VISIBLE_GOAL_TEMPLATES, type GoalTemplate } from '@/lib/goals/goal-templates'
+import { VISIBLE_GOAL_TEMPLATES, REVOPS_TEMPLATES, type GoalTemplate } from '@/lib/goals/goal-templates'
 import { templateIsReady } from '@/lib/goals/template-readiness'
 import { connectedSourceSet, type MetricSourceOption } from '@/lib/metrics/source-options'
 import { connectedSlugSet } from '@/lib/templates/relevance'
@@ -16,6 +16,9 @@ import { PRODUCT_DEPARTMENTS } from '@/lib/templates/departments'
 const PAGE_SIZE = 9
 
 const DEPARTMENT_LABELS: Record<string, string> = {
+  // RevOps is a lens across the revenue-owning departments, not a department —
+  // its buyer owns the process while everyone else owns a number.
+  revops: 'RevOps',
   sales: 'Sales',
   marketing: 'Marketing',
   engineering: 'Engineering',
@@ -98,7 +101,9 @@ export function GoalTemplateGallery() {
     const inDepartment =
       department === 'all'
         ? VISIBLE_GOAL_TEMPLATES
-        : VISIBLE_GOAL_TEMPLATES.filter((entry) => entry.department === department)
+        : department === 'revops'
+          ? REVOPS_TEMPLATES
+          : VISIBLE_GOAL_TEMPLATES.filter((entry) => entry.department === department)
     return byReadiness(inDepartment, connected, connectedIntegrations)
   }, [department, connected, connectedIntegrations])
   const { pageItems, pageCount, page: currentPage } = paginate(visible, page, PAGE_SIZE)
@@ -118,7 +123,7 @@ export function GoalTemplateGallery() {
         </div>
 
         <div className="flex flex-wrap gap-1.5" role="tablist" aria-label="Filter templates by department">
-          {['all', ...PRODUCT_DEPARTMENTS].map((key) => (
+          {['all', 'revops', ...PRODUCT_DEPARTMENTS].map((key) => (
             <button
               key={key}
               type="button"
