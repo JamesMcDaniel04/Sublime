@@ -52,23 +52,50 @@ designed, indistinguishable from broken.
 hands it to the jam hook, which resnapshots at once rather than waiting for the
 next poll.
 
-### Peers are told on the channel they are still on
+### Peers are told on the channel they are still on — and the notice must survive
 
-The inviting client is by definition subscribed to the *old* topic, and so is
-every other peer. Before rotating away it broadcasts one `access-rotated` event
-there:
+**Correction after reading the code.** This mechanism already exists end to
+end: `jam-button` POSTs, calls `onAccessChanged`, which is
+`broadcastAccessChange` (`use-flow-jam.ts:735`); that sends an `access-changed`
+broadcast on the current channel, and every peer handles it at line 550 by
+resnapshotting immediately. Peers do **not** wait for the 30s poll.
 
+The defect is narrower and worse: the inviter destroys the channel out from
+under its own notification.
+
+```js
+const broadcastAccessChange = () => {
+  const channel = channelRef.current
+  if (!channel) return
+  void channel.send({ ... }).then(markDurable)  // in flight, NOT awaited
+  refreshAccessRef.current()                    // → loadSnapshot → topic changed
+}                                               //   → reconnect → old channel torn down
 ```
-owner clicks Invite
-  → POST /jam                        (revision 4 → 5)
-  → broadcast access-rotated on the OLD topic
-  → every peer resnapshots → new topic → reconnects
-  → owner reconnects too
+
+`channel.send` needs a WebSocket round-trip and an ack. `refreshAccessRef`
+fires synchronously on the next line, `loadSnapshot` sees the rotated topic and
+calls `reconnectRef.current()`, which tears down the very channel the broadcast
+is travelling on. When the reconnect wins that race the notice is dropped and
+peers fall back to the full 30s poll.
+
+That explains the intermittency exactly: it depends on which of a fetch and a
+WebSocket ack completes first, which varies by network, and it is likeliest to
+fail on a fast connection where the snapshot returns quickly.
+
+**The fix:** await the send before refreshing locally.
+
+```js
+const broadcastAccessChange = async () => {
+  const channel = channelRef.current
+  if (!channel) { refreshAccessRef.current(); return }
+  markDurable(await channel.send({ type: 'broadcast', event: 'access-changed', payload: { clientId } }))
+  refreshAccessRef.current()
+}
 ```
 
-No server→Realtime publish path exists today — comments use a client-side jam
-broadcast — and this design needs none. If the inviter is not in the jam,
-nobody broadcasts and peers fall back to the 30s poll: degraded, not broken.
+No new mechanism, no server→Realtime publish path. If the inviter is not in the
+jam there is no channel, peers fall back to the 30s poll, and the early return
+still refreshes the inviter — degraded, not broken.
 
 ### The dead window stops being silent
 
