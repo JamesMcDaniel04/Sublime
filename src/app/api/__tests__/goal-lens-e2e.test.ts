@@ -204,4 +204,102 @@ if (TEST_DB) {
       }
     })
   })
+
+  describe('all-goals plan gate', () => {
+    const goalData = (organizationId: string, name: string) => ({
+      organizationId, name, kind: 'kpi', startValue: 0, targetValue: 10,
+      targetDate: new Date(Date.now() + 86_400_000 * 30), status: 'active',
+    })
+
+    test('Individual with two active goals is refused the all-goals scope', async () => {
+      const seeded = await testAuth.seedTestOrg(prisma, { role: 'ADMIN', plan: 'STARTER' })
+      testAuth.installTestAuth(seeded.auth)
+      try {
+        await prisma.goal.create({ data: goalData(seeded.organizationId, 'One') })
+        await prisma.goal.create({ data: goalData(seeded.organizationId, 'Two') })
+        const { resolveGoalScope } = await import('@/lib/server/goal-scope')
+        await assert.rejects(
+          () => resolveGoalScope(seeded.auth, 'all'),
+          (error: any) => error.code === 'PLAN_LIMIT',
+        )
+      } finally {
+        await seeded.cleanup()
+      }
+    })
+
+    test('Individual with one active goal is allowed it', async () => {
+      // Without this exception the gate locks an Individual workspace out of
+      // the page that creates its first goal. One goal has nothing to
+      // aggregate, so nothing is given away.
+      const seeded = await testAuth.seedTestOrg(prisma, { role: 'ADMIN', plan: 'STARTER' })
+      testAuth.installTestAuth(seeded.auth)
+      try {
+        await prisma.goal.create({ data: goalData(seeded.organizationId, 'Only') })
+        const { resolveGoalScope } = await import('@/lib/server/goal-scope')
+        assert.deepEqual(await resolveGoalScope(seeded.auth, 'all'), { kind: 'all' })
+      } finally {
+        await seeded.cleanup()
+      }
+    })
+
+    test('an empty Individual workspace is allowed it', async () => {
+      const seeded = await testAuth.seedTestOrg(prisma, { role: 'ADMIN', plan: 'STARTER' })
+      testAuth.installTestAuth(seeded.auth)
+      try {
+        const { resolveGoalScope } = await import('@/lib/server/goal-scope')
+        assert.deepEqual(await resolveGoalScope(seeded.auth, 'all'), { kind: 'all' })
+      } finally {
+        await seeded.cleanup()
+      }
+    })
+
+    test('Team plan is allowed it regardless of goal count', async () => {
+      const seeded = await testAuth.seedTestOrg(prisma, { role: 'ADMIN', plan: 'PROFESSIONAL' })
+      testAuth.installTestAuth(seeded.auth)
+      try {
+        await prisma.goal.create({ data: goalData(seeded.organizationId, 'One') })
+        await prisma.goal.create({ data: goalData(seeded.organizationId, 'Two') })
+        const { resolveGoalScope } = await import('@/lib/server/goal-scope')
+        assert.deepEqual(await resolveGoalScope(seeded.auth, 'all'), { kind: 'all' })
+      } finally {
+        await seeded.cleanup()
+      }
+    })
+
+    test('an unknown goal id is 404, never 403', async () => {
+      const seeded = await testAuth.seedTestOrg(prisma, { role: 'ADMIN' })
+      testAuth.installTestAuth(seeded.auth)
+      try {
+        const { resolveGoalScope } = await import('@/lib/server/goal-scope')
+        await assert.rejects(
+          () => resolveGoalScope(seeded.auth, 'goal_does_not_exist'),
+          (error: any) => error.status === 404,
+        )
+      } finally {
+        await seeded.cleanup()
+      }
+    })
+
+    test('another members personal goal is not a scope you can select', async () => {
+      // Not in the plan, but the resolver's goalReadWhere is the only thing
+      // stopping /g/<their-goal>/flows from working, so it deserves an assertion.
+      const seeded = await testAuth.seedTestOrg(prisma, { role: 'MEMBER' })
+      testAuth.installTestAuth(seeded.auth)
+      try {
+        const stranger = await prisma.user.create({
+          data: { supabaseId: crypto.randomUUID(), organizationId: seeded.organizationId, isActive: true },
+        })
+        const theirs = await prisma.goal.create({
+          data: { ...goalData(seeded.organizationId, 'Theirs'), ownerUserId: stranger.id },
+        })
+        const { resolveGoalScope } = await import('@/lib/server/goal-scope')
+        await assert.rejects(
+          () => resolveGoalScope(seeded.auth, theirs.id),
+          (error: any) => error.status === 404,
+        )
+      } finally {
+        await seeded.cleanup()
+      }
+    })
+  })
 }
