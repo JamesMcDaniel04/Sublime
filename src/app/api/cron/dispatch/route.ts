@@ -398,6 +398,16 @@ export async function GET(request: Request) {
       suggestionOrgsChecked = orgs.length
     }
 
+    // Daily k-anonymous template adoption counts. Runs an hour before the
+    // archetype and benchmark sweeps, both of which read adoption scores, so
+    // they consume fresh counts rather than yesterday's.
+    {
+      const adoption = await import('@/lib/templates/aggregate-adoption')
+      if (adoption.shouldRunAdoptionSweep(now)) {
+        void adoption.aggregateTemplateAdoption().catch(() => undefined)
+      }
+    }
+
     // Daily platform-archetype aggregation (intelligence phase 3): k-anonymous
     // cross-org automation shapes, gated on the tested pure window guard.
     // Fire-and-forget — a failed sweep logs and retries tomorrow, never

@@ -1624,3 +1624,19 @@ model GoalBenchmark {
 
   @@map("goal_benchmarks")
 }
+
+/// Global k-anonymous template adoption counts, keyed by template key
+/// ("seed:<seedKey>" | "db:<templateId>"). Rows are k-anonymous BY
+/// CONSTRUCTION: a key is upserted only when >= MIN_ADOPTION_ORGS distinct
+/// orgs have deployed it, and stored rows falling below the floor are deleted
+/// on the next sweep. Only counts are stored — never org ids, user ids, or
+/// deployed resource ids.
+model TemplateAdoption {
+  templateKey String   @id
+  deploys     Int
+  surviving   Int
+  orgCount    Int
+  updatedAt   DateTime @updatedAt @db.Timestamptz(6)
+
+  @@map("template_adoptions")
+}

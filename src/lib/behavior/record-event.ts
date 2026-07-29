@@ -15,11 +15,11 @@ export const USER_EVENT_KINDS = [
   'flow_created', 'flow_edited', 'flow_published', 'flow_run_manual',
   'copilot_prompt', 'assistant_prompt',
   'suggestion_accepted', 'suggestion_dismissed',
-  'template_used', 'connection_added',
+  'template_used', 'connection_added', 'connection_removed',
   'tool_call',
   'goal_created', 'goal_off_track', 'goal_achieved', 'goal_contribution_linked',
   'goal_datapoints_imported',
-  'goal_estimate_edited',
+  'goal_estimate_edited', 'goal_abandoned',
 ] as const
 
 export type UserEventKind = (typeof USER_EVENT_KINDS)[number]
@@ -47,8 +47,14 @@ export interface UserEventCreateData {
  * Deduped integration-usage capture (cross-tool spec §2): one `tool_call`
  * event per (execution, provider), regardless of how many calls the run made.
  * Callers accumulate provider → toolNames during a run and flush once.
- * Context carries references only (provider, tool names, execution id) —
- * never arguments or results. Fire-and-forget like recordUserEvent.
+ * Context carries references only (provider, tool names, execution id,
+ * whether the run succeeded) — never arguments or results. Fire-and-forget
+ * like recordUserEvent.
+ *
+ * `succeeded` is the run's terminal outcome, not the individual tool call's.
+ * Flushing happens once at run completion, so every provider the run touched
+ * shares that verdict — the question it answers is "did runs using this
+ * integration work out", which is the unit aggregation cares about.
  */
 export async function recordToolCallEvents(
   params: {
@@ -56,6 +62,7 @@ export async function recordToolCallEvents(
     userId: string
     executionId: string
     touched: ReadonlyMap<string, ReadonlySet<string>>
+    succeeded: boolean
   },
   deps?: { record?: typeof recordUserEvent },
 ): Promise<void> {
@@ -68,7 +75,12 @@ export async function recordToolCallEvents(
       kind: 'tool_call',
       resourceType: 'integration',
       resourceId: provider,
-      context: { provider, toolNames: [...toolNames].slice(0, 25), executionId: params.executionId },
+      context: {
+        provider,
+        toolNames: [...toolNames].slice(0, 25),
+        executionId: params.executionId,
+        succeeded: params.succeeded,
+      },
     })
   }
 }

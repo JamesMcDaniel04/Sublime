@@ -5,16 +5,12 @@
  *
  * Privacy: platform-wide aggregate COUNTS per template key only — no org ids,
  * user ids, names, or resource ids ever leave this module (same posture as
- * the archetype pipeline).
+ * the archetype pipeline). The counts are produced by the k-anonymous daily
+ * sweep in ./aggregate-adoption; this module only reads them, so no un-floored
+ * cross-org ledger scan can reach the request path.
  */
 import { systemPrisma } from '@/lib/prisma'
 import { apiLogger } from '@/lib/logger'
-import { cacheGet, cacheSet } from '@/lib/cache'
-
-const WINDOW_DAYS = 90
-const MAX_EVENTS = 5_000
-const CACHE_KEY = 'templates:adoption-scores'
-const CACHE_TTL_MS = 10 * 60 * 1000
 
 /** deploys = template_used events; surviving = deployed resources still ACTIVE. */
 export type AdoptionStat = { deploys: number; surviving: number }
@@ -59,51 +55,26 @@ export function templateKeyOfContext(context: unknown): string | null {
 
 /**
  * Platform-wide adoption stats keyed by template key (`seed:<seedKey>` /
- * `db:<templateId>`), cached. systemPrisma by design: the aggregation is
- * cross-org but emits only counts. Never throws — an empty map degrades the
- * catalogue to persona/readiness ordering.
+ * `db:<templateId>`), read from the k-anonymous aggregate that the daily
+ * sweep maintains. Every stored row is already at or above
+ * MIN_ADOPTION_ORGS, so no floor check is needed here — the invariant is
+ * enforced at the write boundary.
+ *
+ * No cache: the table is small, indexed by primary key, and refreshed once a
+ * day, so a cache would add staleness on top of staleness for nothing.
+ *
+ * Never throws — an empty map degrades the catalogue to persona/readiness
+ * ordering, which is exactly the pre-aggregate behaviour.
  */
 export async function loadTemplateAdoptionScores(db = systemPrisma): Promise<Record<string, AdoptionStat>> {
   try {
-    const cached = await cacheGet<Record<string, AdoptionStat>>(CACHE_KEY)
-    if (cached) return cached
-
-    const since = new Date(Date.now() - WINDOW_DAYS * 24 * 60 * 60 * 1000)
-    const events = await db.userEvent.findMany({
-      where: { kind: 'template_used', occurredAt: { gte: since } },
-      orderBy: { occurredAt: 'desc' },
-      take: MAX_EVENTS,
-      select: { context: true, resourceType: true, resourceId: true },
+    const rows = await db.templateAdoption.findMany({
+      select: { templateKey: true, deploys: true, surviving: true },
     })
-
-    const agentIds = new Set<string>()
-    const flowIds = new Set<string>()
-    for (const event of events) {
-      if (!event.resourceId) continue
-      if (event.resourceType === 'agent') agentIds.add(event.resourceId)
-      if (event.resourceType === 'flow') flowIds.add(event.resourceId)
-    }
-    const [liveAgents, liveFlows] = await Promise.all([
-      agentIds.size
-        ? db.agentTask.findMany({ where: { id: { in: [...agentIds] }, status: 'ACTIVE' }, select: { id: true } })
-        : Promise.resolve([]),
-      flowIds.size
-        ? db.flow.findMany({ where: { id: { in: [...flowIds] }, status: 'ACTIVE', publishedGraph: { not: undefined } }, select: { id: true } })
-        : Promise.resolve([]),
-    ])
-    const surviving = new Set([...liveAgents.map((a) => a.id), ...liveFlows.map((f) => f.id)])
-
     const scores: Record<string, AdoptionStat> = {}
-    for (const event of events) {
-      const key = templateKeyOfContext(event.context)
-      if (!key) continue
-      const stat = scores[key] ?? { deploys: 0, surviving: 0 }
-      stat.deploys += 1
-      if (event.resourceId && surviving.has(event.resourceId)) stat.surviving += 1
-      scores[key] = stat
+    for (const row of rows) {
+      scores[row.templateKey] = { deploys: row.deploys, surviving: row.surviving }
     }
-
-    await cacheSet(CACHE_KEY, scores, CACHE_TTL_MS)
     return scores
   } catch (error) {
     apiLogger.warn('template adoption scores unavailable', {

@@ -1,6 +1,60 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { adoptionScore, sortByAdoption, templateKeyOfContext } from '../adoption'
+import {
+  adoptionScore,
+  loadTemplateAdoptionScores,
+  sortByAdoption,
+  templateKeyOfContext,
+} from '../adoption'
+
+test('loadTemplateAdoptionScores reads the k-anonymous aggregate table', async () => {
+  const db = {
+    templateAdoption: {
+      findMany: async () => [
+        { templateKey: 'seed:a', deploys: 9, surviving: 4 },
+        { templateKey: 'db:tpl_1', deploys: 3, surviving: 0 },
+      ],
+    },
+  }
+  assert.deepEqual(await loadTemplateAdoptionScores(db as never), {
+    'seed:a': { deploys: 9, surviving: 4 },
+    'db:tpl_1': { deploys: 3, surviving: 0 },
+  })
+})
+
+test('loadTemplateAdoptionScores degrades to an empty map instead of throwing', async () => {
+  const db = {
+    templateAdoption: {
+      findMany: async () => {
+        throw new Error('table missing')
+      },
+    },
+  }
+  assert.deepEqual(await loadTemplateAdoptionScores(db as never), {})
+})
+
+test('loadTemplateAdoptionScores sources scores from the aggregate, not the ledger', async () => {
+  // The whole point of the aggregate table: no un-floored ledger read can
+  // reach the request path again. Asserting the aggregate was queried (rather
+  // than that the ledger threw) is what makes this fail if the read regresses,
+  // since the loader swallows errors by contract.
+  let readAggregate = false
+  const db = {
+    templateAdoption: {
+      findMany: async () => {
+        readAggregate = true
+        return []
+      },
+    },
+    userEvent: {
+      findMany: async () => {
+        throw new Error('user_events must not be read here')
+      },
+    },
+  }
+  assert.deepEqual(await loadTemplateAdoptionScores(db as never), {})
+  assert.equal(readAggregate, true, 'must query template_adoptions')
+})
 
 test('adoptionScore: surviving automation dominates raw deploy clicks', () => {
   // 3 deploys, all deleted < 1 deploy that survived.
