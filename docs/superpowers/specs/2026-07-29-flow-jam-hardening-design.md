@@ -36,7 +36,45 @@ It is worst in exactly the conditions where everything else looks fine.
 sound, but reproducing it needs live Supabase Realtime and two authenticated
 browsers, which the local environment does not have (see the `verify` skill).
 
-### Second contributing cause
+### The likeliest cause, found by auditing a peer team's postmortem
+
+**Presence sync clobbers live cursors.** `track()` sends
+`cursor: cursorRef.current` once at subscribe — typically null, captured the
+moment that peer joined. Live cursors arrive on a *separate* broadcast every
+~33ms. The presence sync handler rebuilt the roster straight from
+`presenceState()`, so every join, leave and periodic resync overwrote every
+live cursor with the stale one.
+
+The visible effect is that **the act of someone joining erases everyone's
+cursor**, restored only by the next broadcast — which never comes if that
+person is reading rather than pointing. That matches the report far more
+directly than the rotation race: you invite someone, they join, and the cursors
+vanish.
+
+Fixed by `mergePeerCursors`: a peer we already know keeps its live cursor
+unless presence genuinely carries one.
+
+### A second bug found in the same audit
+
+**Two of three auth redirects threw away `return_to`.** `middleware.ts` cleared
+the query string on the `/auth/signup → /auth/login` bounce and again when
+sending an authenticated user to `/dashboard`. An invited teammate lost the
+invite entirely, signed in, and landed nowhere near the flow. Preserving a
+redirect target taken from the URL is an open-redirect risk, so `safeReturnTo`
+is a pure, tested function refusing absolute URLs, protocol-relative escapes,
+backslash variants and header-smuggling control characters.
+
+### What the audit cleared
+
+- `handle_new_user` creating an org per signup — already dropped in
+  `20260711120000_disable_unsafe_auth_trigger`.
+- A public Realtime channel readable by anyone with the anon key and a flow id
+  — Sublime uses `private: true` plus `20260713140000_flow_jam_private_realtime`.
+- A cursor throttle with no trailing flush — `updateCursor` already schedules
+  one that reads the latest ref.
+- Swallowed subscribe failures — already surfaced with a reason and a retry.
+
+### Third contributing cause
 
 Cursors only render for peers in the *same canvas space*.
 `dag-canvas.tsx:218` filters `space === 'dag'`; the flow page filters
@@ -134,6 +172,14 @@ than guessing, because a cursor over empty canvas has no cross-space meaning.
 
 `nearestNodeAnchor(point, nodes, maxDistance)` and `projectAnchor(anchor,
 nodes)` are pure, so the whole projection is unit-testable without Supabase.
+
+**Shipped asymmetrically, on purpose.** The DAG canvas both sends an anchor and
+renders projected peers. The stack sends `anchor: null`, because anchoring
+needs a `nodeId → {x, y}` map and the stack only tracks selection by id —
+measuring every card, and re-measuring on scroll, zoom and resize, is its own
+piece of work. The render side is already in place, so stack→dag begins working
+the moment that measurement exists. Nothing regresses meanwhile: same-space
+cursors are untouched.
 
 `maxDistance` is **per-space**, because the units are not comparable: dag
 distances are React Flow coordinates while stack distances are content pixels.
