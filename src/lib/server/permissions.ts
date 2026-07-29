@@ -43,6 +43,13 @@ export type Capability =
   | 'resource:takeover'
   /** Workspace-wide settings that affect everyone. */
   | 'settings:workspace'
+  /**
+   * Mark a goal restricted and manage its members. Deliberately NOT
+   * settings:workspace — "can change workspace configuration" and "can hide a
+   * goal from colleagues" should stay separately revocable, and a closed union
+   * makes adding the distinction cheap.
+   */
+  | 'goal:restrict'
 
 export const CAPABILITIES: readonly Capability[] = [
   'goal:create:org',
@@ -52,6 +59,7 @@ export const CAPABILITIES: readonly Capability[] = [
   'billing:manage',
   'resource:takeover',
   'settings:workspace',
+  'goal:restrict',
 ] as const
 
 /**
@@ -86,6 +94,7 @@ const ADMIN_ONLY: ReadonlySet<Capability> = new Set<Capability>([
   'billing:manage',
   'resource:takeover',
   'settings:workspace',
+  'goal:restrict',
 ])
 
 /**

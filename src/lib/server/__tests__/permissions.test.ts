@@ -35,7 +35,14 @@ test('can() over the full role x plan x capability matrix', () => {
   }
   // Guards against the matrix silently shrinking if CAPABILITIES loses an entry.
   assert.equal(checked, ROLES.length * PLANS.length * CAPABILITIES.length)
-  assert.equal(CAPABILITIES.length, 7)
+  assert.equal(CAPABILITIES.length, 8)
+})
+
+test('restricting a goal is admin-only and not plan-gated', () => {
+  // Hiding a goal from colleagues is an admin act on any plan — it is a
+  // governance control, not something a workspace buys.
+  assert.equal(can(actor('ADMIN', Plan.STARTER), 'goal:restrict'), true)
+  assert.equal(can(actor('MEMBER', Plan.ENTERPRISE), 'goal:restrict'), false)
 })
 
 test('plan is evaluated before role: an admin cannot buy past billing', () => {

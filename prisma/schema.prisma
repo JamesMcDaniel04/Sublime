@@ -1290,6 +1290,13 @@ model Goal {
   targetDate      DateTime  @db.Timestamptz(6)
   recurrence      String? // 'monthly' | 'quarterly' | 'yearly' | null
   status          String    @default("active") // 'active' | 'paused' | 'achieved' | 'missed' | 'archived'
+  /// 'workspace' (default) — anyone in the org who can see goals may lens in.
+  /// 'restricted' — only GoalMember rows and workspace admins; for everyone
+  /// else the goal is ABSENT (404), never forbidden (403), because a 403
+  /// confirms the goal exists and for a confidential goal that is most of the
+  /// secret. Personal goals ignore this entirely: ownerUserId already restricts
+  /// them, and two mechanisms for one idea is how contradictions get built.
+  access          String    @default("workspace")
   riskLevel       String    @default("no_data") // 'on_track' | 'at_risk' | 'off_track' | 'no_data'
   lastEvaluatedAt DateTime? @db.Timestamptz(6)
   /// Ordered widget layout {version:1, widgets:[{id,type,config}]}. Null =
@@ -1322,10 +1329,26 @@ model Goal {
   periods       GoalPeriod[]
   recoveryPlans GoalRecoveryPlan[]
   work          GoalWork[]
+  members       GoalMember[]
 
   @@index([organizationId, status])
   @@index([organizationId, ownerUserId, status])
   @@map("goals")
+}
+
+/// Who may see a goal whose access is 'restricted'. Absent for 'workspace'
+/// goals — membership is only ever consulted when access = 'restricted', so an
+/// unrestricted goal needs no rows here.
+model GoalMember {
+  goalId    String
+  userId    String
+  createdAt DateTime @default(now()) @db.Timestamptz(6)
+
+  goal Goal @relation(fields: [goalId], references: [id], onDelete: Cascade)
+
+  @@id([goalId, userId])
+  @@index([userId])
+  @@map("goal_members")
 }
 
 /// One unit of work an agent or flow did toward a goal — one row per SUBJECT
