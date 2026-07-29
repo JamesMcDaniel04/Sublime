@@ -24,7 +24,8 @@ const anonymousPro = Anonymous_Pro({
 
 export const metadata: Metadata = {
   title: 'Sublime',
-  description: 'Build, run, and review AI agents connected to your tools.',
+  description:
+    'Know whether your team runs the plays you roll out. Sublime turns revenue standards into work agents produce, then shows you who ran it and what your team is telling you about your ICP.',
 }
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
