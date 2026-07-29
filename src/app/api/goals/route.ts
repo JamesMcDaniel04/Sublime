@@ -2,6 +2,7 @@ import { z } from 'zod'
 import { prisma } from '@/lib/prisma'
 import { ApiError, withAuthenticatedApi } from '@/lib/server/api-handler'
 import { can } from '@/lib/server/permissions'
+import { goalReadWhere } from '@/lib/server/goal-scope'
 import { assertGoalCapacity } from '@/lib/billing/enforce'
 import { recordUserEvent } from '@/lib/behavior/record-event'
 import { evaluateGoal } from '@/lib/goals/evaluate'
@@ -168,7 +169,9 @@ export const GET = withAuthenticatedApi(async (_request, auth) => {
     where: {
       organizationId: auth.organizationId,
       status: { not: 'archived' },
-      OR: [{ ownerUserId: null }, { ownerUserId: auth.dbUser.id }],
+      // Shared rule, so restricted goals are excluded here exactly as they are
+      // on the detail route and in scope resolution.
+      ...goalReadWhere(auth.dbUser.id, { isAdmin: auth.isAdmin }),
     },
     orderBy: [{ ownerUserId: 'asc' }, { createdAt: 'desc' }],
     include: {

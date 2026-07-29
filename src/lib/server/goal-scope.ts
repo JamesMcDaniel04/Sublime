@@ -38,14 +38,39 @@ export class GoalScopeError extends ApiError {
 }
 
 /**
- * Which goals an actor may read: org goals plus their own personal ones.
+ * Which goals an actor may read.
+ *
+ * Three admissible shapes: an unrestricted org goal, the actor's own personal
+ * goal, or a restricted goal the actor belongs to.
+ *
+ * A restricted goal is simply ABSENT from these results rather than denied —
+ * callers turn a miss into 404, never 403, because a 403 confirms the goal
+ * exists and for a confidential goal that is most of the secret.
+ *
+ * Admins see every ORG goal including restricted ones, but NOT other people's
+ * personal goals. Piece A's rule is that admin reach is elevated, never
+ * ambient: an admin's ordinary goals list must not quietly fill with
+ * colleagues' private targets, so reading one of those stays an explicit
+ * withElevatedAccess act.
  *
  * Promoted from a private helper in api/goals/[id]/route.ts, which the goals
- * list route had already reimplemented inline. Restricted goals (Stage 2) add
- * a clause here, and a rule living in two files would only get it in one.
+ * list route had already reimplemented inline — a rule living in two files
+ * would only ever have got the restriction clause in one.
  */
-export function goalReadWhere(userId: string): { OR: Array<Record<string, unknown>> } {
-  return { OR: [{ ownerUserId: null }, { ownerUserId: userId }] }
+export function goalReadWhere(
+  userId: string,
+  options: { isAdmin?: boolean } = {},
+): { OR: Array<Record<string, unknown>> } {
+  if (options.isAdmin) {
+    return { OR: [{ ownerUserId: null }, { ownerUserId: userId }] }
+  }
+  return {
+    OR: [
+      { ownerUserId: null, access: 'workspace' },
+      { ownerUserId: userId },
+      { access: 'restricted', members: { some: { userId } } },
+    ],
+  }
 }
 
 /** Active goals in the workspace. Used by the <=1-goal exception below. */
@@ -80,7 +105,11 @@ export async function resolveGoalScope(
   }
 
   const goal = await prisma.goal.findFirst({
-    where: { id: scope, organizationId: auth.organizationId, ...goalReadWhere(auth.dbUser.id) },
+    where: {
+      id: scope,
+      organizationId: auth.organizationId,
+      ...goalReadWhere(auth.dbUser.id, { isAdmin: auth.isAdmin }),
+    },
     select: { id: true, name: true, ownerUserId: true },
   })
   if (!goal) throw new GoalScopeError()

@@ -35,16 +35,16 @@ const idFrom = (pathname: string) => decodeURIComponent(pathname.split('/').at(-
 // The visibility rule itself lives in goal-scope.ts — the goals list route had
 // already reimplemented this inline, and restricted goals add a clause to it
 // that a rule living in two files would only ever get in one.
-const visibleWhere = (organizationId: string, userId: string, id: string) => ({
+const visibleWhere = (organizationId: string, userId: string, id: string, isAdmin: boolean) => ({
   id,
   organizationId,
-  ...goalReadWhere(userId),
+  ...goalReadWhere(userId, { isAdmin }),
 })
 
 export const GET = withAuthenticatedApi(async (request, auth) => {
   const id = idFrom(request.nextUrl.pathname)
   const goal = await prisma.goal.findFirst({
-    where: visibleWhere(auth.organizationId, auth.dbUser.id, id),
+    where: visibleWhere(auth.organizationId, auth.dbUser.id, id, auth.isAdmin),
     include: {
       metrics: {
         orderBy: [{ role: 'asc' }, { createdAt: 'asc' }],
@@ -212,7 +212,7 @@ export const PATCH = withAuthenticatedApi(async (request, auth) => {
   const id = idFrom(request.nextUrl.pathname)
   const input = patchSchema.parse(await request.json().catch(() => ({})))
   const goal = await prisma.goal.findFirst({
-    where: visibleWhere(auth.organizationId, auth.dbUser.id, id),
+    where: visibleWhere(auth.organizationId, auth.dbUser.id, id, auth.isAdmin),
     // status is read so the active-goal cap can tell a real resume from a
     // no-op save that merely restates the current status.
     select: { id: true, startValue: true, kind: true, status: true },
@@ -317,7 +317,7 @@ export const PATCH = withAuthenticatedApi(async (request, auth) => {
 export const DELETE = withAuthenticatedApi(async (request, auth) => {
   const id = idFrom(request.nextUrl.pathname)
   const goal = await prisma.goal.findFirst({
-    where: visibleWhere(auth.organizationId, auth.dbUser.id, id),
+    where: visibleWhere(auth.organizationId, auth.dbUser.id, id, auth.isAdmin),
     select: { id: true, kind: true },
   })
   if (!goal) throw new ApiError('Goal not found', 404, 'GOAL_NOT_FOUND')
