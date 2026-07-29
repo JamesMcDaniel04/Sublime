@@ -10,6 +10,7 @@ import { indexAgent, removeAgentFromGraph } from '@/lib/rag/indexer'
 import { syncAgentConnectors } from '@/lib/connectors/agent-connectors'
 import { assertAgentCapacity, assertSpecialistAreaCapacity } from '@/lib/billing/enforce'
 import { departmentsForTools } from '@/lib/templates/departments'
+import { contributionResourceIds, resolveGoalScope } from '@/lib/server/goal-scope'
 
 /** Best-effort graph-RAG indexing of an agent node (gated on embeddings). */
 /**
@@ -92,22 +93,52 @@ const agentSchema = z.object({
 // serializeAgent lives in @/lib/agents/serialize so /api/snapshot returns the
 // exact same agent shape as this route.
 
-export const GET = withAuthenticatedApi(async (_request, auth) => {
-  const agents = await prisma.agentTask.findMany({
-    where: {
-      organizationId: auth.organizationId,
-      status: { not: 'DELETED' },
-      // org-intelligence holder (see lib/intelligence) is infrastructure, never a listed agent
-      agentType: { not: 'SYSTEM' },
-      ...agentReadScope(auth.dbUser.id),
-    },
-    orderBy: { updatedAt: 'desc' },
-    // Bounded: this list is polled by the sidebar + dashboard; an org with a
-    // runaway number of agents must not turn every poll into a full scan.
-    take: 300,
-  })
+export const GET = withAuthenticatedApi(async (request, auth) => {
+  const scope = await resolveGoalScope(auth, request.nextUrl.searchParams.get('goal'))
+  const wantUnlinked = request.nextUrl.searchParams.get('unlinked') === '1'
+
+  // AND, not a merged object: agentReadScope carries an OR, and two OR keys
+  // collide in one object. AND-ing is also what makes the lens a NARROWING —
+  // the read scope stays authoritative and the contribution filter can only
+  // remove rows from it.
+  const readScope = agentReadScope(auth.dbUser.id)
+  const linkedIds = scope.kind === 'goal'
+    ? await contributionResourceIds(auth.organizationId, scope.goal.id, 'agent')
+    : null
+  const idFilter = linkedIds
+    ? [{ id: wantUnlinked ? { notIn: linkedIds } : { in: linkedIds } }]
+    : []
+
+  const baseWhere = {
+    organizationId: auth.organizationId,
+    status: { not: 'DELETED' },
+    // org-intelligence holder (see lib/intelligence) is infrastructure, never a listed agent
+    agentType: { not: 'SYSTEM' },
+  }
+
+  const [agents, unlinkedCount] = await Promise.all([
+    prisma.agentTask.findMany({
+      where: { ...baseWhere, AND: [readScope, ...idFilter] },
+      orderBy: { updatedAt: 'desc' },
+      // Bounded: this list is polled by the sidebar + dashboard; an org with a
+      // runaway number of agents must not turn every poll into a full scan.
+      take: 300,
+    }),
+    // Counted with the SAME read scope, so the number can never reveal the
+    // existence of work the actor could not otherwise see.
+    linkedIds
+      ? prisma.agentTask.count({
+          where: { ...baseWhere, AND: [readScope, { id: { notIn: linkedIds } }] },
+        })
+      : Promise.resolve(0),
+  ])
+
   // `isOwner` mirrors the flows route: only the owner may change sharing.
-  return { success: true, agents: agents.map((agent) => ({ ...serializeAgent(agent), isOwner: agent.userId === auth.dbUser.id })) }
+  return {
+    success: true,
+    agents: agents.map((agent) => ({ ...serializeAgent(agent), isOwner: agent.userId === auth.dbUser.id })),
+    unlinkedCount,
+  }
 }, { requires: 'member' })
 
 export const POST = withAuthenticatedApi(async (request, auth) => {
