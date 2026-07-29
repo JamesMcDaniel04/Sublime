@@ -12,7 +12,7 @@ import { toast } from 'sonner'
 import { ChevronDown, Headphones, Loader2, Megaphone, Mic, MicOff, PhoneOff, UserPlus } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
-import { jamCursorColor } from '@/lib/flows/jam-presence'
+import { jamCursorColor, splitJamRoster } from '@/lib/flows/jam-presence'
 import { HUDDLE_MAX_PARTICIPANTS, huddleHasRoom } from '@/lib/flows/jam-huddle'
 import { cn } from '@/lib/utils'
 import type { JamConnectionState, JamPeer } from './use-flow-jam'
@@ -213,6 +213,10 @@ export function JamButton({
   const [open, setOpen] = useState(false)
   const [members, setMembers] = useState<Member[]>([])
   const [selected, setSelected] = useState<Set<string>>(new Set())
+  /** The SAVED invite list. Distinct from `selected`, which is the picker's
+   *  edit buffer — driving the roster from that would make it shift as
+   *  checkboxes are ticked, before anything is actually invited. */
+  const [invitedUserIds, setInvitedUserIds] = useState<string[]>([])
   const [loading, setLoading] = useState(false)
   const [sending, setSending] = useState(false)
 
@@ -226,6 +230,7 @@ export function JamButton({
       .then(([memberData, accessData]) => {
         setMembers((memberData.members || []).filter((member: Member) => !member.isSelf))
         setSelected(new Set(accessData.userIds || []))
+        setInvitedUserIds(accessData.userIds || [])
       })
       .catch(() => toast.error('Could not load your team.'))
       .finally(() => setLoading(false))
@@ -247,6 +252,7 @@ export function JamButton({
       toast.success(data.invited
         ? `Invited ${data.invited} teammate${data.invited === 1 ? '' : 's'} — they get a live "Join jam" prompt.`
         : 'Flow Jam access updated.')
+      setInvitedUserIds(data.userIds || [...selected])
       // Awaited so the "Invited N" toast cannot beat the notice onto the wire.
       await onAccessChanged?.()
       setOpen(false)
@@ -255,6 +261,8 @@ export function JamButton({
       setSending(false)
     }
   }
+
+  const roster = splitJamRoster(peers, invitedUserIds)
 
   const followedPeer = followingClientId ? peers.find((peer) => peer.clientId === followingClientId) : null
 
@@ -328,6 +336,24 @@ export function JamButton({
               {CONNECTION_LABEL[connectionState]}
               {peers.length > 0 && <span className="text-muted-foreground">· {peers.length} here now</span>}
             </p>
+            {roster.invitedCount > 0 && (
+              <div className="mt-2 space-y-0.5">
+                <p className="text-[11px] font-medium text-muted-foreground">
+                  {roster.invitedCount} invited · {roster.hereCount} here
+                </p>
+                {roster.notJoined.map((userId) => (
+                  <p
+                    key={userId}
+                    className="flex items-center justify-between gap-2 text-[11px] text-muted-foreground"
+                  >
+                    <span className="truncate">
+                      {members.find((member) => member.id === userId)?.name ?? 'Teammate'}
+                    </span>
+                    <span className="shrink-0">invited, not joined</span>
+                  </p>
+                ))}
+              </div>
+            )}
             {connectionDetail && connectionState !== 'connected' && (
               <p className="mt-1 text-[11px] leading-snug text-muted-foreground">{connectionDetail}</p>
             )}

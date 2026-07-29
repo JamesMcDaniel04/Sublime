@@ -98,10 +98,18 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
     link: `/flows/${flow.id}`,
   })))
 
+  const updated = await prisma.flow.findFirst({
+    where: { id, organizationId: auth.organizationId },
+    select: { collaborationAccessRevision: true },
+  })
+
   return {
     success: true,
     invited: addedIds.length,
     collaborators: requestedIds.length,
     userIds: requestedIds,
+    // Lets the inviter resnapshot onto the rotated topic immediately rather
+    // than waiting for its next poll. The topic is an HMAC over this number.
+    accessRevision: updated?.collaborationAccessRevision ?? null,
   }
 })

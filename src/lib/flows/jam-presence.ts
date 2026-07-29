@@ -186,3 +186,28 @@ export function mergePeerCursors<T extends { clientId: string; cursor: JamCursor
     return existing?.cursor ? { ...peer, cursor: existing.cursor } : peer
   })
 }
+
+/**
+ * Who is invited but has not turned up.
+ *
+ * An owner who invites three people and sees zero peers cannot tell "they have
+ * not opened it yet" from "this is broken" — and that ambiguity is what made a
+ * cursor bug unreadable for so long. Splitting the roster makes the next
+ * failure self-diagnosing: "2 here" means the problem is rendering, "1 here"
+ * means the peer never connected, and those need different fixes.
+ *
+ * `here` counts PEERS, not the intersection: an org share grants read access
+ * with no collaborator row, so someone can legitimately be present without
+ * having been invited.
+ */
+export function splitJamRoster(
+  peers: readonly { userId: string }[],
+  invitedUserIds: readonly string[],
+): { hereCount: number; invitedCount: number; notJoined: string[] } {
+  const present = new Set(peers.map((peer) => peer.userId))
+  return {
+    hereCount: present.size,
+    invitedCount: invitedUserIds.length,
+    notJoined: invitedUserIds.filter((userId) => !present.has(userId)),
+  }
+}

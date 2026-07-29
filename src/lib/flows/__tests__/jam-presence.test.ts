@@ -7,6 +7,7 @@ import {
   edgeIndicator,
   diffPeers,
   mergePeerCursors,
+  splitJamRoster,
   type JamCursor,
   jamCursorSchema,
 } from '../jam-presence'
@@ -119,4 +120,35 @@ test('a departed peer is not resurrected by the merge', () => {
   // The roster is authoritative about WHO is here; only cursors are merged.
   const merged = mergePeerCursors([peerRow('gone', cursorAt(5))], [peerRow('c2', null)])
   assert.deepEqual(merged.map((peer) => peer.clientId), ['c2'])
+})
+
+// ── Invited vs present ─────────────────────────────────────────────────────
+
+test('the roster separates who is here from who was only invited', () => {
+  const split = splitJamRoster(
+    [{ userId: 'u-sam' }],
+    ['u-sam', 'u-dana', 'u-alex'],
+  )
+  assert.equal(split.invitedCount, 3)
+  assert.equal(split.hereCount, 1)
+  assert.deepEqual(split.notJoined, ['u-dana', 'u-alex'])
+})
+
+test('someone present without an invite still counts as here', () => {
+  // An org share grants read access with no FlowCollaborator row, so the
+  // present set is not a subset of the invited set.
+  const split = splitJamRoster([{ userId: 'u-guest' }], [])
+  assert.equal(split.hereCount, 1)
+  assert.deepEqual(split.notJoined, [])
+})
+
+test('two tabs from one person count as one person here', () => {
+  // Peers are per-client; the roster is about people.
+  const split = splitJamRoster([{ userId: 'u-sam' }, { userId: 'u-sam' }], ['u-sam'])
+  assert.equal(split.hereCount, 1)
+  assert.deepEqual(split.notJoined, [])
+})
+
+test('nobody invited and nobody here is an empty split, not a crash', () => {
+  assert.deepEqual(splitJamRoster([], []), { hereCount: 0, invitedCount: 0, notJoined: [] })
 })
