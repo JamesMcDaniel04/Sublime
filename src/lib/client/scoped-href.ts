@@ -21,8 +21,16 @@ import { useCallback } from 'react'
  */
 export const ALL_SCOPE = 'all'
 
-/** Workspace-level paths that are deliberately never scoped. */
-const UNSCOPED_PREFIXES = ['/settings', '/auth', '/api']
+/**
+ * The surfaces that actually exist under /g/[scope] — a CLOSED list, not an
+ * exclusion list.
+ *
+ * Inverted deliberately. With an exclusion list, every new unscoped route
+ * (/templates, /skills, /connections, tomorrow's /reports) silently becomes
+ * /g/<scope>/that and 404s until someone remembers to exclude it. With this,
+ * an unknown path is simply left alone, which is always safe.
+ */
+const SCOPED_PREFIXES = ['/dashboard', '/goals', '/agents', '/flows', '/integrations']
 
 export function scopedHref(scope: string, path: string): string {
   // Not ours to rewrite: absolute URLs, mailto:, anchors, relative paths.
@@ -30,8 +38,10 @@ export function scopedHref(scope: string, path: string): string {
   // Already scoped — double-prefixing is the predictable bug when one helper
   // receives an href another already handled.
   if (path.startsWith('/g/')) return path
-  if (UNSCOPED_PREFIXES.some((prefix) => path === prefix || path.startsWith(`${prefix}/`))) return path
-  return `/g/${scope}${path}`
+  const scoped = SCOPED_PREFIXES.some(
+    (prefix) => path === prefix || path.startsWith(`${prefix}/`) || path.startsWith(`${prefix}?`),
+  )
+  return scoped ? `/g/${scope}${path}` : path
 }
 
 /** The lens the current route is rendering under. */

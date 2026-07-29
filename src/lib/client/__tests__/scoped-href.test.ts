@@ -17,6 +17,18 @@ test('scopedHref leaves unscoped and external paths alone', () => {
   assert.equal(scopedHref('goal_abc', 'https://example.com'), 'https://example.com')
 })
 
+test('surfaces that never moved under /g are left alone', () => {
+  // The list is closed rather than an exclusion list precisely so these do not
+  // become /g/goal_abc/templates and 404. A route nobody scoped stays put.
+  for (const path of ['/templates', '/templates/abc', '/skills/abc', '/connections']) {
+    assert.equal(scopedHref('goal_abc', path), path)
+  }
+})
+
+test('a scoped prefix followed by a query string still scopes', () => {
+  assert.equal(scopedHref('goal_abc', '/agents?agent=1'), '/g/goal_abc/agents?agent=1')
+})
+
 test('scopedHref is idempotent', () => {
   // Double-prefixing is the predictable bug when a caller passes an href that
   // some other helper already scoped.
