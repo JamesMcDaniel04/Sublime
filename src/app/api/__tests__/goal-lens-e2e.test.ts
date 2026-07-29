@@ -157,4 +157,51 @@ if (TEST_DB) {
       }
     })
   })
+
+  describe('integrations lens', () => {
+    test('scoping keeps the tools a goals metrics bind to, and drops the rest', async () => {
+      const seeded = await testAuth.seedTestOrg(prisma, { role: 'ADMIN' })
+      testAuth.installTestAuth(seeded.auth)
+      try {
+        const goal = await prisma.goal.create({
+          data: {
+            organizationId: seeded.organizationId, name: 'Revenue', kind: 'arr',
+            startValue: 0, targetValue: 100,
+            targetDate: new Date(Date.now() + 86_400_000 * 30), status: 'active',
+          },
+        })
+        // A Salesforce-bound metric. connectionRef is 'nango:<id>' — an INSTANCE
+        // id, not a connector key — which is why the lens maps on `source`.
+        await prisma.nangoConnection.create({
+          data: {
+            organizationId: seeded.organizationId,
+            connectionId: 'conn_1', providerConfigKey: 'salesforce', status: 'connected',
+          },
+        })
+        await prisma.goalMetric.create({
+          data: {
+            organizationId: seeded.organizationId, goalId: goal.id, role: 'primary',
+            source: 'salesforce', metricKey: 'salesforce.pipeline', connectionRef: 'nango:conn_1',
+          },
+        })
+
+        const { GET } = await import('../integrations/available/route')
+        const unscoped = await (await GET(req('/api/integrations/available'))).json()
+        const scoped = await (await GET(req(`/api/integrations/available?goal=${goal.id}`))).json()
+
+        const scopedKeys = scoped.tools.map((tool: any) => tool.key)
+        assert.ok(scopedKeys.includes('salesforce'), 'the goal-bound tool should survive the lens')
+        assert.ok(!scopedKeys.includes('Slack'), 'a tool the goal does not bind to should be filtered out')
+        assert.ok(scoped.tools.length < unscoped.tools.length, 'the lens did not filter')
+
+        // The ratio ships even when nothing is filtered out, because the
+        // affordance is what stops a scoped page reading as a broken one.
+        assert.equal(typeof scoped.totalCount, 'number')
+        assert.equal(scoped.totalCount, unscoped.tools.length)
+        assert.equal(scoped.unlinkedCount, scoped.totalCount - scoped.tools.length)
+      } finally {
+        await seeded.cleanup()
+      }
+    })
+  })
 }

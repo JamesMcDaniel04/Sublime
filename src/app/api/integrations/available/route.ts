@@ -5,6 +5,7 @@ import {
   BUILTIN_CONNECTORS,
   fromNangoProviderKey,
 } from '@/lib/connectors/registry'
+import { resolveGoalScope } from '@/lib/server/goal-scope'
 
 /**
  * GET /api/integrations/available
@@ -26,8 +27,49 @@ import {
 
 type ToolChip = { key: string; label: string; slug: string; connected: boolean }
 
-export const GET = withAuthenticatedApi(async (_request, auth) => {
+/**
+ * Metric source -> tool-chip key.
+ *
+ * The two vocabularies genuinely differ (google_sheets vs sheets), so this is a
+ * table rather than a fallback expression. Note it maps on `source`, NOT
+ * `connectionRef`: connectionRef is '<plane>:<id>' (see lib/metrics/types.ts) —
+ * an instance identifier — so matching it against chip keys would match nothing
+ * and silently empty every scoped integrations page.
+ *
+ * Sources absent here bind to no tool: 'manual' and 'url' have no connection at
+ * all, and a goal built only from those correctly shows an empty scoped list
+ * with the ratio explaining why.
+ */
+const SOURCE_TO_TOOL_KEY: Record<string, string> = {
+  stripe: 'stripe',
+  hubspot: 'hubspot',
+  salesforce: 'salesforce',
+  google_sheets: 'sheets',
+  google_analytics: 'analytics',
+  postgres: 'postgres',
+  gmail_assisted: 'gmail',
+  // Rides the workspace-level Slack integration rather than its own connection,
+  // so it carries no connectionRef but does bind to the Slack chip.
+  slack_assisted: 'slack',
+}
+
+/** Tool-chip keys a goal's metrics bind to, lowercased to match the dedupe key. */
+async function goalToolKeys(organizationId: string, goalId: string): Promise<Set<string>> {
+  const metrics = await prisma.goalMetric.findMany({
+    where: { organizationId, goalId },
+    select: { source: true },
+  })
+  const keys = new Set<string>()
+  for (const metric of metrics) {
+    const key = SOURCE_TO_TOOL_KEY[metric.source]
+    if (key) keys.add(key.toLowerCase())
+  }
+  return keys
+}
+
+export const GET = withAuthenticatedApi(async (request, auth) => {
   const organizationId = auth.organizationId
+  const scope = await resolveGoalScope(auth, request.nextUrl.searchParams.get('goal'))
   const [connections, hasGranola, nango, postgresCount] = await Promise.all([
     prisma.mcpConnection.findMany({
       where: {
@@ -81,13 +123,25 @@ export const GET = withAuthenticatedApi(async (_request, auth) => {
   }
 
   // Connected first, then alphabetical, so the user's real tools lead.
-  const tools = [...byKey.values()].sort((a, b) =>
+  const allTools = [...byKey.values()].sort((a, b) =>
     a.connected === b.connected ? a.label.localeCompare(b.label) : a.connected ? -1 : 1,
   )
+
+  const totalCount = allTools.length
+  let tools = allTools
+  if (scope.kind === 'goal') {
+    const keys = await goalToolKeys(organizationId, scope.goal.id)
+    tools = allTools.filter((tool) => keys.has(tool.key.toLowerCase()))
+  }
 
   return {
     success: true,
     tools,
+    // Returned ALWAYS, not only when non-zero. On a surface where a filtered-out
+    // connection reads as a missing one, "showing 2 of 18" is the feature that
+    // stops a scoped page looking broken.
+    totalCount,
+    unlinkedCount: totalCount - tools.length,
     connections: connections.map((c) => ({ id: c.id, name: c.name })),
   }
 }, { requires: 'member' })
