@@ -3,6 +3,8 @@ import { ApiError, withAuthenticatedApi } from '@/lib/server/api-handler'
 import { computeWorkStats } from '@/lib/goals/work-stats'
 import type { Disposition, Outcome } from '@/lib/goals/work-transitions'
 import { getSeedByKey } from '@/lib/templates/catalogue'
+import { goalReadWhere } from '@/lib/server/goal-scope'
+import { serializeWorkForNonMember } from '@/lib/goals/work-serializer'
 
 export const runtime = 'nodejs'
 
@@ -26,11 +28,38 @@ export const GET = withAuthenticatedApi(async (request, auth) => {
   const raw = request.nextUrl.searchParams.get('filter') ?? 'mine'
   const filter: Filter = (FILTERS as readonly string[]).includes(raw) ? (raw as Filter) : 'mine'
 
+  // Visibility-scoped, not merely org-scoped. This previously checked only
+  // organizationId, which let any member read the work queue of a colleague's
+  // PERSONAL goal by guessing its id.
   const goal = await prisma.goal.findFirst({
-    where: { id: goalId, organizationId: auth.organizationId },
+    where: {
+      id: goalId,
+      organizationId: auth.organizationId,
+      ...goalReadWhere(auth.dbUser.id, { isAdmin: auth.isAdmin }),
+    },
     select: { id: true },
   })
-  if (!goal) throw new ApiError('Goal not found', 404, 'GOAL_NOT_FOUND')
+
+  if (!goal) {
+    // Not a member of a restricted goal. They keep work ALREADY ASSIGNED to
+    // them so they can finish it — anonymised, and only their own rows.
+    const assigned = await prisma.goalWork.findMany({
+      where: { organizationId: auth.organizationId, goalId, assigneeUserId: auth.dbUser.id },
+      orderBy: { createdAt: 'desc' },
+      take: PAGE,
+    })
+    // No rows means the goal is, as far as this actor is concerned, absent —
+    // and absent is a 404, never a 403.
+    if (!assigned.length) throw new ApiError('Goal not found', 404, 'GOAL_NOT_FOUND')
+    return {
+      success: true,
+      items: assigned.map(serializeWorkForNonMember),
+      // No stats: the funnel is a property OF THE GOAL, so publishing it would
+      // leak exactly what hiding the goal was meant to withhold.
+      stats: null,
+      anonymised: true,
+    }
+  }
 
   const open = { disposition: 'pending' as const }
   const scope = { organizationId: auth.organizationId, goalId }
