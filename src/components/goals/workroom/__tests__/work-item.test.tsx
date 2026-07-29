@@ -88,7 +88,7 @@ test('an already-assigned item offers no Claim', () => {
   assert.equal(screen.queryByRole('button', { name: /claim/i }), null)
 })
 
-test('the funnel strip reports counts and rates, and says used not caused', () => {
+test('the funnel strip breaks down by agent without repeating the team total', () => {
   render(
     <WorkFunnelStrip
       stats={{
@@ -108,15 +108,16 @@ test('the funnel strip reports counts and rates, and says used not caused', () =
       }}
     />,
   )
-  assert.ok(screen.getByText(/24 produced/))
-  assert.ok(screen.getByText(/17 used/))
-  assert.ok(screen.getByText(/6 worked/))
+  // The team total belongs to the adoption strip, which always renders beside
+  // this one — repeating it puts the same sentence on screen twice.
+  assert.equal(screen.queryByText(/24 produced/), null)
+  assert.ok(screen.getByText('By agent'))
   assert.ok(screen.getByText('Signal-Based Sequence Personalizer'))
   // These counts are descriptive, never an attribution claim.
   assert.equal(screen.queryByText(/caused/i), null)
 })
 
-test('the funnel strip renders nothing before any work exists', () => {
+test('the funnel strip renders nothing when no agent has produced', () => {
   const { container } = render(
     <WorkFunnelStrip
       stats={{

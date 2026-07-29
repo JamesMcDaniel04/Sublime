@@ -2,8 +2,6 @@
 
 import type { WorkStats } from '@/lib/goals/work-stats'
 
-const pct = (rate: number | null) => (rate === null ? '—' : `${Math.round(rate * 100)}%`)
-
 /**
  * produced → used → worked, overall and per agent.
  *
@@ -15,18 +13,13 @@ const pct = (rate: number | null) => (rate === null ? '—' : `${Math.round(rate
  * that needs holdouts and is a separate project.
  */
 export function WorkFunnelStrip({ stats }: { stats: WorkStats }) {
-  if (stats.overall.produced === 0) return null
-  const { produced, used, worked, usedRate, workedRate } = stats.overall
+  // The team total lives in the adoption strip, which always renders beside
+  // this one. Repeating it here just puts the same sentence on screen twice.
+  if (stats.byAgent.length === 0) return null
 
   return (
     <div className="space-y-2 rounded-xl border bg-card px-4 py-3">
-      <p className="text-sm">
-        <span className="font-medium">{produced} produced</span>
-        {' → '}
-        <span className="font-medium">{used} used</span> ({pct(usedRate)})
-        {' → '}
-        <span className="font-medium">{worked} worked</span> ({pct(workedRate)})
-      </p>
+      <p className="text-xs font-medium text-muted-foreground">By agent</p>
       {stats.byAgent.length > 0 && (
         <ul className="space-y-0.5">
           {stats.byAgent.map((agent) => (
