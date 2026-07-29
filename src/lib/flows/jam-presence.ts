@@ -156,3 +156,33 @@ export function diffPeers<T extends { clientId: string }>(
     left: previous.filter((peer) => !after.has(peer.clientId)),
   }
 }
+
+/**
+ * Merge a fresh presence roster with the cursors we already have.
+ *
+ * Cursors arrive on TWO paths at wildly different rates: the presence payload
+ * carries whatever `track()` last sent — typically null, captured the moment
+ * that peer joined — while live cursors stream over a separate broadcast every
+ * ~33ms. Rebuilding the roster straight from presenceState therefore
+ * overwrites every live cursor with a stale one on every join, leave, and
+ * periodic resync.
+ *
+ * The visible effect is that the act of someone JOINING erases everyone's
+ * cursor, and it only comes back when that person next moves their mouse —
+ * which, if they are reading rather than pointing, may be never. That is
+ * indistinguishable from "cursors don't work".
+ *
+ * So a peer we already know keeps its live cursor unless presence genuinely
+ * carries one. Peers appearing for the first time take whatever presence has.
+ */
+export function mergePeerCursors<T extends { clientId: string; cursor: JamCursor | null }>(
+  previous: readonly T[],
+  next: readonly T[],
+): T[] {
+  const known = new Map(previous.map((peer) => [peer.clientId, peer] as const))
+  return next.map((peer) => {
+    if (peer.cursor) return peer
+    const existing = known.get(peer.clientId)
+    return existing?.cursor ? { ...peer, cursor: existing.cursor } : peer
+  })
+}

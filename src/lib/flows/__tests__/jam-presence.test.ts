@@ -6,6 +6,8 @@ import {
   contentPointFromClient,
   edgeIndicator,
   diffPeers,
+  mergePeerCursors,
+  type JamCursor,
   jamCursorSchema,
 } from '../jam-presence'
 
@@ -77,4 +79,44 @@ test('cursor schema accepts v2 payloads and rejects the old window-fraction shap
     jamCursorSchema.safeParse({ space: 'dag', point: { x: 0, y: 0 }, viewport: { x: 0, y: 0, zoom: 0 } }).success,
     false,
   )
+})
+
+// ── Presence must not clobber live cursors ─────────────────────────────────
+
+const cursorAt = (x: number): JamCursor => ({
+  space: 'dag',
+  point: { x, y: 0 },
+  viewport: { x: 0, y: 0, zoom: 1 },
+})
+
+const peerRow = (clientId: string, cursor: JamCursor | null) => ({ clientId, cursor })
+
+test('a known peer keeps its live cursor when presence carries none', () => {
+  // track() sends the cursor once at subscribe — usually null. Rebuilding the
+  // roster from presenceState would wipe a cursor that is streaming fine over
+  // the broadcast channel, on every join/leave/resync.
+  const merged = mergePeerCursors(
+    [peerRow('c1', cursorAt(42))],
+    [peerRow('c1', null)],
+  )
+  assert.deepEqual(merged[0].cursor, cursorAt(42))
+})
+
+test('presence wins when it actually carries a cursor', () => {
+  const merged = mergePeerCursors(
+    [peerRow('c1', cursorAt(1))],
+    [peerRow('c1', cursorAt(99))],
+  )
+  assert.equal(merged[0].cursor?.point.x, 99)
+})
+
+test('a peer seen for the first time takes whatever presence has', () => {
+  assert.equal(mergePeerCursors([], [peerRow('new', null)])[0].cursor, null)
+  assert.equal(mergePeerCursors([], [peerRow('new', cursorAt(7))])[0].cursor?.point.x, 7)
+})
+
+test('a departed peer is not resurrected by the merge', () => {
+  // The roster is authoritative about WHO is here; only cursors are merged.
+  const merged = mergePeerCursors([peerRow('gone', cursorAt(5))], [peerRow('c2', null)])
+  assert.deepEqual(merged.map((peer) => peer.clientId), ['c2'])
 })

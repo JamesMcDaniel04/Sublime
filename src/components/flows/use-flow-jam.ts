@@ -19,7 +19,7 @@ import {
   patchChangesTopology,
 } from '@/lib/flows/collaboration'
 import { deliveryAction, reduceJamConnection, type JamConnectionEvent, type JamConnectionState, type JamDeliveryKind } from '@/lib/flows/jam-connection'
-import { applyCursorEvent, diffPeers, jamCursorSchema, type JamCursor } from '@/lib/flows/jam-presence'
+import { applyCursorEvent, diffPeers, mergePeerCursors, jamCursorSchema, type JamCursor } from '@/lib/flows/jam-presence'
 import { huddleSignalSchema, type HuddleSignal } from '@/lib/flows/jam-huddle'
 
 export type { JamConnectionState } from '@/lib/flows/jam-connection'
@@ -485,9 +485,15 @@ export function useFlowJam(options: {
               }
             }
           }
-          const change = diffPeers(peersRef.current, next)
-          peersRef.current = next
-          setPeers(next)
+          // Presence carries whatever track() last sent — typically a null
+          // cursor captured when that peer joined. Live cursors stream over a
+          // separate broadcast every ~33ms, so replacing the roster outright
+          // erases every cursor on screen on each join/leave/resync, and it
+          // only returns when that person next moves. Merge instead.
+          const merged = mergePeerCursors(peersRef.current, next)
+          const change = diffPeers(peersRef.current, merged)
+          peersRef.current = merged
+          setPeers(merged)
           if (change.joined.length > 0 || change.left.length > 0) {
             callbacksRef.current.onPeersChanged?.(change)
           }

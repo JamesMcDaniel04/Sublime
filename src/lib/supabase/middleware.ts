@@ -1,6 +1,7 @@
 import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
 import { getSupabaseConfig } from './config'
+import { safeReturnTo } from './return-to'
 
 const publicPages = new Set([
   '/',
@@ -55,7 +56,17 @@ export async function updateSession(request: NextRequest) {
   if (pathname === '/auth/signup' && process.env.AUTH_ALLOW_PASSWORD === 'false') {
     const url = request.nextUrl.clone()
     url.pathname = '/auth/login'
+    // Carry the destination across the bounce. An invited teammate arrives at
+    // /auth/signup with the invite in the query string; clearing it here drops
+    // the invite on the floor, so they sign in, land on /dashboard, and never
+    // join the thing they were invited to. Preserve an existing return_to
+    // rather than nesting one.
+    const destination = request.nextUrl.searchParams.get('return_to')
     url.search = ''
+    if (destination) url.searchParams.set('return_to', destination)
+    else if (request.nextUrl.search) {
+      url.searchParams.set('return_to', `${pathname}${request.nextUrl.search}`)
+    }
     return copyCookies(response, NextResponse.redirect(url))
   }
 
@@ -69,8 +80,16 @@ export async function updateSession(request: NextRequest) {
 
   if (user && isAuthPage && pathname !== '/auth/callback' && pathname !== '/auth/update-password') {
     const url = request.nextUrl.clone()
-    url.pathname = '/dashboard'
+    // An already-signed-in user following an invite link still carries the
+    // destination. Sending them to /dashboard and discarding it is the same
+    // lost-invite bug from the other direction — they are authenticated, they
+    // clicked the right link, and they land nowhere near it. safeReturnTo
+    // refuses anything that is not a same-origin path, so this cannot become
+    // an open redirect.
+    const target = safeReturnTo(request.nextUrl.searchParams.get('return_to'), '/dashboard')
+    url.pathname = target.pathname
     url.search = ''
+    for (const [key, value] of target.params) url.searchParams.set(key, value)
     return copyCookies(response, NextResponse.redirect(url))
   }
 
