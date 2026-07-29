@@ -16,6 +16,10 @@ export type JamConnectionState =
   | 'catching-up'
   | 'degraded'
   | 'offline'
+  /** Access changed, so the topic rotated and we are moving channels. Brief,
+   *  but without it the gap is indistinguishable from an empty room — which is
+   *  exactly the confusion that made this feel broken. */
+  | 'rotating'
   | 'denied'
   | 'unconfigured'
 
@@ -30,6 +34,7 @@ export type JamConnectionEvent =
   | 'revision-gap'
   | 'access-denied'
   | 'not-configured'
+  | 'access-rotating'
 
 /** States that ignore ordinary transport noise until access/config resolves. */
 const STICKY: ReadonlySet<JamConnectionState> = new Set(['denied', 'unconfigured'])
@@ -61,6 +66,15 @@ export function reduceJamConnection(
   if (STICKY.has(state)) {
     // Only proof of access (a successful snapshot) releases a sticky state.
     return event === 'snapshot-ok' ? 'degraded' : state
+  }
+
+  // Announced AFTER the terminal checks, so being removed mid-rotation shows
+  // denied rather than a hopeful "reconnecting".
+  if (event === 'access-rotating') return 'rotating'
+  if (state === 'rotating') {
+    // Only proof of a live channel or a fresh snapshot clears it; ordinary
+    // transport noise during the swap must not latch it into offline.
+    return event === 'snapshot-ok' || event === 'channel-subscribed' ? 'connected' : 'rotating'
   }
 
   switch (event) {

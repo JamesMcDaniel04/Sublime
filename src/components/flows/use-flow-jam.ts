@@ -21,6 +21,7 @@ import {
 import { deliveryAction, reduceJamConnection, type JamConnectionEvent, type JamConnectionState, type JamDeliveryKind } from '@/lib/flows/jam-connection'
 import { applyCursorEvent, diffPeers, mergePeerCursors, jamCursorSchema, type JamCursor } from '@/lib/flows/jam-presence'
 import { huddleSignalSchema, type HuddleSignal } from '@/lib/flows/jam-huddle'
+import { makeBroadcastAccessChange } from '@/lib/flows/jam-access-notice'
 
 export type { JamConnectionState } from '@/lib/flows/jam-connection'
 export type { JamCursor } from '@/lib/flows/jam-presence'
@@ -366,6 +367,7 @@ export function useFlowJam(options: {
           dispatchConnection('snapshot-ok')
           if (topicChanged) {
             topicRef.current = data.topic
+            dispatchConnection('access-rotating')
             reconnectRef.current()
           } else if (regained && !channelRef.current) {
             reconnectRef.current()
@@ -555,6 +557,9 @@ export function useFlowJam(options: {
         })
         .on('broadcast', { event: 'access-changed' }, ({ payload }) => {
           if (payload?.clientId === clientId) return
+          // Show the swap. Without this the peer list empties and the canvas
+          // is identical to "nobody is here" until the new channel subscribes.
+          dispatchConnection('access-rotating')
           refreshAccessRef.current()
         })
         .on('broadcast', { event: 'huddle-signal' }, ({ payload }) => {
@@ -738,16 +743,18 @@ export function useFlowJam(options: {
     if (!cursorTimerRef.current) cursorTimerRef.current = setTimeout(sendCursor, remaining)
   }
 
-  const broadcastAccessChange = () => {
-    const channel = channelRef.current
-    if (!channel) return
-    void channel.send({
-      type: 'broadcast',
-      event: 'access-changed',
-      payload: { clientId },
-    }).then(markDurable)
-    refreshAccessRef.current()
-  }
+  // Awaited, not fired: refreshAccess rotates the topic and tears down the
+  // very channel this notice travels on. See jam-access-notice.
+  const broadcastAccessChange = useMemo(
+    () =>
+      makeBroadcastAccessChange({
+        getChannel: () => channelRef.current,
+        clientId,
+        markDurable,
+        refreshAccess: () => refreshAccessRef.current(),
+      }),
+    [clientId, markDurable],
+  )
 
   /**
    * Send directed WebRTC signaling to a huddle peer over the jam channel.

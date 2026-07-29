@@ -41,6 +41,7 @@ const CONNECTION_LABEL: Record<JamConnectionState, string> = {
   'catching-up': 'Catching up…',
   degraded: 'Live edits via fallback',
   offline: 'Offline — reconnecting',
+  rotating: 'Access changed — reconnecting…',
   denied: 'No access to this jam',
   unconfigured: 'Not configured on this server',
 }
@@ -199,7 +200,7 @@ export function JamButton({
    *  status dot is undebuggable from the UI. */
   connectionDetail?: string | null
   canManage?: boolean
-  onAccessChanged?: () => void
+  onAccessChanged?: () => void | Promise<void>
   /** Peer currently being followed (viewport tracking), if any. */
   followingClientId?: string | null
   /** Click an avatar to follow that peer's viewport; click again to stop. */
@@ -246,7 +247,8 @@ export function JamButton({
       toast.success(data.invited
         ? `Invited ${data.invited} teammate${data.invited === 1 ? '' : 's'} — they get a live "Join jam" prompt.`
         : 'Flow Jam access updated.')
-      onAccessChanged?.()
+      // Awaited so the "Invited N" toast cannot beat the notice onto the wire.
+      await onAccessChanged?.()
       setOpen(false)
       setSelected(new Set())
     } finally {
