@@ -267,6 +267,15 @@ export const DELETE = withAuthenticatedApi(async (request, auth) => {
 
   await prisma.mcpConnection.delete({ where: { id: existing.id, organizationId: auth.organizationId } })
 
+  // Pairs with connection_added: without a removal event the ledger treats a
+  // churned connector as permanently held, and correlation mining over-counts
+  // integrations nobody kept.
+  await recordUserEvent({
+    organizationId: auth.organizationId, userId: auth.dbUser.id,
+    kind: 'connection_removed', resourceType: 'connection', resourceId: existing.id,
+    context: { provider: existing.provider ?? existing.name },
+  })
+
   // Best-effort purge of this connection's scan-derived learnings (Task
   // 4.5) — never blocks the disconnect response; purgeConnectionLearnings
   // already logs its own failures, `.catch` here is belt-and-suspenders.

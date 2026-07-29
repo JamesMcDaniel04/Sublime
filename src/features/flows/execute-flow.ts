@@ -892,6 +892,10 @@ export async function runFlowExecution(
     userId: job.userId,
     executionId: run.id,
     touched: touchedTools,
+    // The run's terminal verdict. 'waiting' and 'stopped' are not successes:
+    // the segment did not deliver an outcome, and counting them as such would
+    // inflate every integration that appears in long-paused flows.
+    succeeded: status === 'succeeded',
   }).catch(() => undefined)
   // A humanReview ("Request information") pause has no adapter: its waiting
   // FlowRunStep row was persisted by the interpreter's onStep path (the

@@ -603,6 +603,12 @@ export async function runAgentExecution(
     return { summary: cancelSummary, executionId: execution.id }
   }
 
+  // Cross-tool ledger (behavior spec §2): providers this run actually
+  // touched, deduped to one tool_call event per (execution, provider).
+  // Declared OUTSIDE the try so the failure path can flush it too — a run
+  // that threw still used the integrations it used.
+  const touchedTools = new Map<string, Set<string>>()
+
   try {
     // Enforce the workspace's monthly token ceiling before doing any model work.
     // The run's owner is passed so exempt admin accounts are never blocked.
@@ -634,9 +640,6 @@ export async function runAgentExecution(
       flowIds: Array.isArray(agentMetadata.flowIds) ? agentMetadata.flowIds.map(String) : [],
       resource: { type: 'agent', id: agent.id },
     })
-    // Cross-tool ledger (behavior spec §2): providers this run actually
-    // touched, deduped to one tool_call event per (execution, provider).
-    const touchedTools = new Map<string, Set<string>>()
     // Resolve only attached skills this run owner can still see. Visibility
     // changes take effect immediately even if an old id remains attached.
     const communitySkills = skillIds.length
@@ -1418,6 +1421,7 @@ export async function runAgentExecution(
       userId,
       executionId: execution.id,
       touched: touchedTools,
+      succeeded: true,
     }).catch(() => undefined)
     // Index this run (output + correlated entities) into the graph-RAG store so
     // future agents/assistant answers can draw on what happened here. Fire and
@@ -1527,6 +1531,16 @@ export async function runAgentExecution(
       agentTaskId: agent.id,
       executionId: execution.id,
     })
+    // Cross-tool ledger flush on the FAILURE path too. Without this, the
+    // ledger only ever sees integrations from runs that worked, and any
+    // aggregate built on it is survivorship-biased by construction.
+    void recordToolCallEvents({
+      organizationId,
+      userId,
+      executionId: execution.id,
+      touched: touchedTools,
+      succeeded: false,
+    }).catch(() => undefined)
     throw error
   }
 }

@@ -4,6 +4,7 @@ import { getNangoClient, NANGO_ORG_TAG } from '@/lib/nango/client'
 import { nangoApiError } from '@/lib/nango/errors'
 import { ApiError, withAuthenticatedApi } from '@/lib/server/api-handler'
 import { purgeConnectionLearnings } from '@/lib/intelligence/connection-scan'
+import { recordUserEvent } from '@/lib/behavior/record-event'
 import { capabilityForProviderConfigKey, capabilitiesToPurgeOnDisconnect, type DeliveryCapability } from '@/lib/nango/delivery'
 
 export const runtime = 'nodejs'
@@ -44,6 +45,15 @@ export const DELETE = withAuthenticatedApi(async (request, auth) => {
       organizationId,
       connectionId: { in: matching.map((connection) => connection.connection_id) },
     },
+  })
+
+  // Pairs with connection_added (emitted on the Nango OAuth callback), so the
+  // ledger reflects connectors that were dropped rather than assuming every
+  // integration ever connected is still held.
+  await recordUserEvent({
+    organizationId, userId: auth.dbUser.id,
+    kind: 'connection_removed', resourceType: 'connection', resourceId: integrationId,
+    context: { provider: integrationId, plane: 'nango', count: matching.length },
   })
 
   // Best-effort purge of this capability's scan-derived learnings (Task 5,
