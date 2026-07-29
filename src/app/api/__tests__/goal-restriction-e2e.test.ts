@@ -246,4 +246,122 @@ if (TEST_DB) {
       }
     })
   })
+
+  describe('managing restriction', () => {
+    const json = (path: string, method: string, body: unknown) =>
+      new NextRequest(new URL(`http://test${path}`), {
+        method,
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(body),
+      } as never)
+
+    test('a MEMBER cannot restrict a goal', async () => {
+      const seeded = await testAuth.seedTestOrg(prisma, { role: 'MEMBER' })
+      testAuth.installTestAuth(seeded.auth)
+      try {
+        const goal = await prisma.goal.create({
+          data: { ...restrictedGoal(seeded.organizationId), access: 'workspace' },
+        })
+        const { PATCH } = await import('../goals/[id]/members/route')
+        const response = await PATCH(json(`/api/goals/${goal.id}/members`, 'PATCH', { access: 'restricted' }))
+        assert.equal(response.status, 403)
+      } finally {
+        await seeded.cleanup()
+      }
+    })
+
+    test('an ADMIN restricts a goal, adds a member, and it is audited', async () => {
+      const seeded = await testAuth.seedTestOrg(prisma, { role: 'ADMIN' })
+      testAuth.installTestAuth(seeded.auth)
+      try {
+        const goal = await prisma.goal.create({
+          data: { ...restrictedGoal(seeded.organizationId), access: 'workspace' },
+        })
+        const { PATCH, POST } = await import('../goals/[id]/members/route')
+        assert.equal((await PATCH(json(`/api/goals/${goal.id}/members`, 'PATCH', { access: 'restricted' }))).status, 200)
+        assert.equal((await POST(json(`/api/goals/${goal.id}/members`, 'POST', { userId: seeded.userId }))).status, 200)
+
+        const updated = await prisma.goal.findFirst({
+          where: { id: goal.id, organizationId: seeded.organizationId },
+        })
+        assert.equal(updated.access, 'restricted')
+        assert.equal(await prisma.goalMember.count({ where: { goalId: goal.id } }), 1)
+
+        // Changing who can see a goal is a cross-owner act on shared work, so it
+        // must land in the audit log. recordAudit is fire-and-forget, so poll.
+        let row: any = null
+        for (let attempt = 0; attempt < 20 && !row; attempt++) {
+          row = await prisma.auditEvent.findFirst({
+            where: { organizationId: seeded.organizationId, resourceType: 'goal', resourceId: goal.id },
+          })
+          if (!row) await new Promise((resolve) => setTimeout(resolve, 25))
+        }
+        assert.ok(row, 'expected an audit row for the access change')
+      } finally {
+        await seeded.cleanup()
+      }
+    })
+
+    test('adding the same member twice is idempotent, not an error', async () => {
+      const seeded = await testAuth.seedTestOrg(prisma, { role: 'ADMIN' })
+      testAuth.installTestAuth(seeded.auth)
+      try {
+        const goal = await prisma.goal.create({ data: restrictedGoal(seeded.organizationId) })
+        const { POST } = await import('../goals/[id]/members/route')
+        assert.equal((await POST(json(`/api/goals/${goal.id}/members`, 'POST', { userId: seeded.userId }))).status, 200)
+        assert.equal((await POST(json(`/api/goals/${goal.id}/members`, 'POST', { userId: seeded.userId }))).status, 200)
+        assert.equal(await prisma.goalMember.count({ where: { goalId: goal.id } }), 1)
+      } finally {
+        await seeded.cleanup()
+      }
+    })
+
+    test('a personal goal cannot be restricted', async () => {
+      // ownerUserId already restricts it; two mechanisms for one idea is how
+      // contradictions get built.
+      const seeded = await testAuth.seedTestOrg(prisma, { role: 'ADMIN' })
+      testAuth.installTestAuth(seeded.auth)
+      try {
+        const personal = await prisma.goal.create({
+          data: { ...restrictedGoal(seeded.organizationId), access: 'workspace', ownerUserId: seeded.userId },
+        })
+        const { PATCH } = await import('../goals/[id]/members/route')
+        const response = await PATCH(json(`/api/goals/${personal.id}/members`, 'PATCH', { access: 'restricted' }))
+        assert.equal(response.status, 400)
+        assert.equal((await response.json()).code, 'PERSONAL_GOAL')
+      } finally {
+        await seeded.cleanup()
+      }
+    })
+
+    test('a member outside the workspace cannot be added', async () => {
+      const seeded = await testAuth.seedTestOrg(prisma, { role: 'ADMIN' })
+      const other = await testAuth.seedTestOrg(prisma, { role: 'ADMIN' })
+      testAuth.installTestAuth(seeded.auth)
+      try {
+        const goal = await prisma.goal.create({ data: restrictedGoal(seeded.organizationId) })
+        const { POST } = await import('../goals/[id]/members/route')
+        const response = await POST(json(`/api/goals/${goal.id}/members`, 'POST', { userId: other.userId }))
+        assert.equal(response.status, 404)
+      } finally {
+        await seeded.cleanup()
+        await other.cleanup()
+      }
+    })
+
+    test('removing a member revokes their access again', async () => {
+      const seeded = await testAuth.seedTestOrg(prisma, { role: 'ADMIN' })
+      testAuth.installTestAuth(seeded.auth)
+      try {
+        const goal = await prisma.goal.create({ data: restrictedGoal(seeded.organizationId) })
+        await prisma.goalMember.create({ data: { goalId: goal.id, userId: seeded.userId } })
+        const { DELETE } = await import('../goals/[id]/members/route')
+        const url = `/api/goals/${goal.id}/members?userId=${encodeURIComponent(seeded.userId)}`
+        assert.equal((await DELETE(new NextRequest(new URL(`http://test${url}`), { method: 'DELETE' } as never))).status, 200)
+        assert.equal(await prisma.goalMember.count({ where: { goalId: goal.id } }), 0)
+      } finally {
+        await seeded.cleanup()
+      }
+    })
+  })
 }
