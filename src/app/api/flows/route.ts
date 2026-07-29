@@ -9,6 +9,7 @@ import { hasSaveConflict } from '@/lib/flows/save-conflict'
 import { FLOW_TRIGGER_TYPES, normalizeFlowTrigger, preserveWebhookSecretHash, triggerFromGraph } from '@/lib/flows/trigger'
 import { countActiveConnections, meetsSuggestionGate } from '@/lib/intelligence/suggest-workflows'
 import { assertFlowCapacity } from '@/lib/billing/enforce'
+import { contributionResourceIds, resolveGoalScope } from '@/lib/server/goal-scope'
 
 // Strip undefined + narrow to plain JSON so Prisma's InputJsonValue accepts the
 // zod-inferred shapes (passthrough trigger / discriminated-union graph).
@@ -43,14 +44,37 @@ const flowSchema = z.object({
   errorFlowId: z.string().min(1).nullable().optional(),
 })
 
-export const GET = withAuthenticatedApi(async (_request, auth) => {
-  const [flows, counts] = await Promise.all([
+export const GET = withAuthenticatedApi(async (request, auth) => {
+  const scope = await resolveGoalScope(auth, request.nextUrl.searchParams.get('goal'))
+  const wantUnlinked = request.nextUrl.searchParams.get('unlinked') === '1'
+
+  // AND, not a merged object: flowReadScope carries an OR, and two OR keys
+  // collide in one object. AND-ing is also what makes the lens a NARROWING —
+  // the read scope stays authoritative and the contribution filter can only
+  // remove rows from it. Fetching by contribution id alone would bypass
+  // visibility and surface a colleague's private flow.
+  const readScope = flowReadScope(auth.dbUser.id)
+  const linkedIds = scope.kind === 'goal'
+    ? await contributionResourceIds(auth.organizationId, scope.goal.id, 'flow')
+    : null
+  const idFilter = linkedIds
+    ? [{ id: wantUnlinked ? { notIn: linkedIds } : { in: linkedIds } }]
+    : []
+
+  const [flows, counts, unlinkedCount] = await Promise.all([
     prisma.flow.findMany({
-      where: { organizationId: auth.organizationId, ...flowReadScope(auth.dbUser.id) },
+      where: { organizationId: auth.organizationId, AND: [readScope, ...idFilter] },
       orderBy: { updatedAt: 'desc' },
       take: 200,
     }),
     countActiveConnections(auth.organizationId),
+    // Counted with the SAME read scope, so the number can never reveal the
+    // existence of work the actor could not otherwise see.
+    linkedIds
+      ? prisma.flow.count({
+          where: { organizationId: auth.organizationId, AND: [readScope, { id: { notIn: linkedIds } }] },
+        })
+      : Promise.resolve(0),
   ])
   const totalConnections = counts.nango + counts.mcp
   const ready = meetsSuggestionGate(counts)
@@ -63,6 +87,9 @@ export const GET = withAuthenticatedApi(async (_request, auth) => {
       // flows page badges these so an invitee can find the flow again later.
       sharedWithYou: flow.userId !== auth.dbUser.id,
     })),
+    // Hidden work is always counted — a lens that silently drops work teaches
+    // people not to trust it.
+    unlinkedCount,
     // Behavioral-intelligence: drives the flows-page "Suggested for you" rail
     // vs. its below-gate progress copy.
     suggestionReadiness: { ready, totalConnections, connectionsNeeded: ready ? 0 : Math.max(0, 3 - totalConnections) },
