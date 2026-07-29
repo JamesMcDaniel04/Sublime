@@ -9,7 +9,7 @@
  * already-linked seed is idempotent server-side, so a double click cannot
  * produce a duplicate link.
  */
-import Link from 'next/link'
+import { ScopedLink as Link } from '@/components/ui/scoped-link'
 import { useMemo, useState } from 'react'
 import { Bot, Check, Rocket } from 'lucide-react'
 import { toast } from 'sonner'

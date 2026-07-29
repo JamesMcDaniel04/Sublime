@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import Link from 'next/link'
+import { ScopedLink as Link } from '@/components/ui/scoped-link'
 import { toast } from 'sonner'
 import {
   AlertCircle,

@@ -1,6 +1,6 @@
 'use client'
 
-import Link from 'next/link'
+import { ScopedLink as Link } from '@/components/ui/scoped-link'
 import { useEffect, useState } from 'react'
 import { AlertTriangle, Plus, Upload } from 'lucide-react'
 import { toast } from 'sonner'

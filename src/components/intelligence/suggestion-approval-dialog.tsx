@@ -8,7 +8,7 @@
  * on approval. Denial feeds the dismissal-learning loop server-side.
  */
 import { useEffect, useState } from 'react'
-import { useRouter } from 'next/navigation'
+import { useScopedRouter } from '@/lib/client/use-scoped-router'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
@@ -46,7 +46,7 @@ function acceptedDestination(s: OpenUserSuggestion): string | null {
 }
 
 export function SuggestionApprovalDialog({ open, onClose, onActioned }: Readonly<Props>) {
-  const router = useRouter()
+  const router = useScopedRouter()
   const [suggestion, setSuggestion] = useState<OpenUserSuggestion | null>(null)
   const [loading, setLoading] = useState(false)
   const [busy, setBusy] = useState(false)

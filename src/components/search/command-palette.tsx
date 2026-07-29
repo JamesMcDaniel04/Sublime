@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { useRouter } from 'next/navigation'
+import { useScopedRouter } from '@/lib/client/use-scoped-router'
 import { AlertCircle, Brain, CheckCircle2, CircleDashed, FileText, HelpCircle, Loader2, Plug, Search, Server, Settings, Sparkles, Workflow } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog'
@@ -37,7 +37,7 @@ function runStatusIcon(status: string) {
 }
 
 export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
-  const router = useRouter()
+  const router = useScopedRouter()
   const [query, setQuery] = useState('')
   const [agents, setAgents] = useState<AgentResult[]>([])
   const [runs, setRuns] = useState<RunResult[]>([])

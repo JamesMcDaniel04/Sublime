@@ -1,7 +1,8 @@
 'use client'
 
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { useParams, useRouter, useSearchParams } from 'next/navigation'
+import { useParams, useSearchParams } from 'next/navigation'
+import { useScopedRouter } from '@/lib/client/use-scoped-router'
 import { toast } from 'sonner'
 import { AlertTriangle, ArrowLeft, Play, Save, Sparkles, Loader2, ListChecks, MessageSquareText, ShieldCheck, Undo2, Redo2, MoreHorizontal, Copy, Download, Trash2, FlaskConical, History, ScrollText } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -105,7 +106,7 @@ function JamStackCursors({ peers, zoom }: Readonly<{ peers: JamPeer[]; zoom: num
 
 function FlowBuilder() {
   const { id } = useParams<{ id: string }>()
-  const router = useRouter()
+  const router = useScopedRouter()
   const searchParams = useSearchParams()
 
   const [name, setName] = useState('')

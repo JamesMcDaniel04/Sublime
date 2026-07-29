@@ -6,6 +6,28 @@ const nextConfig = {
   // .wasm / python_stdlib.zip assets that only resolve from node_modules —
   // outputFileTracing carries the real files into the serverless function.
   serverExternalPackages: ['@prisma/client', 'pyodide'],
+  /**
+   * The goal lens moved every app surface under /g/[scope]. Permanent, because
+   * these paths live in bookmarks, notification emails and Slack messages.
+   *
+   * Order matters: /goals/new must precede /goals/:id, or "new" is captured as
+   * a goal id and the create page becomes an unresolvable lens.
+   */
+  async redirects() {
+    return [
+      { source: '/dashboard', destination: '/g/all/dashboard', permanent: true },
+      { source: '/flows', destination: '/g/all/flows', permanent: true },
+      { source: '/flows/:path*', destination: '/g/all/flows/:path*', permanent: true },
+      { source: '/agents', destination: '/g/all/agents', permanent: true },
+      { source: '/integrations', destination: '/g/all/integrations', permanent: true },
+      { source: '/integrations/:path*', destination: '/g/all/integrations/:path*', permanent: true },
+      { source: '/goals', destination: '/g/all/goals', permanent: true },
+      { source: '/goals/new', destination: '/g/all/goals/new', permanent: true },
+      // A goal deep link becomes that goal's lens, which is exactly what the
+      // old detail page was.
+      { source: '/goals/:id', destination: '/g/:id/goals', permanent: true },
+    ]
+  },
   async headers() {
     return [
       {

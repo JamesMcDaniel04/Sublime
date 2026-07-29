@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { useRouter } from 'next/navigation'
+import { useScopedRouter } from '@/lib/client/use-scoped-router'
 import { toast } from 'sonner'
 import {
   ArrowUp,
@@ -194,7 +194,7 @@ function salutationForHour(hour: number): string {
 
 export function HomeAssistant() {
   const { user } = useAuth()
-  const router = useRouter()
+  const router = useScopedRouter()
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [input, setInput] = useState('')
   const [sending, setSending] = useState(false)

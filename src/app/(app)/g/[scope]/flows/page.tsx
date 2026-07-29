@@ -1,8 +1,8 @@
 'use client'
 
 import { useMemo, useState } from 'react'
-import { useRouter } from 'next/navigation'
-import Link from 'next/link'
+import { useScopedRouter } from '@/lib/client/use-scoped-router'
+import { ScopedLink as Link } from '@/components/ui/scoped-link'
 import { toast } from 'sonner'
 import { CircleOff, Copy, MoreHorizontal, Plus, Sparkles, Trash2, Workflow, X } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -48,7 +48,7 @@ const STATUS_STYLE: Record<string, string> = {
 type FlowsResponse = { success?: boolean; error?: string; flows?: FlowItem[]; suggestionReadiness?: SuggestionReadiness | null }
 
 export default function FlowsPage() {
-  const router = useRouter()
+  const router = useScopedRouter()
   // Stale-while-revalidate: paint instantly from the client cache (warmed at
   // sign-in by the sidebar) and refresh in the background — the previous
   // fetch-on-mount pattern blocked every visit on a network round-trip.

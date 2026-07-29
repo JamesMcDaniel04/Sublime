@@ -1,7 +1,8 @@
 'use client'
 
 import { Suspense, useEffect, useMemo } from 'react'
-import { useRouter, useSearchParams } from 'next/navigation'
+import { useSearchParams } from 'next/navigation'
+import { useScopedRouter } from '@/lib/client/use-scoped-router'
 import { HomeAssistant } from './home-assistant'
 
 /**
@@ -10,7 +11,7 @@ import { HomeAssistant } from './home-assistant'
  * emails are forwarded to /agents with their params intact.
  */
 function HomePage() {
-  const router = useRouter()
+  const router = useScopedRouter()
   const searchParams = useSearchParams()
   const legacy = useMemo(
     () => ['agent', 'run', 'view'].some((key) => searchParams.get(key) !== null),

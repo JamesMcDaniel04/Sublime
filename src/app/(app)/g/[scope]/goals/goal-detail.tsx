@@ -1,9 +1,9 @@
 'use client'
 
-import Link from 'next/link'
+import { ScopedLink as Link } from '@/components/ui/scoped-link'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Archive, Pencil, RefreshCw, Target } from 'lucide-react'
-import { useParams, useRouter } from 'next/navigation'
+import { useScopedRouter } from '@/lib/client/use-scoped-router'
 import { toast } from 'sonner'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -64,10 +64,13 @@ type Loaded = {
   impact: ImpactTiers
 }
 
-export default function GoalDetailPage() {
-  const params = useParams<{ id: string }>()
-  const router = useRouter()
-  const goalId = params.id
+/**
+ * One goal, in full. Rendered by the goals surface when a goal lens is active —
+ * /g/<goalId>/goals — rather than by its own /goals/[id] route, because a goal's
+ * detail page IS the goals surface seen through that goal.
+ */
+export function GoalDetail({ goalId }: { goalId: string }) {
+  const router = useScopedRouter()
   const [loaded, setLoaded] = useState<Loaded | null>(null)
   const [error, setError] = useState<string | null>(null)
   // Which tools this workspace can actually run. A failed probe yields [], so

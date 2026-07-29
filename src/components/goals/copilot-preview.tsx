@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
-import { useRouter } from 'next/navigation'
+import { useScopedRouter } from '@/lib/client/use-scoped-router'
 import { toast } from 'sonner'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -46,7 +46,7 @@ export function CopilotPreview({
   notes: string[]
   onCancel: () => void
 }) {
-  const router = useRouter()
+  const router = useScopedRouter()
   const [name, setName] = useState(draft.name)
   const [targetValue, setTargetValue] = useState(
     draft.suggestedTarget ? String(draft.suggestedTarget.value) : '',

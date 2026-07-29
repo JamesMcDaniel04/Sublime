@@ -10,10 +10,10 @@
  * action to done (with resultRef). A crash between the phases leaves the
  * action 'accepted' with a visible Retry — never falsely done.
  */
-import Link from 'next/link'
+import { ScopedLink as Link } from '@/components/ui/scoped-link'
 import { useState } from 'react'
 import { Check, LifeBuoy, Rocket, X } from 'lucide-react'
-import { useRouter } from 'next/navigation'
+import { useScopedRouter } from '@/lib/client/use-scoped-router'
 import { toast } from 'sonner'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -36,7 +36,7 @@ export function RecoveryPlanStrip({
   plan: RecoveryPlanView
   onChanged: () => void | Promise<void>
 }) {
-  const router = useRouter()
+  const router = useScopedRouter()
   const [busyActionId, setBusyActionId] = useState<string | null>(null)
   const [failedActionIds, setFailedActionIds] = useState<Set<string>>(new Set())
 

@@ -1,6 +1,6 @@
 'use client'
 
-import Link from 'next/link'
+import { ScopedLink as Link } from '@/components/ui/scoped-link'
 import { useCallback, useState } from 'react'
 import { Plus, RefreshCw, Target } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -18,6 +18,8 @@ import {
 import type { GoalSummary } from '@/lib/types'
 import type { CopilotDraft } from '@/lib/goals/copilot'
 import { invalidateCachedJson, useCachedJson } from '@/lib/client/use-cached-json'
+import { ALL_SCOPE, useScope } from '@/lib/client/scoped-href'
+import { GoalDetail } from './goal-detail'
 
 type GoalsResponse = { goals?: GoalSummary[] }
 type ImpactResponse = { impact?: OrgImpact }
@@ -31,7 +33,19 @@ const IMPACT_URL = '/api/goals/impact'
 const messageOf = (error: unknown, fallback: string) =>
   error instanceof Error ? error.message : fallback
 
-export default function GoalsPage() {
+/**
+ * The goals surface, which means two different things depending on the lens.
+ *
+ * Under a goal's lens it IS that goal — which is why /goals/[id] no longer
+ * exists as a route. Under "all goals" it's the overview list.
+ */
+export default function GoalsSurface() {
+  const scope = useScope()
+  if (scope !== ALL_SCOPE) return <GoalDetail goalId={scope} />
+  return <GoalsList />
+}
+
+function GoalsList() {
   // Stale-while-revalidate: paint instantly from the client cache (warmed at
   // sign-in by the sidebar) and refresh in the background. The previous
   // fetch-on-mount pattern blocked every visit on a cold round-trip, and the

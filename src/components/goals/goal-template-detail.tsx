@@ -1,6 +1,6 @@
 'use client'
 
-import Link from 'next/link'
+import { ScopedLink as Link } from '@/components/ui/scoped-link'
 import { useMemo, useState } from 'react'
 import { Check } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'

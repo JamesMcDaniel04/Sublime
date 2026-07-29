@@ -32,16 +32,48 @@ export const ALL_SCOPE = 'all'
  */
 const SCOPED_PREFIXES = ['/dashboard', '/goals', '/agents', '/flows', '/integrations']
 
+/** Sub-paths of /goals that are pages, not goal ids. */
+const GOALS_SUBPAGES = new Set(['new'])
+
+/**
+ * Opening a goal SWITCHES the lens: /goals/<id> becomes /g/<id>/goals, not
+ * /g/<scope>/goals/<id>.
+ *
+ * This is not a special case so much as the same rule the redirect in
+ * next.config.js applies — encoded once, here, so a link and a redirect can
+ * never disagree. Without it every goal-detail link resolves to a path that no
+ * longer has a route, because /goals/[id] folded into the goals surface.
+ */
+function goalDetailHref(path: string): string | null {
+  if (!path.startsWith('/goals/')) return null
+  // Sliced rather than matched with a trailing (.*) group — the greedy form is
+  // needlessly backtracky for what is just "first segment, then the remainder".
+  const tail = path.slice('/goals/'.length)
+  const end = tail.search(/[/?#]/)
+  const id = end === -1 ? tail : tail.slice(0, end)
+  if (!id || GOALS_SUBPAGES.has(id)) return null
+  return `/g/${id}/goals${end === -1 ? '' : tail.slice(end)}`
+}
+
 export function scopedHref(scope: string, path: string): string {
   // Not ours to rewrite: absolute URLs, mailto:, anchors, relative paths.
   if (!path.startsWith('/')) return path
   // Already scoped — double-prefixing is the predictable bug when one helper
   // receives an href another already handled.
   if (path.startsWith('/g/')) return path
+
+  const goalDetail = goalDetailHref(path)
+  if (goalDetail) return goalDetail
+
   const scoped = SCOPED_PREFIXES.some(
     (prefix) => path === prefix || path.startsWith(`${prefix}/`) || path.startsWith(`${prefix}?`),
   )
   return scoped ? `/g/${scope}${path}` : path
+}
+
+/** Explicit form of the rule above, for callers holding a goal id directly. */
+export function goalHref(goalId: string): string {
+  return `/g/${goalId}/goals`
 }
 
 /** The lens the current route is rendering under. */

@@ -1,6 +1,6 @@
 'use client'
 
-import Link from 'next/link'
+import { ScopedLink as Link } from '@/components/ui/scoped-link'
 import { Target } from 'lucide-react'
 import type { GoalSummary } from '@/lib/types'
 import { activeOrgGoals } from '@/lib/goals/dashboard-copy'

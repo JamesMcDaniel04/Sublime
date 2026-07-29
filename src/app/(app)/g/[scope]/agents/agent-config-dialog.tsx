@@ -1,6 +1,6 @@
 'use client'
 
-import { useRouter } from 'next/navigation'
+import { useScopedRouter } from '@/lib/client/use-scoped-router'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { AgentConfigForm, type AgentDraft } from './agent-config-form'
 
@@ -26,7 +26,7 @@ export function AgentConfigDialog({
   template?: any
   runningId?: string | null
 }) {
-  const router = useRouter()
+  const router = useScopedRouter()
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>

@@ -1,7 +1,8 @@
 'use client'
 
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { useRouter, useSearchParams } from 'next/navigation'
+import { useSearchParams } from 'next/navigation'
+import { useScopedRouter } from '@/lib/client/use-scoped-router'
 import { toast } from 'sonner'
 import { AlertCircle, Copy, FileText, List, Loader2, MoreHorizontal, Play, Plus, Settings2, Sparkles, Trash2, X } from 'lucide-react'
 import { AgentActivityPane, resultText, type RunMutation } from './agent-activity-pane'
@@ -102,7 +103,7 @@ function isConfigured(agent: Agent) {
 
 function AgentHQ() {
   const { user } = useAuth()
-  const router = useRouter()
+  const router = useScopedRouter()
   const searchParams = useSearchParams()
   // Which top-level view is showing: the agent HQ panes or the templates
   // library (folded in from the old /templates page). URL-driven so the

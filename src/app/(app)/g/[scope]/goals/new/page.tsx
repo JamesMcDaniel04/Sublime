@@ -1,9 +1,9 @@
 'use client'
 
-import Link from 'next/link'
+import { ScopedLink as Link } from '@/components/ui/scoped-link'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { ArrowLeft, ArrowRight, Check, Link2, Target } from 'lucide-react'
-import { useRouter } from 'next/navigation'
+import { useScopedRouter } from '@/lib/client/use-scoped-router'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
@@ -77,7 +77,7 @@ const defaultRecurrence = (kind: GoalKind): GoalRecurrence => {
 }
 
 export default function NewGoalPage() {
-  const router = useRouter()
+  const router = useScopedRouter()
   const [step, setStep] = useState<Step>(1)
   const [sources, setSources] = useState<Source[]>([])
   // Component bindings live apart from the flat primary-metric fields so an

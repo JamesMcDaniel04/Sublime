@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { scopedHref } from '../scoped-href'
+import { scopedHref, goalHref } from '../scoped-href'
 
 test('scopedHref prefixes an app path with its scope', () => {
   assert.equal(scopedHref('all', '/flows'), '/g/all/flows')
@@ -27,6 +27,24 @@ test('surfaces that never moved under /g are left alone', () => {
 
 test('a scoped prefix followed by a query string still scopes', () => {
   assert.equal(scopedHref('goal_abc', '/agents?agent=1'), '/g/goal_abc/agents?agent=1')
+})
+
+test('opening a goal switches the lens rather than nesting under the current one', () => {
+  // /goals/[id] folded into the goals surface, so /g/all/goals/xyz is a 404.
+  // The helper encodes the same rule as the next.config.js redirect.
+  assert.equal(scopedHref('all', '/goals/goal_xyz'), '/g/goal_xyz/goals')
+  assert.equal(scopedHref('goal_abc', '/goals/goal_xyz'), '/g/goal_xyz/goals')
+  assert.equal(goalHref('goal_xyz'), '/g/goal_xyz/goals')
+})
+
+test('a goal href keeps its query string', () => {
+  assert.equal(scopedHref('all', '/goals/goal_xyz?import=1'), '/g/goal_xyz/goals?import=1')
+})
+
+test('/goals/new is a page, not a goal id', () => {
+  // Without the exception this becomes /g/new/goals and the create page is
+  // unreachable — the same ordering trap the redirect list has to avoid.
+  assert.equal(scopedHref('goal_abc', '/goals/new'), '/g/goal_abc/goals/new')
 })
 
 test('scopedHref is idempotent', () => {

@@ -1,8 +1,9 @@
 'use client'
 
 import { Fragment, useEffect, useState } from 'react'
-import { useParams, useRouter } from 'next/navigation'
-import Link from 'next/link'
+import { useParams } from 'next/navigation'
+import { useScopedRouter } from '@/lib/client/use-scoped-router'
+import { ScopedLink as Link } from '@/components/ui/scoped-link'
 import { Activity, ChevronRight, RefreshCw, ScrollText, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { Badge } from '@/components/ui/badge'
@@ -150,7 +151,7 @@ function WaitingBanner({
 
 export default function FlowActivityPage() {
   const { id } = useParams<{ id: string }>()
-  const router = useRouter()
+  const router = useScopedRouter()
   const [flowName, setFlowName] = useState('')
   const [graph, setGraph] = useState<FlowGraph | null>(null)
   const [runs, setRuns] = useState<RunSummary[]>([])

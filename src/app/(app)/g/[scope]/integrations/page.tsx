@@ -1,7 +1,8 @@
 'use client'
 
 import { Suspense, useEffect } from 'react'
-import { useRouter, useSearchParams } from 'next/navigation'
+import { useSearchParams } from 'next/navigation'
+import { useScopedRouter } from '@/lib/client/use-scoped-router'
 import { toast } from 'sonner'
 import { Cable, KeyRound, Server } from 'lucide-react'
 import { McpServersPanel } from '@/components/connections/mcp-servers-panel'
@@ -12,7 +13,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { OAuthIntegrationsGrid } from './oauth-integrations-grid'
 
 function IntegrationsTabs() {
-  const router = useRouter()
+  const router = useScopedRouter()
   const searchParams = useSearchParams()
   const tabParam = searchParams.get('tab')
   const activeTab = tabParam === 'mcp' ? 'mcp' : tabParam === 'credentials' ? 'credentials' : 'accounts'

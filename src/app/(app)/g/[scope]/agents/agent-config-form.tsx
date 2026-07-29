@@ -1,8 +1,8 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
-import Link from 'next/link'
-import { useRouter } from 'next/navigation'
+import { ScopedLink as Link } from '@/components/ui/scoped-link'
+import { useScopedRouter } from '@/lib/client/use-scoped-router'
 import { ChevronDown, Copy, Download, Loader2, Pencil, Play, RotateCcw, ScrollText, Trash2, Webhook, X } from 'lucide-react'
 import { toast } from 'sonner'
 import { Badge } from '@/components/ui/badge'
@@ -341,7 +341,7 @@ export function AgentConfigForm({
   active?: boolean
   saveLabel?: string
 }) {
-  const router = useRouter()
+  const router = useScopedRouter()
   const [draft, setDraft] = useState<AgentDraft>(emptyDraft)
   // "More settings" disclosure. null = untouched, so it auto-opens whenever an
   // advanced option is already configured (an active schedule or output

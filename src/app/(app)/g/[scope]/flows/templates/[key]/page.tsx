@@ -1,8 +1,9 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
-import { useParams, useRouter } from 'next/navigation'
-import Link from 'next/link'
+import { useParams } from 'next/navigation'
+import { useScopedRouter } from '@/lib/client/use-scoped-router'
+import { ScopedLink as Link } from '@/components/ui/scoped-link'
 import { ArrowLeft, Check, Copy, Sparkles, Workflow } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
@@ -17,7 +18,7 @@ type AvailableTool = { key?: string; label?: string; slug?: string; connected: b
 
 export default function FlowTemplateDetailsPage() {
   const { key } = useParams<{ key: string }>()
-  const router = useRouter()
+  const router = useScopedRouter()
   const [creating, setCreating] = useState(false)
   const [copied, setCopied] = useState(false)
   const [connected, setConnected] = useState<Set<string>>(new Set())
