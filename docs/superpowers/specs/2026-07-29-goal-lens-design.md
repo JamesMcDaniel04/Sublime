@@ -74,7 +74,24 @@ lint-visible pattern rather than a silent reset to All goals.
 
 ## 2. Scope resolution — `src/lib/server/goal-scope.ts`
 
-One resolver, called by every scoped page and every goal-aware API:
+### 2.0 Where enforcement lives
+
+Every app page in `(app)` is a `'use client'` component fetching through
+`useCachedJson`, so pages cannot enforce anything. **Scoping is enforced in the
+API routes, server-side.** Client pages read the scope from `useParams()` and
+pass it on their fetches as `?goal=<scope>`.
+
+This is the correct boundary rather than a workaround:
+
+- A client that omits `?goal=` means "all", which is itself gated.
+- A client that passes a goal id it cannot see gets a 404 (§6).
+- Neither is a bypass, because the API never trusts the parameter beyond using
+  it as a lookup key.
+
+The routing move (§1) is therefore mechanical — params and links — while the
+security-critical logic concentrates in this module and the goal-aware routes.
+
+One resolver, called by every goal-aware API route:
 
 ```ts
 export type GoalScope =
