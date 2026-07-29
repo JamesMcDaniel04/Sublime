@@ -4,6 +4,8 @@ import { googleOAuthConfigured } from '@/lib/google/oauth'
 import { withAuthenticatedApi } from '@/lib/server/api-handler'
 import { cacheGet, cacheSet } from '@/lib/cache'
 import { capabilityForProviderConfigKey, type DeliveryCapability } from '@/lib/nango/delivery'
+import { resolveGoalScope, type GoalScope } from '@/lib/server/goal-scope'
+import { goalIntegrationIds } from '@/lib/goals/metric-integrations'
 
 export const runtime = 'nodejs'
 
@@ -101,14 +103,53 @@ const withNativeIntegrations = (integrations: IntegrationChip[]): IntegrationChi
   POSTGRES_CHIP,
 ]
 
+/**
+ * Apply the goal lens to the catalog.
+ *
+ * Done AFTER the cache read on purpose: the cached value is environment-level
+ * (identical for every org), so caching a per-goal subset under the shared key
+ * would serve one goal's integrations to the whole deployment.
+ *
+ * `unlinked` returns the complement rather than the subset, so the remainder
+ * stays reachable — a lens that made an integration impossible to find would
+ * strand anyone trying to connect a new source for that very goal.
+ */
+async function applyGoalLens(
+  integrations: IntegrationChip[],
+  organizationId: string,
+  scope: GoalScope,
+  unlinked: boolean,
+) {
+  const totalCount = integrations.length
+  if (scope.kind !== 'goal') {
+    return { success: true as const, integrations, totalCount, unlinkedCount: 0 }
+  }
+  const ids = await goalIntegrationIds(organizationId, scope.goal.id)
+  const linked = integrations.filter((integration) => ids.has(integration.id))
+  return {
+    success: true as const,
+    integrations: unlinked ? integrations.filter((integration) => !ids.has(integration.id)) : linked,
+    // Returned ALWAYS, not only when non-zero: on a surface where a filtered-out
+    // connection reads as a missing one, the ratio is what stops a scoped page
+    // looking broken.
+    totalCount,
+    unlinkedCount: totalCount - linked.length,
+  }
+}
+
 // Lists the integrations enabled on the Nango environment. These are the
 // apps a user can connect from the integrations page.
-export const GET = withAuthenticatedApi(async () => {
+export const GET = withAuthenticatedApi(async (request, auth) => {
+  const scope = await resolveGoalScope(auth, request.nextUrl.searchParams.get('goal'))
+  const unlinked = request.nextUrl.searchParams.get('unlinked') === '1'
+  const lens = (integrations: IntegrationChip[]) =>
+    applyGoalLens(integrations, auth.organizationId, scope, unlinked)
+
   // Native-only deployments (no Nango key) still offer Gmail and Postgres.
-  if (!nangoConfigured()) return { success: true, integrations: withNativeIntegrations([]) }
+  if (!nangoConfigured()) return lens(withNativeIntegrations([]))
 
   const hit = await cacheGet<IntegrationChip[]>(CACHE_KEY)
-  if (hit) return { success: true, integrations: withNativeIntegrations(hit) }
+  if (hit) return lens(withNativeIntegrations(hit))
 
   let configs
   try {
@@ -126,5 +167,5 @@ export const GET = withAuthenticatedApi(async () => {
   }))
 
   if (integrations.length) await cacheSet(CACHE_KEY, integrations, CACHE_TTL_MS)
-  return { success: true, integrations: withNativeIntegrations(integrations) }
+  return lens(withNativeIntegrations(integrations))
 }, { requires: 'member' })

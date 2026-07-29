@@ -205,6 +205,63 @@ if (TEST_DB) {
     })
   })
 
+  describe('integrations catalog lens', () => {
+    test('the connect catalog scopes to what the goals metrics bind to', async () => {
+      // This is the endpoint the integrations PAGE reads (/api/nango/integrations),
+      // as opposed to /api/integrations/available which feeds agent tool pickers.
+      // Under test both Nango and Google OAuth are unconfigured, so the catalog
+      // is deterministically the single unconditional Postgres tile.
+      const seeded = await testAuth.seedTestOrg(prisma, { role: 'ADMIN' })
+      testAuth.installTestAuth(seeded.auth)
+      const goalData = (name: string) => ({
+        organizationId: seeded.organizationId, name, kind: 'kpi',
+        startValue: 0, targetValue: 10,
+        targetDate: new Date(Date.now() + 86_400_000 * 30), status: 'active',
+      })
+      try {
+        const { GET } = await import('../nango/integrations/route')
+        const unscoped = await (await GET(req('/api/nango/integrations'))).json()
+        const catalogIds = unscoped.integrations.map((entry: any) => entry.id)
+        assert.deepEqual(catalogIds, ['postgres'], 'test catalog assumption changed')
+
+        // A goal bound to Postgres keeps the Postgres tile.
+        const bound = await prisma.goal.create({ data: goalData('Postgres goal') })
+        await prisma.goalMetric.create({
+          data: {
+            organizationId: seeded.organizationId, goalId: bound.id, role: 'primary',
+            source: 'postgres', metricKey: 'pg.count', connectionRef: 'postgres:abc',
+          },
+        })
+        const scoped = await (await GET(req(`/api/nango/integrations?goal=${bound.id}`))).json()
+        assert.deepEqual(scoped.integrations.map((e: any) => e.id), ['postgres'])
+        assert.equal(scoped.totalCount, 1)
+        assert.equal(scoped.unlinkedCount, 0)
+
+        // A goal bound only to manual entry binds no connectable integration,
+        // so the catalog empties — and the ratio is what explains that rather
+        // than leaving the page looking broken.
+        const manual = await prisma.goal.create({ data: goalData('Manual goal') })
+        await prisma.goalMetric.create({
+          data: {
+            organizationId: seeded.organizationId, goalId: manual.id, role: 'primary',
+            source: 'manual', metricKey: 'manual.value',
+          },
+        })
+        const empty = await (await GET(req(`/api/nango/integrations?goal=${manual.id}`))).json()
+        assert.deepEqual(empty.integrations, [])
+        assert.equal(empty.totalCount, 1)
+        assert.equal(empty.unlinkedCount, 1)
+
+        // The remainder must stay reachable — a lens that makes an integration
+        // unreachable would strand anyone trying to connect a new source.
+        const rest = await (await GET(req(`/api/nango/integrations?goal=${manual.id}&unlinked=1`))).json()
+        assert.deepEqual(rest.integrations.map((e: any) => e.id), ['postgres'])
+      } finally {
+        await seeded.cleanup()
+      }
+    })
+  })
+
   describe('all-goals plan gate', () => {
     const goalData = (organizationId: string, name: string) => ({
       organizationId, name, kind: 'kpi', startValue: 0, targetValue: 10,

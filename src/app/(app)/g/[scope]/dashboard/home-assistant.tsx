@@ -1,6 +1,7 @@
 'use client'
 
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { ALL_SCOPE, useScope } from '@/lib/client/scoped-href'
 import { useScopedRouter } from '@/lib/client/use-scoped-router'
 import { toast } from 'sonner'
 import {
@@ -210,7 +211,16 @@ export function HomeAssistant() {
   const [salutation, setSalutation] = useState('Welcome back')
   useEffect(() => setSalutation(salutationForHour(new Date().getHours())), [])
   // Goals drive the empty-state hero: strip, chips, and the no-goals CTA.
-  const [goals, setGoals] = useState<GoalSummary[] | null>(null)
+  const [allGoals, setGoals] = useState<GoalSummary[] | null>(null)
+  // Under a goal lens the hero shows THAT goal. Narrowing a list the server
+  // already authorised can only remove rows, so this is a display filter rather
+  // than an access decision — /api/goals remains the authority on what is
+  // visible at all. Shadowing the name keeps every downstream reference intact.
+  const scope = useScope()
+  const goals = useMemo(
+    () => (scope === ALL_SCOPE ? allGoals : (allGoals?.filter((goal) => goal.id === scope) ?? null)),
+    [allGoals, scope],
+  )
   const [impact, setImpact] = useState<OrgImpact | null>(null)
   useEffect(() => {
     let cancelled = false

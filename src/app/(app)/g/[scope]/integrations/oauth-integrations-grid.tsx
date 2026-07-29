@@ -15,6 +15,7 @@ import { IntegrationLogo } from '@/components/integrations/integration-logo'
 import { IntegrationAiSearch } from '@/components/integrations/integration-ai-search'
 import type { IntegrationMatch } from '@/lib/integrations/ai-search'
 import { useCachedJson } from '@/lib/client/use-cached-json'
+import { ALL_SCOPE, useScope } from '@/lib/client/scoped-href'
 import { useScanExclusions } from '@/lib/client/use-scan-exclusions'
 import { connectionSourceRef } from '@/lib/intelligence/scan-exclusions'
 
@@ -53,8 +54,16 @@ export function OAuthIntegrationsGrid() {
   // the last-seen grid instantly instead of the loading skeleton. Both persist
   // (scoped, per-tab) so the OAuth full-page redirect returns to the last-seen
   // connected grid instead of an all-disconnected default.
+  // The scope is part of the cache key, so switching goals cannot repaint the
+  // previous lens's catalog. `persist` keeps the OAuth full-page redirect
+  // returning to the same lens it left from.
+  const scope = useScope()
+  const catalogUrl = `/api/nango/integrations?goal=${encodeURIComponent(scope)}`
   const { data: integrationsData, loading: loadingIntegrations, error: integrationsError, refresh: refreshIntegrations } =
-    useCachedJson<{ integrations?: Integration[] }>('/api/nango/integrations', { persist: true })
+    useCachedJson<{ integrations?: Integration[]; totalCount?: number; unlinkedCount?: number }>(catalogUrl, { persist: true })
+  const [showUnlinked, setShowUnlinked] = useState(false)
+  const unlinkedUrl = showUnlinked && scope !== ALL_SCOPE ? `${catalogUrl}&unlinked=1` : null
+  const { data: unlinkedData } = useCachedJson<{ integrations?: Integration[] }>(unlinkedUrl)
   const { data: statusData, loading: loadingStatus, error: statusError, refresh: refreshStatus, mutate: mutateStatus } =
     useCachedJson<{ connections?: Record<string, Connection> }>('/api/nango/status', { persist: true })
   const { data: profileData } = useCachedJson<{ profile?: { role: string } }>('/api/settings/profile')
@@ -243,6 +252,38 @@ export function OAuthIntegrationsGrid() {
 
       {Boolean(integrationsError || statusError) && (
         <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700"><p>Connected accounts could not be loaded. Existing connections may still be active.</p><Button className="mt-2" variant="outline" size="sm" onClick={refreshAll}>Try again</Button></div>
+      )}
+
+      {/* The ratio is UNCONDITIONAL while scoped, not only when something is
+          hidden. This is the surface where a filtered-out connection reads as a
+          missing one, and "showing 2 of 18" is what stops a scoped page looking
+          like a broken one. The remainder stays one click away, so a lens can
+          never make an integration unreachable. */}
+      {scope !== ALL_SCOPE && (
+        <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+          <span>
+            Showing {integrations.length} of {integrationsData?.totalCount ?? integrations.length} connections
+          </span>
+          {(integrationsData?.unlinkedCount ?? 0) > 0 && (
+            <button
+              type="button"
+              onClick={() => setShowUnlinked((open) => !open)}
+              className="underline underline-offset-2 hover:text-foreground"
+            >
+              {integrationsData!.unlinkedCount} not linked to this goal
+            </button>
+          )}
+        </div>
+      )}
+      {showUnlinked && (unlinkedData?.integrations?.length ?? 0) > 0 && (
+        <div className="rounded-md border border-dashed p-3">
+          <p className="mb-2 text-xs text-muted-foreground">Not linked to this goal</p>
+          <div className="flex flex-wrap gap-2">
+            {(unlinkedData?.integrations ?? []).map((integration) => (
+              <span key={integration.id} className="rounded-md border px-2 py-1 text-xs">{integration.name}</span>
+            ))}
+          </div>
+        </div>
       )}
 
       <IntegrationAiSearch
