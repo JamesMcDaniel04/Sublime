@@ -43,4 +43,4 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
   }
 
   return { success: true, status: verification.status, error: verification.error ?? null }
-})
+}, { requires: 'member' })

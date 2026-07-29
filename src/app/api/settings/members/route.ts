@@ -5,8 +5,9 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { recordAudit } from '@/lib/audit'
 import { assertSeatCapacity } from '@/lib/billing/enforce'
 import { isLegacyPlatformUser } from '@/lib/billing/entitlements'
+import { assertNotLastAdmin } from '@/lib/server/last-admin'
 
-const inviteSchema = z.object({ email: z.string().email(), role: z.enum(['ADMIN', 'USER']).default('USER') })
+const inviteSchema = z.object({ email: z.string().email(), role: z.enum(['ADMIN', 'MEMBER']).default('MEMBER') })
 
 export const GET = withAuthenticatedApi(async (_request, auth) => {
   const [members, invitations] = await Promise.all([
@@ -21,10 +22,9 @@ export const GET = withAuthenticatedApi(async (_request, auth) => {
     })),
     invitations,
   }
-})
+}, { requires: 'member' })
 
 export const POST = withAuthenticatedApi(async (request, auth) => {
-  if (auth.dbUser.role !== 'ADMIN') throw new ApiError('Admin access required', 403, 'FORBIDDEN')
   const input = inviteSchema.parse(await request.json()); const email = input.email.trim().toLowerCase()
   if (await prisma.user.findFirst({ where: { organizationId: auth.organizationId, email } })) throw new ApiError('That person is already a member', 409, 'ALREADY_MEMBER')
   await assertSeatCapacity(auth.organizationId)
@@ -34,14 +34,20 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
   if (error) { await prisma.organizationInvitation.delete({ where: { id: invitation.id, organizationId: auth.organizationId } }); throw new ApiError('Could not send invitation', 502, 'INVITE_FAILED', error) }
   void recordAudit({ organizationId: auth.organizationId, actorUserId: auth.dbUser.id, action: 'organization.member.invited', resourceType: 'invitation', resourceId: invitation.id })
   return { success: true, invitation }
-})
+}, { requires: 'member:manage' })
 
 export const PATCH = withAuthenticatedApi(async (request, auth) => {
-  if (auth.dbUser.role !== 'ADMIN') throw new ApiError('Admin access required', 403, 'FORBIDDEN')
-  const input = z.object({ userId: z.string(), role: z.enum(['ADMIN', 'USER']).optional(), isActive: z.boolean().optional() }).parse(await request.json())
-  if (input.userId === auth.dbUser.id && (input.role === 'USER' || input.isActive === false)) throw new ApiError('You cannot remove your own administrator access', 409, 'SELF_ADMIN_CHANGE')
+  const input = z.object({ userId: z.string(), role: z.enum(['ADMIN', 'MEMBER']).optional(), isActive: z.boolean().optional() }).parse(await request.json())
+  if (input.userId === auth.dbUser.id && (input.role === 'MEMBER' || input.isActive === false)) throw new ApiError('You cannot remove your own administrator access', 409, 'SELF_ADMIN_CHANGE')
   const member = await prisma.user.findFirst({ where: { id: input.userId, organizationId: auth.organizationId } })
   if (!member) throw new ApiError('Member not found', 404, 'NOT_FOUND')
+  // Demoting or suspending someone must not leave the workspace with no admin.
+  // Checked against stored roles, not the caller's context: a legacy platform
+  // user acts as ADMIN in memory while their row says MEMBER, so the
+  // self-demotion guard above does not by itself keep the count above zero.
+  if (input.role === 'MEMBER' || input.isActive === false) {
+    await assertNotLastAdmin(auth.organizationId, member.id)
+  }
   // Reactivation consumes a seat exactly like a new invite — without this
   // check, deactivate/reactivate cycles walk past the plan's seat cap.
   if (input.isActive === true && !member.isActive) await assertSeatCapacity(auth.organizationId)
@@ -54,13 +60,12 @@ export const PATCH = withAuthenticatedApi(async (request, auth) => {
   if (input.isActive === false) await createAdminClient().auth.admin.signOut(member.supabaseId, 'global')
   void recordAudit({ organizationId: auth.organizationId, actorUserId: auth.dbUser.id, action: 'organization.member.updated', resourceType: 'user', resourceId: member.id })
   return { success: true }
-})
+}, { requires: 'member:manage' })
 
 export const DELETE = withAuthenticatedApi(async (request, auth) => {
-  if (auth.dbUser.role !== 'ADMIN') throw new ApiError('Admin access required', 403, 'FORBIDDEN')
   const id = new URL(request.url).searchParams.get('invitationId')
   if (!id) throw new ApiError('invitationId is required')
   const result = await prisma.organizationInvitation.updateMany({ where: { id, organizationId: auth.organizationId, acceptedAt: null }, data: { revokedAt: new Date() } })
   if (!result.count) throw new ApiError('Invitation not found', 404, 'NOT_FOUND')
   return { success: true }
-})
+}, { requires: 'member:manage' })

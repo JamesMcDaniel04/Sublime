@@ -57,4 +57,4 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
     select: { state: true, checkedAt: true, error: true },
   })
   return { success: true, verification: toVerification(row), toolCount: entry.tools.length }
-})
+}, { requires: 'member' })

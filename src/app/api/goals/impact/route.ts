@@ -6,4 +6,4 @@ export const runtime = 'nodejs'
 export const GET = withAuthenticatedApi(async (_request, auth) => ({
   success: true,
   impact: await orgImpact(auth.organizationId, auth.dbUser.id),
-}))
+}), { requires: 'member' })

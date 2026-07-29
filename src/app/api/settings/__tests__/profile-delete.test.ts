@@ -33,8 +33,8 @@ if (TEST_DB) {
     const member = await ensureWorkspaceMembership(supabaseUser)
     assert.ok(member?.organizationId)
 
-    const { installTestAuth, clearTestAuth } = await import('@/lib/server/__tests__/test-auth')
-    installTestAuth({ organizationId: member.organizationId, userId: member.id, dbUser: member, user: supabaseUser })
+    const { installTestAuth, clearTestAuth, makeTestAuthContext } = await import('@/lib/server/__tests__/test-auth')
+    installTestAuth(makeTestAuthContext({ organizationId: member.organizationId, userId: member.id, dbUser: member, user: supabaseUser }))
 
     const { DELETE } = await import('@/app/api/settings/profile/route')
     const request = new NextRequest(new URL('http://test/api/settings/profile'), {

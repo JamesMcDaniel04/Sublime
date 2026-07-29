@@ -53,7 +53,7 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
   })
 
   return { success: true, skills }
-})
+}, { requires: 'member' })
 
 /** Detach one skill without overwriting other agent fields. Detaching an id
  *  that is not attached is a no-op, so no skill-existence check is needed. */
@@ -80,4 +80,4 @@ export const DELETE = withAuthenticatedApi(async (request, auth) => {
   })
 
   return { success: true, skills }
-})
+}, { requires: 'member' })

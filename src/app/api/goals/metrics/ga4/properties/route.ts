@@ -40,4 +40,4 @@ export const GET = withAuthenticatedApi(async (request, auth) => {
     // probe must not block goal creation.
     return { success: true, properties: [] as Ga4Property[] }
   }
-})
+}, { requires: 'member' })

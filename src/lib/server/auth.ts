@@ -1,5 +1,8 @@
+import type { Plan, UserRole } from '@prisma/client'
 import { getAuthWithUser } from '@/lib/supabase/auth-utils'
 import { billingStateFor } from '@/lib/billing/trial'
+import { entitlementPlanFor } from '@/lib/billing/entitlements'
+import type { Actor } from './permissions'
 
 type AuthResult = NonNullable<Awaited<ReturnType<typeof getAuthWithUser>>>
 
@@ -8,6 +11,21 @@ export interface AuthContext {
   dbUser: NonNullable<AuthResult['dbUser']>
   userId: string
   organizationId: string
+  /**
+   * Effective workspace role. auth-utils.ts normalizes legacy platform users
+   * to ADMIN at the auth boundary, so this is already the effective value —
+   * never re-derive it downstream.
+   */
+  role: UserRole
+  isAdmin: boolean
+  /**
+   * Effective plan from entitlementPlanFor(), NOT organization.plan: a
+   * grandfathered workspace resolves to ENTERPRISE here, so entitlement gates
+   * written against this field honour what those workspaces were promised.
+   */
+  plan: Plan
+  /** The pure-permission view of this context, for can(). */
+  actor: Actor
 }
 
 // Production-inert test seam: mirrors src/lib/observability/sentry.ts's
@@ -62,10 +80,17 @@ export async function requireAuthContext(): Promise<AuthContext> {
     )
   }
 
+  const role = auth.dbUser.role
+  const plan = entitlementPlanFor(organization)
+
   return {
     user: auth.user,
     dbUser: auth.dbUser,
     userId: auth.userId,
     organizationId: auth.organizationId,
+    role,
+    isAdmin: role === 'ADMIN',
+    plan,
+    actor: { userId: auth.userId, role, plan },
   }
 }

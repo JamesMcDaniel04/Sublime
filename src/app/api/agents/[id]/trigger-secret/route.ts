@@ -50,4 +50,4 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
   })
 
   return { ...base, hasSecret: true, secret }
-})
+}, { requires: 'member' })

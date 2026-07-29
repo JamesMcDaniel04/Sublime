@@ -24,4 +24,4 @@ export const GET = withAuthenticatedApi(async (request, auth) => {
       'cache-control': 'private, no-store',
     },
   })
-})
+}, { requires: 'member' })

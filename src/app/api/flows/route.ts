@@ -67,7 +67,7 @@ export const GET = withAuthenticatedApi(async (_request, auth) => {
     // vs. its below-gate progress copy.
     suggestionReadiness: { ready, totalConnections, connectionsNeeded: ready ? 0 : Math.max(0, 3 - totalConnections) },
   }
-})
+}, { requires: 'member' })
 
 export const POST = withAuthenticatedApi(async (request, auth) => {
   const data = flowSchema.parse(await request.json())
@@ -92,7 +92,7 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
     context: { name: flow.name },
   })
   return { success: true, flow: serializeFlow(flow) }
-})
+}, { requires: 'member' })
 
 export const PUT = withAuthenticatedApi(async (request, auth) => {
   const body = z
@@ -176,7 +176,7 @@ export const PUT = withAuthenticatedApi(async (request, auth) => {
     context: { name: flow.name, graphChanged: body.graph !== undefined },
   })
   return { success: true, flow: serializeFlow(flow) }
-})
+}, { requires: 'member' })
 
 export const DELETE = withAuthenticatedApi(async (request, auth) => {
   const { id } = z.object({ id: z.string().min(1) }).parse(await request.json())
@@ -186,4 +186,4 @@ export const DELETE = withAuthenticatedApi(async (request, auth) => {
   })
   if (!result.count) throw new ApiError('Flow not found', 404, 'NOT_FOUND')
   return { success: true }
-})
+}, { requires: 'member' })

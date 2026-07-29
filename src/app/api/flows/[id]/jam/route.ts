@@ -32,7 +32,7 @@ export const GET = withAuthenticatedApi(async (request, auth) => {
     select: { userId: true },
   })
   return { success: true, userIds: collaborators.map((entry) => entry.userId) }
-})
+}, { requires: 'member' })
 
 export const POST = withAuthenticatedApi(async (request, auth) => {
   const id = flowId(request)
@@ -112,4 +112,4 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
     // than waiting for its next poll. The topic is an HMAC over this number.
     accessRevision: updated?.collaborationAccessRevision ?? null,
   }
-})
+}, { requires: 'member' })

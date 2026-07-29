@@ -3,7 +3,9 @@ import { prisma } from '@/lib/prisma'
 import { evaluateGoal } from '@/lib/goals/evaluate'
 import { evaluateAndPersistGoal } from '@/lib/goals/refresh'
 import { surfaceGoalBenchmark } from '@/lib/goals/aggregate-benchmarks'
+import { recordUserEvent } from '@/lib/behavior/record-event'
 import { ApiError, withAuthenticatedApi } from '@/lib/server/api-handler'
+import { assertGoalCapacity } from '@/lib/billing/enforce'
 import { parseDashboardLayout } from '@/lib/goals/dashboard'
 import { validateComposition, type CompositionState } from '@/lib/goals/composition'
 import type { GoalKind } from '@/lib/goals/kind-migration'
@@ -200,14 +202,16 @@ export const GET = withAuthenticatedApi(async (request, auth) => {
         : null,
     },
   }
-})
+}, { requires: 'member' })
 
 export const PATCH = withAuthenticatedApi(async (request, auth) => {
   const id = idFrom(request.nextUrl.pathname)
   const input = patchSchema.parse(await request.json().catch(() => ({})))
   const goal = await prisma.goal.findFirst({
     where: visibleWhere(auth.organizationId, auth.dbUser.id, id),
-    select: { id: true, startValue: true, kind: true },
+    // status is read so the active-goal cap can tell a real resume from a
+    // no-op save that merely restates the current status.
+    select: { id: true, startValue: true, kind: true, status: true },
   })
   if (!goal) throw new ApiError('Goal not found', 404, 'GOAL_NOT_FOUND')
   if (input.targetValue !== undefined && input.targetValue === goal.startValue) {
@@ -277,6 +281,14 @@ export const PATCH = withAuthenticatedApi(async (request, auth) => {
       layoutUpdate = { dashboardLayout: layout as never }
     }
   }
+  // Resuming a paused goal re-consumes a plan slot. Without this, pause/resume
+  // cycles walk straight past the active-goal cap — the same hole
+  // assertSeatCapacity closes for member deactivate/reactivate. The goal itself
+  // is excluded from the count so an already-active goal saved without a status
+  // change is not counted against itself.
+  if (input.status === 'active' && goal.status !== 'active') {
+    await assertGoalCapacity(auth.organizationId, goal.id)
+  }
   const { dashboardLayout, composition, ...rest } = input
   void dashboardLayout
   void composition
@@ -296,18 +308,26 @@ export const PATCH = withAuthenticatedApi(async (request, auth) => {
     await evaluateAndPersistGoal(goal.id, auth.organizationId)
   }
   return { success: true }
-})
+}, { requires: 'member' })
 
 export const DELETE = withAuthenticatedApi(async (request, auth) => {
   const id = idFrom(request.nextUrl.pathname)
   const goal = await prisma.goal.findFirst({
     where: visibleWhere(auth.organizationId, auth.dbUser.id, id),
-    select: { id: true },
+    select: { id: true, kind: true },
   })
   if (!goal) throw new ApiError('Goal not found', 404, 'GOAL_NOT_FOUND')
   await prisma.goal.update({
     where: { id: goal.id, organizationId: auth.organizationId },
     data: { status: 'archived' },
   })
+  // The missing negative outcome beside goal_achieved. A goal abandoned
+  // before it settles is signal about the template that seeded it, and
+  // without it the ledger only records goals that ran to a verdict.
+  await recordUserEvent({
+    organizationId: auth.organizationId, userId: auth.dbUser.id,
+    kind: 'goal_abandoned', resourceType: 'goal', resourceId: goal.id,
+    context: { kind: goal.kind },
+  })
   return { success: true }
-})
+}, { requires: 'member' })

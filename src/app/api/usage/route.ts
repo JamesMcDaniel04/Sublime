@@ -39,4 +39,4 @@ export const GET = withAuthenticatedApi(async (_request, auth) => {
       overLimit: budget.over,
     },
   }
-})
+}, { requires: 'member' })

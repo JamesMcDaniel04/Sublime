@@ -47,4 +47,4 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
     context: { sourceMemoryId },
   })
   return { success: true }
-})
+}, { requires: 'member' })

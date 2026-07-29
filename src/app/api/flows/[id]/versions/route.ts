@@ -39,7 +39,7 @@ export const GET = withAuthenticatedApi(async (request, auth) => {
     select: { id: true, version: true, note: true, publishedAt: true, publishedBy: true },
   })
   return { success: true, versions }
-})
+}, { requires: 'member' })
 
 const restoreSchema = z.object({ version: z.number().int().positive(), action: z.literal('restore') })
 
@@ -61,7 +61,7 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
 
   const updated = await prisma.flow.update({ where: { id, organizationId: auth.organizationId }, data: { graph: jsonValue(row.graph) } })
   return { success: true, flow: serializeFlow(updated) }
-})
+}, { requires: 'member' })
 
 // PATCH /api/flows/[id]/versions — { version, note } edits a snapshot's note.
 // Write scope (owner / collaborator / org_editor), same as publishing.
@@ -84,7 +84,7 @@ export const PATCH = withAuthenticatedApi(async (request, auth) => {
   })
   if (!result.count) throw new ApiError('Version not found', 404, 'NOT_FOUND')
   return { success: true }
-})
+}, { requires: 'member' })
 
 // DELETE /api/flows/[id]/versions?version=N — remove a snapshot from history.
 // Owner-only: deleting history is destructive and cannot be undone. The
@@ -106,4 +106,4 @@ export const DELETE = withAuthenticatedApi(async (request, auth) => {
   })
   if (!result.count) throw new ApiError('Version not found', 404, 'NOT_FOUND')
   return { success: true }
-})
+}, { requires: 'member' })

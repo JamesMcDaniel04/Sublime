@@ -105,14 +105,18 @@ if (TEST_DB) {
       userId,
       executionId: 'qa-exec-1',
       touched: new Map([['asana', new Set(['list_tasks', 'list_tasks'])]]),
+      succeeded: true,
     })
     const row = await prisma.userEvent.findFirst({ where: { organizationId, userId, kind: 'tool_call' } })
     assert.ok(row, 'tool_call row missing')
     assert.equal(row.resourceType, 'integration')
     assert.equal(row.resourceId, 'asana')
     // Privacy contract: references only — exactly these keys, no args/results.
-    assert.deepEqual(Object.keys(row.context).sort(), ['executionId', 'provider', 'toolNames'])
+    // `succeeded` is the run's terminal verdict (a bare boolean), which is
+    // outcome metadata, not content.
+    assert.deepEqual(Object.keys(row.context).sort(), ['executionId', 'provider', 'succeeded', 'toolNames'])
     assert.deepEqual(row.context.toolNames, ['list_tasks'])
+    assert.equal(row.context.succeeded, true)
     await prisma.userEvent.deleteMany({ where: { organizationId, userId } }) // clean slate for mining legs
   })
 

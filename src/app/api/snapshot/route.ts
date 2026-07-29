@@ -16,4 +16,4 @@ export const runtime = 'nodejs'
  * Agent run history is intentionally excluded; Agent HQ fetches only the
  * selected agent's activity through /api/agents/activity.
  */
-export const GET = withAuthenticatedApi(async (_request, auth) => readShellSnapshot(auth))
+export const GET = withAuthenticatedApi(async (_request, auth) => readShellSnapshot(auth), { requires: 'member' })

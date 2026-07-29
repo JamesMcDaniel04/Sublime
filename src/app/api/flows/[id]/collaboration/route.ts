@@ -75,7 +75,7 @@ export const GET = withAuthenticatedApi(async (request, auth) => {
     updatedAt: flow.updatedAt.toISOString(),
     canManageJam: flow.userId === auth.dbUser.id,
   }
-})
+}, { requires: 'member' })
 
 export const POST = withAuthenticatedApi(async (request, auth) => {
   const id = request.nextUrl.pathname.split('/').at(-2)
@@ -157,4 +157,4 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
   }
 
   throw new ApiError('Flow collaboration is busy; retry the edit', 503, 'COLLABORATION_BUSY')
-})
+}, { requires: 'member' })

@@ -17,7 +17,7 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
   }
   const result = await startActivityBackfill({ organizationId: auth.organizationId, ...data })
   return Response.json({ success: true, ...result }, { status: 202 })
-})
+}, { requires: 'member' })
 
 export const GET = withAuthenticatedApi(async (_request, auth) => {
   const backfills = await prisma.activityBackfill.findMany({
@@ -34,4 +34,4 @@ export const GET = withAuthenticatedApi(async (_request, auth) => {
     orderBy: { updatedAt: 'desc' },
   })
   return { success: true, backfills }
-})
+}, { requires: 'member' })

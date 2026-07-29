@@ -41,4 +41,4 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
 
   const truncated = text.length > MAX_TEXT_CHARS
   return { success: true, filename, text: truncated ? text.slice(0, MAX_TEXT_CHARS) : text, truncated }
-})
+}, { requires: 'member' })

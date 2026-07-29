@@ -82,4 +82,4 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
     })
     throw new ApiError(message, 400, 'CREDENTIAL_VERIFICATION_FAILED')
   }
-})
+}, { requires: 'member' })

@@ -51,4 +51,4 @@ export const GET = withAuthenticatedApi(async (request, auth) => {
       'Content-Disposition': `attachment; filename="${slug}.sublime-agent.json"`,
     },
   })
-})
+}, { requires: 'member' })

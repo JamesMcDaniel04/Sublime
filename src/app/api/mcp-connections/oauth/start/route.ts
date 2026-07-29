@@ -133,4 +133,4 @@ export const GET = withAuthenticatedApi(async (request, auth) => {
       new URL('/connections?error=oauth_start', request.nextUrl.origin),
     )
   }
-})
+}, { requires: 'member' })

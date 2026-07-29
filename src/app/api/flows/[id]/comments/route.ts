@@ -90,7 +90,7 @@ export const GET = withAuthenticatedApi(async (request, auth) => {
     comments: comments.map((comment) => serializeComment(comment, auth.dbUser.id)),
     canModerate: flow.userId === auth.dbUser.id,
   }
-})
+}, { requires: 'member' })
 
 export const POST = withAuthenticatedApi(async (request, auth) => {
   const flow = await readableFlow(flowIdOf(request), auth.organizationId, auth.dbUser.id)
@@ -180,7 +180,7 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
   ])
 
   return { success: true, comment: serializeComment(comment, auth.dbUser.id) }
-})
+}, { requires: 'member' })
 
 export const PATCH = withAuthenticatedApi(async (request, auth) => {
   const flow = await readableFlow(flowIdOf(request), auth.organizationId, auth.dbUser.id)
@@ -199,7 +199,7 @@ export const PATCH = withAuthenticatedApi(async (request, auth) => {
     data: { resolvedAt: input.resolved ? new Date() : null },
   })
   return { success: true }
-})
+}, { requires: 'member' })
 
 export const DELETE = withAuthenticatedApi(async (request, auth) => {
   const flow = await readableFlow(flowIdOf(request), auth.organizationId, auth.dbUser.id)
@@ -215,4 +215,4 @@ export const DELETE = withAuthenticatedApi(async (request, auth) => {
   // Deleting a root cascades its replies via the parentId FK.
   await prisma.flowComment.delete({ where: { id: comment.id } })
   return { success: true }
-})
+}, { requires: 'member' })

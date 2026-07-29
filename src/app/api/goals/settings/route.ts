@@ -27,4 +27,4 @@ export const PATCH = withAuthenticatedApi(async (request, auth) => {
     data: { settings: { ...existing, ...input } },
   })
   return { success: true }
-})
+}, { requires: 'member' })

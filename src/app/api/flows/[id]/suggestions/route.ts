@@ -42,7 +42,7 @@ export const GET = withAuthenticatedApi(async (request, auth) => {
     select: { id: true, title: true, content: true },
   })
   return { success: true, suggestions: memories }
-})
+}, { requires: 'member' })
 
 export const PATCH = withAuthenticatedApi(async (request, auth) => {
   const flowId = await requireFlow(request, auth)
@@ -54,4 +54,4 @@ export const PATCH = withAuthenticatedApi(async (request, auth) => {
   })
   if (updated.count !== 1) throw new ApiError('Suggestion not found', 404, 'NOT_FOUND')
   return { success: true }
-})
+}, { requires: 'member' })

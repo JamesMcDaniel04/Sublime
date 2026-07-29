@@ -7,4 +7,4 @@ export const GET = withAuthenticatedApi(async (_request, auth) => ({
     organizationId: auth.organizationId,
     role: auth.dbUser.role,
   },
-}))
+}), { requires: 'member' })

@@ -21,4 +21,4 @@ export const GET = withAuthenticatedApi(async (_request, auth) => {
       isSelf: member.id === auth.dbUser.id,
     })),
   }
-})
+}, { requires: 'member' })

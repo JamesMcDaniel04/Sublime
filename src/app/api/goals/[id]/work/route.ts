@@ -158,4 +158,4 @@ export const GET = withAuthenticatedApi(async (request, auth) => {
     viewerId: auth.dbUser.id,
     viewerHasWork: openForViewer > 0,
   }
-})
+}, { requires: 'member' })

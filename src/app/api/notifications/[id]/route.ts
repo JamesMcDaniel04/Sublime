@@ -53,7 +53,7 @@ export const GET = withAuthenticatedApi(async (request, auth) => {
     },
     processes,
   }
-})
+}, { requires: 'member' })
 
 // DELETE /api/notifications/[id] — dismiss a notification. A user may delete
 // notifications addressed to them; org-wide broadcasts (userId null) are
@@ -72,4 +72,4 @@ export const DELETE = withAuthenticatedApi(async (request, auth) => {
   })
   if (!result.count) throw new ApiError('Notification not found', 404, 'NOT_FOUND')
   return { success: true }
-})
+}, { requires: 'member' })

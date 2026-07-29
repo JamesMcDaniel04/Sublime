@@ -90,4 +90,4 @@ export const PATCH = withAuthenticatedApi(async (request, auth) => {
     where: { id: current.id, organizationId: auth.organizationId },
   })
   return { item }
-})
+}, { requires: 'member' })

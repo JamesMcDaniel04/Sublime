@@ -127,7 +127,7 @@ export const GET = withAuthenticatedApi(async (request, auth) => {
       : null,
   }))
   return { success: true, contributions, impact }
-})
+}, { requires: 'member' })
 
 export const POST = withAuthenticatedApi(async (request, auth) => {
   const goalId = goalIdFrom(request.nextUrl.pathname)
@@ -191,7 +191,7 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
     context: { goalId, origin: 'manual' },
   })
   return { success: true, contribution }
-})
+}, { requires: 'member' })
 
 export const DELETE = withAuthenticatedApi(async (request, auth) => {
   const goalId = goalIdFrom(request.nextUrl.pathname)
@@ -209,7 +209,7 @@ export const DELETE = withAuthenticatedApi(async (request, auth) => {
     throw new ApiError('Contribution not found', 404, 'CONTRIBUTION_NOT_FOUND')
   }
   return { success: true }
-})
+}, { requires: 'member' })
 
 export const PATCH = withAuthenticatedApi(async (request, auth) => {
   const goalId = goalIdFrom(request.nextUrl.pathname)
@@ -270,4 +270,4 @@ export const PATCH = withAuthenticatedApi(async (request, auth) => {
     context: { goalId, seedKeyIfKnown: contribution.seedKey },
   })
   return { success: true }
-})
+}, { requires: 'member' })

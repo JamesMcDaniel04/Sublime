@@ -89,7 +89,7 @@ model User {
   email          String?
   name           String?
   imageUrl       String?
-  role           UserRole  @default(USER)
+  role           UserRole  @default(MEMBER)
   organizationId String?   @db.Uuid
   isActive       Boolean   @default(true)
   lastSeenAt     DateTime? @db.Timestamptz(6)
@@ -138,7 +138,7 @@ model OrganizationInvitation {
   id             String       @id @default(cuid())
   organizationId String       @db.Uuid
   email          String
-  role           UserRole     @default(USER)
+  role           UserRole     @default(MEMBER)
   invitedById    String?
   expiresAt      DateTime     @db.Timestamptz(6)
   acceptedAt     DateTime?    @db.Timestamptz(6)
@@ -1259,9 +1259,14 @@ enum Plan {
   ENTERPRISE
 }
 
+/// Workspace role. ADMIN adds org-goal authoring, workspace insights, member
+/// management, billing, and audited takeover of other members' work; MEMBER is
+/// everything else. Deliberately two values — billing sits with admins rather
+/// than a separate Owner role. Every org must keep at least one active ADMIN
+/// (enforced in src/lib/server/permissions.ts, not by the database).
 enum UserRole {
   ADMIN
-  USER
+  MEMBER
 }
 
 /// A measurable target. ownerUserId null = org goal (visible to the whole

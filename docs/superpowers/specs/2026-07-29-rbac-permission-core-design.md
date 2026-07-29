@@ -74,9 +74,16 @@ click.
 The first user in an `Organization` is `ADMIN`; every subsequent invitee
 defaults to `MEMBER` unless the inviting admin selects otherwise.
 
-> Implementation note: current bootstrap behavior in `src/app/api/bootstrap`
-> must be read and confirmed to match before this is relied upon. If it does
-> not already assign the creator, it is changed to.
+This already holds: `src/lib/supabase/auth-utils.ts` provisions a new user with
+`invitation?.role ?? 'ADMIN'`, so a workspace creator (who has no invitation)
+is an admin and an invitee takes the invited role. No change required.
+
+### 1.4 Effective role
+
+`auth-utils.ts` normalizes legacy platform users to `role: 'ADMIN'` at the auth
+boundary, so `dbUser.role` is already the **effective** role. `can()` consumes
+that value and does not re-derive legacy status, or legacy super-admins would
+silently lose access.
 
 ## 2. Permission core — `src/lib/server/permissions.ts`
 
@@ -147,9 +154,15 @@ Two gates, each landing in the file that already exists for its shape.
 | `BUSINESS` | Business | 25 |
 | `ENTERPRISE` | Enterprise | `UNLIMITED` |
 
-Enforced on goal **create** and on **reactivate**. The count considers active
-goals only, so archiving a goal frees a slot. Exceeding it returns 402 with the
-plan-upgrade code, consistent with the existing billing error shape.
+Enforced on goal **create** and on any transition back to `active` (unpause,
+un-archive) — without the second, pause/resume cycles walk past the cap, the
+same hole `assertSeatCapacity` already closes for deactivate/reactivate. The
+count considers `status = 'active'` goals only, so pausing or archiving frees a
+slot.
+
+Exceeding it throws `ApiError(403, 'PLAN_LIMIT')` via the existing
+`overLimitError()` helper in `src/lib/billing/enforce.ts` — matching every
+other capacity gate rather than introducing a second error shape.
 
 ### 3.2 Cross-goal view — `src/lib/billing/capabilities.ts`
 
@@ -280,10 +293,12 @@ One Prisma migration:
 
 ### 8.1 Backfill rule
 
-Every existing user is currently `USER`, so **no workspace has an admin
-today**. The backfill promotes **the earliest-created active user in each
-organization** — under the current bootstrap flow, that is the person who
-created the workspace.
+Most workspaces already have an admin: provisioning assigns `ADMIN` to a user
+who arrives without an invitation (§1.3). The backfill is therefore
+**conditional repair, not a blanket promotion** — for each organization with
+zero active `ADMIN` users, promote the earliest-created active user, which
+under the current bootstrap flow is the person who created the workspace.
+Organizations that already have an admin are left untouched.
 
 The migration asserts, after backfill, that every organization holding at least
 one active user also holds at least one `ADMIN`. If any organization fails that

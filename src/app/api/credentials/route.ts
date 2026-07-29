@@ -81,7 +81,7 @@ export const GET = withAuthenticatedApi(async (_request, auth) => {
       config: redactCredential(row.type, row.authConfig),
     })),
   }
-})
+}, { requires: 'member' })
 
 export const POST = withAuthenticatedApi(async (request, auth) => {
   const input = createSchema.parse(await request.json().catch(() => ({})))
@@ -127,4 +127,4 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
       config: redactCredential(row.type, row.authConfig),
     },
   }
-})
+}, { requires: 'member' })

@@ -84,4 +84,4 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
     userId: auth.dbUser.id,
   })
   return { success: true, draft: enrichedDraft, agentId: agent.id }
-})
+}, { requires: 'member' })

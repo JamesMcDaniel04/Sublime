@@ -40,4 +40,4 @@ export const GET = withAuthenticatedApi(async (request, auth) => {
     activities,
     nextCursor: hasMore ? activities.at(-1)?.id ?? null : null,
   }
-})
+}, { requires: 'member' })

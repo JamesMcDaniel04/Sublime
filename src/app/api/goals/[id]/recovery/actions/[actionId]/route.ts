@@ -80,4 +80,4 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
       recoveryActionId: action.id,
     },
   }
-})
+}, { requires: 'member' })

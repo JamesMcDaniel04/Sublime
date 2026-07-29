@@ -85,7 +85,7 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
   }
 
   return { success: true, status: nextStatus }
-})
+}, { requires: 'member' })
 
 // DELETE — remove a finished run from history (and its steps/events/messages).
 export const DELETE = withAuthenticatedApi(async (request, auth) => {
@@ -106,4 +106,4 @@ export const DELETE = withAuthenticatedApi(async (request, auth) => {
   }
 
   return { success: true }
-})
+}, { requires: 'member' })

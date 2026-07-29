@@ -32,7 +32,7 @@ export const GET = withAuthenticatedApi(async (request, auth) => {
     select: { nodeId: true, output: true, updatedAt: true },
   })
   return { success: true, pins }
-})
+}, { requires: 'member' })
 
 export const PUT = withAuthenticatedApi(async (request, auth) => {
   const id = flowIdFrom(request.nextUrl.pathname)
@@ -50,7 +50,7 @@ export const PUT = withAuthenticatedApi(async (request, auth) => {
     select: { nodeId: true, output: true, updatedAt: true },
   })
   return { success: true, pin }
-})
+}, { requires: 'member' })
 
 export const DELETE = withAuthenticatedApi(async (request, auth) => {
   const id = flowIdFrom(request.nextUrl.pathname)
@@ -61,4 +61,4 @@ export const DELETE = withAuthenticatedApi(async (request, auth) => {
     where: { flowId: id, nodeId, userId: auth.dbUser.id, organizationId: auth.organizationId },
   })
   return { success: true }
-})
+}, { requires: 'member' })

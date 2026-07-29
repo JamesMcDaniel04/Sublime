@@ -49,10 +49,9 @@ export const GET = withAuthenticatedApi(async (_request, auth) => {
     select: LIST_SELECT,
   })
   return { success: true, connections: rows.map(redactPostgresConnection) }
-})
+}, { requires: 'member' })
 
 export const POST = withAuthenticatedApi(async (request, auth) => {
-  if (auth.dbUser.role !== 'ADMIN') throw new ApiError('Admin access required', 403, 'FORBIDDEN')
   const input = createSchema.parse(await request.json().catch(() => ({})))
 
   // Validate the connection string BEFORE storing it: buildClientConfig is the
@@ -114,4 +113,4 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
     success: true,
     connection: { ...redactPostgresConnection(row), status: verification.status, lastError: verification.error ?? null },
   }
-})
+}, { requires: 'settings:workspace' })

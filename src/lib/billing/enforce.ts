@@ -99,6 +99,29 @@ export async function assertIntegrationCapacity(organizationId: string): Promise
   }
 }
 
+/**
+ * Active-goal cap. Called on goal CREATE and on any transition back to
+ * 'active' (unpause, un-archive) — otherwise pause/resume cycles walk straight
+ * past the cap, the same hole assertSeatCapacity closes for deactivate/reactivate.
+ *
+ * Only 'active' goals consume a slot, so archiving or pausing frees one. A
+ * downgrade therefore never destroys goals: an Individual workspace holding
+ * four goals from its Team days keeps all four running, and is simply blocked
+ * from adding a fifth. Deleting customer work on downgrade is not something we
+ * do.
+ *
+ * `excludeGoalId` skips the row being updated so an already-active goal saved
+ * without a status change is not counted against itself.
+ */
+export async function assertGoalCapacity(organizationId: string, excludeGoalId?: string): Promise<void> {
+  const limits = await orgLimits(organizationId)
+  if (!Number.isFinite(limits.maxActiveGoals)) return
+  const count = await prisma.goal.count({
+    where: { organizationId, status: 'active', ...(excludeGoalId ? { id: { not: excludeGoalId } } : {}) },
+  })
+  if (count >= limits.maxActiveGoals) throw overLimitError('active goals', limits.maxActiveGoals, limits.label)
+}
+
 export async function assertSeatCapacity(organizationId: string): Promise<void> {
   const limits = await orgLimits(organizationId)
   if (!Number.isFinite(limits.seats)) return

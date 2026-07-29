@@ -136,7 +136,7 @@ export const GET = withAuthenticatedApi(async (request, auth) => {
     take: 100,
   })
   return { success: true, sessionId, messages: rows.reverse().map(serializeMessage) }
-})
+}, { requires: 'member' })
 
 export const POST = withAuthenticatedApi(async (request, auth) => {
   if (!process.env.ANTHROPIC_API_KEY && !qwenConfigured()) {
@@ -314,7 +314,7 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
     sessionId: session.id,
     messages: [serializeMessage(userMessage), serializeMessage(assistantMessage)],
   }
-})
+}, { requires: 'member' })
 
 // Records the run the client started off an execute action (or a created-agent
 // Run click) so the transcript still shows it after a reload.
@@ -342,4 +342,4 @@ export const PATCH = withAuthenticatedApi(async (request, auth) => {
     data: { metadata: { ...metadata, executedRun } as unknown as Prisma.InputJsonValue },
   })
   return { success: true, message: serializeMessage(updated) }
-})
+}, { requires: 'member' })

@@ -66,7 +66,7 @@ export const GET = withAuthenticatedApi(async (request, auth) => {
     }),
   ])
   return { success: true, memories, openSuggestions }
-})
+}, { requires: 'member' })
 
 // PATCH — dismiss, accept, or restore a suggestion.
 export const PATCH = withAuthenticatedApi(async (request, auth) => {
@@ -78,7 +78,7 @@ export const PATCH = withAuthenticatedApi(async (request, auth) => {
   })
   if (updated.count !== 1) throw new ApiError('Memory not found', 404, 'NOT_FOUND')
   return { success: true }
-})
+}, { requires: 'member' })
 
 // PUT — edit a saved memory's content/question/title (e.g. correct an account
 // name given to a blocked run, before it auto-answers future runs). Re-embeds
@@ -106,7 +106,7 @@ export const PUT = withAuthenticatedApi(async (request, auth) => {
   })
   if (!ok) throw new ApiError('Memory not found', 404, 'NOT_FOUND')
   return { success: true }
-})
+}, { requires: 'member' })
 
 // DELETE — remove one memory, or all of this agent's memories.
 export const DELETE = withAuthenticatedApi(async (request, auth) => {
@@ -121,4 +121,4 @@ export const DELETE = withAuthenticatedApi(async (request, auth) => {
     },
   })
   return { success: true, deleted: deleted.count }
-})
+}, { requires: 'member' })

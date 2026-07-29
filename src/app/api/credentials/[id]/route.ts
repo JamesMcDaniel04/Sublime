@@ -52,7 +52,7 @@ export const GET = withAuthenticatedApi(async (request, auth) => {
   const id = idFrom(request.nextUrl.pathname)
   if (!id) throw new ApiError('Credential id is required')
   return { success: true, credential: shape(await ownedCredential(id, auth.organizationId, auth.dbUser.id)) }
-})
+}, { requires: 'member' })
 
 export const PUT = withAuthenticatedApi(async (request, auth) => {
   const id = idFrom(request.nextUrl.pathname)
@@ -102,7 +102,7 @@ export const PUT = withAuthenticatedApi(async (request, auth) => {
     detail: { name: input.name ?? existing.name, type },
   })
   return { success: true, credential: shape(await ownedCredential(id, auth.organizationId, auth.dbUser.id)) }
-})
+}, { requires: 'member' })
 
 export const DELETE = withAuthenticatedApi(async (request, auth) => {
   const id = idFrom(request.nextUrl.pathname)
@@ -119,4 +119,4 @@ export const DELETE = withAuthenticatedApi(async (request, auth) => {
     detail: { name: existing.name, type: existing.type },
   })
   return { success: true }
-})
+}, { requires: 'member' })

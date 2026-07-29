@@ -34,7 +34,7 @@ export const DELETE = withAuthenticatedApi(async (request, auth) => {
 
   await prisma.flowRun.delete({ where: { id: run.id, organizationId: auth.organizationId } })
   return { success: true }
-})
+}, { requires: 'member' })
 
 // PATCH /api/flows/[id]/runs/[runId] { action: 'stop' } — stop a live run.
 //
@@ -90,4 +90,4 @@ export const PATCH = withAuthenticatedApi(async (request, auth) => {
   }
 
   throw new ApiError('Only running or waiting runs can be stopped.', 409, 'RUN_SETTLED')
-})
+}, { requires: 'member' })

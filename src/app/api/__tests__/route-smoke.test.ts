@@ -18,7 +18,10 @@ if (TEST_DB) {
   before(async () => {
     ;({ prisma } = await import('@/lib/prisma'))
     const { seedTestOrg, installTestAuth } = await import('@/lib/server/__tests__/test-auth')
-    seeded = await seedTestOrg(prisma)
+    // Stated rather than inherited: this suite drives the whole authenticated
+    // GET surface, including admin-capability routes (audit export,
+    // intelligence health), so the role it runs as is load-bearing.
+    seeded = await seedTestOrg(prisma, { role: 'ADMIN' })
     installTestAuth(seeded.auth)
     const agent = await prisma.agentTask.create({
       data: { description: 'a', objective: 'o', status: 'ACTIVE', agentType: 'assistant', organizationId: seeded.organizationId, userId: seeded.userId },

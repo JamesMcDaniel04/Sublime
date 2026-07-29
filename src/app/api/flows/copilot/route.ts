@@ -49,4 +49,4 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
       graph: emptyGraph(),
     }
   }
-})
+}, { requires: 'member' })

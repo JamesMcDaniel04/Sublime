@@ -187,4 +187,4 @@ export const PUT = withAuthenticatedApi(async (request, auth) => {
     compositionState: saved?.compositionState ?? null,
     riskLevel: saved?.riskLevel ?? null,
   }
-})
+}, { requires: 'member' })

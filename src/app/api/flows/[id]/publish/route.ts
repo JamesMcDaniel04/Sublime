@@ -46,4 +46,4 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
   const flow = await prisma.flow.findFirst({ where: { id, organizationId: auth.organizationId } })
   if (!flow) throw new ApiError('Flow not found after update', 404, 'NOT_FOUND')
   return { success: true, flow: serializeFlow(flow) }
-})
+}, { requires: 'member' })

@@ -68,7 +68,7 @@ export const GET = withAuthenticatedApi(async (_request, auth) => {
   )
 
   return { success: true, learnings }
-})
+}, { requires: 'member' })
 
 const deleteBodySchema = z.object({ id: z.string().min(1) })
 
@@ -91,4 +91,4 @@ export const DELETE = withAuthenticatedApi(async (request, auth) => {
   if (updated.count !== 1) throw new ApiError('Learning not found', 404, 'NOT_FOUND')
 
   return { success: true }
-})
+}, { requires: 'member' })

@@ -26,7 +26,7 @@ export const GET = withAuthenticatedApi(async (_request, auth) => {
     activeOrganizationId: auth.organizationId,
     organizations: organization ? [serializeOrganization(organization)] : [],
   }
-})
+}, { requires: 'member' })
 
 // Workspace logo: a small image data URL (the client resizes to 128px before
 // uploading), stored inline so no external object storage is needed.
@@ -62,7 +62,6 @@ const patchSchema = z.object({
 })
 
 export const PATCH = withAuthenticatedApi(async (request, auth) => {
-  if (auth.dbUser.role !== 'ADMIN') throw new ApiError('Admin access required', 403, 'FORBIDDEN')
   const { name, logoUrl, settings } = patchSchema.parse(await request.json())
 
   let mergedSettings: Record<string, unknown> | undefined
@@ -91,7 +90,7 @@ export const PATCH = withAuthenticatedApi(async (request, auth) => {
     select: ORG_SELECT,
   })
   return { success: true, organization: serializeOrganization(organization) }
-})
+}, { requires: 'settings:workspace' })
 
 // Delete the whole workspace: external resources (Nango connections, graph
 // store) are deprovisioned best-effort, then the org row's FK cascades remove
@@ -99,7 +98,6 @@ export const PATCH = withAuthenticatedApi(async (request, auth) => {
 // re-provisions a fresh personal workspace. Admin-only and irreversible; the
 // client confirms with a typed workspace name before calling.
 export const DELETE = withAuthenticatedApi(async (request, auth) => {
-  if (auth.dbUser.role !== 'ADMIN') throw new ApiError('Admin access required', 403, 'FORBIDDEN')
   const { confirmName } = z.object({ confirmName: z.string() }).parse(await request.json())
   const organization = await prisma.organization.findUnique({
     where: { id: auth.organizationId },
@@ -123,4 +121,4 @@ export const DELETE = withAuthenticatedApi(async (request, auth) => {
   const { invalidateDbUserCache } = await import('@/lib/supabase/auth-utils')
   for (const member of members) invalidateDbUserCache(member.supabaseId)
   return { success: true }
-})
+}, { requires: 'settings:workspace' })

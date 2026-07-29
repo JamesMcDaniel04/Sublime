@@ -3,6 +3,7 @@ import { ZodError } from 'zod'
 import { apiLogger } from '@/lib/logger'
 import { captureError } from '@/lib/observability/sentry'
 import { AuthContextError, requireAuthContext, type AuthContext } from './auth'
+import { denialReason, type Capability } from './permissions'
 
 export class ApiError extends Error {
   constructor(
@@ -23,7 +24,40 @@ type AuthenticatedHandler = (
   auth: AuthContext,
 ) => Promise<Response | Record<string, unknown>>
 
-export function withAuthenticatedApi(handler: AuthenticatedHandler) {
+/**
+ * What a route requires beyond a valid session.
+ *
+ * `'member'` — any authenticated member of the workspace. The common case, but
+ * it must be TYPED: the argument is mandatory, so a new route cannot inherit
+ * permissiveness by simply not thinking about it. That mandatory-ness is the
+ * whole point; making it optional would restore the failure mode this replaced.
+ *
+ * Routes that authenticate by some OTHER mechanism (Stripe signature, cron
+ * secret, OAuth state, trigger token) do not use this wrapper at all and are
+ * listed in src/app/api/__tests__/route-permissions.test.ts.
+ */
+export type RouteAccess = { requires: 'member' | Capability }
+
+/**
+ * Throws unless the actor holds what the route declared.
+ *
+ * Uses denialReason() rather than can() so the message names the ACTUAL
+ * blocker — an admin refused for want of a higher tier must not be told they
+ * need to be an admin, and a member refused for want of the role must not be
+ * sent to the billing page.
+ */
+function assertCapability(auth: AuthContext, access: RouteAccess): void {
+  if (access.requires === 'member') return
+  const denied = denialReason(auth.actor, access.requires)
+  if (denied === 'plan') {
+    throw new AuthContextError('Your plan does not include this. Upgrade in Settings → Billing.', 403, 'PLAN_LIMIT')
+  }
+  if (denied === 'role') {
+    throw new AuthContextError('Admin access required', 403, 'FORBIDDEN')
+  }
+}
+
+export function withAuthenticatedApi(handler: AuthenticatedHandler, access: RouteAccess) {
   return async (request: NextRequest): Promise<Response> => {
     const startedAt = performance.now()
     let authFinishedAt = startedAt
@@ -43,6 +77,9 @@ export function withAuthenticatedApi(handler: AuthenticatedHandler) {
     try {
       const auth = await requireAuthContext()
       authFinishedAt = performance.now()
+
+      assertCapability(auth, access)
+
       const result = await handler(request, auth)
 
       return withTiming(result instanceof Response ? result : NextResponse.json(result))

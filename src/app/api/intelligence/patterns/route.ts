@@ -50,7 +50,7 @@ export const GET = withAuthenticatedApi(async (_request, auth) => {
       eligible: isPatternEligible(pattern, firstEvent?.occurredAt ?? null),
     })),
   }
-})
+}, { requires: 'member' })
 
 // Dismiss one pattern by slug. Status 'dismissed' is load-bearing: the
 // inference job's similarity check suppresses lookalike patterns from then
@@ -63,4 +63,4 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
   })
   if (result.count === 0) throw new ApiError('Pattern not found', 404, 'NOT_FOUND')
   return { success: true }
-})
+}, { requires: 'member' })

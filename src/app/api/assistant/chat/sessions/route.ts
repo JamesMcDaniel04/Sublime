@@ -22,4 +22,4 @@ export const GET = withAuthenticatedApi(async (_request, auth) => {
         messageCount: session._count.messages,
       })),
   }
-})
+}, { requires: 'member' })

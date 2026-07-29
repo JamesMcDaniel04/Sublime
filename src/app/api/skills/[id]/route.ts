@@ -46,4 +46,4 @@ export const GET = withAuthenticatedApi(async (request, auth) => {
 
   const templates = recommendTemplatesForSkill(skill, SEED_CATALOGUE, 4).map(serializeSeed)
   return { success: true, skill, templates }
-})
+}, { requires: 'member' })

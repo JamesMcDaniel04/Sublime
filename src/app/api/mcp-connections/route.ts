@@ -103,7 +103,7 @@ export const GET = withAuthenticatedApi(async (_request, auth) => {
     success: true,
     connections: connections.map(serializeConnection),
   }
-})
+}, { requires: 'member' })
 
 /**
  * A referenced credential must belong to the caller before it is stored: the
@@ -174,7 +174,7 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
   }
 
   return { success: true, connection: serializeConnection(connection) }
-})
+}, { requires: 'member' })
 
 // ── PUT — update a connection ─────────────────────────────────────────────
 
@@ -237,7 +237,7 @@ export const PUT = withAuthenticatedApi(async (request, auth) => {
   }
 
   return { success: true, connection: serializeConnection(connection) }
-})
+}, { requires: 'member' })
 
 // ── DELETE — remove a connection ──────────────────────────────────────────
 
@@ -280,4 +280,4 @@ export const DELETE = withAuthenticatedApi(async (request, auth) => {
   )
 
   return { success: true }
-})
+}, { requires: 'member' })

@@ -24,7 +24,7 @@ export function useAuth() {
       setContext({
         userId: user.id,
         organizationId: metadataOrganization,
-        role: user.user_metadata?.role || 'USER',
+        role: user.user_metadata?.role || 'MEMBER',
       })
       return
     }

@@ -6,6 +6,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { invalidateDbUserCache } from '@/lib/supabase/auth-utils'
 import { ApiError } from '@/lib/server/api-handler'
 import { teardownOrganization } from '@/lib/org-teardown'
+import { assertNotLastAdmin } from '@/lib/server/last-admin'
 
 const updateSchema = z.object({
   name: z.string().trim().min(1).max(100),
@@ -23,7 +24,7 @@ export const GET = withAuthenticatedApi(async (_request, auth) => ({
     imageUrl: auth.dbUser.imageUrl,
     role: auth.dbUser.role,
   },
-}))
+}), { requires: 'member' })
 
 export const PATCH = withAuthenticatedApi(async (request, auth) => {
   const input = updateSchema.parse(await request.json())
@@ -34,18 +35,19 @@ export const PATCH = withAuthenticatedApi(async (request, auth) => {
   })
   void recordAudit({ organizationId: auth.organizationId, actorUserId: auth.dbUser.id, action: 'user.profile.updated', resourceType: 'user', resourceId: auth.dbUser.id })
   return { success: true, profile: { ...user, role: auth.dbUser.role } }
-})
+}, { requires: 'member' })
 
 export const DELETE = withAuthenticatedApi(async (request, auth) => {
   const input = z.object({ confirmation: z.literal('DELETE') }).parse(await request.json())
   void input
-  const [memberCount, adminCount] = await Promise.all([
-    prisma.user.count({ where: { organizationId: auth.organizationId, isActive: true } }),
-    prisma.user.count({ where: { organizationId: auth.organizationId, isActive: true, role: 'ADMIN' } }),
-  ])
-  if (memberCount > 1 && auth.dbUser.role === 'ADMIN' && adminCount <= 1) {
-    throw new ApiError('Promote another administrator before deleting your account', 409, 'LAST_ADMIN')
-  }
+  const memberCount = await prisma.user.count({ where: { organizationId: auth.organizationId, isActive: true } })
+  // Sole member leaving takes the whole workspace with them, so there is
+  // nothing left to administer — allowWhenSoleMember covers that. Otherwise
+  // the last admin must promote a successor first.
+  await assertNotLastAdmin(auth.organizationId, auth.dbUser.id, {
+    allowWhenSoleMember: true,
+    message: 'Promote another administrator before deleting your account',
+  })
   if (memberCount === 1) await teardownOrganization(auth.organizationId)
   else await prisma.user.delete({ where: { id: auth.dbUser.id, organizationId: auth.organizationId } })
   // Bust the auth-path cache before the identity-provider call: even if that
@@ -54,4 +56,4 @@ export const DELETE = withAuthenticatedApi(async (request, auth) => {
   const { error } = await createAdminClient().auth.admin.deleteUser(auth.user.id)
   if (error) throw new ApiError('Account data was removed, but the identity provider cleanup failed', 502, 'AUTH_DELETE_FAILED', error)
   return { success: true }
-})
+}, { requires: 'member' })

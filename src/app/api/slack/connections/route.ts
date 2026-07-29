@@ -16,11 +16,10 @@ export const GET = withAuthenticatedApi(async (_request, auth) => {
     orderBy: { createdAt: 'desc' },
   })
   return { success: true, connections: connections.map(serializeSlackConnection) }
-})
+}, { requires: 'member' })
 
 // ── POST — create/refresh a binding ───────────────────────────────────────
 export const POST = withAuthenticatedApi(async (request, auth) => {
-  if (auth.dbUser.role !== 'ADMIN') throw new ApiError('Admin access required', 403, 'FORBIDDEN')
   const data = createSchema.parse(await request.json())
   // Verify the token against Slack and capture the workspace identity —
   // a bad token never reaches the database.
@@ -43,11 +42,10 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
     update: secrets,
   })
   return { success: true, connection: serializeSlackConnection(connection) }
-})
+}, { requires: 'settings:workspace' })
 
 // ── DELETE — remove a binding (and its thread sessions) ──────────────────
 export const DELETE = withAuthenticatedApi(async (request, auth) => {
-  if (auth.dbUser.role !== 'ADMIN') throw new ApiError('Admin access required', 403, 'FORBIDDEN')
   const url = new URL(request.url)
   const id = url.searchParams.get('id') || z.object({ id: z.string().min(1) }).parse(await request.json()).id
   const existing = await prisma.slackWorkspaceConnection.findFirst({ where: { id, organizationId: auth.organizationId } })
@@ -55,4 +53,4 @@ export const DELETE = withAuthenticatedApi(async (request, auth) => {
   await prisma.slackThreadSession.deleteMany({ where: { organizationId: auth.organizationId, bindingId: existing.id } })
   await prisma.slackWorkspaceConnection.delete({ where: { id: existing.id, organizationId: auth.organizationId } })
   return { success: true }
-})
+}, { requires: 'settings:workspace' })

@@ -50,4 +50,4 @@ export const DELETE = withAuthenticatedApi(async (request, auth) => {
   })
 
   return { ok: true }
-})
+}, { requires: 'member' })

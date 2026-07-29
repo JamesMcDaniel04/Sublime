@@ -25,7 +25,7 @@ export const GET = withAuthenticatedApi(async (_request, auth) => {
         }
       : null,
   }
-})
+}, { requires: 'member' })
 
 // 1-click adoption: approving a suggested draft flow can publish + activate
 // it in the same action (same validate→publish contract as the editor). A
@@ -119,4 +119,4 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
     success: true,
     ...(activation ? { activated: activation.activated, ...(activation.reason ? { activationError: activation.reason } : {}) } : {}),
   }
-})
+}, { requires: 'member' })

@@ -1,5 +1,5 @@
 import { prisma } from '@/lib/prisma'
-import { ApiError, withAuthenticatedApi } from '@/lib/server/api-handler'
+import { withAuthenticatedApi } from '@/lib/server/api-handler'
 import {
   countActiveConnections,
   countRecentUsageEvents,
@@ -15,7 +15,6 @@ const WINDOW_DAYS = 90
 // suggestion funnel (open/accepted/dismissed + adopted), pattern inventory,
 // and time-to-value markers. Org-scoped — never a cross-org view.
 export const GET = withAuthenticatedApi(async (_request, auth) => {
-  if (auth.dbUser.role !== 'ADMIN') throw new ApiError('Admin access required', 403, 'FORBIDDEN')
   const organizationId = auth.organizationId
   const since = new Date(Date.now() - WINDOW_DAYS * 24 * 60 * 60 * 1000)
 
@@ -65,4 +64,4 @@ export const GET = withAuthenticatedApi(async (_request, auth) => {
       },
     },
   }
-})
+}, { requires: 'insights:workspace' })

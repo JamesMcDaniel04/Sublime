@@ -34,4 +34,4 @@ export const GET = withAuthenticatedApi(async (_request, auth) => {
       },
     },
   }
-})
+}, { requires: 'member' })

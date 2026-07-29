@@ -39,7 +39,6 @@ const patchSchema = z.object({
 })
 
 export const PATCH = withAuthenticatedApi(async (request, auth) => {
-  if (auth.dbUser.role !== 'ADMIN') throw new ApiError('Admin access required', 403, 'FORBIDDEN')
   const id = idFrom(request.nextUrl.pathname)
   const input = patchSchema.parse(await request.json().catch(() => ({})))
 
@@ -110,10 +109,9 @@ export const PATCH = withAuthenticatedApi(async (request, auth) => {
       ? { ...redactPostgresConnection(row), status: verification.status, lastError: verification.error ?? null }
       : redactPostgresConnection(row),
   }
-})
+}, { requires: 'settings:workspace' })
 
 export const DELETE = withAuthenticatedApi(async (request, auth) => {
-  if (auth.dbUser.role !== 'ADMIN') throw new ApiError('Admin access required', 403, 'FORBIDDEN')
   const id = idFrom(request.nextUrl.pathname)
 
   const existing = await prisma.postgresConnection.findFirst({
@@ -141,4 +139,4 @@ export const DELETE = withAuthenticatedApi(async (request, auth) => {
   afterResponse(() => purgeConnectionLearnings({ organizationId, plane: 'postgres', connectionRef: existing.id }))
 
   return { success: true }
-})
+}, { requires: 'settings:workspace' })

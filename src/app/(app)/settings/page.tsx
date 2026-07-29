@@ -44,8 +44,8 @@ async function fileToAvatarDataUrl(file: File): Promise<string> {
   throw new Error('Could not shrink that image enough — try a simpler one.')
 }
 type Factor = { id: string; friendly_name?: string; status: string }
-type Member = { id: string; email: string | null; name: string | null; role: 'ADMIN' | 'USER'; isActive: boolean }
-type Invitation = { id: string; email: string; role: 'ADMIN' | 'USER'; expiresAt: string; createdAt: string }
+type Member = { id: string; email: string | null; name: string | null; role: 'ADMIN' | 'MEMBER'; isActive: boolean }
+type Invitation = { id: string; email: string; role: 'ADMIN' | 'MEMBER'; expiresAt: string; createdAt: string }
 type OrgSettings = {
   disableConnectionScans?: boolean
   knowledgeCaptureEnabled?: boolean
@@ -262,7 +262,7 @@ export default function SettingsPage() {
   }
   async function inviteMember(event: React.FormEvent) {
     event.preventDefault()
-    const response = await fetch('/api/settings/members', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: inviteEmail, role: 'USER' }) })
+    const response = await fetch('/api/settings/members', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: inviteEmail, role: 'MEMBER' }) })
     const data = await response.json(); if (!response.ok) return toast.error(data.error || 'Could not send invitation')
     setInviteEmail(''); await load(); toast.success('Invitation sent')
   }
@@ -350,7 +350,7 @@ export default function SettingsPage() {
       <TabsContent value="members" className="mt-6"><Card className="max-w-3xl"><CardHeader><CardTitle>Workspace members</CardTitle></CardHeader><CardContent className="space-y-4">
         {profile?.role === 'ADMIN' ? <form className="flex flex-col gap-3 sm:flex-row" onSubmit={inviteMember}><Input type="email" placeholder="colleague@example.com" value={inviteEmail} onChange={(e) => setInviteEmail(e.target.value)} required /><Button type="submit">Invite</Button></form> : <p className="text-sm text-muted-foreground">Only workspace admins can invite or manage members.</p>}
         {invitations.length > 0 && <div className="space-y-2"><p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Pending invitations</p>{invitations.map((invitation) => <div key={invitation.id} className="flex flex-wrap items-center gap-3 rounded-md border border-dashed p-3"><div className="min-w-0 flex-1"><p className="truncate text-sm font-medium">{invitation.email}</p><p className="text-xs text-muted-foreground">{invitation.role} · expires {new Date(invitation.expiresAt).toLocaleDateString()}</p></div>{profile?.role === 'ADMIN' && <Button variant="outline" size="sm" onClick={() => revokeInvitation(invitation)}>Revoke</Button>}</div>)}</div>}
-        {members.map((member) => <div key={member.id} className="flex flex-wrap items-center gap-3 rounded-md border p-3"><div className="min-w-0 flex-1"><p className="truncate text-sm font-medium">{member.name || member.email}</p><p className="truncate text-xs text-muted-foreground">{member.email}</p></div>{profile?.role === 'ADMIN' ? <><Button variant="outline" onClick={() => updateMember(member, { role: member.role === 'ADMIN' ? 'USER' : 'ADMIN' })}>{member.role}</Button><Button variant="outline" onClick={() => updateMember(member, { isActive: !member.isActive })}>{member.isActive ? 'Suspend' : 'Reactivate'}</Button></> : <span className="text-xs text-muted-foreground">{member.role}</span>}</div>)}
+        {members.map((member) => <div key={member.id} className="flex flex-wrap items-center gap-3 rounded-md border p-3"><div className="min-w-0 flex-1"><p className="truncate text-sm font-medium">{member.name || member.email}</p><p className="truncate text-xs text-muted-foreground">{member.email}</p></div>{profile?.role === 'ADMIN' ? <><Button variant="outline" onClick={() => updateMember(member, { role: member.role === 'ADMIN' ? 'MEMBER' : 'ADMIN' })}>{member.role}</Button><Button variant="outline" onClick={() => updateMember(member, { isActive: !member.isActive })}>{member.isActive ? 'Suspend' : 'Reactivate'}</Button></> : <span className="text-xs text-muted-foreground">{member.role}</span>}</div>)}
       </CardContent></Card></TabsContent>
       <TabsContent value="workspace" className="mt-6">
         <Card className="mb-6 max-w-2xl">

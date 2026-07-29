@@ -43,4 +43,4 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
     data: { trigger: withTriggerSecret(trigger, secret) },
   })
   return { ...base, hasSecret: true, secret }
-})
+}, { requires: 'member' })

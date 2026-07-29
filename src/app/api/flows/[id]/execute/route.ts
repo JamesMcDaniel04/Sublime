@@ -94,4 +94,4 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
   }, { background: true })
   const run = 'queued' in result ? { flowRunId: result.flowRunId, status: 'queued', output: null } : result
   return { success: true, run }
-})
+}, { requires: 'member' })

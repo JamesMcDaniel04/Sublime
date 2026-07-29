@@ -67,4 +67,4 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
     context: { imported: rows.length, skipped: skipped.length },
   })
   return { success: true, imported: rows.length, skipped }
-})
+}, { requires: 'member' })

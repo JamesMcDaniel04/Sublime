@@ -83,7 +83,7 @@ export const GET = withAuthenticatedApi(async (request, auth) => {
       updatedAt: doc.updatedAt,
     })),
   }
-})
+}, { requires: 'member' })
 
 export const DELETE = withAuthenticatedApi(async (request, auth) => {
   const { documentId } = z.object({ documentId: z.string().min(1) }).parse(await request.json())
@@ -96,4 +96,4 @@ export const DELETE = withAuthenticatedApi(async (request, auth) => {
   if (!canDelete) throw new ApiError('You cannot delete this knowledge document', 403, 'FORBIDDEN')
   await prisma.knowledgeDocument.delete({ where: { id: doc.id, organizationId: auth.organizationId } })
   return { success: true }
-})
+}, { requires: 'member' })

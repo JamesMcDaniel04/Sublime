@@ -10,6 +10,7 @@ import { capabilityForProviderConfigKey, capabilitiesToPurgeOnDisconnect, type D
 import { triggerAutoBackfills } from '@/lib/activity/auto-backfill'
 import { fromNangoProviderKey } from '@/lib/connectors/registry'
 import { apiLogger } from '@/lib/logger'
+import { recordUserEvent } from '@/lib/behavior/record-event'
 import type { AuthContext } from '@/lib/server/auth'
 import { GOOGLE_NATIVE_PROVIDER, mirroredConnectionStatus, type ConnectionStatus } from '@/lib/server/nango-status'
 
@@ -150,6 +151,17 @@ async function reconcileNangoConnectionStatus(auth: AuthContext) {
     where: { organizationId: auth.organizationId, userId: auth.dbUser.id, connectionId: { notIn: seen }, ...notNative },
     select: { providerConfigKey: true },
   })
+  // A connector that vanished outside the explicit DELETE route (removed in
+  // the Nango dashboard, expired) is still a removal. Emitted once per actual
+  // disappearance — the rows are deleted immediately below, so a repeated
+  // status poll cannot re-emit it.
+  for (const row of stale) {
+    await recordUserEvent({
+      organizationId: auth.organizationId, userId: auth.dbUser.id,
+      kind: 'connection_removed', resourceType: 'connection', resourceId: row.providerConfigKey,
+      context: { provider: row.providerConfigKey, plane: 'nango', reason: 'vanished' },
+    })
+  }
   const staleCapabilities = [
     ...new Set(stale.map((row) => capabilityForProviderConfigKey(row.providerConfigKey)).filter((c): c is DeliveryCapability => Boolean(c))),
   ]
@@ -240,4 +252,4 @@ export const GET = withAuthenticatedApi(async (request, auth) => {
     nativeGoogle: googleOAuthConfigured(),
     mirrored: true,
   }
-})
+}, { requires: 'member' })

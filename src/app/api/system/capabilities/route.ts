@@ -85,4 +85,4 @@ export const GET = withAuthenticatedApi(async (_request, auth) => {
     },
   ]
   return { success: true, capabilities }
-})
+}, { requires: 'member' })

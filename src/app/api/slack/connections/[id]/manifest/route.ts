@@ -27,4 +27,4 @@ export const GET = withAuthenticatedApi(async (request, auth) => {
     commands,
   })
   return { success: true, manifest }
-})
+}, { requires: 'member' })

@@ -48,4 +48,4 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
       error,
     )
   }
-})
+}, { requires: 'member' })

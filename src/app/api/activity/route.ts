@@ -48,4 +48,4 @@ export const GET = withAuthenticatedApi(async (request, auth) => {
     events,
     nextCursor: events.length === query.limit ? events[events.length - 1].id : null,
   }
-})
+}, { requires: 'member' })

@@ -95,4 +95,4 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
     }
     return { success: true, executionId: execution.id, status: 'pending' }
   }
-})
+}, { requires: 'member' })

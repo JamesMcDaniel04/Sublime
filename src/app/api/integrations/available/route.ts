@@ -90,4 +90,4 @@ export const GET = withAuthenticatedApi(async (_request, auth) => {
     tools,
     connections: connections.map((c) => ({ id: c.id, name: c.name })),
   }
-})
+}, { requires: 'member' })

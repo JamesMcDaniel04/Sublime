@@ -180,4 +180,4 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
       'Content-Disposition': `attachment; filename="${slug}${chosen.suffix}.json"`,
     },
   })
-})
+}, { requires: 'member' })

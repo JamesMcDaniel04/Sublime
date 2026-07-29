@@ -20,4 +20,4 @@ export const GET = withAuthenticatedApi(async () => ({
     },
     Math.floor(Date.now() / 1000),
   ),
-}))
+}), { requires: 'member' })

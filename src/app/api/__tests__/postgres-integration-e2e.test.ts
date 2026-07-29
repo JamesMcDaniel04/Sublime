@@ -225,7 +225,9 @@ if (TEST_DB) {
 
   test('a non-admin cannot connect a database', async () => {
     const { seedTestOrg, installTestAuth } = await import('@/lib/server/__tests__/test-auth')
-    const member = await seedTestOrg(prisma) // seeded users are not ADMIN
+    // Explicitly MEMBER: seedTestOrg defaults to ADMIN (matching how production
+    // provisions a workspace creator), so a refusal test must say what it means.
+    const member = await seedTestOrg(prisma, { role: 'MEMBER' })
     try {
       installTestAuth(member.auth)
       const { POST } = await import('../postgres/connections/route')

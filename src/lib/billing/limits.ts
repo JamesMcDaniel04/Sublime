@@ -22,6 +22,12 @@ export type PlanLimits = {
   maxIntegrations: number
   /** Number of distinct non-general specialist areas the workspace may use. */
   maxSpecialistAreas: number
+  /**
+   * Active goals the workspace may hold. Counts ACTIVE goals only, so
+   * archiving frees a slot. A downgrade never archives or deletes goals over
+   * the cap — it only blocks creating new ones (see assertGoalCapacity).
+   */
+  maxActiveGoals: number
 }
 
 const INDIVIDUAL_LIMITS: PlanLimits = {
@@ -32,6 +38,7 @@ const INDIVIDUAL_LIMITS: PlanLimits = {
   maxFlows: 5,
   maxIntegrations: UNLIMITED,
   maxSpecialistAreas: 1,
+  maxActiveGoals: 1,
 }
 
 export const PLAN_LIMITS: Record<Plan, PlanLimits> = {
@@ -47,6 +54,7 @@ export const PLAN_LIMITS: Record<Plan, PlanLimits> = {
     maxFlows: 25,
     maxIntegrations: UNLIMITED,
     maxSpecialistAreas: UNLIMITED,
+    maxActiveGoals: 5,
   },
   [Plan.BUSINESS]: {
     label: 'Business',
@@ -56,6 +64,7 @@ export const PLAN_LIMITS: Record<Plan, PlanLimits> = {
     maxFlows: UNLIMITED,
     maxIntegrations: UNLIMITED,
     maxSpecialistAreas: UNLIMITED,
+    maxActiveGoals: 25,
   },
   [Plan.ENTERPRISE]: {
     label: 'Enterprise',
@@ -65,6 +74,7 @@ export const PLAN_LIMITS: Record<Plan, PlanLimits> = {
     maxFlows: UNLIMITED,
     maxIntegrations: UNLIMITED,
     maxSpecialistAreas: UNLIMITED,
+    maxActiveGoals: UNLIMITED,
   },
 }
 

@@ -39,7 +39,7 @@ export const GET = withAuthenticatedApi(async (request, auth) => {
     select: { id: true, value: true, capturedAt: true, origin: true },
   })
   return { success: true, datapoints: descending.reverse() }
-})
+}, { requires: 'member' })
 
 export const POST = withAuthenticatedApi(async (request, auth) => {
   const goalId = idFrom(request.nextUrl.pathname)
@@ -72,4 +72,4 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
   })
   await evaluateAndPersistGoal(goalId, auth.organizationId)
   return { success: true, datapoint }
-})
+}, { requires: 'member' })

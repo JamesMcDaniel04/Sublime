@@ -16,4 +16,4 @@ export const GET = withAuthenticatedApi(async (request, auth) => {
   } catch (error) {
     throw new ApiError(error instanceof Error ? error.message : 'Could not list Slack channels', 502, 'SLACK_CHANNELS_FAILED')
   }
-})
+}, { requires: 'member' })

@@ -71,7 +71,7 @@ export const GET = withAuthenticatedApi(async (_request, auth) => {
       ...listSkills().map((skill) => ({ ...skill, visibility: 'built_in', custom: false, mine: false })),
     ],
   }
-})
+}, { requires: 'member' })
 
 // POST — workspace-only by default; public publishing is always explicit.
 export const POST = withAuthenticatedApi(async (request, auth) => {
@@ -91,7 +91,7 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
     },
   })
   return { success: true, skill: serializeShared(skill, auth.organizationId, auth.dbUser.id, auth.dbUser.role) }
-})
+}, { requires: 'member' })
 
 // PUT — edit your own community skill.
 export const PUT = withAuthenticatedApi(async (request, auth) => {
@@ -112,7 +112,7 @@ export const PUT = withAuthenticatedApi(async (request, auth) => {
     data: patch,
   })
   return { success: true, skill: serializeShared(skill, auth.organizationId, auth.dbUser.id, auth.dbUser.role) }
-})
+}, { requires: 'member' })
 
 // DELETE — retract your own community skill (soft delete; agents referencing it
 // simply stop composing it).
@@ -125,4 +125,4 @@ export const DELETE = withAuthenticatedApi(async (request, auth) => {
   })
   if (!result.count) throw new ApiError('Skill not found (you can only remove skills you published)', 404, 'NOT_FOUND')
   return { success: true }
-})
+}, { requires: 'member' })

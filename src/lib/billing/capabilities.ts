@@ -12,6 +12,13 @@ export type PlanCapabilities = {
   skillSharing: 'private' | 'controlled'
   /** Workspace activity-history feed — Team plans and above. */
   activityHistory: boolean
+  /**
+   * The cross-goal ("All goals") lens: the aggregated view and roll-up
+   * insights spanning every goal. Team plans and above. Individual workspaces
+   * may still hold goals (up to PlanLimits.maxActiveGoals) and lens into each
+   * one — they just don't get the view that spans them.
+   */
+  allGoalsView: boolean
   zeroDataRetention: boolean
   support: SupportTier
 }
@@ -28,6 +35,7 @@ export function capabilitiesForPlan(plan: Plan): PlanCapabilities {
       specialistAreas: 'custom',
       skillSharing: 'controlled',
       activityHistory: true,
+      allGoalsView: true,
       zeroDataRetention: true,
       support: 'dedicated',
     }
@@ -42,6 +50,7 @@ export function capabilitiesForPlan(plan: Plan): PlanCapabilities {
     specialistAreas: team ? 'every' : 'one',
     skillSharing: team ? 'controlled' : 'private',
     activityHistory: team,
+    allGoalsView: team,
     zeroDataRetention: false,
     support: team ? 'priority' : 'resources',
   }

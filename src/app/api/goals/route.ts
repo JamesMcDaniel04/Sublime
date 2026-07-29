@@ -1,6 +1,8 @@
 import { z } from 'zod'
 import { prisma } from '@/lib/prisma'
 import { ApiError, withAuthenticatedApi } from '@/lib/server/api-handler'
+import { can } from '@/lib/server/permissions'
+import { assertGoalCapacity } from '@/lib/billing/enforce'
 import { recordUserEvent } from '@/lib/behavior/record-event'
 import { evaluateGoal } from '@/lib/goals/evaluate'
 import { bucketKeyFor } from '@/lib/goals/refresh'
@@ -235,10 +237,21 @@ export const GET = withAuthenticatedApi(async (_request, auth) => {
       }
     }),
   }
-})
+}, { requires: 'member' })
 
 export const POST = withAuthenticatedApi(async (request, auth) => {
   const input = createSchema.parse(await request.json().catch(() => ({})))
+
+  // Org goals (ownerUserId null) are visible to everyone in the workspace and
+  // are what personal goals roll up to, so authoring one is an admin act.
+  // Checked here rather than declared on the route because the same endpoint
+  // creates personal goals, which any member may do.
+  if (!input.personal && !can(auth.actor, 'goal:create:org')) {
+    throw new ApiError('Only administrators can set organization goals.', 403, 'FORBIDDEN')
+  }
+
+  // New goals arrive active, so they consume a plan slot immediately.
+  await assertGoalCapacity(auth.organizationId)
 
   if (input.parentGoalId) {
     if (!input.personal) {
@@ -348,4 +361,4 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
     context: { kind: input.kind, personal: input.personal },
   })
   return { success: true, goal: { id: goal.id } }
-})
+}, { requires: 'member' })

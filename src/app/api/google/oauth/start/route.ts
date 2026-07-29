@@ -29,4 +29,4 @@ export const GET = withAuthenticatedApi(async (request, auth) => {
     service: service as GoogleOAuthService,
   })
   return NextResponse.redirect(buildAuthUrl({ service: service as GoogleOAuthService, state }))
-})
+}, { requires: 'member' })

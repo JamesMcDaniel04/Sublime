@@ -108,7 +108,7 @@ export const GET = withAuthenticatedApi(async (_request, auth) => {
   })
   // `isOwner` mirrors the flows route: only the owner may change sharing.
   return { success: true, agents: agents.map((agent) => ({ ...serializeAgent(agent), isOwner: agent.userId === auth.dbUser.id })) }
-})
+}, { requires: 'member' })
 
 export const POST = withAuthenticatedApi(async (request, auth) => {
   const data = agentSchema.parse(await request.json())
@@ -158,7 +158,7 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
     context: { name: data.title || agent.description },
   })
   return { success: true, agent: { ...serializeAgent(agent), isOwner: agent.userId === auth.dbUser.id } }
-})
+}, { requires: 'member' })
 
 export const PUT = withAuthenticatedApi(async (request, auth) => {
   const body = z.object({ id: z.string().min(1) }).merge(agentSchema.partial()).parse(await request.json())
@@ -230,7 +230,7 @@ export const PUT = withAuthenticatedApi(async (request, auth) => {
     context: { name: (agent.metadata as { title?: string } | null)?.title || agent.description },
   })
   return { success: true, agent: { ...serializeAgent(agent), isOwner: agent.userId === auth.dbUser.id } }
-})
+}, { requires: 'member' })
 
 export const DELETE = withAuthenticatedApi(async (request, auth) => {
   const { id } = z.object({ id: z.string().min(1) }).parse(await request.json())
@@ -244,4 +244,4 @@ export const DELETE = withAuthenticatedApi(async (request, auth) => {
   // resurface in retrieval. Fire-and-forget; best-effort.
   void removeAgentFromGraph(auth.organizationId, id).catch(() => undefined)
   return { success: true }
-})
+}, { requires: 'member' })
