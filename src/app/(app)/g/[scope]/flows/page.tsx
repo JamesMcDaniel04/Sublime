@@ -1,7 +1,8 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 import { useScopedRouter } from '@/lib/client/use-scoped-router'
+import { ALL_SCOPE, useScope } from '@/lib/client/scoped-href'
 import { ScopedLink as Link } from '@/components/ui/scoped-link'
 import { toast } from 'sonner'
 import { CircleOff, Copy, MoreHorizontal, Plus, Sparkles, Trash2, Workflow, X } from 'lucide-react'
@@ -15,7 +16,7 @@ import { PageHeader } from '@/components/ui/page-header'
 import { Pagination, paginate } from '@/components/ui/pagination'
 import { Skeleton } from '@/components/ui/skeleton'
 import { cn } from '@/lib/utils'
-import { useCachedJson } from '@/lib/client/use-cached-json'
+import { invalidateCachedJson, useCachedJson } from '@/lib/client/use-cached-json'
 import { STARTER_TEMPLATES } from '@/lib/flows/starter-templates'
 import { TemplateCatalogueCard } from '@/components/templates/template-catalogue-card'
 
@@ -45,15 +46,41 @@ const STATUS_STYLE: Record<string, string> = {
   disabled: 'border-border bg-muted text-muted-foreground',
 }
 
-type FlowsResponse = { success?: boolean; error?: string; flows?: FlowItem[]; suggestionReadiness?: SuggestionReadiness | null }
+type FlowsResponse = { success?: boolean; error?: string; flows?: FlowItem[]; suggestionReadiness?: SuggestionReadiness | null; unlinkedCount?: number }
 
 export default function FlowsPage() {
   const router = useScopedRouter()
   // Stale-while-revalidate: paint instantly from the client cache (warmed at
   // sign-in by the sidebar) and refresh in the background — the previous
   // fetch-on-mount pattern blocked every visit on a network round-trip.
-  const { data, loading, error, refresh, mutate } = useCachedJson<FlowsResponse>('/api/flows')
+  // The scope is part of the cache key, so switching goals cannot repaint the
+  // previous lens's rows from cache before the new response lands.
+  const scope = useScope()
+  const flowsUrl = `/api/flows?goal=${encodeURIComponent(scope)}`
+  const { data, loading, error, refresh, mutate } = useCachedJson<FlowsResponse>(flowsUrl)
   const flows = useMemo(() => data?.flows ?? [], [data])
+  const unlinkedCount = data?.unlinkedCount ?? 0
+  const [showUnlinked, setShowUnlinked] = useState(false)
+  // Fetched only once asked for, so the common case pays nothing for it.
+  // useCachedJson treats a null url as "don't fetch".
+  const unlinkedUrl = showUnlinked && scope !== ALL_SCOPE ? `${flowsUrl}&unlinked=1` : null
+  const { data: unlinkedData } = useCachedJson<FlowsResponse>(unlinkedUrl)
+
+  const attachToGoal = useCallback(async (flowId: string) => {
+    const response = await fetch(`/api/goals/${scope}/contributions`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ resourceType: 'flow', resourceId: flowId }),
+    })
+    if (!response.ok) {
+      toast.error('Could not link that flow to this goal.')
+      return
+    }
+    // Both lenses changed, so both cache keys have to go.
+    invalidateCachedJson(flowsUrl)
+    invalidateCachedJson(`${flowsUrl}&unlinked=1`)
+    await refresh()
+  }, [scope, flowsUrl, refresh])
   const readiness = data?.suggestionReadiness ?? null
   const loadError = error ? (error instanceof Error ? error.message : 'Could not load flows.') : ''
   const [page, setPage] = useState(1)
@@ -315,6 +342,32 @@ export default function FlowsPage() {
             ))}
           </div>
           <Pagination page={current} pageCount={pageCount} onPageChange={setPage} />
+          {/* Hidden work is always COUNTED. A lens that silently drops flows
+              teaches people not to trust it — and the first time someone thinks
+              a flow was deleted, they stop using the switcher. */}
+          {scope !== ALL_SCOPE && unlinkedCount > 0 && (
+            <div className="mt-4">
+              <button
+                type="button"
+                onClick={() => setShowUnlinked((open) => !open)}
+                className="w-full rounded-md border border-dashed p-3 text-left text-sm text-muted-foreground hover:bg-muted/50"
+              >
+                {unlinkedCount} {unlinkedCount === 1 ? 'flow' : 'flows'} not linked to this goal ›
+              </button>
+              {showUnlinked && (
+                <div className="mt-2 space-y-2">
+                  {(unlinkedData?.flows ?? []).map((flow) => (
+                    <div key={flow.id} className="flex items-center gap-2 rounded-md border p-2 text-sm">
+                      <span className="flex-1 truncate">{flow.name}</span>
+                      <Button size="sm" variant="outline" onClick={() => void attachToGoal(flow.id)}>
+                        Link to goal
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
         </>
       )}
 

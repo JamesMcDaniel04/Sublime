@@ -3,6 +3,8 @@
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { useScopedRouter } from '@/lib/client/use-scoped-router'
+import { ALL_SCOPE, useScope } from '@/lib/client/scoped-href'
+import { useCachedJson } from '@/lib/client/use-cached-json'
 import { toast } from 'sonner'
 import { AlertCircle, Copy, FileText, List, Loader2, MoreHorizontal, Play, Plus, Settings2, Sparkles, Trash2, X } from 'lucide-react'
 import { AgentActivityPane, resultText, type RunMutation } from './agent-activity-pane'
@@ -113,7 +115,18 @@ function AgentHQ() {
     router.replace(next === 'templates' ? '/agents?view=templates' : '/agents', { scroll: false })
   }
   const initialSnapshot = useMemo(() => peekSnapshot(), [])
-  const [agents, setAgents] = useState<Agent[]>(() => initialSnapshot?.agents || [])
+  const [allAgents, setAgents] = useState<Agent[]>(() => initialSnapshot?.agents || [])
+  // Under a goal lens the roster comes from the scoped endpoint rather than the
+  // shell snapshot. The snapshot is shared with the sidebar and notification
+  // bell — surfaces that should stay global — so it stays unscoped, and only
+  // this page swaps its source.
+  const scope = useScope()
+  const scopedAgentsUrl = scope !== ALL_SCOPE ? `/api/agents?goal=${encodeURIComponent(scope)}` : null
+  const { data: scopedAgents } = useCachedJson<{ agents?: Agent[]; unlinkedCount?: number }>(scopedAgentsUrl)
+  // Shadows the state deliberately so every downstream reference to `agents`
+  // gets the lensed list without touching a single render site.
+  const agents = scope !== ALL_SCOPE ? (scopedAgents?.agents ?? []) : allAgents
+  const unlinkedAgentCount = scopedAgents?.unlinkedCount ?? 0
   const [activities, setActivities] = useState<Activity[]>(() => initialSnapshot?.activities || [])
   const [loading, setLoading] = useState(() => !initialSnapshot)
   const [activityLoadingId, setActivityLoadingId] = useState<string | null>(null)
@@ -667,6 +680,14 @@ function AgentHQ() {
                       {agents.map((agent) => (
                         <SelectItem key={agent.id} value={agent.id}>{agent.title}</SelectItem>
                       ))}
+                      {/* Hidden work is always counted. Without this, an agent
+                          filtered out by the lens is indistinguishable from one
+                          that was deleted. */}
+                      {unlinkedAgentCount > 0 && (
+                        <p className="px-2 py-1.5 text-xs text-muted-foreground">
+                          {unlinkedAgentCount} not linked to this goal
+                        </p>
+                      )}
                     </SelectContent>
                   </Select>
                 ) : (

@@ -68,7 +68,11 @@ test('links Use template at the prefill URL', () => {
     (anchor) => anchor.textContent?.includes('Use template'),
   )
   assert.ok(link)
-  assert.equal(link?.getAttribute('href'), '/goals/new?template=sales-org-quarterly-revenue')
+  // Scoped: every app surface now lives under /g/[scope], and this component
+  // renders outside a route with a scope param, so it resolves to the
+  // all-goals lens. The template KEY in the query is the part that must never
+  // change — bookmarked links depend on it.
+  assert.equal(link?.getAttribute('href'), '/g/all/goals/new?template=sales-org-quarterly-revenue')
 })
 
 test('labels the preview as sample data', () => {
