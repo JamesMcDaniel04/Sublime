@@ -33,6 +33,9 @@ const cursor = {
   space: 'dag' as const,
   point: { x: 10, y: 20 },
   viewport: { x: 0, y: 0, zoom: 1 },
+  // Parsed cursors always carry an anchor now — null when the sender was over
+  // empty canvas, or when its space cannot yet measure node positions.
+  anchor: null,
 }
 
 const existing: JamPeerLike = {

@@ -272,6 +272,13 @@ function FlowBuilder() {
       jamCursorUpdateRef.current({
         space: 'stack',
         point: contentPointFromClient({ x: event.clientX, y: event.clientY }, rect, zoomRef.current),
+        // null until the stack measures its cards. The DAG canvas already
+        // RENDERS a projected cursor for any peer that supplies an anchor, so
+        // stack→dag lights up the moment this can be filled in — see
+        // nearestNodeAnchor. Anchoring needs a nodeId→{x,y} map and the stack
+        // only tracks selection by id, so measuring every card (and
+        // re-measuring on scroll, zoom and resize) is its own piece of work.
+        anchor: null,
         viewport: {
           x: canvasPanRef.current.x,
           y: canvasPanRef.current.y,

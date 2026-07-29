@@ -28,6 +28,12 @@ export const jamCursorSchema = z.object({
   point: z.object({ x: z.number().finite(), y: z.number().finite() }),
   /** The sender's viewport — what follow mode adopts. */
   viewport: jamViewportSchema,
+  /** The node this cursor is nearest, or null over empty canvas. Nodes are the
+   *  only thing the dag and stack spaces share, so an anchor is the only
+   *  honest basis for showing a cursor to a viewer in the other space.
+   *  Defaulted so a peer on an older client still parses instead of having its
+   *  cursor dropped entirely. */
+  anchor: z.string().nullable().default(null),
 })
 export type JamCursor = z.infer<typeof jamCursorSchema>
 
@@ -210,4 +216,46 @@ export function splitJamRoster(
     invitedCount: invitedUserIds.length,
     notJoined: invitedUserIds.filter((userId) => !present.has(userId)),
   }
+}
+
+export type AnchorNode = { id: string; x: number; y: number }
+
+/**
+ * The node a cursor is pointing at, or null when it is over empty canvas.
+ *
+ * `maxDistance` is passed in rather than shared because the units are not
+ * comparable: dag distances are React Flow coordinates while stack distances
+ * are content pixels. Each canvas supplies its own.
+ */
+export function nearestNodeAnchor(
+  point: { x: number; y: number },
+  nodes: readonly AnchorNode[],
+  maxDistance: number,
+): string | null {
+  let bestId: string | null = null
+  let bestDistance = Number.POSITIVE_INFINITY
+
+  for (const node of nodes) {
+    const distance = Math.hypot(node.x - point.x, node.y - point.y)
+    // Ties break by id so a cursor sitting equidistant between two nodes does
+    // not flicker between them frame to frame.
+    if (distance < bestDistance || (distance === bestDistance && bestId !== null && node.id < bestId)) {
+      bestDistance = distance
+      bestId = node.id
+    }
+  }
+
+  return bestId !== null && bestDistance <= maxDistance ? bestId : null
+}
+
+/** Where that node sits in the VIEWER's space, or null if it is gone. */
+export function projectAnchor(
+  anchor: string | null | undefined,
+  nodes: readonly AnchorNode[],
+): { x: number; y: number } | null {
+  if (!anchor) return null
+  const node = nodes.find((candidate) => candidate.id === anchor)
+  // Rendering a missing node at 0,0 would put a teammate's cursor in the
+  // corner and read as a bug; drawing nothing is the honest answer.
+  return node ? { x: node.x, y: node.y } : null
 }

@@ -29,6 +29,7 @@ import {
   Position,
   ReactFlow,
   ViewportPortal,
+  useNodes,
   useStore,
   useViewport,
   type Connection,
@@ -50,7 +51,7 @@ import { connectNodes, disconnectEdge, moveNodeTo, type StepType } from '@/lib/f
 import { cn } from '@/lib/utils'
 import type { FlowGraph, FlowNode } from '@/lib/flows/graph'
 import { containerChildIds } from '@/lib/flows/containers'
-import { edgeIndicator, flowToScreenPoint, type JamCursor } from '@/lib/flows/jam-presence'
+import { edgeIndicator, flowToScreenPoint, nearestNodeAnchor, projectAnchor, type JamCursor } from '@/lib/flows/jam-presence'
 import { jamCursorColor, type JamPeer } from './use-flow-jam'
 import { CommentPinMarker, type CommentPinData } from './flow-comments'
 
@@ -210,23 +211,47 @@ function JamDagCommentPins({ pins, onPinClick }: Readonly<{ pins: CommentPinData
  * size, Figma-style. Off-screen peers pin to the canvas edge with an arrow
  * pointing toward them.
  */
+/** React Flow coordinate units — roughly one node-width of slack. Not shared
+ *  with the stack's constant: the units are not comparable. */
+const DAG_ANCHOR_MAX = 240
+
 function JamDagCursors({ peers }: Readonly<{ peers: JamPeer[] }>) {
   const viewport = useViewport()
   const width = useStore((state) => state.width)
   const height = useStore((state) => state.height)
-  const live = peers.filter(
-    (peer): peer is JamPeer & { cursor: JamCursor } => peer.cursor?.space === 'dag',
-  )
+  // From React Flow context rather than a prop: this renders inside the
+  // provider, and the positions must be the viewer's own, not the sender's.
+  const anchorNodes = useNodes().map((node) => ({
+    id: node.id,
+    x: node.position.x,
+    y: node.position.y,
+  }))
+  const live = peers.flatMap((peer) => {
+    if (!peer.cursor) return []
+    if (peer.cursor.space === 'dag') return [{ peer, at: peer.cursor.point, projected: false }]
+    // Cross-space: only a node anchor is meaningful, and only if it still
+    // exists. Anything else is a guess, and a pointer in the wrong place reads
+    // as a bug rather than an approximation.
+    const at = projectAnchor(peer.cursor.anchor, anchorNodes)
+    return at ? [{ peer, at, projected: true }] : []
+  })
   if (live.length === 0) return null
   return (
     <>
       <ViewportPortal>
-        {live.map((peer) => (
+        {live.map(({ peer, at, projected }) => (
           <div
             key={peer.clientId}
-            className="pointer-events-none absolute transition-transform duration-75 ease-linear"
+            data-jam-cursor
+            data-projected={String(projected)}
+            className={cn(
+              'pointer-events-none absolute transition-transform duration-75 ease-linear',
+              // A projected cursor is an approximation. It must never look like
+              // a precise pointer that happens to be in the wrong place.
+              projected && 'opacity-60',
+            )}
             style={{
-              transform: `translate(${peer.cursor.point.x}px, ${peer.cursor.point.y}px) scale(${1 / viewport.zoom})`,
+              transform: `translate(${at.x}px, ${at.y}px) scale(${1 / viewport.zoom})`,
               transformOrigin: 'top left',
             }}
           >
@@ -244,8 +269,8 @@ function JamDagCursors({ peers }: Readonly<{ peers: JamPeer[] }>) {
       </ViewportPortal>
       {/* Edge indicators live in SCREEN space over the canvas container. */}
       <div className="pointer-events-none absolute inset-0 z-10" aria-hidden="true">
-        {live.map((peer) => {
-          const screen = flowToScreenPoint(peer.cursor.point, viewport)
+        {live.map(({ peer, at }) => {
+          const screen = flowToScreenPoint(at, viewport)
           const edge = edgeIndicator(screen, { width, height }, 28)
           if (!edge) return null
           return (
@@ -501,10 +526,18 @@ export function DagCanvas({
         onPointerMove={(event) => {
           const instance = rfInstance.current
           if (!instance || !onCursorMove) return
+          const point = instance.screenToFlowPosition({ x: event.clientX, y: event.clientY })
           onCursorMove({
             space: 'dag',
-            point: instance.screenToFlowPosition({ x: event.clientX, y: event.clientY }),
+            point,
             viewport: instance.getViewport(),
+            // Nodes are the only thing this space shares with the stack, so an
+            // anchor is what lets a teammate over there see this cursor at all.
+            anchor: nearestNodeAnchor(
+              point,
+              instance.getNodes().map((node) => ({ id: node.id, x: node.position.x, y: node.position.y })),
+              DAG_ANCHOR_MAX,
+            ),
           })
         }}
         onPointerLeave={() => onCursorMove?.(null)}

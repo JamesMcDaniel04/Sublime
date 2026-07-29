@@ -8,6 +8,8 @@ import {
   diffPeers,
   mergePeerCursors,
   splitJamRoster,
+  nearestNodeAnchor,
+  projectAnchor,
   type JamCursor,
   jamCursorSchema,
 } from '../jam-presence'
@@ -88,6 +90,7 @@ const cursorAt = (x: number): JamCursor => ({
   space: 'dag',
   point: { x, y: 0 },
   viewport: { x: 0, y: 0, zoom: 1 },
+  anchor: null,
 })
 
 const peerRow = (clientId: string, cursor: JamCursor | null) => ({ clientId, cursor })
@@ -151,4 +154,50 @@ test('two tabs from one person count as one person here', () => {
 
 test('nobody invited and nobody here is an empty split, not a crash', () => {
   assert.deepEqual(splitJamRoster([], []), { hereCount: 0, invitedCount: 0, notJoined: [] })
+})
+
+// ── Cross-space anchoring ──────────────────────────────────────────────────
+
+const anchorNodes = [
+  { id: 'a', x: 0, y: 0 },
+  { id: 'b', x: 100, y: 0 },
+  { id: 'c', x: 0, y: 100 },
+]
+
+test('anchors to the nearest node within range', () => {
+  assert.equal(nearestNodeAnchor({ x: 10, y: 5 }, anchorNodes, 200), 'a')
+  assert.equal(nearestNodeAnchor({ x: 90, y: 5 }, anchorNodes, 200), 'b')
+})
+
+test('returns null beyond maxDistance — an anchor nobody is near is a guess', () => {
+  assert.equal(nearestNodeAnchor({ x: 5000, y: 5000 }, anchorNodes, 200), null)
+})
+
+test('maxDistance is per call, because the two spaces do not share units', () => {
+  // dag coordinates and stack pixels are not comparable; each canvas supplies
+  // its own constant rather than sharing one.
+  assert.equal(nearestNodeAnchor({ x: 150, y: 0 }, anchorNodes, 40), null)
+  assert.equal(nearestNodeAnchor({ x: 150, y: 0 }, anchorNodes, 80), 'b')
+})
+
+test('ties break deterministically, so an equidistant cursor does not flicker', () => {
+  const tied = [
+    { id: 'zeta', x: 0, y: 0 },
+    { id: 'alpha', x: 20, y: 0 },
+  ]
+  assert.equal(nearestNodeAnchor({ x: 10, y: 0 }, tied, 100), 'alpha')
+})
+
+test('an empty graph anchors to nothing', () => {
+  assert.equal(nearestNodeAnchor({ x: 0, y: 0 }, [], 200), null)
+})
+
+test('projectAnchor finds the node in the viewer own space', () => {
+  assert.deepEqual(projectAnchor('b', anchorNodes), { x: 100, y: 0 })
+})
+
+test('a deleted or absent anchor projects to nothing, never the origin', () => {
+  assert.equal(projectAnchor('gone', anchorNodes), null)
+  assert.equal(projectAnchor(null, anchorNodes), null)
+  assert.equal(projectAnchor(undefined, anchorNodes), null)
 })
