@@ -53,7 +53,7 @@ export const GET = withAuthenticatedApi(async (request, auth) => {
 
   const all = await prisma.goalWork.findMany({
     where: scope,
-    select: { resourceId: true, disposition: true, outcome: true },
+    select: { resourceId: true, disposition: true, outcome: true, assigneeUserId: true },
   })
 
   // The human name for an agent comes from the seed it was deployed from —
@@ -72,10 +72,23 @@ export const GET = withAuthenticatedApi(async (request, auth) => {
     return seed?.name ?? 'Removed agent'
   }
 
+  const members = await prisma.user.findMany({
+    where: { organizationId: auth.organizationId },
+    select: { id: true, name: true, email: true },
+  })
+  const memberName = new Map(
+    members.map((member) => [member.id, member.name ?? member.email ?? 'Teammate'] as const),
+  )
+
   const stats = computeWorkStats(
     all.map((row) => ({
       resourceId: row.resourceId,
       resourceName: nameFor(row.resourceId),
+      assigneeUserId: row.assigneeUserId,
+      // A departed teammate still owns their history; degrade rather than throw.
+      assigneeName: row.assigneeUserId
+        ? (memberName.get(row.assigneeUserId) ?? 'Former teammate')
+        : 'Unassigned',
       disposition: row.disposition as Disposition,
       outcome: row.outcome as Outcome,
     })),
@@ -105,6 +118,7 @@ export const GET = withAuthenticatedApi(async (request, auth) => {
     signal: rule.signal,
     skippedCount: rule.skippedCount,
     totalCount: rule.totalCount,
+    finding: rule.finding,
     topSkipReason: rule.topSkipReason,
     exploreRate: rule.exploreRate,
     learnedAt: rule.learnedAt,
@@ -112,7 +126,36 @@ export const GET = withAuthenticatedApi(async (request, auth) => {
     agentName: rule.resourceId ? nameFor(rule.resourceId) : null,
   }))
 
+  // Verbatim feedback on the playbook. Capped: this is a signal, not an inbox.
+  const noteRows = await prisma.goalWork.findMany({
+    where: { organizationId: auth.organizationId, goalId, skipNote: { not: null } },
+    orderBy: { dispositionAt: 'desc' },
+    take: 5,
+    select: { subject: true, skipNote: true },
+  })
+  const skipNotes = noteRows.map((row) => ({ subject: row.subject, note: row.skipNote! }))
+
+  // Which front door to open. The person with no work assigned is the person
+  // watching the process, so they get adoption first. Deliberately derived
+  // rather than read from UserRole, which is ADMIN|USER — a permissions
+  // concept, not a job function.
+  const openForViewer = await prisma.goalWork.count({
+    where: {
+      organizationId: auth.organizationId,
+      goalId,
+      assigneeUserId: auth.dbUser.id,
+      disposition: 'pending',
+    },
+  })
+
   // The viewer's id rides along so the queue can offer Claim without a
   // separate /api/me round trip or a prop threaded down the goal page.
-  return { items, stats, rules, viewerId: auth.dbUser.id }
+  return {
+    items,
+    stats,
+    rules,
+    skipNotes,
+    viewerId: auth.dbUser.id,
+    viewerHasWork: openForViewer > 0,
+  }
 })

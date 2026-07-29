@@ -93,6 +93,7 @@ test('the funnel strip reports counts and rates, and says used not caused', () =
     <WorkFunnelStrip
       stats={{
         overall: { produced: 24, used: 17, worked: 6, usedRate: 17 / 24, workedRate: 6 / 17 },
+        byAssignee: [],
         byAgent: [
           {
             resourceId: 'a',
@@ -121,6 +122,7 @@ test('the funnel strip renders nothing before any work exists', () => {
       stats={{
         overall: { produced: 0, used: 0, worked: 0, usedRate: null, workedRate: null },
         byAgent: [],
+        byAssignee: [],
       }}
     />,
   )

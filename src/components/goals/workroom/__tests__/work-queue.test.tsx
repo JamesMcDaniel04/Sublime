@@ -10,6 +10,7 @@ afterEach(cleanup)
 const emptyStats = {
   overall: { produced: 0, used: 0, worked: 0, usedRate: null, workedRate: null },
   byAgent: [],
+  byAssignee: [],
 }
 
 const respond = (body: unknown) =>
@@ -115,4 +116,47 @@ test('without a viewer id there is no Claim to click', async () => {
   render(<WorkQueue goalId="g1" />)
   await waitFor(() => assert.ok(screen.getByText('Acme — deal 412')))
   assert.equal(screen.queryByRole('button', { name: /claim/i }), null)
+})
+
+const withRep = (viewerHasWork: boolean) => ({
+  items: [item()],
+  stats: {
+    overall: { produced: 4, used: 3, worked: 1, usedRate: 0.75, workedRate: 0.33 },
+    byAgent: [],
+    byAssignee: [
+      {
+        assigneeUserId: 'u1',
+        assigneeName: 'Dana Reed',
+        produced: 4,
+        used: 3,
+        worked: 1,
+        usedRate: 0.75,
+        workedRate: 0.33,
+      },
+    ],
+  },
+  viewerHasWork,
+})
+
+test('a viewer with no assigned work sees adoption before the queue', async () => {
+  globalThis.fetch = (async () => respond(withRep(false))) as typeof fetch
+  const { container } = render(<WorkQueue goalId="g1" />)
+  await waitFor(() => assert.ok(screen.getByText('Dana Reed')))
+  const text = container.textContent ?? ''
+  assert.ok(
+    text.indexOf('Dana Reed') < text.indexOf('Acme — deal 412'),
+    'the process owner sees the team before the queue',
+  )
+})
+
+test('a viewer with assigned work sees their queue first', async () => {
+  globalThis.fetch = (async () => respond(withRep(true))) as typeof fetch
+  const { container } = render(<WorkQueue goalId="g1" />)
+  await waitFor(() => assert.ok(screen.getByText('Acme — deal 412')))
+  const text = container.textContent ?? ''
+  assert.ok(
+    text.indexOf('Acme — deal 412') < text.indexOf('Dana Reed'),
+    'a rep sees their work first',
+  )
+  assert.ok(screen.getByText('Dana Reed'), 'but adoption still renders below')
 })

@@ -1413,6 +1413,10 @@ model GoalWorkRule {
 
   signal         String
   statement      String
+  /// The same conclusion phrased as an observation for a human. Null on rules
+  /// learned before this shipped; the strip falls back to `statement`, so no
+  /// backfill is needed.
+  finding        String?
 
   skippedCount   Int
   totalCount     Int

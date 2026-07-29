@@ -24,6 +24,10 @@ export type WorkObservation = {
 export type RuleCandidate = {
   signal: string
   statement: string
+  /** The same conclusion phrased as an observation, for a human reading the
+   *  rules strip. Built here because the threshold is a number at this point
+   *  and only prose by the time `statement` exists. */
+  finding: string
   /** Skipped rows inside the band the statement describes. */
   skippedCount: number
   /** All rows inside that band. */
@@ -84,10 +88,16 @@ function beats(candidate: RuleCandidate, best: RuleCandidate | null): boolean {
   return candidate.totalCount > best.totalCount
 }
 
-function candidateFrom(signal: string, band: Settled[], statement: string): RuleCandidate {
+function candidateFrom(
+  signal: string,
+  band: Settled[],
+  statement: string,
+  finding: string,
+): RuleCandidate {
   return {
     signal,
     statement,
+    finding,
     skippedCount: band.filter((row) => row.skipped).length,
     totalCount: band.length,
     topSkipReason: topReason(band),
@@ -112,7 +122,10 @@ function numericCandidate(signal: string, rows: Settled[]): RuleCandidate | null
         side === 'under'
           ? `Do not work subjects whose ${signal} is under ${split}.`
           : `Do not work subjects whose ${signal} is ${split} or more.`
-      const candidate = candidateFrom(signal, band, statement)
+      // The agent gets an instruction; a person gets an observation.
+      const finding =
+        side === 'under' ? `${signal} under ${split}` : `${signal} ${split} or more`
+      const candidate = candidateFrom(signal, band, statement, finding)
       if (beats(candidate, best)) best = candidate
     }
   }
@@ -127,7 +140,12 @@ function categoricalCandidate(signal: string, rows: Settled[]): RuleCandidate | 
   for (const value of values) {
     const band = rows.filter((row) => row.value === value)
     if (!qualifies(band)) continue
-    const candidate = candidateFrom(signal, band, `Do not work subjects whose ${signal} is "${value}".`)
+    const candidate = candidateFrom(
+      signal,
+      band,
+      `Do not work subjects whose ${signal} is "${value}".`,
+      `${signal} is "${value}"`,
+    )
     if (beats(candidate, best)) best = candidate
   }
   return best

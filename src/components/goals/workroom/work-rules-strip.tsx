@@ -3,9 +3,14 @@
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 
+export type SkipNote = { subject: string; note: string }
+
 export type WorkRule = {
   id: string
   statement: string
+  /** The same conclusion phrased as an observation. Null on rules learned
+   *  before findings existed; the strip falls back to `statement`. */
+  finding: string | null
   signal: string
   skippedCount: number
   totalCount: number
@@ -38,23 +43,25 @@ const humanReason = (reason: string) => REASON_WORDS[reason] ?? reason.replace(/
  */
 export function WorkRulesStrip({
   rules,
+  skipNotes,
   onRevoke,
 }: {
   rules: WorkRule[]
+  skipNotes: SkipNote[]
   onRevoke: (ruleId: string) => void
 }) {
-  if (rules.length === 0) return null
+  if (rules.length === 0 && skipNotes.length === 0) return null
 
   return (
     <div className="space-y-2 rounded-xl border bg-card px-4 py-3">
       <p className="text-xs font-medium text-muted-foreground">
-        What your agents learned to skip
+        What your team is telling you
       </p>
       <ul className="space-y-2">
         {rules.map((rule) => (
           <li key={rule.id} className="flex flex-wrap items-start justify-between gap-2">
             <div className="min-w-0 flex-1 space-y-0.5">
-              <p className="text-sm">{rule.statement}</p>
+              <p className="text-sm">{rule.finding ?? rule.statement}</p>
               <p className="text-xs text-muted-foreground">
                 {rule.skippedCount} of {rule.totalCount} skipped
                 {rule.topSkipReason ? `, mostly "${humanReason(rule.topSkipReason)}"` : ''}
@@ -74,6 +81,22 @@ export function WorkRulesStrip({
           </li>
         ))}
       </ul>
+
+      {skipNotes.length > 0 && (
+        <div className="space-y-1 pt-1">
+          <p className="text-xs font-medium text-muted-foreground">In their words</p>
+          <ul className="space-y-0.5">
+            {skipNotes.map((entry) => (
+              <li
+                key={`${entry.subject}-${entry.note}`}
+                className="text-xs italic text-muted-foreground"
+              >
+                &ldquo;{entry.note}&rdquo;
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
     </div>
   )
 }

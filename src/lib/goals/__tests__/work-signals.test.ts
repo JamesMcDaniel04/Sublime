@@ -144,3 +144,31 @@ test('a signal arriving as both a number and a string is skipped, not compared a
   ]
   assert.deepEqual(findRuleCandidates(rows), [])
 })
+
+test('every candidate carries a finding phrased for a person', () => {
+  // `statement` is directive because it goes into an agent prompt. A human
+  // reading the rules strip needs an observation, not an instruction — and the
+  // threshold exists only inside the statement's prose, so it must be built
+  // here where the split is still a number.
+  const rows = [
+    ...Array.from({ length: 5 }, () => skipped({ daysCold: 3 })),
+    used({ daysCold: 40 }),
+    used({ daysCold: 50 }),
+  ]
+  const [candidate] = findRuleCandidates(rows)
+  assert.match(candidate.statement, /^Do not work/, 'the agent gets an instruction')
+  assert.doesNotMatch(candidate.finding, /^Do not/, 'the human gets an observation')
+  assert.match(candidate.finding, /daysCold/)
+  assert.match(candidate.finding, /under/)
+})
+
+test('categorical candidates carry a finding too', () => {
+  const rows = [
+    ...Array.from({ length: 5 }, () => skipped({ stage: 'prospecting' }, 'not_relevant')),
+    used({ stage: 'negotiation' }),
+  ]
+  const [candidate] = findRuleCandidates(rows)
+  assert.ok(candidate.finding.length > 0)
+  assert.match(candidate.finding, /prospecting/)
+  assert.doesNotMatch(candidate.finding, /^Do not/)
+})

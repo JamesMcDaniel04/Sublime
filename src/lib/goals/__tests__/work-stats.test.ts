@@ -6,7 +6,7 @@ const row = (
   resourceId: string,
   disposition: 'pending' | 'used' | 'edited' | 'skipped',
   outcome: 'unknown' | 'worked' | 'no_response' | 'failed' = 'unknown',
-) => ({ resourceId, resourceName: `Agent ${resourceId}`, disposition, outcome })
+) => ({ resourceId, resourceName: `Agent ${resourceId}`, assigneeUserId: null, assigneeName: 'Unassigned', disposition, outcome })
 
 test('an empty ledger produces zeros and null rates, never NaN', () => {
   const stats = computeWorkStats([])
@@ -78,4 +78,62 @@ test('an outcome on a skipped row cannot inflate worked', () => {
   const stats = computeWorkStats([row('a', 'skipped', 'worked')])
   assert.equal(stats.overall.worked, 0)
   assert.equal(stats.overall.used, 0)
+})
+
+const forRep = (
+  assigneeUserId: string | null,
+  assigneeName: string,
+  disposition: 'pending' | 'used' | 'edited' | 'skipped',
+  outcome: 'unknown' | 'worked' | 'no_response' | 'failed' = 'unknown',
+) => ({ resourceId: 'a', resourceName: 'Agent a', assigneeUserId, assigneeName, disposition, outcome })
+
+test('adoption buckets by the person, with the same funnel math as by agent', () => {
+  const stats = computeWorkStats([
+    forRep('u1', 'Dana Reed', 'used', 'worked'),
+    forRep('u1', 'Dana Reed', 'used'),
+    forRep('u2', 'Sam Diaz', 'used'),
+    forRep('u2', 'Sam Diaz', 'skipped'),
+  ])
+  const dana = stats.byAssignee.find((row) => row.assigneeUserId === 'u1')!
+  assert.equal(dana.produced, 2)
+  assert.equal(dana.used, 2)
+  assert.equal(dana.usedRate, 1)
+  assert.equal(dana.worked, 1)
+  assert.equal(stats.overall.produced, stats.byAssignee.reduce((sum, row) => sum + row.produced, 0))
+})
+
+test('unassigned work is its own bucket and always sorts last', () => {
+  // Work nobody owns does not get done — a routing finding, not a rep finding,
+  // so it must never head the list as though it were a person.
+  const stats = computeWorkStats([
+    forRep(null, 'Unassigned', 'pending'),
+    forRep(null, 'Unassigned', 'pending'),
+    forRep(null, 'Unassigned', 'pending'),
+    forRep('u1', 'Dana Reed', 'used'),
+  ])
+  assert.equal(stats.byAssignee.at(-1)!.assigneeUserId, null)
+  assert.equal(stats.byAssignee.at(-1)!.produced, 3)
+})
+
+test('reps sort by volume, never by rate — the list is not a leaderboard', () => {
+  const stats = computeWorkStats([
+    forRep('quiet', 'Quiet Rep', 'used'),
+    forRep('busy', 'Busy Rep', 'used'),
+    forRep('busy', 'Busy Rep', 'skipped'),
+    forRep('busy', 'Busy Rep', 'skipped'),
+  ])
+  assert.deepEqual(
+    stats.byAssignee.map((row) => row.assigneeUserId),
+    ['busy', 'quiet'],
+    'the rep with the most work comes first, despite the worse rate',
+  )
+})
+
+test('byAgent is unchanged by the new bucket', () => {
+  const stats = computeWorkStats([
+    forRep('u1', 'Dana Reed', 'used'),
+    forRep('u2', 'Sam Diaz', 'skipped'),
+  ])
+  assert.equal(stats.byAgent.length, 1, 'both rows came from the same agent')
+  assert.equal(stats.byAgent[0].produced, 2)
 })

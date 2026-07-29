@@ -17,6 +17,9 @@ import type { Disposition, Outcome } from '@/lib/goals/work-transitions'
 export type WorkStatRow = {
   resourceId: string
   resourceName: string
+  /** Null when nobody owns it — kept as its own bucket, never folded away. */
+  assigneeUserId: string | null
+  assigneeName: string
   disposition: Disposition
   outcome: Outcome
 }
@@ -34,6 +37,10 @@ export type WorkFunnel = {
 export type WorkStats = {
   overall: WorkFunnel
   byAgent: Array<{ resourceId: string; resourceName: string } & WorkFunnel>
+  /** Adoption: did the people given this work actually use it. The one
+   *  question a process owner cannot answer from a CRM, because running a play
+   *  is not a CRM object. */
+  byAssignee: Array<{ assigneeUserId: string | null; assigneeName: string } & WorkFunnel>
 }
 
 const USED: ReadonlySet<Disposition> = new Set<Disposition>(['used', 'edited'])
@@ -72,5 +79,28 @@ export function computeWorkStats(rows: WorkStatRow[]): WorkStats {
     }))
     .sort((a, b) => b.produced - a.produced || a.resourceName.localeCompare(b.resourceName))
 
-  return { overall: funnel(rows), byAgent }
+  const byAssigneeMap = new Map<string, WorkStatRow[]>()
+  for (const row of rows) {
+    // The null bucket needs a stable key that cannot collide with a cuid.
+    const key = row.assigneeUserId ?? ' unassigned'
+    const bucket = byAssigneeMap.get(key)
+    if (bucket) bucket.push(row)
+    else byAssigneeMap.set(key, [row])
+  }
+
+  const byAssignee = [...byAssigneeMap.values()]
+    .map((group) => ({
+      assigneeUserId: group[0].assigneeUserId,
+      assigneeName: group[0].assigneeName,
+      ...funnel(group),
+    }))
+    // Volume, not rate — a workload view, never a leaderboard. Unassigned
+    // always sorts last: work nobody owns is a routing finding, not a person.
+    .sort((a, b) => {
+      if (a.assigneeUserId === null) return 1
+      if (b.assigneeUserId === null) return -1
+      return b.produced - a.produced || a.assigneeName.localeCompare(b.assigneeName)
+    })
+
+  return { overall: funnel(rows), byAgent, byAssignee }
 }

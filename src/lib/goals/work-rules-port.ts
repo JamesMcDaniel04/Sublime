@@ -64,6 +64,9 @@ export async function loadWorkFeedback(
     rows.map((row) => ({
       resourceId,
       resourceName: '',
+      // This call reads only `.overall`; the assignee bucket is unused here.
+      assigneeUserId: null,
+      assigneeName: '',
       disposition: row.disposition as Disposition,
       outcome: row.outcome as Outcome,
     })),

@@ -34,6 +34,7 @@ const RULE_SCOPE_SELECT = {
   id: true,
   signal: true,
   statement: true,
+  finding: true,
   goalId: true,
   seedKey: true,
   resourceId: true,
@@ -81,6 +82,7 @@ export async function runGoalWorkLearning(
       id: string
       signal: string
       statement: string
+      finding: string | null
       goalId: string | null
       seedKey: string | null
       resourceId: string | null
@@ -89,6 +91,7 @@ export async function runGoalWorkLearning(
       id: rule.id,
       signal: rule.signal,
       statement: rule.statement,
+      finding: rule.finding,
       goalId: rule.goalId,
       seedKey: rule.seedKey,
       agentSeedKey: seedFor.get(`${rule.goalId}${KEY_SEP}${rule.resourceId}`) ?? null,
@@ -162,6 +165,7 @@ export async function runGoalWorkLearning(
             resourceId,
             signal: candidate.signal,
             statement: candidate.statement,
+            finding: candidate.finding,
             skippedCount: candidate.skippedCount,
             totalCount: candidate.totalCount,
             topSkipReason: candidate.topSkipReason,
@@ -231,6 +235,7 @@ export async function runGoalWorkLearning(
           seedKey: decision.seedKey,
           signal: decision.signal,
           statement: decision.statement,
+          finding: decision.finding,
           // The evidence for a promoted rule is the goals it was seen on, not
           // a fresh count of subjects.
           skippedCount: decision.fromGoalIds.length,

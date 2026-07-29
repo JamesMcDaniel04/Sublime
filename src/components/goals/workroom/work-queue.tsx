@@ -9,7 +9,8 @@ import type { WorkStats } from '@/lib/goals/work-stats'
 import { WorkItem, type WorkItemData } from './work-item'
 import { WorkFunnelStrip } from './work-funnel-strip'
 import { WorkOutcomePrompt, needsOutcome } from './work-outcome-prompt'
-import { WorkRulesStrip, type WorkRule } from './work-rules-strip'
+import { WorkRulesStrip, type WorkRule, type SkipNote } from './work-rules-strip'
+import { WorkAdoptionStrip } from './work-adoption-strip'
 
 const FILTERS = [
   { key: 'mine', label: 'Mine' },
@@ -21,6 +22,7 @@ const FILTERS = [
 const EMPTY_STATS: WorkStats = {
   overall: { produced: 0, used: 0, worked: 0, usedRate: null, workedRate: null },
   byAgent: [],
+  byAssignee: [],
 }
 
 /**
@@ -37,6 +39,9 @@ export function WorkQueue({ goalId }: { goalId: string }) {
   // and nothing for the goal page to thread down.
   const [viewerId, setViewerId] = useState<string | undefined>(undefined)
   const [rules, setRules] = useState<WorkRule[]>([])
+  const [skipNotes, setSkipNotes] = useState<SkipNote[]>([])
+  // Defaults true so the common case — a rep — never flashes the ops view.
+  const [viewerHasWork, setViewerHasWork] = useState(true)
   const [loaded, setLoaded] = useState(false)
 
   const load = useCallback(async () => {
@@ -50,12 +55,15 @@ export function WorkQueue({ goalId }: { goalId: string }) {
       setStats(body.stats ?? EMPTY_STATS)
       setViewerId(body.viewerId ?? undefined)
       setRules(body.rules ?? [])
+      setSkipNotes(body.skipNotes ?? [])
+      setViewerHasWork(body.viewerHasWork ?? true)
     } catch {
       // Best-effort, like the rest of the goal page: an unreachable queue
       // renders as empty rather than breaking the goal.
       setItems([])
       setStats(EMPTY_STATS)
       setRules([])
+      setSkipNotes([])
     } finally {
       setLoaded(true)
     }
@@ -92,16 +100,8 @@ export function WorkQueue({ goalId }: { goalId: string }) {
     return items.filter((item) => needsOutcome(item, now))
   }, [items])
 
-  return (
-    <section className="space-y-3" aria-labelledby="goal-workroom-heading">
-      <h2 id="goal-workroom-heading" className="text-sm font-semibold">
-        Work
-      </h2>
-
-      <WorkFunnelStrip stats={stats} />
-
-      <WorkRulesStrip rules={rules} onRevoke={(ruleId) => void revoke(ruleId)} />
-
+  const queueBlock = (
+    <>
       <div className="flex flex-wrap gap-1.5" role="tablist" aria-label="Filter work">
         {FILTERS.map((entry) => (
           <button
@@ -142,6 +142,37 @@ export function WorkQueue({ goalId }: { goalId: string }) {
           ))}
         </ul>
       )}
+    </>
+  )
+
+  return (
+    <section className="space-y-3" aria-labelledby="goal-workroom-heading">
+      <h2 id="goal-workroom-heading" className="text-sm font-semibold">
+        Work
+      </h2>
+
+      {/* Order flips on one boolean: the person with no assigned work is the
+          person watching the process, so they see adoption first. Both always
+          render — nobody is locked out of either view. */}
+      {viewerHasWork ? (
+        <>
+          {queueBlock}
+          <WorkAdoptionStrip stats={stats} />
+        </>
+      ) : (
+        <>
+          <WorkAdoptionStrip stats={stats} />
+          {queueBlock}
+        </>
+      )}
+
+
+      <WorkRulesStrip rules={rules} skipNotes={skipNotes} onRevoke={(ruleId) => void revoke(ruleId)} />
+
+      {/* Per-agent detail sits below the people view: "who is running the play"
+          is the process owner's question; "which agent earns its keep" is the
+          follow-up. */}
+      <WorkFunnelStrip stats={stats} />
     </section>
   )
 }

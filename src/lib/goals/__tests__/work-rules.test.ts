@@ -9,6 +9,7 @@ const rule = (overrides: Record<string, unknown> = {}) => ({
   id: 'r1',
   signal: 'daysCold',
   statement: 'Do not work subjects whose daysCold is under 14.',
+  finding: 'daysCold under 14' as string | null,
   goalId: 'goal-1' as string | null,
   seedKey: null as string | null,
   agentSeedKey: 'sales-sequence-personalizer' as string | null,
