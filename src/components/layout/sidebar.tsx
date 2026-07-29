@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
+import { useScopedHref } from '@/lib/client/scoped-href'
+import { GoalSwitcher } from './goal-switcher'
 import {
   Bot,
   Check,
@@ -119,6 +121,7 @@ function RailTooltip({
 
 export function Sidebar() {
   const pathname = usePathname()
+  const scopedNavHref = useScopedHref()
   const router = useRouter()
   const { user, signOut, isAdmin } = useAuth()
   const [mobileOpen, setMobileOpen] = useState(false)
@@ -620,13 +623,25 @@ export function Sidebar() {
 
         {/* Nav + agent tree */}
         <div className="flex-1 overflow-y-auto px-2 py-2">
+          {/* The lens control sits ABOVE the nav because it scopes all of it —
+              placing it inside would read as one more destination. Hidden in
+              the collapsed rail, where there is no room for a goal name. */}
+          {!rail && (
+            <div className="mb-3">
+              <GoalSwitcher />
+            </div>
+          )}
           <nav className="mb-2 space-y-0.5">
             {navigation.map((item) => {
-              const isActive = pathname === item.href || (item.href !== '/dashboard' && pathname.startsWith(item.href))
+              // Compare against the SCOPED href: once every surface carries a
+              // /g/<scope> prefix, matching pathname against the bare href
+              // never succeeds and no nav item ever highlights.
+              const href = scopedNavHref(item.href)
+              const isActive = pathname === href || (item.href !== '/dashboard' && pathname.startsWith(href))
               const link = (
                 <Link
                   key={item.name}
-                  href={item.href}
+                  href={href}
                   aria-label={item.name}
                   title={rail ? undefined : item.description}
                   className={cn(
