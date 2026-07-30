@@ -29,12 +29,17 @@ export function AppShell({
   trialDaysRemaining: number | null
 }) {
   const pathname = usePathname() ?? ''
+  // Every app surface lives under /g/<scope>; strip the lens prefix to recover
+  // the bare surface before matching (same normalization the goal switcher
+  // uses). Matching the raw pathname silently un-fullscreened Home, agent HQ
+  // and the flow builder the day the routes moved.
+  const surface = pathname.replace(/^\/g\/[^/]+/, '') || '/'
 
   // The flow builder (/flows/<id>) is fullscreen; the /flows list AND any
   // deeper /flows/<id>/* subpage (e.g. /flows/<id>/activity) use the centered
   // container, so only exactly one path segment past "/flows/" goes edge-to-edge.
-  const flowSegments = pathname.startsWith('/flows/') ? pathname.slice('/flows/'.length).split('/').filter(Boolean) : []
-  const fullscreen = FULLSCREEN_ROUTES.has(pathname) || flowSegments.length === 1
+  const flowSegments = surface.startsWith('/flows/') ? surface.slice('/flows/'.length).split('/').filter(Boolean) : []
+  const fullscreen = FULLSCREEN_ROUTES.has(surface) || flowSegments.length === 1
 
   return (
     <div className="sublime-app-shell flex h-screen overflow-hidden">

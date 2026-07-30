@@ -23,14 +23,12 @@ import {
 import { Button } from '@/components/ui/button'
 import { Markdown } from '@/components/ui/markdown'
 import { notifyAgentsChanged } from '@/components/layout/sidebar'
-import { GoalStatusStrip } from '@/components/goals/goal-status-strip'
 import { FirstRunGuide } from '@/components/goals/first-run-guide'
 import { useAuth } from '@/hooks/use-auth'
 import { cn } from '@/lib/utils'
 import { getCachedJson } from '@/lib/client/use-cached-json'
 import type { GoalSummary } from '@/lib/types'
-import type { OrgImpact } from '@/components/goals/impact-strip'
-import { activeGoals, goalPresets, impactSentence } from '@/lib/goals/dashboard-copy'
+import { activeGoals, goalPresets } from '@/lib/goals/dashboard-copy'
 
 /**
  * Home — the workspace-level assistant. A Claude/ChatGPT-style chat surface:
@@ -221,23 +219,15 @@ export function HomeAssistant() {
     () => (scope === ALL_SCOPE ? allGoals : (allGoals?.filter((goal) => goal.id === scope) ?? null)),
     [allGoals, scope],
   )
-  const [impact, setImpact] = useState<OrgImpact | null>(null)
+  // Goals still load — the first-run guide, no-goals CTA and preset chips
+  // read them — but the /api/goals/impact fetch is gone with the impact line
+  // it fed: that endpoint is expensive (per-contribution N+1 server-side) and
+  // Home no longer renders anything derived from it.
   useEffect(() => {
     let cancelled = false
     getCachedJson<{ goals?: GoalSummary[] }>('/api/goals', 60_000)
       .then((data) => {
-        if (cancelled) return
-        const nextGoals = data.goals ?? []
-        setGoals(nextGoals)
-        // /api/goals/impact is expensive (per-contribution N+1 queries
-        // server-side) and its result is only rendered once an active goal
-        // exists — skip the fetch entirely for the common no-goals case.
-        if (activeGoals(nextGoals).length === 0) return
-        getCachedJson<{ impact?: OrgImpact }>('/api/goals/impact', 60_000)
-          .then((impactData) => {
-            if (!cancelled) setImpact(impactData.impact ?? null)
-          })
-          .catch(() => undefined)
+        if (!cancelled) setGoals(data.goals ?? [])
       })
       .catch(() => {
         if (!cancelled) setGoals([])
@@ -521,7 +511,6 @@ export function HomeAssistant() {
   // personal-only goal from the "Set your first goal" CTA must not get
   // stuck seeing the no-goals hero forever.
   const hasGoals = Boolean(goals && activeGoals(goals).length > 0)
-  const proofLine = impactSentence(impact)
 
   return (
     <div className="flex h-screen min-h-0 flex-col bg-background">
@@ -589,10 +578,11 @@ export function HomeAssistant() {
         <div className="flex min-h-0 flex-1 items-center justify-center p-4">
           <div className="w-full max-w-4xl">
             <FirstRunGuide goalsCount={goals === null ? null : activeGoals(goals).length} />
-            <GoalStatusStrip goals={goals} />
-            {hasGoals && proofLine && (
-              <p className="mb-4 text-center text-sm text-muted-foreground">{proofLine}</p>
-            )}
+            {/* The goal status strip and impact line used to render here.
+                Removed: the goal lens made them redundant — goals now have a
+                whole surface, and Home is the assistant, not a second goals
+                dashboard. The goals fetch stays for the first-run guide, the
+                no-goals CTA, and the preset chips. */}
             <p className="eyebrow text-center">
               <span className="text-indigo-400">{'///'}</span> {salutation}
               {user?.firstName ? `, ${user.firstName}` : ''}
