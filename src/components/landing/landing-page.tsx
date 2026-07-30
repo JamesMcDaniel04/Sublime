@@ -121,17 +121,17 @@ export function LandingPage({ fontClassName = '' }: { fontClassName?: string }) 
             {/* Left column — text */}
             <div className="relative z-[3] flex-1 min-w-0 max-w-[540px]">
               <h1 className="text-[clamp(2rem,4vw,3.2rem)] font-[500] leading-[1.08] tracking-[-0.04em] text-foreground max-w-[540px]">
-                Roll out a play.<br />See who ran it.
+                AI that proves its ROI
               </h1>
               <p className="mt-6 text-base leading-relaxed text-muted-foreground max-w-[420px]">
-                You announce the standard on Monday — multithread every deal, work inbound in a
-                day — then find out at QBR whether it stuck. Sublime turns those plays into work
-                your agents produce, and shows you who ran it, who didn&rsquo;t, and why.
+                Sublime connects to your tech stack, connects the dots, and deploys specialized
+                agents against the goals that matter: Quota, ARR, and KPIs. Every run shows
+                its work and every goal shows its progress.
               </p>
               <div className="mt-10 flex items-center gap-4">
                 <Link href="/auth/signup">
                   <button className="group relative inline-flex items-center gap-2 px-6 py-3 text-[14px] font-medium bg-foreground text-background transition-all duration-200 hover:bg-foreground/90">
-                    Roll out your first play
+                    Set your first goal
                     <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
                   </button>
                 </Link>
@@ -323,11 +323,11 @@ export function LandingPage({ fontClassName = '' }: { fontClassName?: string }) 
                 Connections
               </p>
               <h2 className="text-[clamp(1.8rem,3vw,2.5rem)] font-[500] tracking-[-0.03em] leading-[1.15]">
-                Connected to everything.<br />Accountable to <span className="text-primary">your playbook.</span>
+                Connected to everything.<br />Accountable to <span className="text-primary">your goals.</span>
               </h2>
               <p className="mt-4 text-[15px] text-white/60">
-                Sublime plugs into the stack you already run, so a play arrives as finished
-                work — the right deal, the right owner, ready to send.
+                Sublime plugs into the stack you already run and connects the dots across it,
+                so every agent starts with full context.
               </p>
             </div>
           </div>
@@ -372,25 +372,25 @@ export function LandingPage({ fontClassName = '' }: { fontClassName?: string }) 
             What you get
           </p>
           <h2 className="text-[clamp(1.8rem,3vw,2.5rem)] font-[500] tracking-[-0.03em] text-foreground max-w-[500px] leading-[1.15]">
-            Three things you<br />can&rsquo;t see today.
+            Three ways it<br />pays for itself.
           </h2>
 
           <div className="mt-16 border border-border">
             <div className="grid grid-cols-1 md:grid-cols-3">
               {[
                 {
-                  title: 'Roll out the play',
-                  desc: 'Pick a standard your team should hold — every commit deal has a close plan — and agents produce the work for it, one item per deal, routed to whoever owns the account.',
+                  title: 'Automate the repetitive',
+                  desc: 'Specialized agents take over the recurring work — digests, triage, follow-ups — so your people stop doing robot work.',
                   graphic: 'bars',
                 },
                 {
-                  title: 'See who ran it',
-                  desc: 'Adoption per rep, measured by what people actually used — not by activity anyone logged. Nobody is asked to report anything, which is why the number is true.',
+                  title: 'Cut the cost',
+                  desc: 'Agents run in minutes for cents, and every run is logged — so you can see exactly what got done and what it replaced.',
                   graphic: 'flow',
                 },
                 {
-                  title: 'Learn what to change',
-                  desc: 'When reps skip work, they say why. Sublime turns the pattern into a finding about your entry criteria — and stops producing what nobody wants.',
+                  title: 'Find the process wins',
+                  desc: 'Connected across your stack, Sublime spots bottlenecks and leaks, then proposes specialized agents to fix them.',
                   graphic: 'chart',
                 },
               ].map((feature, i) => (
@@ -470,9 +470,9 @@ export function LandingPage({ fontClassName = '' }: { fontClassName?: string }) 
         <div className="mx-auto max-w-[1200px] relative">
           <div className="border border-border bg-background p-10 max-w-[720px] mx-auto">
             <blockquote className="text-[20px] font-[400] leading-[1.5] tracking-[-0.01em] text-foreground/85">
-              &ldquo;I used to roll out a play and find out at QBR whether it stuck. Now I can see
-              that two reps ran it and one didn&rsquo;t — and that the one who didn&rsquo;t was
-              right, because the deals we sent him weren&rsquo;t cold yet.&rdquo;
+              &ldquo;We pointed Sublime&rsquo;s agents at our quarterly pipeline goal. They ship the
+              digests and follow-ups nobody had time for and for the first time I have an ROI
+              number I can show in the QBR.&rdquo;
             </blockquote>
             <div className="mt-6 flex items-center gap-3">
               <img src={testimonialAvatar} alt="Jamie Kim" className="h-8 w-8 rounded-full object-cover" />
@@ -514,17 +514,17 @@ export function LandingPage({ fontClassName = '' }: { fontClassName?: string }) 
       <section className="relative z-10 pt-32 pb-40 px-6 overflow-hidden">
         <div className="mx-auto max-w-[1200px] text-center relative">
           <h2 className="text-[clamp(2rem,4vw,3.2rem)] font-[500] tracking-[-0.035em] text-foreground leading-[1.1] mx-auto max-w-[560px]">
-            Stop finding out at QBR.
+            Set a goal. See the ROI.
           </h2>
           <p className="mt-5 text-[15px] text-muted-foreground max-w-[400px] mx-auto">
-            Connect your stack, roll out one play, and<br />see who actually ran it.
+            Connect your stack and deploy specialized<br />agents against your goals today.
           </p>
           <div className="mt-10 flex justify-center">
             <Link href="/auth/signup">
               <button
                 className="group relative inline-flex items-center gap-2.5 px-8 py-3.5 text-[15px] font-medium transition-all duration-200 border border-foreground/40 text-foreground hover:bg-foreground hover:text-background hover:border-foreground"
               >
-                Roll out your first play
+                Set your first goal
                 <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-1" />
               </button>
             </Link>
