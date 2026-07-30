@@ -34,6 +34,7 @@ import { CompositionStrip } from '@/components/goals/composition-strip'
 import { CompositionEditDialog } from '@/components/goals/composition-edit'
 import type { MetricSourceOption } from '@/lib/metrics/available-sources'
 import { AgentBundleCard } from '@/components/goals/agent-bundle-card'
+import { GoalAccessCard } from '@/components/goals/goal-access-card'
 import { WorkQueue } from '@/components/goals/workroom/work-queue'
 import { connectedSlugSet } from '@/lib/templates/relevance'
 import {
@@ -218,6 +219,11 @@ export function GoalDetail({ goalId }: { goalId: string }) {
         description={`${fmtValue(goal.targetValue, goal.unit)} by ${new Date(goal.targetDate).toLocaleDateString()}`}
         actions={
           <>
+            {goal.restricted && (
+              <Badge variant="outline" className="border-amber-300 text-amber-700">
+                Restricted
+              </Badge>
+            )}
             <RiskBadge riskLevel={goal.riskLevel} />
             <Badge variant="outline">
               {GOAL_KIND_LABELS[goal.kind]}
@@ -364,6 +370,9 @@ export function GoalDetail({ goalId }: { goalId: string }) {
       {/* Order is deliberate: the work first, the agents that produce it
           directly beneath (so the empty state's "deploy an agent below" is
           literally true), and the number last as evidence. */}
+      {/* Admin-only; personal goals never render it (ownerUserId already
+          restricts them, and the API refuses them with PERSONAL_GOAL). */}
+      {!goal.personal && <GoalAccessCard goalId={goalId} />}
       <WorkQueue goalId={goalId} />
 
       <AgentBundleCard

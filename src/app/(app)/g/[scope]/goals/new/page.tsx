@@ -43,7 +43,7 @@ import {
   kpiConfigFrom,
   type Driver,
 } from '@/components/goals/kpi-shape'
-import { invalidateCachedJson } from '@/lib/client/use-cached-json'
+import { invalidateCachedJson, useCachedJson } from '@/lib/client/use-cached-json'
 
 type Step = 1 | 2 | 3
 type GoalKind = GoalSummary['kind']
@@ -94,6 +94,13 @@ export default function NewGoalPage() {
     | { status: 'success'; value: number; asOf: string }
     | { status: 'error'; message: string }
   >({ status: 'idle' })
+  // Org goals are admin-authored (goal:create:org, piece A). Knowing the role
+  // HERE removes a dead end: without it a member fills in the whole form and
+  // gets a 403 on submit. The server check is unchanged — this is courtesy,
+  // not enforcement.
+  const { data: profileData } = useCachedJson<{ profile?: { role: string } }>('/api/settings/profile')
+  const isAdmin = profileData?.profile?.role === 'ADMIN'
+
   const [state, setState] = useState({
     name: '',
     kind: 'arr' as GoalKind,
@@ -347,7 +354,10 @@ export default function NewGoalPage() {
           targetValue,
           targetDate: new Date(`${state.targetDate}T23:59:59`).toISOString(),
           recurrence: state.recurrence,
-          personal: state.personal,
+          // Forced, not merely displayed: a template prefill can set
+          // personal:false in state, and a member submitting that would hit
+          // the server's 403 — the exact dead end this gate removes.
+          personal: !isAdmin || state.personal,
           ...(state.personal && state.parentGoalId
             ? { parentGoalId: state.parentGoalId }
             : {}),
@@ -592,7 +602,8 @@ export default function NewGoalPage() {
               </p>
             </div>
             <Switch
-              checked={state.personal}
+              checked={!isAdmin || state.personal}
+              disabled={!isAdmin}
               onCheckedChange={(personal) =>
                 setState((current) => ({
                   ...current,
@@ -603,6 +614,11 @@ export default function NewGoalPage() {
               aria-label="Personal goal"
             />
           </div>
+          {!isAdmin && (
+            <p className="-mt-2 text-xs text-muted-foreground">
+              Organization goals are set by workspace admins — this goal will be personal.
+            </p>
+          )}
           {state.personal && orgGoals.length > 0 && (
             <label className="block space-y-1.5 text-sm">
               <span className="font-medium">Supports org goal (optional)</span>

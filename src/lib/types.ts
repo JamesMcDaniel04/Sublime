@@ -68,6 +68,9 @@ export interface GoalSummary {
   status: 'active' | 'paused' | 'achieved' | 'missed' | 'archived'
   riskLevel: 'on_track' | 'at_risk' | 'off_track' | 'no_data'
   personal: boolean
+  /** True when access = 'restricted'. Only ever seen by people who can already
+   *  see the goal, so it reveals nothing to anyone else. */
+  restricted?: boolean
   parentGoalId: string | null
   metric: {
     source: string

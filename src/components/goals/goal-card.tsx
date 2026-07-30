@@ -38,6 +38,14 @@ export function GoalCard({ goal }: { readonly goal: GoalSummary }) {
                 Personal
               </Badge>
             )}
+            {/* Members of a confidential goal need to KNOW it's confidential —
+                without this, someone forwards a screenshot not realising. Only
+                people who can see the goal ever receive the flag. */}
+            {goal.restricted && (
+              <Badge variant="outline" className="mt-1 border-amber-300 text-[10px] text-amber-700">
+                Restricted
+              </Badge>
+            )}
           </div>
           <div className="flex shrink-0 flex-col items-end gap-1">
             <RiskBadge riskLevel={goal.riskLevel} />
