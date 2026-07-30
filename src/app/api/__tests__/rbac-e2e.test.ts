@@ -310,6 +310,38 @@ if (TEST_DB) {
       })
     })
 
+    test('revoking an invitation is audited, like issuing one', async () => {
+      // Granting access was logged; withdrawing it was not. An audit log that
+      // records only the grants tells a reviewer someone was invited and never
+      // that the invitation was pulled — the two halves have to match.
+      await withSeeded({ role: 'ADMIN' }, async (seeded: any) => {
+        // Created directly: the invite ROUTE calls Supabase's admin API, which
+        // has no service-role key here. The revoke path is what is under test.
+        const invitation = await prisma.organizationInvitation.create({
+          data: {
+            organizationId: seeded.organizationId,
+            email: `revoke-${crypto.randomUUID()}@example.com`,
+            role: 'MEMBER',
+            invitedById: seeded.auth.dbUser.id,
+            expiresAt: new Date(Date.now() + 7 * 86_400_000),
+          },
+        })
+
+        const { DELETE } = await import('../settings/members/route')
+        const response = await DELETE(req(`/api/settings/members?invitationId=${invitation.id}`, { method: 'DELETE' }))
+        assert.equal(response.status, 200, await response.text())
+
+        const revoked = await prisma.organizationInvitation.findFirst({
+          where: { id: invitation.id, organizationId: seeded.organizationId },
+        })
+        assert.ok(revoked.revokedAt, 'the invitation should be revoked')
+        assert.deepEqual(
+          await auditActionsFor(seeded.organizationId, invitation.id),
+          ['organization.member.invite_revoked'],
+        )
+      })
+    })
+
     test('one request that changes role AND activity records both facts', async () => {
       // Collapsing these into a single row would lose one of the two changes.
       await withSeeded({ role: 'ADMIN' }, async (seeded: any) => {

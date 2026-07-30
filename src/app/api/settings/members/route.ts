@@ -98,5 +98,9 @@ export const DELETE = withAuthenticatedApi(async (request, auth) => {
   if (!id) throw new ApiError('invitationId is required')
   const result = await prisma.organizationInvitation.updateMany({ where: { id, organizationId: auth.organizationId, acceptedAt: null }, data: { revokedAt: new Date() } })
   if (!result.count) throw new ApiError('Invitation not found', 404, 'NOT_FOUND')
+  // The counterpart to organization.member.invited above. Logging the grant
+  // but not the withdrawal leaves a reviewer reading an audit trail where
+  // everyone who was ever invited still appears to be on their way in.
+  void recordAudit({ organizationId: auth.organizationId, actorUserId: auth.dbUser.id, action: 'organization.member.invite_revoked', resourceType: 'invitation', resourceId: id })
   return { success: true }
 }, { requires: 'member:manage' })

@@ -255,7 +255,8 @@ if (TEST_DB) {
     assert.ok(group, 'a linked agent must receive the goals tools')
     assert.deepEqual(
       group.tools.map((tool: any) => tool.name).sort(),
-      ['get_goal', 'get_pace', 'list_datapoints', 'log_datapoint'],
+      ['get_goal', 'get_pace', 'list_datapoints', 'list_work', 'log_datapoint', 'log_work'],
+      'the linked plane is the full goal tool surface — add work tools here when the plane gains them',
     )
   })
 

@@ -14,6 +14,8 @@ if (TEST_DB) {
   let seeded: any
   let agentId: string
   let flowId: string
+  let goalId: string
+  let memberId: string
 
   before(async () => {
     ;({ prisma } = await import('@/lib/prisma'))
@@ -31,6 +33,31 @@ if (TEST_DB) {
       data: { name: 'Smoke flow', organizationId: seeded.organizationId, userId: seeded.userId },
     })
     flowId = flow.id
+    // An ORG goal (ownerUserId null), not a personal one: the members route
+    // rejects personal goals outright, so a personal fixture would exercise
+    // only its guard clause. A real id also matters more than an unknown one
+    // here — these routes 404 before running any org-scoped query, and a
+    // 404-only smoke case cannot catch the tenant-guard class of 500 this
+    // suite exists to catch.
+    const goal = await prisma.goal.create({
+      data: {
+        organizationId: seeded.organizationId,
+        name: 'Smoke goal',
+        kind: 'arr',
+        direction: 'increase',
+        unit: 'usd',
+        startValue: 0,
+        targetValue: 100,
+        startAt: new Date(),
+        targetDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+        createdByUserId: seeded.userId,
+      },
+    })
+    goalId = goal.id
+    const member = await prisma.user.create({
+      data: { supabaseId: crypto.randomUUID(), organizationId: seeded.organizationId, isActive: true },
+    })
+    memberId = member.id
   })
 
   after(async () => {
@@ -70,6 +97,8 @@ if (TEST_DB) {
     { name: 'GET /api/push/key', run: async () => (await import('../push/key/route')).GET(req('/api/push/key')) },
     { name: 'GET /api/search', run: async () => (await import('../search/route')).GET(req('/api/search?q=smoke')) },
     { name: 'GET /api/settings/members', run: async () => (await import('../settings/members/route')).GET(req('/api/settings/members')) },
+    { name: 'GET /api/settings/insights', run: async () => (await import('../settings/insights/route')).GET(req('/api/settings/insights')) },
+    { name: 'GET /api/settings/members/[id]/resources', run: async () => (await import('../settings/members/[id]/resources/route')).GET(req(`/api/settings/members/${memberId}/resources`)) },
     { name: 'GET /api/settings/profile', run: async () => (await import('../settings/profile/route')).GET(req('/api/settings/profile')) },
     { name: 'GET /api/slack/connections', run: async () => (await import('../slack/connections/route')).GET(req('/api/slack/connections')) },
     { name: 'GET /api/skills', run: async () => (await import('../skills/route')).GET(req('/api/skills')) },
@@ -80,6 +109,8 @@ if (TEST_DB) {
     { name: 'GET /api/goals/impact', run: async () => (await import('../goals/impact/route')).GET(req('/api/goals/impact')) },
     { name: 'GET /api/goals/report', run: async () => (await import('../goals/report/route')).GET(req('/api/goals/report')) },
     { name: 'GET /api/goals/metrics/sources', run: async () => (await import('../goals/metrics/sources/route')).GET(req('/api/goals/metrics/sources')) },
+    { name: 'GET /api/goals/[id]/members', run: async () => (await import('../goals/[id]/members/route')).GET(req(`/api/goals/${goalId}/members`)) },
+    { name: 'GET /api/goals/[id]/work', run: async () => (await import('../goals/[id]/work/route')).GET(req(`/api/goals/${goalId}/work`)) },
     // Dynamic [id] routes — real seeded ids.
     { name: 'GET /api/agents/[id]/knowledge', run: async () => (await import('../agents/[id]/knowledge/route')).GET(req(`/api/agents/${agentId}/knowledge`)) },
     { name: 'GET /api/agents/[id]/memories', run: async () => (await import('../agents/[id]/memories/route')).GET(req(`/api/agents/${agentId}/memories`)) },
