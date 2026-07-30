@@ -163,6 +163,24 @@ if (TEST_DB) {
         for (const row of body.resources) {
           assert.deepEqual(Object.keys(row).sort(), RESOURCE_KEYS, 'listing must stay names-only')
         }
+
+        // resource:takeover is documented as ALWAYS audited, and reading what a
+        // colleague owns is precisely the cross-owner act the log exists to
+        // record. Without this the listing was the one takeover path that left
+        // no trace.
+        let audit: any = null
+        for (let attempt = 0; attempt < 20 && !audit; attempt++) {
+          audit = await prisma.auditEvent.findFirst({
+            where: {
+              organizationId: seeded.organizationId,
+              action: 'admin.resource.read',
+              resourceId: owner.id,
+            },
+          })
+          if (!audit) await new Promise((resolve) => setTimeout(resolve, 25))
+        }
+        assert.ok(audit, 'reading a member\'s owned work must land in the audit log')
+        assert.equal((audit.detail as any).targetUserId, owner.id)
       } finally {
         await seeded.cleanup()
       }

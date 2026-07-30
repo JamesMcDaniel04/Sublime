@@ -6,9 +6,17 @@
  * owns solves offboarding (the driving case); reading their drafts is a
  * different feature with a different privacy cost, and nothing needs it yet.
  * The e2e test pins the row shape to exactly these four keys.
+ *
+ * The listing runs inside withElevatedAccess even though the route already
+ * declares resource:takeover. The declaration alone grants but does not
+ * record, and this is a cross-owner READ — the act elevated.ts exists to keep
+ * out of the shadows. Narrow data is not the same as unremarkable data: an
+ * admin enumerating a colleague's work is exactly what an audit log is read
+ * for afterwards.
  */
 import { prisma } from '@/lib/prisma'
 import { ApiError, withAuthenticatedApi } from '@/lib/server/api-handler'
+import { withElevatedAccess } from '@/lib/server/elevated'
 
 export const runtime = 'nodejs'
 
@@ -23,24 +31,37 @@ export const GET = withAuthenticatedApi(async (request, auth) => {
   })
   if (!member) throw new ApiError('Member not found', 404, 'NOT_FOUND')
 
-  const [flows, agents, goals] = await Promise.all([
-    prisma.flow.findMany({
-      where: { organizationId: auth.organizationId, userId: member.id },
-      select: { id: true, name: true, updatedAt: true },
-      orderBy: { updatedAt: 'desc' },
-    }),
-    prisma.agentTask.findMany({
-      where: { organizationId: auth.organizationId, userId: member.id, status: { not: 'DELETED' } },
-      // AgentTask has no name column; description is its display label.
-      select: { id: true, description: true, updatedAt: true },
-      orderBy: { updatedAt: 'desc' },
-    }),
-    prisma.goal.findMany({
-      where: { organizationId: auth.organizationId, ownerUserId: member.id, status: { not: 'archived' } },
-      select: { id: true, name: true, updatedAt: true },
-      orderBy: { updatedAt: 'desc' },
-    }),
-  ])
+  // The audit row names the MEMBER, not each listed resource: one deliberate
+  // act of looking at someone's work is one entry. Fanning out a row per flow
+  // would bury the signal it exists to carry.
+  const [flows, agents, goals] = await withElevatedAccess(
+    auth,
+    {
+      action: 'admin.resource.read',
+      resourceType: 'user',
+      resourceId: member.id,
+      targetUserId: member.id,
+      detail: { surface: 'member-owned-work-listing' },
+    },
+    () => Promise.all([
+      prisma.flow.findMany({
+        where: { organizationId: auth.organizationId, userId: member.id },
+        select: { id: true, name: true, updatedAt: true },
+        orderBy: { updatedAt: 'desc' },
+      }),
+      prisma.agentTask.findMany({
+        where: { organizationId: auth.organizationId, userId: member.id, status: { not: 'DELETED' } },
+        // AgentTask has no name column; description is its display label.
+        select: { id: true, description: true, updatedAt: true },
+        orderBy: { updatedAt: 'desc' },
+      }),
+      prisma.goal.findMany({
+        where: { organizationId: auth.organizationId, ownerUserId: member.id, status: { not: 'archived' } },
+        select: { id: true, name: true, updatedAt: true },
+        orderBy: { updatedAt: 'desc' },
+      }),
+    ]),
+  )
 
   return {
     success: true,

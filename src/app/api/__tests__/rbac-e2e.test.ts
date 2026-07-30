@@ -257,5 +257,74 @@ if (TEST_DB) {
         assert.equal(row.resourceId, 'flow-123')
       })
     })
+
+    /**
+     * Member management wrote ONE action — organization.member.updated — for
+     * both "made someone an admin" and "suspended someone". During an incident
+     * those are different questions, and an audit log that cannot tell them
+     * apart forces a reviewer back to guesswork over timestamps.
+     */
+    const auditActionsFor = async (organizationId: string, resourceId: string) => {
+      // recordAudit is fire-and-forget; poll rather than assume it landed.
+      for (let attempt = 0; attempt < 20; attempt++) {
+        const rows = await prisma.auditEvent.findMany({
+          where: { organizationId, resourceId },
+          select: { action: true },
+        })
+        if (rows.length) return rows.map((row: any) => row.action).sort()
+        await new Promise((resolve) => setTimeout(resolve, 25))
+      }
+      return []
+    }
+
+    test('promoting a member is audited as a role change, not a generic update', async () => {
+      await withSeeded({ role: 'ADMIN' }, async (seeded: any) => {
+        const member = await prisma.user.create({
+          data: { supabaseId: crypto.randomUUID(), organizationId: seeded.organizationId, isActive: true, role: 'MEMBER' },
+        })
+        const { PATCH } = await import('../settings/members/route')
+        const response = await PATCH(jsonReq('/api/settings/members', 'PATCH', { userId: member.id, role: 'ADMIN' }))
+        assert.equal(response.status, 200, await response.text())
+
+        assert.deepEqual(await auditActionsFor(seeded.organizationId, member.id), ['organization.member.role_changed'])
+      })
+    })
+
+    test('a suspension is logged even when session teardown fails', async () => {
+      // Suspending calls Supabase admin.signOut, which needs a service-role key
+      // this harness does not have — so the request fails here. That is exactly
+      // the case worth pinning: the database change has already committed, so
+      // the audit row must not depend on an external call that can fail. It
+      // used to, and an unreachable Supabase silently produced a deactivated
+      // member with nothing in the log.
+      await withSeeded({ role: 'ADMIN' }, async (seeded: any) => {
+        const member = await prisma.user.create({
+          data: { supabaseId: crypto.randomUUID(), organizationId: seeded.organizationId, isActive: true, role: 'MEMBER' },
+        })
+        const { PATCH } = await import('../settings/members/route')
+        await PATCH(jsonReq('/api/settings/members', 'PATCH', { userId: member.id, isActive: false }))
+
+        const suspended = await prisma.user.findFirst({ where: { id: member.id, organizationId: seeded.organizationId } })
+        assert.equal(suspended.isActive, false, 'the member was in fact deactivated')
+        assert.deepEqual(await auditActionsFor(seeded.organizationId, member.id), ['organization.member.deactivated'])
+      })
+    })
+
+    test('one request that changes role AND activity records both facts', async () => {
+      // Collapsing these into a single row would lose one of the two changes.
+      await withSeeded({ role: 'ADMIN' }, async (seeded: any) => {
+        const member = await prisma.user.create({
+          data: { supabaseId: crypto.randomUUID(), organizationId: seeded.organizationId, isActive: false, role: 'MEMBER' },
+        })
+        const { PATCH } = await import('../settings/members/route')
+        const response = await PATCH(jsonReq('/api/settings/members', 'PATCH', { userId: member.id, role: 'ADMIN', isActive: true }))
+        assert.equal(response.status, 200, await response.text())
+
+        assert.deepEqual(
+          await auditActionsFor(seeded.organizationId, member.id),
+          ['organization.member.reactivated', 'organization.member.role_changed'],
+        )
+      })
+    })
   })
 }

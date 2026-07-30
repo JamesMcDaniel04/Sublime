@@ -140,3 +140,30 @@ test('billing routes enforce billing:manage despite skipping the wrapper', () =>
       + 'The plan exemption does not extend to role — call canManageBillingByRole.',
   )
 })
+
+/**
+ * resource:takeover promises more than "admins only" — permissions.ts calls it
+ * "Always audited", and elevated.ts states the invariant plainly: the code
+ * path that GRANTS cross-owner access is the same one that RECORDS it, so
+ * reading a colleague's work without a trace is meant to be inexpressible.
+ *
+ * A route-level `requires: 'resource:takeover'` is a SECOND grant path, and it
+ * carries no audit. Declaring the capability without calling withElevatedAccess
+ * therefore silently breaks the promise — which is exactly how the members
+ * resource-listing route came to read other people's flows, agents and goals
+ * with nothing written to the audit log.
+ */
+test('every resource:takeover route routes its access through withElevatedAccess', () => {
+  const unaudited = routeFiles
+    .filter(({ source }) => source.includes("requires: 'resource:takeover'"))
+    .filter(({ source }) => !source.includes('withElevatedAccess('))
+    .map(({ route }) => route)
+    .sort()
+
+  assert.deepEqual(
+    unaudited,
+    [],
+    `Route(s) granting resource:takeover with no audit: ${unaudited.join(', ')}. `
+      + 'Wrap the cross-owner access in withElevatedAccess so the grant and the audit row stay inseparable.',
+  )
+})

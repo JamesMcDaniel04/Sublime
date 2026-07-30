@@ -26,14 +26,28 @@ import { ApiError } from './api-handler'
 import { can } from './permissions'
 import type { AuthContext } from './auth'
 
-/** Cross-owner actions, spelled once so the audit log has a stable vocabulary. */
-export type ElevatedAction =
-  | 'admin.resource.read'
-  | 'admin.resource.update'
-  | 'admin.resource.delete'
-  | 'admin.resource.reassign'
-  | 'member.role.change'
-  | 'member.deactivate'
+/**
+ * Cross-owner actions, spelled once so the audit log has a stable vocabulary.
+ *
+ * A runtime array rather than a bare union (mirroring CAPABILITIES in
+ * permissions.ts) so the vocabulary is enumerable and therefore testable: a
+ * closed set nobody can iterate quietly accumulates entries that nothing ever
+ * writes, which is how member.role.change, member.deactivate and
+ * admin.resource.delete came to sit here unused.
+ *
+ * Scope is deliberately narrow. Everything here must be a cross-owner RESOURCE
+ * act, because withElevatedAccess gates on resource:takeover — member
+ * administration is member:manage and is audited by its own route under the
+ * organization.member.* vocabulary. Recording it through here would have
+ * asserted the wrong capability.
+ */
+export const ELEVATED_ACTIONS = [
+  'admin.resource.read',
+  'admin.resource.update',
+  'admin.resource.reassign',
+] as const
+
+export type ElevatedAction = (typeof ELEVATED_ACTIONS)[number]
 
 export type ElevatedContext = {
   action: ElevatedAction

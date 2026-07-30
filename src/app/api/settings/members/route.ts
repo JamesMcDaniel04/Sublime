@@ -52,13 +52,44 @@ export const PATCH = withAuthenticatedApi(async (request, auth) => {
   // check, deactivate/reactivate cycles walk past the plan's seat cap.
   if (input.isActive === true && !member.isActive) await assertSeatCapacity(auth.organizationId)
   await prisma.user.update({ where: { id: member.id, organizationId: auth.organizationId }, data: { ...(input.role && { role: input.role }), ...(input.isActive !== undefined && { isActive: input.isActive }) } })
-  // Drop the per-instance auth cache immediately — without this, a demoted or
+  // One row per FACT that changed, not one per request. "Made someone an
+  // admin" and "suspended someone" are different questions during an incident,
+  // and the old single organization.member.updated action could not tell a
+  // reviewer which had happened — or, for a request carrying both, that both
+  // had. Emitted only for real transitions, so re-sending an unchanged value
+  // does not pad the log with no-ops.
+  const changes: Array<{ action: string; detail: Record<string, unknown> }> = []
+  if (input.role && input.role !== member.role) {
+    changes.push({ action: 'organization.member.role_changed', detail: { from: member.role, to: input.role } })
+  }
+  if (input.isActive !== undefined && input.isActive !== member.isActive) {
+    changes.push({
+      action: input.isActive ? 'organization.member.reactivated' : 'organization.member.deactivated',
+      detail: {},
+    })
+  }
+  for (const change of changes) {
+    void recordAudit({
+      organizationId: auth.organizationId,
+      actorUserId: auth.dbUser.id,
+      action: change.action,
+      resourceType: 'user',
+      resourceId: member.id,
+      detail: change.detail,
+    })
+  }
+  // Session teardown comes AFTER the audit write on purpose. The row above
+  // records a change that has already been committed, and signOut reaches an
+  // external service that can fail — auditing behind it meant an unreachable
+  // Supabase produced a member who was deactivated in the database with
+  // nothing in the log to say so.
+  //
+  // Drop the per-instance auth cache immediately too: without it a demoted or
   // deactivated member keeps their OLD role/active flag on warm instances for
   // the cache TTL (mirrors the org-delete route's pattern).
   const { invalidateDbUserCache } = await import('@/lib/supabase/auth-utils')
   invalidateDbUserCache(member.supabaseId)
   if (input.isActive === false) await createAdminClient().auth.admin.signOut(member.supabaseId, 'global')
-  void recordAudit({ organizationId: auth.organizationId, actorUserId: auth.dbUser.id, action: 'organization.member.updated', resourceType: 'user', resourceId: member.id })
   return { success: true }
 }, { requires: 'member:manage' })
 
