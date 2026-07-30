@@ -27,9 +27,9 @@ const API_DIR = fileURLToPath(new URL('..', import.meta.url))
  */
 const DIFFERENTLY_AUTHENTICATED: ReadonlyArray<{ route: string; mechanism: string }> = [
   { route: 'stripe/webhook', mechanism: 'Stripe webhook signature' },
-  { route: 'stripe/portal', mechanism: 'session; billing-exempt so a locked-out user can still pay' },
-  { route: 'stripe/topup', mechanism: 'session; billing-exempt so a locked-out user can still pay' },
-  { route: 'stripe/checkout', mechanism: 'session; billing-exempt so a locked-out user can still pay' },
+  { route: 'stripe/portal', mechanism: 'session + canManageBillingByRole; plan-exempt so a locked-out workspace can still pay' },
+  { route: 'stripe/topup', mechanism: 'session + canManageBillingByRole; plan-exempt so a locked-out workspace can still pay' },
+  { route: 'stripe/checkout', mechanism: 'session + canManageBillingByRole; plan-exempt so a locked-out workspace can still pay' },
   { route: 'cron/retention', mechanism: 'cron shared secret' },
   { route: 'cron/dispatch', mechanism: 'cron shared secret' },
   { route: 'flows/[id]/trigger', mechanism: 'per-flow trigger token' },
@@ -83,9 +83,14 @@ test('the differently-authenticated list has no stale entries', () => {
 test('listed routes really do avoid the wrapper', () => {
   // Catches the reverse drift: a route converted to withAuthenticatedApi but
   // left on the exemption list.
+  //
+  // Matches the CALL form, not the bare identifier: an exempt route should be
+  // free to name the wrapper in a comment explaining why it opts out, and a
+  // substring match would turn that documentation into a failure. A real
+  // conversion is always a call — `export const GET = withAuthenticatedApi(`.
   const byRoute = new Map(routeFiles.map(({ route, source }) => [route, source]))
   const wrapped = DIFFERENTLY_AUTHENTICATED
-    .filter((entry) => byRoute.get(entry.route)?.includes('withAuthenticatedApi'))
+    .filter((entry) => byRoute.get(entry.route)?.includes('withAuthenticatedApi('))
     .map((e) => e.route)
   assert.deepEqual(wrapped, [], `Now using withAuthenticatedApi — remove from the list: ${wrapped.join(', ')}`)
 })
@@ -112,4 +117,26 @@ test('every wrapped route declares requires for each exported handler', () => {
     if (wrapCount > 0 && declareCount < wrapCount) missing.push(`${route} (${declareCount}/${wrapCount})`)
   }
   assert.deepEqual(missing, [], `Wrapped handler(s) without a requires declaration: ${missing.join(', ')}`)
+})
+
+/**
+ * The billing routes are exempt from withAuthenticatedApi so a PLAN-locked
+ * workspace can still reach checkout. That exemption was never meant to drop
+ * the ROLE check too: billing:manage is admin-only in permissions.ts, and
+ * without this test the routes can silently fall back to "any member with a
+ * session", which is how the gap arose in the first place.
+ */
+const BILLING_MUTATION_ROUTES = ['stripe/checkout', 'stripe/portal', 'stripe/topup'] as const
+
+test('billing routes enforce billing:manage despite skipping the wrapper', () => {
+  const byRoute = new Map(routeFiles.map(({ route, source }) => [route, source]))
+  const unguarded = BILLING_MUTATION_ROUTES.filter(
+    (route) => !byRoute.get(route)?.includes('canManageBillingByRole'),
+  )
+  assert.deepEqual(
+    unguarded,
+    [],
+    `Billing route(s) with no role check: ${unguarded.join(', ')}. `
+      + 'The plan exemption does not extend to role — call canManageBillingByRole.',
+  )
 })

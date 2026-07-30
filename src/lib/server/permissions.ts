@@ -119,6 +119,27 @@ export function isAdmin(actor: Pick<Actor, 'role'>): boolean {
 }
 
 /**
+ * Billing authorization for the one seam that has a role but no Actor.
+ *
+ * The Stripe checkout/portal/topup routes deliberately skip
+ * withAuthenticatedApi so a workspace locked out by its PLAN can still reach
+ * payment — requireAuthContext() would throw PAYMENT_REQUIRED at exactly the
+ * people who need to pay. That exemption is about plan, not role: without a
+ * role check any member could open the customer portal and cancel the
+ * subscription.
+ *
+ * Answering from the role alone is only valid because billing:manage is not
+ * plan-gated. That is a property of the matrix above, not an assumption —
+ * permissions.test.ts pins it, so making billing:manage plan-gated later fails
+ * the test instead of silently changing what this returns. The plan passed
+ * here is the most restrictive one for that reason: if it ever started
+ * mattering, this would deny rather than over-grant.
+ */
+export function canManageBillingByRole(role: UserRole): boolean {
+  return can({ userId: '', role, plan: 'TRIAL' as Plan }, 'billing:manage')
+}
+
+/**
  * WHY a capability was denied, so the caller can say something true rather
  * than a generic 403. "Upgrade your plan" shown to an admin who actually needs
  * a higher tier is helpful; "Admin access required" shown to the same person

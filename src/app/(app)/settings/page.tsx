@@ -84,11 +84,15 @@ export default function SettingsPage() {
   useEffect(() => {
     const billingError = new URLSearchParams(window.location.search).get('billing_error')
     if (!billingError) return
-    toast.error(
-      billingError === 'portal'
-        ? 'We could not open the billing portal. Please try again or contact hello@trysublime.io.'
-        : 'We could not start checkout. Please try again or contact hello@trysublime.io.',
-    )
+    const message = {
+      // Not a failure — a refusal. Billing is admin-only (billing:manage), and
+      // a member who reached a Stripe route by URL deserves the real reason
+      // rather than "something went wrong".
+      forbidden: 'Only workspace admins can manage billing. Ask an admin to make this change.',
+      portal: 'We could not open the billing portal. Please try again or contact hello@trysublime.io.',
+    }[billingError] ?? 'We could not start checkout. Please try again or contact hello@trysublime.io.'
+    if (billingError === 'forbidden') toast.warning(message)
+    else toast.error(message)
     const url = new URL(window.location.href)
     url.searchParams.delete('billing_error')
     window.history.replaceState(null, '', url.toString())
@@ -156,7 +160,7 @@ export default function SettingsPage() {
         />
       </TabsContent>
       <TabsContent value="billing" className="mt-6">
-        <BillingTab orgPlan={orgPlan} grandfathered={grandfathered} />
+        <BillingTab orgPlan={orgPlan} grandfathered={grandfathered} isAdmin={isAdmin} />
       </TabsContent>
       {isAdmin && (
         <TabsContent value="insights" className="mt-6">

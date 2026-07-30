@@ -203,6 +203,10 @@ export function HomeAssistant() {
   const [loadingSession, setLoadingSession] = useState(false)
   const [attachment, setAttachment] = useState<Attachment | null>(null)
   const [uploading, setUploading] = useState(false)
+  // Whole surface is a drop target. dragenter/dragleave fire per child node,
+  // so a depth counter (not a boolean) keeps the overlay from flickering.
+  const [dragActive, setDragActive] = useState(false)
+  const dragDepth = useRef(0)
   const [runningId, setRunningId] = useState<string | null>(null)
   // Computed after mount so the server-rendered HTML never disagrees with the
   // visitor's local clock.
@@ -418,6 +422,59 @@ export function HomeAssistant() {
     }
   }
 
+  /**
+   * Route a dropped or pasted file into the existing upload pipeline. Images
+   * are rejected here with a specific message — the extract endpoint is
+   * text-only, and its generic 415 copy would read as a bug for so common a
+   * drop. One attachment per message, matching the paperclip flow.
+   */
+  const acceptFile = (files: FileList | null | undefined) => {
+    const file = files?.[0]
+    if (!file || uploading || sending) return
+    if (file.type.startsWith('image/')) {
+      toast.error('Images are not supported yet — drop a text, PDF, or DOCX file.')
+      return
+    }
+    if (files && files.length > 1) toast('One file per message — using the first one.')
+    void uploadFile(file)
+  }
+
+  const hasFiles = (event: React.DragEvent) => Array.from(event.dataTransfer.types).includes('Files')
+
+  const onDragEnter = (event: React.DragEvent) => {
+    if (!hasFiles(event)) return
+    event.preventDefault()
+    dragDepth.current += 1
+    setDragActive(true)
+  }
+
+  const onDragOver = (event: React.DragEvent) => {
+    if (!hasFiles(event)) return
+    // Without preventDefault the browser refuses the drop and navigates away.
+    event.preventDefault()
+    event.dataTransfer.dropEffect = 'copy'
+  }
+
+  const onDragLeave = (event: React.DragEvent) => {
+    if (!hasFiles(event)) return
+    dragDepth.current = Math.max(0, dragDepth.current - 1)
+    if (dragDepth.current === 0) setDragActive(false)
+  }
+
+  const onDrop = (event: React.DragEvent) => {
+    if (!hasFiles(event)) return
+    event.preventDefault()
+    dragDepth.current = 0
+    setDragActive(false)
+    acceptFile(event.dataTransfer.files)
+  }
+
+  const onComposerPaste = (event: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    if (!event.clipboardData.files.length) return
+    event.preventDefault()
+    acceptFile(event.clipboardData.files)
+  }
+
   const applyPreset = (preset: { prompt: string; sendNow: boolean }) => {
     if (preset.sendNow) {
       void send(preset.prompt)
@@ -487,6 +544,7 @@ export function HomeAssistant() {
             event.target.style.height = `${Math.min(event.target.scrollHeight, 192)}px`
           }}
           onKeyDown={onComposerKeyDown}
+          onPaste={onComposerPaste}
           placeholder={attachment ? 'What should be done with this assignment?' : 'Ask about your workspace, or describe an assignment…'}
           disabled={sending}
           className="max-h-48 min-h-[3rem] flex-1 resize-none bg-transparent px-1 py-2.5 text-base outline-none placeholder:text-muted-foreground"
@@ -513,7 +571,24 @@ export function HomeAssistant() {
   const hasGoals = Boolean(goals && activeGoals(goals).length > 0)
 
   return (
-    <div className="flex h-screen min-h-0 flex-col bg-background">
+    <div
+      className="relative flex h-screen min-h-0 flex-col bg-background"
+      onDragEnter={onDragEnter}
+      onDragOver={onDragOver}
+      onDragLeave={onDragLeave}
+      onDrop={onDrop}
+    >
+      {/* Drop overlay: pointer-events-none so it never swallows the drag
+          events it is reacting to. */}
+      {dragActive && (
+        <div className="pointer-events-none absolute inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm">
+          <div className="flex flex-col items-center gap-3 rounded-3xl border-2 border-dashed border-indigo-300 bg-card px-12 py-10 shadow-1">
+            <FileText className="h-8 w-8 text-indigo-500" />
+            <p className="text-sm font-medium">Drop your assignment file</p>
+            <p className="text-xs text-muted-foreground">Text, markdown, CSV, PDF, or DOCX — up to 10 MB</p>
+          </div>
+        </div>
+      )}
       {/* Header: new chat + history, mirroring the per-agent panel. */}
       <div className="flex shrink-0 items-center justify-between border-b bg-card px-4 py-3">
         <div>

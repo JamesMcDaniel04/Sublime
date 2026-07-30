@@ -5,6 +5,7 @@ import { getStripe, appOrigin } from '@/lib/stripe'
 import { isPaidPlanKey, priceIdFor, trialParamsFor, type PaidPlanKey } from '@/lib/stripe/plans'
 import { apiLogger } from '@/lib/logger'
 import { isGrandfatheredOrganization } from '@/lib/billing/entitlements'
+import { canManageBillingByRole } from '@/lib/server/permissions'
 
 export const dynamic = 'force-dynamic'
 
@@ -39,6 +40,12 @@ async function startCheckout(plan: PaidPlanKey, origin: string) {
   if (!auth?.dbUser || !auth.organizationId) {
     const returnTo = `/api/stripe/checkout?plan=${plan}`
     return NextResponse.redirect(new URL(`/auth/signup?return_to=${encodeURIComponent(returnTo)}`, origin))
+  }
+  // Skipping withAuthenticatedApi exempts this route from the PLAN gate, not
+  // from the role one. dbUser.role is already the effective role — legacy
+  // platform users are normalized to ADMIN in getAuthWithUser.
+  if (!canManageBillingByRole(auth.dbUser.role)) {
+    return NextResponse.redirect(new URL('/settings?tab=billing&billing_error=forbidden', origin))
   }
 
   const organization = await prisma.organization.findUnique({

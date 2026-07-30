@@ -1,7 +1,14 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { Plan, type UserRole } from '@prisma/client'
-import { CAPABILITIES, can, denialReason, type Actor, type Capability } from '../permissions'
+import {
+  CAPABILITIES,
+  can,
+  canManageBillingByRole,
+  denialReason,
+  type Actor,
+  type Capability,
+} from '../permissions'
 
 const ROLES: UserRole[] = ['ADMIN', 'MEMBER']
 const PLANS: Plan[] = [Plan.TRIAL, Plan.STARTER, Plan.PROFESSIONAL, Plan.BUSINESS, Plan.ENTERPRISE]
@@ -80,5 +87,25 @@ test('every admin-only capability refuses a member on every plan', () => {
     for (const capability of adminOnly) {
       assert.equal(can(actor('MEMBER', plan), capability), false, `${capability} on ${plan}`)
     }
+  }
+})
+
+/**
+ * The billing routes authenticate by session rather than withAuthenticatedApi
+ * (so a plan-locked workspace can still reach checkout), which leaves them
+ * with a role but no entitlement plan. canManageBillingByRole exists for that
+ * seam; these two tests are what make the shortcut safe.
+ */
+test('canManageBillingByRole: admins may manage billing, members may not', () => {
+  assert.equal(canManageBillingByRole('ADMIN'), true)
+  assert.equal(canManageBillingByRole('MEMBER'), false)
+})
+
+test('billing:manage is role-gated only, so a role alone decides it', () => {
+  // If billing:manage ever became plan-gated, answering from the role alone
+  // would silently start lying. Pin the property the shortcut depends on.
+  for (const plan of PLANS) {
+    assert.equal(can(actor('ADMIN', plan), 'billing:manage'), true, `ADMIN on ${plan}`)
+    assert.equal(can(actor('MEMBER', plan), 'billing:manage'), false, `MEMBER on ${plan}`)
   }
 })

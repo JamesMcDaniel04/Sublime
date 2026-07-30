@@ -1,13 +1,20 @@
 import { Plan } from '@prisma/client'
 import { getAuthWithUser } from '@/lib/supabase/auth-utils'
+import { canManageBillingByRole } from '@/lib/server/permissions'
 import { billingStateFor, trialDaysRemaining } from './trial'
 import { apiLogger } from '@/lib/logger'
 
 export type BillingAccess =
   /** Workspace may use the product. `trialEndsAt` is set only while trialing. */
   | { status: 'allowed'; plan: Plan; trialEndsAt: Date | null }
-  /** Signed in, but no card on file — render the plan picker. */
-  | { status: 'payment_required' }
+  /**
+   * Signed in, but no card on file — render the plan picker.
+   *
+   * `canManageBilling` rides along because the paywall is shown to every
+   * member, not only the people allowed to pay, and the picker must not offer
+   * a checkout link that billing:manage will refuse.
+   */
+  | { status: 'payment_required'; canManageBilling: boolean }
   /** Couldn't determine billing state (DB/auth failure) — render an error. */
   | { status: 'unavailable' }
 
@@ -24,11 +31,14 @@ export type BillingAccess =
 export async function resolveBillingAccess(): Promise<BillingAccess> {
   try {
     const auth = await getAuthWithUser()
+    // dbUser.role is already the EFFECTIVE role — getAuthWithUser normalizes
+    // legacy platform users to ADMIN, so this agrees with the API layer.
+    const canManageBilling = auth?.dbUser ? canManageBillingByRole(auth.dbUser.role) : false
     const organization = auth?.dbUser?.organization
-    if (!organization) return { status: 'payment_required' }
+    if (!organization) return { status: 'payment_required', canManageBilling }
 
     const billing = billingStateFor(organization)
-    if (billing.state === 'payment_required') return { status: 'payment_required' }
+    if (billing.state === 'payment_required') return { status: 'payment_required', canManageBilling }
 
     return {
       status: 'allowed',

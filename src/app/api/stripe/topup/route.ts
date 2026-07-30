@@ -4,6 +4,7 @@ import { prisma } from '@/lib/prisma'
 import { getStripe, appOrigin } from '@/lib/stripe'
 import { topupPackCredits } from '@/lib/billing/topups'
 import { apiLogger } from '@/lib/logger'
+import { canManageBillingByRole } from '@/lib/server/permissions'
 
 export const dynamic = 'force-dynamic'
 
@@ -34,6 +35,11 @@ async function startTopup(packs: number, origin: string) {
   if (!auth?.dbUser || !auth.organizationId) {
     const returnTo = `/api/stripe/topup?packs=${packs}`
     return NextResponse.redirect(new URL(`/auth/signup?return_to=${encodeURIComponent(returnTo)}`, origin))
+  }
+  // Buying credits spends the workspace's card — admin-only, same as the rest
+  // of billing:manage. The plan exemption above does not cover role.
+  if (!canManageBillingByRole(auth.dbUser.role)) {
+    return NextResponse.redirect(new URL('/settings?tab=billing&billing_error=forbidden', origin))
   }
 
   const priceId = process.env.STRIPE_PRICE_TOPUP

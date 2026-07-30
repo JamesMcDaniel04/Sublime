@@ -3,6 +3,7 @@ import { requireAuth } from '@/lib/supabase/auth-utils'
 import { prisma } from '@/lib/prisma'
 import { getStripe, appOrigin } from '@/lib/stripe'
 import { apiLogger } from '@/lib/logger'
+import { canManageBillingByRole } from '@/lib/server/permissions'
 
 export const dynamic = 'force-dynamic'
 
@@ -14,6 +15,12 @@ export async function GET(request: NextRequest) {
   const auth = await requireAuth()
   if (!auth?.organizationId) {
     return NextResponse.redirect(new URL('/auth/login?return_to=%2Fapi%2Fstripe%2Fportal', origin))
+  }
+  // The portal allows cancellation and payment-method changes, so it is the
+  // sharpest edge of billing:manage. Skipping the authenticated-API wrapper
+  // exempts this route from the PLAN gate only — the role still has to hold.
+  if (!auth.dbUser || !canManageBillingByRole(auth.dbUser.role)) {
+    return NextResponse.redirect(new URL('/settings?tab=billing&billing_error=forbidden', origin))
   }
 
   const organization = await prisma.organization.findUnique({

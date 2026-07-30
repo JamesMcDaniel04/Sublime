@@ -6,26 +6,45 @@ import { TRIAL_DAYS } from '@/lib/stripe/plans'
  * card on file never receives app markup at all — the previous client-side
  * gate painted the dashboard first and swapped it out once its status fetch
  * resolved, briefly letting unpaid users into the product.
+ *
+ * `canManageBilling` is not decoration. This screen is shown to EVERY member
+ * of an unpaid workspace, but paying is admin-only (billing:manage), and
+ * /settings sits behind this same layout gate — so a member offered a checkout
+ * link would be refused by the Stripe route, redirected to /settings, and
+ * served this paywall again, looping without ever seeing why. Members get the
+ * reason and who to ask instead of a button that cannot work.
  */
-export function PlanPicker() {
+export function PlanPicker({ canManageBilling }: Readonly<{ canManageBilling: boolean }>) {
   return (
     <main id="main-content" className="min-h-screen bg-background px-6 py-16 text-foreground">
       <div className="mx-auto max-w-[1200px]">
         <p className="mb-4 text-[13px] uppercase tracking-[0.15em] text-muted-foreground">Pricing</p>
         <h1 className="max-w-[620px] text-[clamp(1.8rem,3vw,2.5rem)] font-[500] leading-[1.15] tracking-[-0.03em]">
-          Start your {TRIAL_DAYS}-day trial.
+          {canManageBilling ? `Start your ${TRIAL_DAYS}-day trial.` : 'This workspace needs a plan.'}
         </h1>
-        <p className="mt-4 max-w-[620px] text-[14px] leading-6 text-muted-foreground">
-          Pick a plan and add a card to get in. You won&rsquo;t be charged for {TRIAL_DAYS} days —
-          cancel any time before then and you pay nothing.
-        </p>
-        <div className="mt-12"><PricingGrid /></div>
-        <p className="mt-5 text-xs text-muted-foreground">
-          Checkout is handled securely by Stripe. Have questions?{' '}
-          <a href="mailto:hello@trysublime.io" className="underline hover:text-foreground">
-            hello@trysublime.io
-          </a>
-        </p>
+        {canManageBilling ? (
+          <>
+            <p className="mt-4 max-w-[620px] text-[14px] leading-6 text-muted-foreground">
+              Pick a plan and add a card to get in. You won&rsquo;t be charged for {TRIAL_DAYS} days —
+              cancel any time before then and you pay nothing.
+            </p>
+            <div className="mt-12"><PricingGrid /></div>
+            <p className="mt-5 text-xs text-muted-foreground">
+              Checkout is handled securely by Stripe. Have questions?{' '}
+              <a href="mailto:hello@trysublime.io" className="underline hover:text-foreground">
+                hello@trysublime.io
+              </a>
+            </p>
+          </>
+        ) : (
+          <p className="mt-4 max-w-[620px] text-[14px] leading-6 text-muted-foreground">
+            Ask a workspace admin to choose a plan — only admins can start checkout. Once they do,
+            everything here opens up for the whole workspace. Need help?{' '}
+            <a href="mailto:hello@trysublime.io" className="underline hover:text-foreground">
+              hello@trysublime.io
+            </a>
+          </p>
+        )}
       </div>
     </main>
   )
