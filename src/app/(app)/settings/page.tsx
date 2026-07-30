@@ -12,7 +12,7 @@
  */
 
 import { useEffect, useState } from 'react'
-import { Building2, CreditCard, Palette, Settings2, ShieldCheck, UserRound, Users } from 'lucide-react'
+import { BarChart3, Building2, CreditCard, Palette, Settings2, ShieldCheck, UserRound, Users } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -25,9 +25,10 @@ import { SecurityTab } from './tabs/security'
 import { MembersTab } from './tabs/members'
 import { WorkspaceTab } from './tabs/workspace'
 import { BillingTab } from './tabs/billing'
+import { InsightsTab } from './tabs/insights'
 import type { Invitation, Member, OrgSettings, Profile } from './tabs/types'
 
-const TAB_VALUES = ['profile', 'appearance', 'security', 'members', 'workspace', 'billing']
+const TAB_VALUES = ['profile', 'appearance', 'security', 'members', 'workspace', 'billing', 'insights']
 
 export default function SettingsPage() {
   const [profile, setProfile] = useState<Profile | null>(null)
@@ -111,6 +112,9 @@ export default function SettingsPage() {
       <TabsTrigger value="members"><Users className="mr-1.5 h-3.5 w-3.5" />Members</TabsTrigger>
       <TabsTrigger value="workspace"><Building2 className="mr-1.5 h-3.5 w-3.5" />Workspace</TabsTrigger>
       <TabsTrigger value="billing"><CreditCard className="mr-1.5 h-3.5 w-3.5" />Billing</TabsTrigger>
+      {/* Hidden for members — presentation only; /api/settings/insights
+          refuses a MEMBER independently (insights:workspace). */}
+      {isAdmin && <TabsTrigger value="insights"><BarChart3 className="mr-1.5 h-3.5 w-3.5" />Insights</TabsTrigger>}
     </TabsList>
       <TabsContent value="profile" className="mt-6">
         {profile && (
@@ -154,6 +158,11 @@ export default function SettingsPage() {
       <TabsContent value="billing" className="mt-6">
         <BillingTab orgPlan={orgPlan} grandfathered={grandfathered} />
       </TabsContent>
+      {isAdmin && (
+        <TabsContent value="insights" className="mt-6">
+          <InsightsTab members={members} />
+        </TabsContent>
+      )}
     </Tabs>
     )}
   </div>

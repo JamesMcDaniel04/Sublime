@@ -224,6 +224,10 @@ export const GET = withAuthenticatedApi(async (_request, auth) => {
         // for every card.
         compositionState: (goal.compositionState ?? null) as CompositionState | null,
         personal: goal.ownerUserId !== null,
+        // Everyone who can SEE the goal may know it is restricted — members of
+        // a confidential goal need to know it is confidential (the Restricted
+        // badge), and the admin roll-up filters on this.
+        restricted: goal.access === 'restricted',
         parentGoalId: goal.parentGoalId,
         metric: metric
           ? {

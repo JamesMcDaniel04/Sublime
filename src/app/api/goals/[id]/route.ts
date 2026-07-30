@@ -143,6 +143,9 @@ export const GET = withAuthenticatedApi(async (request, auth) => {
       status: goal.status,
       riskLevel: goal.riskLevel,
       personal: goal.ownerUserId !== null,
+      // For the Restricted badge: visible only to people who can already see
+      // the goal, so it reveals nothing to anyone else.
+      restricted: goal.access === 'restricted',
       parentGoalId: goal.parentGoalId,
       currentValue: evaluation.currentValue,
       progress: evaluation.progress,
