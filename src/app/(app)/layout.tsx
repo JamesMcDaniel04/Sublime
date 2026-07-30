@@ -21,7 +21,7 @@ import { resolveBillingAccess, trialDaysRemaining } from '@/lib/billing/access'
  */
 export const dynamic = 'force-dynamic'
 
-export default async function AppLayout({ children }: { children: React.ReactNode }) {
+export default async function AppLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   const access = await resolveBillingAccess()
 
   if (access.status === 'unavailable') return <BillingUnavailable />

@@ -61,15 +61,57 @@ if (TEST_DB) {
 
   test('refresh persists readings and emits only on a worsening transition', async () => {
     const { refreshGoalMetrics } = await import('../refresh')
+
+    /**
+     * refreshGoalMetrics is a CROSS-ORG cron sweep, and the cron dispatch
+     * ROUTE fires it with the real clock — behavior-e2e and intelligence-e2e
+     * both drive that route while the runner executes suites in parallel
+     * against this shared database.
+     *
+     * So a sibling tick can sweep this metric first and stamp lastSyncAt with
+     * today's date, while this test sweeps with a FIXED `now` five days in the
+     * past. The metric then fails `lastSyncAt < now - 1h` and is skipped
+     * entirely — the sweep returns 0 and none of the assertions below hold.
+     *
+     * Clearing lastSyncAt immediately before each sweep makes the metric due
+     * on the `lastSyncAt: null` branch regardless of who swept it before, so
+     * this test depends on its own fixture rather than on being alone.
+     */
+    const makeDue = () =>
+      prisma.goalMetric.update({
+        // organizationId is required by the tenant guard, not decoration.
+        where: { id: metricId, organizationId: seeded.organizationId },
+        data: { lastSyncAt: null, lastError: null },
+      })
+
+    await makeDue()
     const first = await refreshGoalMetrics(now, {
       fetchReading: async () => ({ value: 120, asOf: now }),
     })
-    assert.equal(first.refreshed, 1)
+    // refreshGoalMetrics is a CROSS-ORG cron sweep: its counts cover every
+    // workspace with a due metric, including fixtures that sibling suites hold
+    // open in this shared database while the runner executes files in
+    // parallel. Asserting an exact count here was an assertion about global
+    // state this test does not own, and it failed intermittently whenever a
+    // suite with a non-manual metric (goal-lens, composition-edit) overlapped.
+    // Assert instead that the sweep did work, and prove separately that THIS
+    // metric is what it refreshed.
+    // The exact count is a GLOBAL figure — sibling suites' due metrics land in
+    // the same sweep — so assert that work happened, then prove below that
+    // this metric specifically is what this sweep refreshed.
+    assert.ok(first.refreshed >= 1, `expected the sweep to refresh at least this metric, got ${first.refreshed}`)
 
+    // Proof that THIS metric is what the sweep refreshed is the datapoint, not
+    // the metric's lastSyncAt. lastSyncAt is mutable and every sibling cron
+    // tick rewrites it — once our sweep stamps the fixed test date, the metric
+    // immediately looks overdue to a real-clock sweep and gets restamped. The
+    // datapoint is durable, and its value can only have come from this test's
+    // stubbed reading: a sibling's real fetch has no Stripe credential and
+    // writes nothing.
     const point = await prisma.metricDatapoint.findFirst({
       where: { organizationId: seeded.organizationId, goalMetricId: metricId },
     })
-    assert.equal(point.value, 120)
+    assert.equal(point.value, 120, 'the stubbed reading should have been persisted for this metric')
     const offTrack = await prisma.goal.findFirst({
       where: { id: goalId, organizationId: seeded.organizationId },
     })
@@ -87,6 +129,7 @@ if (TEST_DB) {
     )
 
     const later = new Date(now.getTime() + 25 * 60 * 60 * 1000)
+    await makeDue()
     await refreshGoalMetrics(later, {
       fetchReading: async () => ({ value: 120, asOf: later }),
     })
@@ -103,6 +146,7 @@ if (TEST_DB) {
     )
 
     const recoveredAt = new Date(now.getTime() + 50 * 60 * 60 * 1000)
+    await makeDue()
     await refreshGoalMetrics(recoveredAt, {
       fetchReading: async () => ({ value: 190, asOf: recoveredAt }),
     })

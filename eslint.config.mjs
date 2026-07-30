@@ -11,7 +11,13 @@ const compat = new FlatCompat({
 
 const eslintConfig = [
   {
-    ignores: ["next-env.d.ts", ".next/**"],
+    // .claude/** holds agent worktrees — full copies of this repo. Linting
+    // them reported the whole codebase several hundred times over (~107k
+    // problems, 2.6k of them errors), so `npm run lint` exited 1 on any
+    // machine that had one, and genuine errors in src were invisible in the
+    // noise. They are excluded from git via .git/info/exclude; this is the
+    // same exclusion for the linter.
+    ignores: ["next-env.d.ts", ".next/**", ".claude/**"],
   },
   ...compat.extends("next/core-web-vitals", "next/typescript"),
   {

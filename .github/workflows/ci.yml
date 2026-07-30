@@ -2,7 +2,12 @@ name: CI
 
 on:
   push:
-    branches: [main, master]
+    # Long-lived feature branches are included deliberately. This branch had
+    # accumulated hundreds of commits main had never seen, so nothing here ran
+    # CI until PR time — which is how a red route-smoke coverage guard and a
+    # cross-suite test flake both survived for days. Checks are only worth
+    # having where the work actually happens.
+    branches: [main, master, 'feat/**']
   pull_request:
     branches: [main, master]
 

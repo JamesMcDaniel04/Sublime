@@ -76,7 +76,7 @@ export default function SettingsPage() {
       setLoadError(cause instanceof Error ? cause.message : 'Could not load settings.')
     } finally { setLoadingSettings(false) }
   }
-  useEffect(() => { void load() }, []) // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { void load() }, [])
 
   // Stripe routes bounce back here with ?billing_error= when checkout or the
   // portal can't start (misconfiguration or Stripe outage) — surface it
