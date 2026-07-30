@@ -4,7 +4,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { useScopedHref } from '@/lib/client/scoped-href'
-import { GoalSwitcher } from './goal-switcher'
 import {
   Bot,
   Check,
@@ -623,14 +622,6 @@ export function Sidebar() {
 
         {/* Nav + agent tree */}
         <div className="flex-1 overflow-y-auto px-2 py-2">
-          {/* The lens control sits ABOVE the nav because it scopes all of it —
-              placing it inside would read as one more destination. Hidden in
-              the collapsed rail, where there is no room for a goal name. */}
-          {!rail && (
-            <div className="mb-3">
-              <GoalSwitcher />
-            </div>
-          )}
           <nav className="mb-2 space-y-0.5">
             {navigation.map((item) => {
               // Compare against the SCOPED href: once every surface carries a
