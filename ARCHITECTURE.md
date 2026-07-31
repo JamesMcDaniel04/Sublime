@@ -74,7 +74,7 @@ Most logic is unit-tested with `node:test` (`npm test`). API routes are addition
 - ~~MCP transport consolidation~~ **Done:** `klavis-client.ts` and `sublime-mcp.ts` were removed with the Klavis migration, and the orphaned `streamable-http.ts` duplicate is deleted — `src/lib/mcp/mcp-client.ts` is the single MCP transport (auth modes: none / api-key / oauth2).
 - **Per-org credentials for built-in tools.** Slack, Granola, and Email are keyed to single global env vars, so every organization shares one account — acceptable single-tenant, blocking for multi-tenant. The per-user `Integration` table already exists and should hold these.
 - **Tool-discovery caching.** `loadTools` runs `initialize` + `tools/list` against every server on every run (drops past the per-server 20 / global 64 caps are now logged). Cache the discovered tool lists (the Klavis path already persists them for the capability cards) and run discovery in parallel.
-- **Frontend data layer.** Pages fetch with raw `fetch` + `useState` + `setInterval`; shared domain types now live in `src/lib/types.ts`, but a query cache (e.g. TanStack Query) would remove the hand-rolled polling, refetch-everything mutations, and the `AGENTS_CHANGED_EVENT` window-event bus.
+- **Frontend data layer.** Pages fetch with raw `fetch` + `useState` + timers; shared domain types live in `src/lib/types.ts`, and `use-cached-json` provides SWR/dedupe/persistence for the shell surfaces. A full query-cache adoption (e.g. TanStack Query) would still remove the refetch-everything mutations and the `AGENTS_CHANGED_EVENT` window-event bus — but it is deliberately NOT being introduced piecemeal: two competing caches is worse than one hand-rolled one, and converting the complex pages safely needs the React component-test harness (same prerequisite as the flow-editor reducer above). Sequence: harness → flow-editor reducer → query-cache migration, replacing `use-cached-json` wholesale. The urgency dropped once run-status delivery went push-based (realtime broadcasts + poll backoff): polling is now the fallback, not the transport.
 
 ## Scale hardening (2026-07-31)
 
@@ -115,10 +115,18 @@ users. What changed, at the architecture level:
   on missing SENTRY_DSN/VAPID keys and pool-vs-concurrency mismatches). See
   `docs/runbooks/migrations.md` for the expand/contract deploy rule.
 
-Deliberately deferred (product/infra decisions, not code gaps): cross-device
-preference sync (theme/sidebar/favorites are localStorage by design),
-Supabase Realtime run-completion delivery (poll backoff shipped instead),
-denormalized flow trigger columns (F8 — select-trimmed for now), per-tenant
-code-execution isolation (Pyodide/vm run process-global), a second worker
-replica (unblocked by the registrar lock, but a deploy action), and the
-goals-create transaction loops (bounded by schema limits).
+A same-day Tier-2 pass closed two of the deferred items: **run delivery is
+now push-based** (`run-events:<orgId>` private Realtime topic; broadcasts on
+agent/flow transitions from `src/lib/realtime/run-events.ts`, `useRunEvents`
+kicks the existing polls, polling is the fallback transport) and **flow
+triggers are denormalized** (`triggerType`/`triggerKey`/`isPublished`
+maintained by a Postgres BEFORE trigger; activity/Slack/signal ingestion and
+the scheduling tick match listeners in indexed SQL instead of loading every
+active flow's published graph per event).
+
+Still deliberately deferred (product/infra decisions, not code gaps):
+cross-device preference sync (theme/sidebar/favorites are localStorage by
+design), per-tenant code-execution isolation (Pyodide/vm run
+process-global), a second worker replica (unblocked by the registrar lock,
+but a deploy action), the goals-create transaction loops (bounded by schema
+limits), and the query-cache migration (see Frontend data layer above).
