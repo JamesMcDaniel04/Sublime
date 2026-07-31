@@ -26,7 +26,9 @@ if (TEST_DB) {
   before(async () => {
     ;({ prisma } = await import('@/lib/prisma'))
     ;({ routeSlackEvent } = await import('../dispatch'))
-    const org = await prisma.organization.create({ data: { name: 'SlackDispatch', slug: `slack-dispatch-${crypto.randomUUID()}` } })
+    // Paid plan: dispatchFlowExecution billing-gates unpaid orgs, and this
+    // suite's subject is Slack routing/dedup, not the paywall.
+    const org = await prisma.organization.create({ data: { name: 'SlackDispatch', slug: `slack-dispatch-${crypto.randomUUID()}`, plan: 'PROFESSIONAL' } })
     ids.org = org.id
     const user = await prisma.user.create({ data: { supabaseId: crypto.randomUUID(), organizationId: org.id, isActive: true } })
     ids.user = user.id
