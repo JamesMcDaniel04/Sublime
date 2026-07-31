@@ -5,6 +5,11 @@ import { rateLimit } from '@/lib/ratelimit'
 import { checkMonthlyTokenBudget } from '@/lib/usage/budget'
 import { parseMatches, sanitizeMatches, type CatalogItem } from '@/lib/templates/ai-search'
 
+// Structured-output calls are bounded at ~100s (structuredCallDeadlineMs);
+// without an explicit maxDuration the platform default can kill the request
+// BEFORE that deadline yields a clean, catchable error - the user saw a raw 504.
+export const maxDuration = 120
+
 const ItemSchema = z.object({
   id: z.string(),
   kind: z.enum(['template', 'skill']),

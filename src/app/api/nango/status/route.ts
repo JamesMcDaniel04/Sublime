@@ -1,7 +1,7 @@
 import type { Prisma } from '@prisma/client'
 import { after } from 'next/server'
 import { prisma } from '@/lib/prisma'
-import { getNangoClient, nangoConfigured, NANGO_ORG_TAG } from '@/lib/nango/client'
+import { getNangoClient, nangoConfigured, nangoDeadline, NANGO_ORG_TAG } from '@/lib/nango/client'
 import { googleOAuthConfigured } from '@/lib/google/oauth'
 import { nangoApiError } from '@/lib/nango/errors'
 import { withAuthenticatedApi } from '@/lib/server/api-handler'
@@ -41,9 +41,9 @@ async function reconcileNangoConnectionStatus(auth: AuthContext) {
 
   let response
   try {
-    response = await getNangoClient().listConnections({
+    response = await nangoDeadline(getNangoClient().listConnections({
       tags: { [NANGO_ORG_TAG]: auth.organizationId },
-    })
+    }), undefined, 'nango listConnections')
   } catch (error) {
     const normalized = nangoApiError(error)
     apiLogger.warn('nango status unavailable; serving the existing connection mirror', {

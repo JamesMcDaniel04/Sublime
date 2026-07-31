@@ -13,7 +13,7 @@
  * changes only when someone deploys functions in the dashboard — cached a few
  * minutes to keep plane loads off the Nango API.
  */
-import { getNangoClient } from './client'
+import { getNangoClient, nangoDeadline } from './client'
 import { cached } from '@/lib/cache'
 import type { DeliveryConnection } from './delivery'
 
@@ -65,7 +65,7 @@ export function actionInputSchema(action: {
 }
 
 async function fetchActionsCatalog(): Promise<ActionsCatalog> {
-  const entries = (await getNangoClient().getScriptsConfig()) as unknown as ScriptsConfigEntry[]
+  const entries = (await nangoDeadline(getNangoClient().getScriptsConfig(), undefined, 'nango getScriptsConfig')) as unknown as ScriptsConfigEntry[]
   const catalog: ActionsCatalog = {}
   for (const entry of entries) {
     const actions = (entry.actions ?? []).filter((action) => action.enabled !== false)

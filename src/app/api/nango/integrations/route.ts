@@ -1,4 +1,4 @@
-import { getNangoClient, nangoConfigured } from '@/lib/nango/client'
+import { getNangoClient, nangoConfigured, nangoDeadline } from '@/lib/nango/client'
 import { nangoApiError } from '@/lib/nango/errors'
 import { googleOAuthConfigured } from '@/lib/google/oauth'
 import { withAuthenticatedApi } from '@/lib/server/api-handler'
@@ -153,7 +153,7 @@ export const GET = withAuthenticatedApi(async (request, auth) => {
 
   let configs
   try {
-    ;({ configs } = await getNangoClient().listIntegrations())
+    ;({ configs } = await nangoDeadline(getNangoClient().listIntegrations(), undefined, 'nango listIntegrations'))
   } catch (error) {
     throw nangoApiError(error)
   }

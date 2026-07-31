@@ -1,6 +1,6 @@
 import { after } from 'next/server'
 import { prisma } from '@/lib/prisma'
-import { getNangoClient, NANGO_ORG_TAG } from '@/lib/nango/client'
+import { getNangoClient, nangoDeadline, NANGO_ORG_TAG } from '@/lib/nango/client'
 import { nangoApiError } from '@/lib/nango/errors'
 import { ApiError, withAuthenticatedApi } from '@/lib/server/api-handler'
 import { purgeConnectionLearnings } from '@/lib/intelligence/connection-scan'
@@ -18,10 +18,10 @@ export const DELETE = withAuthenticatedApi(async (request, auth) => {
   const client = getNangoClient()
   let response
   try {
-    response = await client.listConnections({
+    response = await nangoDeadline(client.listConnections({
       integrationId,
       tags: { [NANGO_ORG_TAG]: auth.organizationId },
-    })
+    }), undefined, 'nango listConnections')
   } catch (error) {
     throw nangoApiError(error)
   }

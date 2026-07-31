@@ -1,4 +1,6 @@
 import { prisma } from '@/lib/prisma'
+import { apiLogger } from '@/lib/logger'
+import { captureError } from '@/lib/observability/sentry'
 import { sendPushToUser } from './push'
 
 export type NotificationLevel = 'info' | 'success' | 'error' | 'action'
@@ -19,7 +21,9 @@ type NotifyInput = {
 }
 
 // Creates an in-app notification and fires a best-effort web push. Never throws
-// into the caller — notification failures must not break an agent run.
+// into the caller — notification failures must not break an agent run — but a
+// failure is REPORTED: a notification-table write failing silently meant users
+// stopped hearing about their runs with no operator signal anywhere.
 export async function notify(input: NotifyInput) {
   try {
     const notification = await prisma.notification.create({
@@ -42,7 +46,13 @@ export async function notify(input: NotifyInput) {
       }).catch(() => {})
     }
     return notification
-  } catch {
+  } catch (error) {
+    apiLogger.error('notify: failed to create notification', {
+      type: input.type,
+      organizationId: input.organizationId,
+      error: error instanceof Error ? error.message : String(error),
+    })
+    captureError(error, { source: 'notifications.notify', type: input.type })
     return null
   }
 }

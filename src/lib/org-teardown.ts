@@ -18,12 +18,12 @@ export async function teardownOrganization(organizationId: string): Promise<{ na
   // outside any authenticated request context.
   try {
     if (process.env.NANGO_SECRET_KEY) {
-      const { getNangoClient } = await import('@/lib/nango/client')
+      const { getNangoClient, nangoDeadline } = await import('@/lib/nango/client')
       const client = getNangoClient()
       const connections = await systemPrisma.nangoConnection.findMany({ where: { organizationId } })
       for (const connection of connections) {
         try {
-          await client.deleteConnection(connection.providerConfigKey, connection.connectionId)
+          await nangoDeadline(client.deleteConnection(connection.providerConfigKey, connection.connectionId), undefined, 'nango deleteConnection')
           nango += 1
         } catch (error) {
           captureError(error, { source: 'orgTeardown.nango', organizationId, connectionId: connection.connectionId })

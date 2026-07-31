@@ -3,7 +3,10 @@ import { ApiError, withAuthenticatedApi } from '@/lib/server/api-handler'
 import { emitFlowSignal } from '@/features/flows/signals'
 
 export const runtime = 'nodejs'
-export const maxDuration = 1200
+// 800 is Vercel's actual Pro-plan (fluid) ceiling — 1200 was silently clamped,
+// so internal budgets sized against it overran the real limit and died with
+// no clean error.
+export const maxDuration = 800
 
 // Signal fan-out endpoint: fires `name` to every ACTIVE, published, listening
 // flow in the caller's org. The request body (if JSON) becomes the payload

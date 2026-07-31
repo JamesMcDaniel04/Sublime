@@ -6,6 +6,9 @@ import { capabilitiesForPlan } from '@/lib/billing/capabilities'
 import { entitlementPlanFor } from '@/lib/billing/entitlements'
 
 export const dynamic = 'force-dynamic'
+// Comfortably above the 30s Resend deadline so the timeout error path (a
+// clean 502 with a fallback address) always runs before the platform kill.
+export const maxDuration = 60
 
 const CONTACT_INBOX = 'hello@trysublime.io'
 const RESEND_API_URL = 'https://api.resend.com/emails'
@@ -68,6 +71,8 @@ export async function POST(request: NextRequest) {
     message,
   ].filter((line) => line !== null).join('\n')
 
+  // 30s bound (matching every other Resend call site) + explicit maxDuration:
+  // this was the one fetch in the repo with no signal at all.
   const response = await fetch(RESEND_API_URL, {
     method: 'POST',
     headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
@@ -78,6 +83,7 @@ export async function POST(request: NextRequest) {
       subject: `[${support === 'dedicated' ? 'Dedicated' : support === 'priority' ? 'Priority' : 'Contact'}] ${REASON_LABELS[reason]} — ${name}`,
       text,
     }),
+    signal: AbortSignal.timeout(30_000),
   })
 
   if (!response.ok) {

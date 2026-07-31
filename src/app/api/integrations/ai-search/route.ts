@@ -3,6 +3,11 @@ import { generateStructured } from '@/lib/llm/model-runner'
 import { parseIntegrationMatches, sanitizeIntegrationMatches } from '@/lib/integrations/ai-search'
 import { ApiError, withAuthenticatedApi } from '@/lib/server/api-handler'
 
+// Structured-output calls are bounded at ~100s (structuredCallDeadlineMs);
+// without an explicit maxDuration the platform default can kill the request
+// BEFORE that deadline yields a clean, catchable error - the user saw a raw 504.
+export const maxDuration = 120
+
 const BodySchema = z.object({
   query: z.string().min(3).max(500),
   items: z.array(z.object({

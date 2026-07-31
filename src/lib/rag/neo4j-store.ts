@@ -15,25 +15,42 @@ import { nodeVisibleTo, type GraphEdge, type GraphNode, type GraphRagStore, type
 
 const VECTOR_INDEX = 'entity_embedding'
 
+// Bounded driver config, shared by the store and the health ping. The driver
+// defaults (30s connect, 60s acquisition, 100-connection pool) meant a slow
+// Neo4j hung RAG-touching requests for up to a minute, and every lambda
+// instance could theoretically hold 100 connections against a small Aura cap.
+const DRIVER_OPTIONS = {
+  connectionTimeout: 5_000,
+  connectionAcquisitionTimeout: 10_000,
+  maxConnectionPoolSize: 10,
+}
+
 export function neo4jConfigured(): boolean {
   return Boolean(process.env.NEO4J_URI && process.env.NEO4J_USERNAME && process.env.NEO4J_PASSWORD)
 }
 
-/** Health probe: verify Neo4j connectivity. Non-fatal — RAG degrades if down. */
+let pingDriver: { verifyConnectivity: () => Promise<unknown> } | null = null
+
+/**
+ * Health probe: verify Neo4j connectivity. Non-fatal — RAG degrades if down.
+ * Reuses one module-level driver (this used to construct AND destroy a whole
+ * driver per call on an unauthenticated endpoint — a free amplification
+ * vector) and bounds the probe at 3s.
+ */
 export async function neo4jPing(): Promise<{ configured: boolean; ok: boolean }> {
   if (!neo4jConfigured()) return { configured: false, ok: false }
   try {
-    const neo4j = (await import('neo4j-driver')).default
-    const driver = neo4j.driver(
-      process.env.NEO4J_URI!,
-      neo4j.auth.basic(process.env.NEO4J_USERNAME!, process.env.NEO4J_PASSWORD!),
-    )
-    try {
-      await driver.verifyConnectivity()
-      return { configured: true, ok: true }
-    } finally {
-      await driver.close()
+    if (!pingDriver) {
+      const neo4j = (await import('neo4j-driver')).default
+      pingDriver = neo4j.driver(
+        process.env.NEO4J_URI!,
+        neo4j.auth.basic(process.env.NEO4J_USERNAME!, process.env.NEO4J_PASSWORD!),
+        DRIVER_OPTIONS,
+      )
     }
+    const deadline = new Promise<never>((_, reject) => setTimeout(() => reject(new Error('neo4j ping timeout')), 3_000))
+    await Promise.race([pingDriver.verifyConnectivity(), deadline])
+    return { configured: true, ok: true }
   } catch {
     return { configured: true, ok: false }
   }
@@ -54,6 +71,7 @@ export class Neo4jGraphStore implements GraphRagStore {
         const driver = neo4j.driver(
           process.env.NEO4J_URI!,
           neo4j.auth.basic(process.env.NEO4J_USERNAME!, process.env.NEO4J_PASSWORD!),
+          DRIVER_OPTIONS,
         ) as unknown as Driver
         await this.ensureIndexes(driver)
         return driver
@@ -95,13 +113,21 @@ export class Neo4jGraphStore implements GraphRagStore {
     if (edges.length === 0) return
     const driver = await this.driver()
     // Relationship type can't be parameterized; it's from our fixed EdgeRelation
-    // union (never user input), so interpolation is safe.
+    // union (never user input), so interpolation is safe. One UNWIND per
+    // relationship type instead of one round-trip per edge — a run producing
+    // 50 edges was previously 50 sequential network calls.
+    const byRel = new Map<string, GraphEdge[]>()
     for (const edge of edges) {
+      const rel = edge.rel.toUpperCase()
+      byRel.set(rel, [...(byRel.get(rel) ?? []), edge])
+    }
+    for (const [rel, group] of byRel) {
       await driver.executeQuery(
-        `MATCH (a:Entity { id: $from }), (b:Entity { id: $to })
-         MERGE (a)-[r:${edge.rel.toUpperCase()}]->(b)
-         SET r.organizationId = $organizationId`,
-        { from: edge.from, to: edge.to, organizationId: edge.organizationId },
+        `UNWIND $rows AS row
+         MATCH (a:Entity { id: row.from }), (b:Entity { id: row.to })
+         MERGE (a)-[r:${rel}]->(b)
+         SET r.organizationId = row.organizationId`,
+        { rows: group.map((edge) => ({ from: edge.from, to: edge.to, organizationId: edge.organizationId })) },
       )
     }
   }

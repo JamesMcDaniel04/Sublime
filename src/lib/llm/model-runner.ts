@@ -320,14 +320,18 @@ export async function generateHeadline(summary: string): Promise<string | null> 
   const system =
     'Summarize what an AI agent run accomplished in one short, friendly past-tense line of at most 10 words. Respond with the line only — no quotes, no preamble.'
   try {
-    // Both endpoints speak the Anthropic Messages API.
+    // Both endpoints speak the Anthropic Messages API. Explicit 60s deadline:
+    // the client default is the 19-minute turn timeout (×3 attempts ≈ 57 min
+    // worst case) — and this call sits on every agent run's completion path,
+    // where a hang holds the worker slot far past the job lock for a
+    // decorative one-liner whose failure mode is already `return null`.
     const client = target.target === 'qwen' ? qwenClient() : claudeClient()
     const response = await client.messages.create({
       model: target.target === 'qwen' ? qwenModel(target.model) : target.model,
       max_tokens: 64,
       system,
       messages: [{ role: 'user', content: summary.slice(0, 4000) }],
-    })
+    }, { signal: AbortSignal.timeout(60_000) })
     const text = response.content
       .filter((block): block is Anthropic.TextBlock => block.type === 'text')
       .map((block) => block.text)
@@ -354,12 +358,15 @@ export async function generateText(opts: { system: string; user: string; model?:
   for (const target of order) {
     try {
       const client = target === 'qwen' ? qwenClient() : claudeClient()
+      // Explicit end-to-end deadline (the client default is the 19-minute turn
+      // timeout, per attempt) — an inline-prompt flow node must not pin a
+      // worker slot for tens of minutes on a hung request.
       const response = await client.messages.create({
         model: target === 'qwen' ? qwenModel(FALLBACK_QWEN_MODEL) : claudeModel,
         max_tokens: opts.maxTokens ?? 4096,
         ...(opts.system.trim() ? { system: opts.system } : {}),
         messages: [{ role: 'user', content: opts.user }],
-      })
+      }, { signal: AbortSignal.timeout(120_000) })
       return response.content
         .filter((block): block is Anthropic.TextBlock => block.type === 'text')
         .map((block) => block.text)

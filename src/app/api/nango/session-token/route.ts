@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { getNangoClient, NANGO_ORG_TAG } from '@/lib/nango/client'
+import { getNangoClient, nangoDeadline, NANGO_ORG_TAG } from '@/lib/nango/client'
 import { nangoApiError } from '@/lib/nango/errors'
 import { withAuthenticatedApi } from '@/lib/server/api-handler'
 import { assertIntegrationCapacity } from '@/lib/billing/enforce'
@@ -16,7 +16,7 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
   await assertIntegrationCapacity(auth.organizationId)
 
   try {
-    const { data } = await getNangoClient().createConnectSession({
+    const { data } = await nangoDeadline(getNangoClient().createConnectSession({
       end_user: {
         id: auth.dbUser.id,
         ...(auth.dbUser.email ? { email: auth.dbUser.email } : {}),
@@ -25,7 +25,7 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
       organization: { id: auth.organizationId },
       tags: { [NANGO_ORG_TAG]: auth.organizationId, user_id: auth.dbUser.id },
       ...(integrationId ? { allowed_integrations: [integrationId] } : {}),
-    })
+    }), undefined, 'nango createConnectSession')
     return { success: true, sessionToken: data.token, expiresAt: data.expires_at }
   } catch (error) {
     throw nangoApiError(error)

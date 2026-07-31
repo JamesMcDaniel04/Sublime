@@ -28,9 +28,13 @@ export async function sendPushToUser(userId: string, payload: PushPayload): Prom
   await Promise.all(
     subs.map(async (sub) => {
       try {
+        // 10s per-subscription bound: web-push defaults to NO timeout, and one
+        // hung push endpoint stalled the whole user's Promise.all on every
+        // agent completion.
         await webpush.sendNotification(
           { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } },
           JSON.stringify(payload),
+          { timeout: 10_000 },
         )
       } catch (error) {
         const status = (error as { statusCode?: number })?.statusCode

@@ -9,7 +9,10 @@ import { ApiError } from '@/lib/server/api-handler'
 import { assertOrganizationBillingActive } from '@/lib/billing/enforce'
 
 export const runtime = 'nodejs'
-export const maxDuration = 1200
+// 800 is Vercel's actual Pro-plan (fluid) ceiling — 1200 was silently clamped,
+// so internal budgets sized against it overran the real limit and died with
+// no clean error.
+export const maxDuration = 800
 
 // External webhook trigger for flows. Authenticated by the per-flow secret
 // (hash stored in flow.trigger.webhookSecretHash) instead of a session — mirrors

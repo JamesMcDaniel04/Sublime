@@ -6,6 +6,11 @@ import { ApiError, withAuthenticatedApi } from '@/lib/server/api-handler'
 import { checkMonthlyTokenBudget, recordTokenUsage } from '@/lib/usage/budget'
 import { createAgentFromDraft, normalizeDraft, type AgentDraft } from '@/features/agents/create-from-draft'
 
+// Structured-output calls are bounded at ~100s (structuredCallDeadlineMs);
+// without an explicit maxDuration the platform default can kill the request
+// BEFORE that deadline yields a clean, catchable error - the user saw a raw 504.
+export const maxDuration = 120
+
 // The integration vocabulary the model may pick from: every registry key
 // (deduped case-insensitively — the builtin 'Slack' and the nango 'slack'
 // capability are the same selection string to the runtime's matcher).

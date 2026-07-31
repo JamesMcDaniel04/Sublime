@@ -9,7 +9,10 @@ import { rateLimit } from '@/lib/ratelimit'
 import { recordUserEvent } from '@/lib/behavior/record-event'
 
 export const runtime = 'nodejs'
-export const maxDuration = 1200
+// 800 is Vercel's actual Pro-plan (fluid) ceiling — 1200 was silently clamped,
+// so internal budgets sized against it overran the real limit and died with
+// no clean error.
+export const maxDuration = 800
 
 async function failExecution(executionId: string, organizationId: string, error: unknown) {
   await prisma.agentExecution.update({

@@ -10,6 +10,11 @@ import { buildCopilotGrounding } from '@/lib/flows/copilot-grounding'
 import { applyCopilotOps } from '@/lib/flows/copilot-ops'
 import { parseCopilotChatReply, sanitizeCopilotOps, discardNotice } from '@/lib/flows/copilot-chat'
 
+// Structured-output calls are bounded at ~100s (structuredCallDeadlineMs);
+// without an explicit maxDuration the platform default can kill the request
+// BEFORE that deadline yields a clean, catchable error - the user saw a raw 504.
+export const maxDuration = 120
+
 // Anthropic strict structured outputs can't express free-form objects (a
 // {type:'object'} with no declared properties — see strictifySchema and the
 // sibling generate route's graphJson rationale), and the six op shapes are too

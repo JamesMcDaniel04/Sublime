@@ -8,7 +8,10 @@ import { deriveRunWaiting } from '@/lib/flows/run-waiting'
 import { recordUserEvent } from '@/lib/behavior/record-event'
 
 export const runtime = 'nodejs'
-export const maxDuration = 1200
+// 800 is Vercel's actual Pro-plan (fluid) ceiling — 1200 was silently clamped,
+// so internal budgets sized against it overran the real limit and died with
+// no clean error.
+export const maxDuration = 800
 
 // POST /api/flows/[id]/execute — run a flow manually. id is the path segment
 // before "execute".
