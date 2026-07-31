@@ -3,7 +3,7 @@ import Fastify from 'fastify'
 import { Worker, type Processor } from 'bullmq'
 import { executeAgentJob } from '@/features/agents/execute-agent'
 import { executeFlowJob } from '@/features/flows/execute-flow'
-import { getRedisConnection, QUEUE_NAMES, workerConfig } from '@/lib/queue/config'
+import { getRedisConnection, QUEUE_NAMES, queueConcurrency, workerConfig } from '@/lib/queue/config'
 import { deadLetterFromJob } from '@/lib/queue/dead-letter'
 import { deadLetterFromFlowJob } from '@/lib/queue/flow-dead-letter'
 import { registerAgentSchedules } from '@/lib/workers/agent-schedule-registrar'
@@ -22,11 +22,24 @@ class WorkerRuntime {
     // Flow execution: same worker pool, its own queue and dead-letter target
     // (flowRun rows, not agentExecution rows) — see flow-dead-letter.ts.
     { queue: QUEUE_NAMES.FLOW_EXECUTION, handler: executeFlowJob, onFailed: deadLetterFromFlowJob(QUEUE_NAMES.FLOW_EXECUTION) },
-    { queue: QUEUE_NAMES.ACTIVITY_BACKFILL, handler: executeActivityBackfillJob, onFailed: () => undefined },
+    {
+      queue: QUEUE_NAMES.ACTIVITY_BACKFILL,
+      handler: executeActivityBackfillJob,
+      // Backfills have no dead-letter table, but their failures must still be
+      // visible — a silently-dead backfill leaves the activity ledger empty
+      // with no operator signal.
+      onFailed: (job: any, error: Error) => captureError(error, { source: 'worker.activity-backfill', jobId: job?.id }),
+    },
   ]
   private workers = this.workerSpecs.map(
-    (spec) => new Worker(spec.queue, spec.handler, { ...workerConfig, connection: getRedisConnection() }),
+    (spec) =>
+      new Worker(spec.queue, spec.handler, {
+        ...workerConfig,
+        concurrency: queueConcurrency[spec.queue] ?? workerConfig.concurrency,
+        connection: getRedisConnection(),
+      }),
   )
+  private shuttingDown = false
 
   constructor() {
     // Real readiness: reflect that the workers are running AND Redis is
@@ -53,14 +66,33 @@ class WorkerRuntime {
     // Failed jobs are dead-lettered (durable, inspectable) — see workerSpecs
     // above for the per-queue handler (agent vs. flow target different tables).
     this.workers.forEach((worker, index) => worker.on('failed', this.workerSpecs[index].onFailed))
+    // Without an 'error' listener, BullMQ reduces connection failures (Redis
+    // auth/disconnect/reconnect storms) to a bare console.error — invisible to
+    // Sentry and to any operator not tailing Render logs.
+    this.workers.forEach((worker) => worker.on('error', (error) => captureError(error, { source: 'worker.queue-error' })))
     this.setupShutdown()
   }
 
   private setupShutdown() {
     const shutdown = async () => {
+      // Re-entrant SIGTERM/SIGINT must not run two concurrent shutdowns.
+      if (this.shuttingDown) return
+      this.shuttingDown = true
       if (this.scheduleTimer) clearInterval(this.scheduleTimer)
+      // Stop taking new jobs immediately; in-flight jobs keep running.
+      await Promise.allSettled(this.workers.map((worker) => worker.pause(true)))
       await this.server.close()
-      await Promise.all(this.workers.map((worker) => worker.close()))
+      // Bounded drain: Render SIGKILLs ~30s after SIGTERM, and agent runs are
+      // budgeted at 20 minutes — waiting for them means dying mid-close with
+      // Sentry unflushed and job locks orphaned. Give in-flight jobs 20s, then
+      // force-close: the stalled-job checker re-delivers, and durable resume
+      // continues from the last checkpointed turn instead of re-firing side
+      // effects.
+      const drained = Promise.all(this.workers.map((worker) => worker.close())).then(() => 'drained' as const)
+      const deadline = new Promise<'timeout'>((resolve) => setTimeout(() => resolve('timeout'), 20_000))
+      if ((await Promise.race([drained, deadline])) === 'timeout') {
+        await Promise.allSettled(this.workers.map((worker) => worker.close(true)))
+      }
       await flushErrorReporting()
       process.exit(0)
     }

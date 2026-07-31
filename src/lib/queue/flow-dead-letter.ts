@@ -11,7 +11,7 @@ import type { Job } from 'bullmq'
 import { systemPrisma } from '@/lib/prisma'
 import { apiLogger } from '@/lib/logger'
 import { captureError } from '@/lib/observability/sentry'
-import { createQueue, QUEUE_NAMES } from './config'
+import { getQueue, QUEUE_NAMES } from './config'
 
 export interface FlowDeadLetterInput {
   queue: string
@@ -38,7 +38,7 @@ export async function recordFlowDeadLetter(input: FlowDeadLetterInput): Promise<
   }
 
   try {
-    const dlq = createQueue(QUEUE_NAMES.FLOW_DEAD_LETTER)
+    const dlq = getQueue(QUEUE_NAMES.FLOW_DEAD_LETTER)
     await dlq.add('dead-letter', input, { removeOnComplete: false, removeOnFail: false })
   } catch (error) {
     apiLogger.error('failed to record flow dead letter', {

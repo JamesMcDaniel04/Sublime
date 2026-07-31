@@ -11,7 +11,7 @@ import type { Job } from 'bullmq'
 import { systemPrisma } from '@/lib/prisma'
 import { apiLogger } from '@/lib/logger'
 import { captureError } from '@/lib/observability/sentry'
-import { createQueue, QUEUE_NAMES } from './config'
+import { getQueue, QUEUE_NAMES } from './config'
 
 export interface DeadLetterInput {
   queue: string
@@ -35,7 +35,7 @@ export async function recordDeadLetter(input: DeadLetterInput): Promise<void> {
   }
 
   try {
-    const dlq = createQueue(QUEUE_NAMES.DEAD_LETTER)
+    const dlq = getQueue(QUEUE_NAMES.DEAD_LETTER)
     await dlq.add('dead-letter', input, { removeOnComplete: false, removeOnFail: false })
   } catch (error) {
     // If even the DLQ enqueue fails, at least log + report — never throw here.

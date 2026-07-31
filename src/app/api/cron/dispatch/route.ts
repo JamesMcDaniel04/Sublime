@@ -20,7 +20,7 @@ import { runAgentExecution } from '@/features/agents/execute-agent'
 import { dispatchFlowExecution } from '@/features/flows/execute-flow'
 import { parseFlowInput } from '@/lib/flows/input'
 import { isDue, type AgentSchedule } from '@/lib/scheduling/due'
-import { createQueue, QUEUE_NAMES, workersEnabled } from '@/lib/queue/config'
+import { getQueue, QUEUE_NAMES, workersEnabled } from '@/lib/queue/config'
 import { EXECUTION_MODE } from '@/lib/queue/execution-mode'
 import { AGENT_RUN_TIMEOUT_MS, AGENT_PENDING_TIMEOUT_MS } from '@/lib/agents/timeouts'
 import { reapStuckFlowRuns } from '@/lib/flows/reap'
@@ -287,7 +287,7 @@ export async function GET(request: Request) {
             // this serverless function — a long run here would be killed at
             // the platform's duration ceiling (Vercel Pro caps below our
             // 1200s maxDuration) before the internal timeouts can fire.
-            const queue = createQueue(QUEUE_NAMES.AGENT_EXECUTION)
+            const queue = getQueue(QUEUE_NAMES.AGENT_EXECUTION)
             await queue.add(
               'execute-agent',
               {

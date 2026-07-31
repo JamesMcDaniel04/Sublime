@@ -2,7 +2,7 @@
 import { prisma, systemPrisma } from '@/lib/prisma'
 import { apiLogger } from '@/lib/logger'
 import { inlineExecution } from '@/lib/queue/execution-mode'
-import { createQueue, QUEUE_NAMES, workersEnabled } from '@/lib/queue/config'
+import { getQueue, QUEUE_NAMES, workersEnabled } from '@/lib/queue/config'
 import { getActivitySource } from './registry'
 import { ingestActivity } from './ingest'
 import type { BackfillBatch, BackfillWindow, NormalizedActivity } from './types'
@@ -102,7 +102,7 @@ export async function startActivityBackfill(params: {
     update: { window: params.window, status: 'pending', cursor: null, eventsIngested: 0, error: null, completedAt: null },
   })
   if (!inlineExecution && workersEnabled) {
-    const queue = createQueue(QUEUE_NAMES.ACTIVITY_BACKFILL)
+    const queue = getQueue(QUEUE_NAMES.ACTIVITY_BACKFILL)
     await queue.add('activity-backfill', { backfillId: row.id }, { jobId: row.id })
     return { backfillId: row.id, mode: 'queued' }
   }

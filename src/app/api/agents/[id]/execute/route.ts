@@ -1,6 +1,6 @@
 import { z } from 'zod'
 import { prisma } from '@/lib/prisma'
-import { createQueue, QUEUE_NAMES, workersEnabled } from '@/lib/queue/config'
+import { getQueue, QUEUE_NAMES, workersEnabled } from '@/lib/queue/config'
 import { ApiError, withAuthenticatedApi } from '@/lib/server/api-handler'
 import { runAgentExecution } from '@/features/agents/execute-agent'
 import { inlineExecution } from '@/lib/queue/execution-mode'
@@ -81,7 +81,7 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
   } else {
     if (!workersEnabled) throw new ApiError('Agent worker is disabled', 503, 'WORKER_DISABLED')
     try {
-      const queue = createQueue(QUEUE_NAMES.AGENT_EXECUTION)
+      const queue = getQueue(QUEUE_NAMES.AGENT_EXECUTION)
       await queue.add('execute-agent', {
         executionId: execution.id,
         agentId: agent.id,

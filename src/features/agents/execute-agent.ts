@@ -1,7 +1,7 @@
 import type { Job } from 'bullmq'
 import { createHash } from 'node:crypto'
 import { prisma, systemPrisma } from '@/lib/prisma'
-import { createQueue, QUEUE_NAMES, workersEnabled } from '@/lib/queue/config'
+import { getQueue, QUEUE_NAMES, workersEnabled } from '@/lib/queue/config'
 import { inlineExecution } from '@/lib/queue/execution-mode'
 import { apiLogger } from '@/lib/logger'
 import { recordAudit } from '@/lib/audit'
@@ -355,7 +355,7 @@ export async function resumeAgentExecution(params: {
     return
   }
   if (!workersEnabled) throw new Error('Agent worker is disabled')
-  const queue = createQueue(QUEUE_NAMES.AGENT_EXECUTION)
+  const queue = getQueue(QUEUE_NAMES.AGENT_EXECUTION)
   await queue.add('resume-agent', { ...params, resume: true }, { jobId: `${params.executionId}-resume-${Date.now()}` })
 }
 
@@ -412,6 +412,12 @@ export async function runAgentExecution(
   if (queuedExecution && !resuming && queuedExecution.status !== 'pending') {
     if (queuedExecution.status === 'running' && Array.isArray(queuedExecution.transcript)) {
       resumeFromCrash = true
+    } else if (queuedExecution.status === 'failed') {
+      // A redelivered job whose row is already `failed` (the previous attempt's
+      // catch wrote it, or the reaper terminalized it) must THROW, not resolve:
+      // resolving marks the BullMQ job completed, so the 'failed' event never
+      // fires and the failure never reaches the dead-letter queue or Sentry.
+      throw new Error(`Execution ${queuedExecution.id} already failed — dead-lettering redelivered job`)
     } else {
       return { status: queuedExecution.status, skipped: true as const }
     }

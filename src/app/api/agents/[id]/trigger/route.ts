@@ -2,7 +2,7 @@ import { timingSafeEqual } from 'crypto'
 import { NextRequest, NextResponse } from 'next/server'
 import { Prisma } from '@prisma/client'
 import { prisma, systemPrisma } from '@/lib/prisma'
-import { createQueue, QUEUE_NAMES, workersEnabled } from '@/lib/queue/config'
+import { getQueue, QUEUE_NAMES, workersEnabled } from '@/lib/queue/config'
 import { apiLogger } from '@/lib/logger'
 import { runAgentExecution } from '@/features/agents/execute-agent'
 import { inlineExecution } from '@/lib/queue/execution-mode'
@@ -148,7 +148,7 @@ export async function POST(request: NextRequest) {
       if (!workersEnabled) {
         return NextResponse.json({ success: false, error: 'Agent worker is disabled' }, { status: 503 })
       }
-      const queue = createQueue(QUEUE_NAMES.AGENT_EXECUTION)
+      const queue = getQueue(QUEUE_NAMES.AGENT_EXECUTION)
       await queue.add('execute-agent', {
         executionId: execution.id,
         agentId: agent.id,

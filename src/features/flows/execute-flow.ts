@@ -1,6 +1,6 @@
 import type { Job } from 'bullmq'
 import { prisma } from '@/lib/prisma'
-import { createQueue, QUEUE_NAMES, workersEnabled } from '@/lib/queue/config'
+import { getQueue, QUEUE_NAMES, workersEnabled } from '@/lib/queue/config'
 import { inlineExecution } from '@/lib/queue/execution-mode'
 import { flowJobOptions } from '@/lib/flows/queue-options'
 import { runAgentExecution } from '@/features/agents/execute-agent'
@@ -1061,7 +1061,7 @@ export async function dispatchFlowExecution(
 
   const resuming = Boolean(job.flowRunId && (job.reply !== undefined || job.resumeReason === 'time'))
   if (resuming) {
-    const queue = createQueue(QUEUE_NAMES.FLOW_EXECUTION)
+    const queue = getQueue(QUEUE_NAMES.FLOW_EXECUTION)
     await queue.add('execute-flow', job, flowJobOptions(job.flowRunId))
     return { queued: true, flowRunId: job.flowRunId! }
   }
@@ -1077,7 +1077,7 @@ export async function dispatchFlowExecution(
     },
   })
   try {
-    const queue = createQueue(QUEUE_NAMES.FLOW_EXECUTION)
+    const queue = getQueue(QUEUE_NAMES.FLOW_EXECUTION)
     await queue.add('execute-flow', { ...job, queuedRunId: preCreated.id }, flowJobOptions(undefined))
   } catch (error) {
     // Never leave a phantom 'running' row for a job that was never enqueued.

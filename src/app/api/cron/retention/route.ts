@@ -17,6 +17,7 @@ import { apiLogger } from '@/lib/logger'
 import { removeRetiredFromGraph } from '@/lib/rag/indexer'
 import { removeUserEventNodesFromGraph } from '@/lib/behavior/index-user-event'
 import { MAX_STALE_DAYS } from '@/lib/behavior/eligibility'
+import { getQueue, QUEUE_NAMES, workersEnabled } from '@/lib/queue/config'
 
 export const runtime = 'nodejs'
 export const maxDuration = 300
@@ -224,10 +225,36 @@ export async function GET(request: Request) {
       where: { retentionPolicy: 'expiring', expiresAt: { lt: new Date() } },
     })).count
 
-    apiLogger.info('cron/retention complete', { days, executionsDeleted, knowledgePromoted, transcriptsPruned, userEventsDeleted, patternsExpired, reEmbedded, encryptionBackfill, expiredKnowledgeDeleted })
-    return Response.json({ success: true, days, executionsDeleted, knowledgePromoted, transcriptsPruned, userEventsDeleted, patternsExpired, reEmbedded, encryptionBackfill, expiredKnowledgeDeleted })
+    // Dead-letter queues have no consumer (they're an operator inbox), so
+    // without pruning they grow in Redis until Upstash hits its memory cap and
+    // every queue fails at once. Entries older than DLQ_RETENTION_DAYS have
+    // had their operator window; the execution/flow-run rows remain in
+    // Postgres under the normal retention policy.
+    const deadLettersPruned = await cleanDeadLetterQueues()
+
+    apiLogger.info('cron/retention complete', { days, executionsDeleted, knowledgePromoted, transcriptsPruned, userEventsDeleted, patternsExpired, reEmbedded, encryptionBackfill, expiredKnowledgeDeleted, deadLettersPruned })
+    return Response.json({ success: true, days, executionsDeleted, knowledgePromoted, transcriptsPruned, userEventsDeleted, patternsExpired, reEmbedded, encryptionBackfill, expiredKnowledgeDeleted, deadLettersPruned })
   } catch (error) {
     apiLogger.error('cron/retention failed', { error: error instanceof Error ? error.message : String(error) })
     return Response.json({ success: false, error: 'Internal server error' }, { status: 500 })
+  }
+}
+
+async function cleanDeadLetterQueues(): Promise<number> {
+  if (!workersEnabled || !process.env.REDIS_URL) return 0
+  const dlqDays = Number(process.env.DLQ_RETENTION_DAYS) || 30
+  const grace = dlqDays * 24 * 60 * 60 * 1000
+  try {
+    // DLQ entries are never processed, so they sit in 'wait' forever.
+    const [agent, flow] = await Promise.all([
+      getQueue(QUEUE_NAMES.DEAD_LETTER).clean(grace, 1000, 'wait'),
+      getQueue(QUEUE_NAMES.FLOW_DEAD_LETTER).clean(grace, 1000, 'wait'),
+    ])
+    return agent.length + flow.length
+  } catch (error) {
+    apiLogger.error('cron/retention: dead-letter cleanup failed', {
+      error: error instanceof Error ? error.message : String(error),
+    })
+    return 0
   }
 }
