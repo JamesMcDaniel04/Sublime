@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import { Bot, Clock3, DollarSign, Download, TrendingUp } from 'lucide-react'
 import { toast } from 'sonner'
+import { useCachedJson } from '@/lib/client/use-cached-json'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -51,17 +52,39 @@ export function ImpactStrip({
   const [saving, setSaving] = useState(false)
   const [hourlyRate, setHourlyRate] = useState(String(impact.estimated.hourlyRateUsd))
   const [aiCost, setAiCost] = useState(String(impact.estimated.aiCostPerMTokensUsd))
+  // The write behind this dialog is admin-gated (settings:workspace) — hide
+  // the trigger from members instead of letting them hit a 403.
+  const { data: profileData } = useCachedJson<{ profile?: { role: string } }>('/api/settings/profile')
+  const isAdmin = profileData?.profile?.role === 'ADMIN'
+
+  // Re-seed the draft from the CURRENT prop values on every open (not the
+  // mount-time snapshot): the page may have refetched since mount, and a
+  // stale draft meant saving one field silently reverted a colleague's
+  // concurrent change to the other.
+  const openDialog = (next: boolean) => {
+    if (next) {
+      setHourlyRate(String(impact.estimated.hourlyRateUsd))
+      setAiCost(String(impact.estimated.aiCostPerMTokensUsd))
+    }
+    setOpen(next)
+  }
 
   const save = async () => {
     setSaving(true)
     try {
+      // Send only the fields the user actually changed, so an untouched field
+      // can never write a stale value back over someone else's update.
+      const patch: Record<string, number> = {}
+      if (Number(hourlyRate) !== impact.estimated.hourlyRateUsd) patch.laborHourlyRate = Number(hourlyRate)
+      if (Number(aiCost) !== impact.estimated.aiCostPerMTokensUsd) patch.aiCostPerMTokensUsd = Number(aiCost)
+      if (Object.keys(patch).length === 0) {
+        setOpen(false)
+        return
+      }
       const response = await fetch('/api/goals/settings', {
         method: 'PATCH',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
-          laborHourlyRate: Number(hourlyRate),
-          aiCostPerMTokensUsd: Number(aiCost),
-        }),
+        body: JSON.stringify(patch),
       })
       const body = await response.json()
       if (!response.ok) throw new Error(body.error || 'Could not save impact assumptions.')
@@ -87,12 +110,14 @@ export function ImpactStrip({
             correlated goal movement — is shown per goal on each goal&apos;s page.
           </p>
         </div>
-        <Dialog open={open} onOpenChange={setOpen}>
-          <DialogTrigger asChild>
-            <Button variant="ghost" size="sm">
-              Edit assumptions
-            </Button>
-          </DialogTrigger>
+        <Dialog open={open} onOpenChange={openDialog}>
+          {isAdmin && (
+            <DialogTrigger asChild>
+              <Button variant="ghost" size="sm">
+                Edit assumptions
+              </Button>
+            </DialogTrigger>
+          )}
           <DialogContent>
             <DialogHeader>
               <DialogTitle>Impact assumptions</DialogTitle>

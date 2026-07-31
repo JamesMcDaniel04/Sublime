@@ -30,7 +30,7 @@ function formatDate(value: string): string {
 // toggle — the "What Sublime has learned" transparency view (Task 4.5).
 // Backed by GET/DELETE /api/intelligence/learnings; delete is a soft
 // dismiss server-side, so a removed learning never resurfaces.
-export function LearningsPanel() {
+export function LearningsPanel({ isAdmin = false }: { readonly isAdmin?: boolean }) {
   const [learnings, setLearnings] = useState<Learning[] | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [deletingId, setDeletingId] = useState<string | null>(null)
@@ -109,7 +109,10 @@ export function LearningsPanel() {
                   size="sm"
                   variant="ghost"
                   className="h-7 w-7 shrink-0 p-0 text-destructive hover:text-destructive"
-                  disabled={deletingId === learning.id}
+                  // Dismissal is permanent, org-wide, and admin-gated
+                  // server-side (settings:workspace) — mirror that here so a
+                  // member doesn't get a dead button and a generic error.
+                  disabled={deletingId === learning.id || !isAdmin}
                   onClick={() => dismiss(learning.id)}
                   aria-label="Remove learning"
                 >

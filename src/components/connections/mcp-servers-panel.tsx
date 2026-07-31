@@ -12,7 +12,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { Switch } from '@/components/ui/switch'
 import { useScanExclusions } from '@/lib/client/use-scan-exclusions'
 import { connectionSourceRef } from '@/lib/intelligence/scan-exclusions'
-import { CachedJsonError, getCachedJson, invalidateCachedJson } from '@/lib/client/use-cached-json'
+import { CachedJsonError, getCachedJson, invalidateCachedJson, useCachedJson } from '@/lib/client/use-cached-json'
 
 // ── Auth-badge labels ─────────────────────────────────────────────────────────
 
@@ -39,6 +39,11 @@ function McpServersPanelInner() {
   const [togglingLearningId, setTogglingLearningId] = useState<string | null>(null)
   const [rescanningId, setRescanningId] = useState<string | null>(null)
   const { isLearningEnabled, setLearningEnabled } = useScanExclusions()
+  // The underlying write is PATCH /api/organizations (settings:workspace), so
+  // gate the switch like the Nango grid does — a member flipping it only got
+  // a generic failure toast and a reverting switch.
+  const { data: profileData } = useCachedJson<{ profile?: { role: string } }>('/api/settings/profile')
+  const isAdmin = profileData?.profile?.role === 'ADMIN'
 
   const load = useCallback(async (force = false) => {
     if (force) invalidateCachedJson('/api/mcp-connections')
@@ -322,7 +327,7 @@ function McpServersPanelInner() {
 
                 <div className="flex items-center justify-between gap-2 border-t pt-3">
                   <Button size="sm" variant="ghost" loading={rescanningId === conn.id} disabled={rescanningId !== null || !conn.isActive} onClick={() => void rescan(conn)}>Rescan</Button>
-                  <div className="flex items-center gap-2"><span className="text-xs text-muted-foreground">Learning</span><Switch checked={isLearningEnabled(connectionSourceRef('mcp', conn.id))} disabled={togglingLearningId === conn.id} onCheckedChange={(enabled) => toggleLearning(conn, enabled)} aria-label={isLearningEnabled(connectionSourceRef('mcp', conn.id)) ? 'Disable learning from this server' : 'Enable learning from this server'} /></div>
+                  <div className="flex items-center gap-2"><span className="text-xs text-muted-foreground">Learning</span><Switch checked={isLearningEnabled(connectionSourceRef('mcp', conn.id))} disabled={togglingLearningId === conn.id || !isAdmin} onCheckedChange={(enabled) => toggleLearning(conn, enabled)} aria-label={isLearningEnabled(connectionSourceRef('mcp', conn.id)) ? 'Disable learning from this server' : 'Enable learning from this server'} /></div>
                 </div>
               </div>
             ))}

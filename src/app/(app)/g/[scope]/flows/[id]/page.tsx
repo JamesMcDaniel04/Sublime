@@ -564,12 +564,23 @@ function FlowBuilder() {
     setShowCopilot(true)
     setShowRuns(false)
     setShowChecker(false)
+    const previousSuggestions = improvementSuggestions
     setImprovementSuggestions((prev) => prev.filter((s) => s.id !== suggestion.id))
+    // Rollback + toast on failure (mirrors dismissImprovementSuggestion): the
+    // old fire-and-forget left the row 'open' server-side on a failed PATCH,
+    // so an already-applied suggestion reappeared on the next load.
     void fetch(`/api/flows/${id}/suggestions`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ id: suggestion.id, status: 'accepted' }),
-    }).catch(() => undefined)
+    })
+      .then((response) => {
+        if (!response.ok) throw new Error(`HTTP ${response.status}`)
+      })
+      .catch(() => {
+        setImprovementSuggestions(previousSuggestions)
+        toast.error('The suggestion was handed to the copilot, but could not be marked accepted — it may reappear.')
+      })
   }
 
   const dismissImprovementSuggestion = async (suggestionId: string) => {

@@ -415,10 +415,17 @@ function AgentHQ() {
   }
 
   const saveAgent = async (draft: AgentDraft) => {
+    // A rejected fetch (offline, dropped connection) must surface like an HTTP
+    // failure — previously it propagated silently and the spinner just
+    // cleared, with the agent not saved and no explanation.
     const response = await fetch('/api/agents', {
       method: editingAgent ? 'PUT' : 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(editingAgent ? { ...draft, id: editingAgent.id } : draft),
+    }).catch(() => {
+      const message = 'Could not save agent — check your connection and try again.'
+      toast.error(message)
+      throw new Error(message)
     })
     if (!response.ok) {
       const data = await response.json().catch(() => ({}))

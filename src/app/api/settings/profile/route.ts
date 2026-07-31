@@ -33,6 +33,11 @@ export const PATCH = withAuthenticatedApi(async (request, auth) => {
     data: input,
     select: { name: true, email: true, imageUrl: true, role: true },
   })
+  // Bust the per-instance auth cache: GET /api/settings/profile and
+  // /api/bootstrap serve name/imageUrl straight from it, so without this the
+  // saved profile visibly reverted to the old values for up to 60s after a
+  // successful save ("my settings didn't save").
+  invalidateDbUserCache(auth.user.id)
   void recordAudit({ organizationId: auth.organizationId, actorUserId: auth.dbUser.id, action: 'user.profile.updated', resourceType: 'user', resourceId: auth.dbUser.id })
   return { success: true, profile: { ...user, role: auth.dbUser.role } }
 }, { requires: 'member' })

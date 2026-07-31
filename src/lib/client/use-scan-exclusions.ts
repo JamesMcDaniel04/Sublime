@@ -2,7 +2,6 @@
 
 import { useCallback, useMemo } from 'react'
 import { useCachedJson } from './use-cached-json'
-import { toggleScanExclusion } from '@/lib/intelligence/scan-exclusions'
 
 type OrgSettings = { scanExclusions?: string[] }
 type OrganizationsResponse = { organizations?: { settings?: OrgSettings }[] }
@@ -24,17 +23,21 @@ export function useScanExclusions() {
 
   const setLearningEnabled = useCallback(
     async (sourceRef: string, enabled: boolean): Promise<boolean> => {
-      const next = toggleScanExclusion(exclusions, sourceRef, enabled)
+      // Verb form, not a full-array replacement: the server applies add/remove
+      // against the array as it exists NOW. The old read-modify-write shipped
+      // this client's (SWR-cached, possibly stale) copy of the whole array, so
+      // admin A's toggle silently deleted admin B's concurrent opt-out — a
+      // privacy setting reverting itself.
       const response = await fetch('/api/organizations', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ settings: { scanExclusions: next } }),
-      })
-      if (!response.ok) return false
+        body: JSON.stringify({ scanExclusionUpdate: enabled ? { remove: sourceRef } : { add: sourceRef } }),
+      }).catch(() => null)
+      if (!response?.ok) return false
       await refresh()
       return true
     },
-    [exclusions, refresh],
+    [refresh],
   )
 
   return { loading, isLearningEnabled, setLearningEnabled }

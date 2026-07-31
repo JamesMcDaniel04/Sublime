@@ -137,7 +137,7 @@ export function WorkspaceTab({
         </CardContent>
       </Card>
       <KnowledgeRetentionCard isAdmin={isAdmin} plan={orgPlan} />
-      <LearningsPanel />
+      <LearningsPanel isAdmin={isAdmin} />
       <BehaviorPatternsPanel />
       {isAdmin && <IntelligenceHealthCard />}
       {isAdmin && <PlatformServicesCard />}

@@ -52,7 +52,10 @@ const CUBE_SIZE = 840
 const CUBE_OFFSET_X = -140
 const CUBE_OFFSET_Y = -80
 
-const THEME_STORAGE_KEY = 'sublime-landing-theme'
+// Same key the app's next-themes provider uses ('sublime-theme') — a separate
+// landing key meant the theme picked on the login page was written somewhere
+// the app never read, silently resetting the choice after sign-in.
+const THEME_STORAGE_KEY = 'sublime-theme'
 
 export function LandingPage({ fontClassName = '' }: { fontClassName?: string }) {
   const [theme, setThemeState] = useState<'light' | 'dark'>('dark')

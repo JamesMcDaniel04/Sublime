@@ -91,4 +91,8 @@ export const DELETE = withAuthenticatedApi(async (request, auth) => {
   if (updated.count !== 1) throw new ApiError('Learning not found', 404, 'NOT_FOUND')
 
   return { success: true }
-}, { requires: 'member' })
+  // settings:workspace, not member: these are org-wide memories and dismissal
+  // is deliberately permanent (the row keeps its embedding to suppress
+  // resurfacing) — irreversible workspace-wide state loss should not be open
+  // to every member, and the panel sits among admin-gated workspace controls.
+}, { requires: 'settings:workspace' })

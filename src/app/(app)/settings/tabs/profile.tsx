@@ -10,21 +10,24 @@ import { Label } from '@/components/ui/label'
 import { resizeImageToDataUrl } from '@/lib/client/resize-image'
 import type { Profile } from './types'
 
-/** PATCH /api/settings/profile caps imageUrl at 2048 characters. */
-const AVATAR_URL_MAX = 2048
+/**
+ * PATCH /api/settings/profile caps imageUrl at 300,000 characters (same as
+ * the org logo). This constant previously said 2048 — the server was raised
+ * long ago but the client wasn't, so every uploaded photo was crushed down
+ * to a 24-64px mush before upload.
+ */
+const AVATAR_URL_MAX = 300_000
 
 /**
- * Downscale an uploaded photo to a small square data URL that fits the
- * profile imageUrl limit: PNG first (crispest), then increasingly compact
- * JPEGs until one fits.
+ * Downscale an uploaded photo to a square data URL that fits the profile
+ * imageUrl limit: a crisp 256px first, then increasingly compact fallbacks.
  */
 async function fileToAvatarDataUrl(file: File): Promise<string> {
   const attempts: Array<{ size: number; mimeType: 'image/png' | 'image/jpeg'; quality?: number }> = [
-    { size: 64, mimeType: 'image/png' },
-    { size: 64, mimeType: 'image/jpeg', quality: 0.8 },
-    { size: 48, mimeType: 'image/jpeg', quality: 0.7 },
-    { size: 32, mimeType: 'image/jpeg', quality: 0.6 },
-    { size: 24, mimeType: 'image/jpeg', quality: 0.5 },
+    { size: 256, mimeType: 'image/png' },
+    { size: 256, mimeType: 'image/jpeg', quality: 0.85 },
+    { size: 128, mimeType: 'image/jpeg', quality: 0.8 },
+    { size: 64, mimeType: 'image/jpeg', quality: 0.7 },
   ]
   for (const { size, mimeType, quality } of attempts) {
     const dataUrl = await resizeImageToDataUrl(file, size, { mimeType, quality })
@@ -52,12 +55,19 @@ export function ProfileTab({
     event.preventDefault()
     const name = profile.name?.trim()
     if (!name || name === savedProfileName) return
-    const response = await fetch('/api/settings/profile', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...profile, name }) })
-    const data = await response.json()
-    if (!response.ok) return toast.error(data.error || 'Could not save profile')
-    setProfile(() => data.profile)
-    onSavedName(data.profile?.name || name)
-    toast.success('Profile saved')
+    // A rejected fetch (offline, dropped connection) previously threw out of
+    // the submit handler with no feedback — the field silently reverted on the
+    // next render, reading as "my settings didn't save".
+    try {
+      const response = await fetch('/api/settings/profile', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...profile, name }) })
+      const data = await response.json()
+      if (!response.ok) return toast.error(data.error || 'Could not save profile')
+      setProfile(() => data.profile)
+      onSavedName(data.profile?.name || name)
+      toast.success('Profile saved')
+    } catch {
+      toast.error('Could not save profile — check your connection and try again.')
+    }
   }
 
   /** PATCH just the photo, keeping the last-saved name (the schema requires one). */
@@ -72,6 +82,8 @@ export function ProfileTab({
       // Merge instead of replacing so an in-progress name edit isn't clobbered.
       setProfile((current) => (current ? { ...current, imageUrl: data.profile?.imageUrl ?? imageUrl } : current))
       toast.success(imageUrl ? 'Photo updated' : 'Photo removed')
+    } catch {
+      toast.error('Could not update your photo — check your connection and try again.')
     } finally {
       setSavingAvatar(false)
     }

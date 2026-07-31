@@ -3,6 +3,7 @@ import { prisma } from '@/lib/prisma'
 import { ApiError, withAuthenticatedApi } from '@/lib/server/api-handler'
 import { isValidScanExclusionEntry } from '@/lib/intelligence/scan-exclusions'
 import { entitlementPlanFor, isGrandfatheredOrganization } from '@/lib/billing/entitlements'
+import { addScanExclusion, mergeOrgSettings, removeScanExclusion } from '@/lib/server/org-settings'
 
 const ORG_SELECT = { id: true, name: true, slug: true, plan: true, logoUrl: true, settings: true, createdAt: true, grandfatheredAt: true } as const
 
@@ -59,36 +60,53 @@ const patchSchema = z.object({
     .nullable()
     .optional(),
   settings: settingsPatchSchema.optional(),
+  // Add/remove verbs for the per-connection learning opt-out. Unlike the
+  // legacy full-array `settings.scanExclusions` form, a verb applies against
+  // the array as it exists NOW in Postgres — a client holding a stale cached
+  // copy can no longer silently delete another admin's opt-out.
+  scanExclusionUpdate: z
+    .object({
+      add: z.string().refine(isValidScanExclusionEntry, 'Invalid scan exclusion entry').optional(),
+      remove: z.string().refine(isValidScanExclusionEntry, 'Invalid scan exclusion entry').optional(),
+    })
+    .optional(),
 })
 
 export const PATCH = withAuthenticatedApi(async (request, auth) => {
-  const { name, logoUrl, settings } = patchSchema.parse(await request.json())
+  const { name, logoUrl, settings, scanExclusionUpdate } = patchSchema.parse(await request.json())
 
-  let mergedSettings: Record<string, unknown> | undefined
   if (settings) {
-    const existing = await prisma.organization.findUnique({
-      where: { id: auth.organizationId },
-      select: { settings: true, plan: true, createdAt: true, grandfatheredAt: true },
-    })
-    const existingSettings =
-      existing?.settings && typeof existing.settings === 'object' && !Array.isArray(existing.settings)
-        ? (existing.settings as Record<string, unknown>)
-        : {}
-    if (settings.zeroDataRetention === true && entitlementPlanFor(existing) !== 'ENTERPRISE') {
-      throw new ApiError('Zero-data retention is available on Enterprise plans.', 403, 'PLAN_LIMIT')
+    if (settings.zeroDataRetention === true) {
+      const existing = await prisma.organization.findUnique({
+        where: { id: auth.organizationId },
+        select: { plan: true, createdAt: true, grandfatheredAt: true },
+      })
+      if (entitlementPlanFor(existing) !== 'ENTERPRISE') {
+        throw new ApiError('Zero-data retention is available on Enterprise plans.', 403, 'PLAN_LIMIT')
+      }
     }
-    mergedSettings = { ...existingSettings, ...settings }
+    // Atomic key-level jsonb merge — never a read-modify-write of the whole
+    // blob, so concurrent saves of DIFFERENT keys (two admins on different
+    // switches, an enterprise customLimits grant, an intelligence throttle
+    // claim) can no longer erase each other.
+    await mergeOrgSettings(auth.organizationId, settings)
   }
 
-  const organization = await prisma.organization.update({
-    where: { id: auth.organizationId },
-    data: {
-      ...(name !== undefined && { name }),
-      ...(logoUrl !== undefined && { logoUrl }),
-      ...(mergedSettings !== undefined && { settings: mergedSettings }),
-    },
-    select: ORG_SELECT,
-  })
+  if (scanExclusionUpdate?.add) await addScanExclusion(auth.organizationId, scanExclusionUpdate.add)
+  if (scanExclusionUpdate?.remove) await removeScanExclusion(auth.organizationId, scanExclusionUpdate.remove)
+
+  const hasColumnUpdates = name !== undefined || logoUrl !== undefined
+  const organization = hasColumnUpdates
+    ? await prisma.organization.update({
+        where: { id: auth.organizationId },
+        data: {
+          ...(name !== undefined && { name }),
+          ...(logoUrl !== undefined && { logoUrl }),
+        },
+        select: ORG_SELECT,
+      })
+    : await prisma.organization.findUnique({ where: { id: auth.organizationId }, select: ORG_SELECT })
+  if (!organization) throw new ApiError('Workspace not found', 404, 'NOT_FOUND')
   return { success: true, organization: serializeOrganization(organization) }
 }, { requires: 'settings:workspace' })
 

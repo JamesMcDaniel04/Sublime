@@ -28,6 +28,20 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
   return { success: true }
 }, { requires: 'member' })
 
+// Reconcile probe: is this browser's subscription endpoint actually
+// registered for THIS user in THIS org? The bell previously trusted the
+// browser's PushManager state alone, which reports "enabled" long after the
+// server row was deleted (workspace teardown, account switch) — i.e. after
+// notifications had silently stopped delivering.
+export const GET = withAuthenticatedApi(async (request, auth) => {
+  const endpoint = request.nextUrl.searchParams.get('endpoint')
+  if (!endpoint) return { success: true, registered: false }
+  const count = await prisma.pushSubscription.count({
+    where: { organizationId: auth.organizationId, userId: auth.dbUser.id, endpoint },
+  })
+  return { success: true, registered: count > 0 }
+}, { requires: 'member' })
+
 export const DELETE = withAuthenticatedApi(async (request, auth) => {
   const endpoint = request.nextUrl.searchParams.get('endpoint')
   if (endpoint) {

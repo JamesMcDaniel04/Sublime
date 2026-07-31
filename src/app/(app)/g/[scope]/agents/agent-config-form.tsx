@@ -478,19 +478,30 @@ export function AgentConfigForm({
   // same idea from being re-suggested later.
   // One-click apply: fold the suggestion into the agent's instructions (the
   // user reviews it in the editor before saving) and mark it accepted.
-  const applySuggestion = (suggestion: { id: string; title: string; content: string }) => {
+  const applySuggestion = async (suggestion: { id: string; title: string; content: string }) => {
     if (!editingAgent?.id) return
+    const previousMemories = memories
     setDraft((prev) => ({
       ...prev,
       instructions: `${prev.instructions.trim()}\n\n${suggestion.content}`.trim(),
     }))
     setMemories((prev) => prev.map((m) => (m.id === suggestion.id ? { ...m, status: 'accepted' } : m)))
-    toast.success('Added to instructions — review and save.')
-    void fetch(`/api/agents/${editingAgent.id}/memories`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id: suggestion.id, status: 'accepted' }),
-    }).catch(() => undefined)
+    // Rollback + toast on failure (mirrors dismissSuggestion): the old
+    // fire-and-forget left the row 'open' server-side on a failed PATCH, so
+    // the suggestion reappeared on the next load after the user had already
+    // folded it into their instructions.
+    try {
+      const response = await fetch(`/api/agents/${editingAgent.id}/memories`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: suggestion.id, status: 'accepted' }),
+      })
+      if (!response.ok) throw new Error(`HTTP ${response.status}`)
+      toast.success('Added to instructions — review and save.')
+    } catch {
+      setMemories(previousMemories)
+      toast.error('Added to instructions, but the suggestion could not be marked accepted — it may reappear.')
+    }
   }
 
   const dismissSuggestion = async (id: string) => {
@@ -577,9 +588,8 @@ export function AgentConfigForm({
   // dashboard polls agents every 10s, so depending on the object here would
   // overwrite the user's in-progress edits (name/icon/instructions) each poll,
   // making edits appear to "not save". Keying on the id preserves the draft.
-  useEffect(() => {
-    const source = editingAgent || template
-    const next = source ? {
+  const composeDraft = (source: typeof editingAgent | typeof template) =>
+    source ? {
       ...emptyDraft,
       ...source,
       instructions: source.instructions || source.objective || '',
@@ -606,11 +616,31 @@ export function AgentConfigForm({
       // browser's resolved zone so daily/weekly times match the user's clock.
       schedule: { ...emptyDraft.schedule, timezone: browserTimezone() },
     }
+
+  useEffect(() => {
+    const next = composeDraft(editingAgent || template)
     setDraft(next)
     setWebhook(null)
     baselineRef.current = JSON.stringify(next)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editingAgent?.id, template?.id, active])
+
+  // Clean-only resync: when the agent object is REFRESHED (10s poll, or the
+  // AI assistant panel applying a change server-side) and the user has no
+  // unsaved edits, adopt the fresh values. Without this, an open form's draft
+  // was frozen at open time — pressing Save after the assistant applied e.g. a
+  // model change shipped the stale full draft and silently reverted it. A
+  // dirty draft is still never overwritten (that protection fixed a previous
+  // "edits don't save" bug and stays).
+  useEffect(() => {
+    if (!editingAgent) return
+    if (JSON.stringify(draft) !== baselineRef.current) return
+    const next = composeDraft(editingAgent)
+    if (JSON.stringify(next) === baselineRef.current) return
+    setDraft(next)
+    baselineRef.current = JSON.stringify(next)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editingAgent])
 
   const toggleIntegration = (label: string) => {
     const next = draft.integrations.includes(label)
@@ -635,6 +665,10 @@ export function AgentConfigForm({
     try {
       await onSave(draft)
       baselineRef.current = JSON.stringify(draft)
+    } catch {
+      // onSave already toasted the specific failure; swallowing here keeps the
+      // rejection from becoming an unhandled-promise error while the draft
+      // (deliberately) stays dirty for a retry.
     } finally {
       setSaving(false)
     }

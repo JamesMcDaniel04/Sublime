@@ -13,7 +13,10 @@ import '@/app/(public)/landing.css'
 
 const geist = Geist({ subsets: ['latin'], display: 'swap' })
 
-const THEME_STORAGE_KEY = 'sublime-landing-theme'
+// Same key the app's next-themes provider uses ('sublime-theme') — a separate
+// landing key meant the theme picked on the login page was written somewhere
+// the app never read, silently resetting the choice after sign-in.
+const THEME_STORAGE_KEY = 'sublime-theme'
 
 export function AuthShell({
   eyebrow,

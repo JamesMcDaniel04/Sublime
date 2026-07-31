@@ -122,7 +122,14 @@ export function NotificationBell({ buttonClassName }: { buttonClassName?: string
       if (!data?.enabled || !data?.publicKey) return setPushState('unavailable')
       const reg = await navigator.serviceWorker.getRegistration()
       const sub = reg ? await reg.pushManager.getSubscription() : null
-      setPushState(sub ? 'enabled' : 'available')
+      if (!sub) return setPushState('available')
+      // The browser still holding a subscription is NOT proof it delivers:
+      // the server row may have been deleted (workspace teardown, account
+      // switch). Confirm with the server; a missing row means re-enrolling is
+      // needed, so show 'available' rather than a false 'enabled'.
+      const check = await fetch(`/api/push/subscribe?endpoint=${encodeURIComponent(sub.endpoint)}`, { cache: 'no-store' }).catch(() => null)
+      const checkData = check && check.ok ? await check.json() : null
+      setPushState(checkData?.registered === false ? 'available' : 'enabled')
     }
     probe().catch(() => setPushState('unavailable'))
   }, [])
