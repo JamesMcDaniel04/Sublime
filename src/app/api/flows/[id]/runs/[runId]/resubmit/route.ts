@@ -21,4 +21,4 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
   if (!prior) throw new ApiError('Run not found', 404, 'NOT_FOUND')
   const result = await dispatchFlowExecution({ flowId, organizationId: auth.organizationId, userId: auth.dbUser.id, input: storedRunInput(prior.input), trigger: { type: 'manual', resubmittedFrom: runId } })
   return { success: true, run: 'queued' in result ? { flowRunId: result.flowRunId, status: 'queued', output: null } : result }
-}, { requires: 'member' })
+}, { requires: 'member', rateLimit: { feature: 'flow-resubmit', perUser: 30 } })

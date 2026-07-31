@@ -1,5 +1,5 @@
 import { prisma } from '@/lib/prisma'
-import { cacheGetNumber, cacheIncrBy } from '@/lib/cache'
+import { cacheGetNumber, cacheIncrBy, cached } from '@/lib/cache'
 import { limitsForOrg, TOKENS_PER_CREDIT } from '@/lib/billing/limits'
 import { topupTokensForMonth } from '@/lib/billing/topups'
 import { entitlementPlanFor, isGrandfatheredOrganization } from '@/lib/billing/entitlements'
@@ -82,11 +82,18 @@ export async function checkMonthlyTokenBudget(
   since.setUTCDate(1)
   since.setUTCHours(0, 0, 0, 0)
 
-  const aggregate = await prisma.agentExecution.aggregate({
-    where: { organizationId, startedAt: { gte: since } },
-    _sum: { inputTokens: true, outputTokens: true },
+  // The DB aggregate scans every execution row the org created this month and
+  // runs on EVERY LLM entry point — recomputing it from scratch per request
+  // grew linearly through the month. 60s of staleness is harmless here because
+  // the live counter below (incremented per turn) still provides the fresh,
+  // higher number; the aggregate is only the floor.
+  const dbUsed = await cached(`${monthKey(organizationId)}:dbagg`, 60_000, async () => {
+    const aggregate = await prisma.agentExecution.aggregate({
+      where: { organizationId, startedAt: { gte: since } },
+      _sum: { inputTokens: true, outputTokens: true },
+    })
+    return (aggregate._sum.inputTokens || 0) + (aggregate._sum.outputTokens || 0)
   })
-  const dbUsed = (aggregate._sum.inputTokens || 0) + (aggregate._sum.outputTokens || 0)
 
   // The live counter includes in-flight runs the DB aggregate can't see yet, so
   // it's normally the higher (and correct) number. Fall back to the DB total if

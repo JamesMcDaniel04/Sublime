@@ -189,7 +189,7 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
     context: { name: data.title || agent.description },
   })
   return { success: true, agent: { ...serializeAgent(agent), isOwner: agent.userId === auth.dbUser.id } }
-}, { requires: 'member' })
+}, { requires: 'member', rateLimit: { feature: 'agent-create', perUser: 12 } })
 
 export const PUT = withAuthenticatedApi(async (request, auth) => {
   const body = z.object({ id: z.string().min(1) }).merge(agentSchema.partial()).parse(await request.json())

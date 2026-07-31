@@ -85,4 +85,4 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
 
   const matches = sanitizeMatches(parseMatches(raw), items as CatalogItem[])
   return { success: true, matches }
-}, { requires: 'member' })
+}, { requires: 'member', rateLimit: { feature: 'template-search', perUser: 20 } })

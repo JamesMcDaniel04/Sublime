@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { ZodError } from 'zod'
 import { apiLogger } from '@/lib/logger'
 import { captureError } from '@/lib/observability/sentry'
+import { rateLimit } from '@/lib/ratelimit'
 import { AuthContextError, requireAuthContext, type AuthContext } from './auth'
 import { denialReason, type Capability } from './permissions'
 
@@ -36,7 +37,38 @@ type AuthenticatedHandler = (
  * secret, OAuth state, trigger token) do not use this wrapper at all and are
  * listed in src/app/api/__tests__/route-permissions.test.ts.
  */
-export type RouteAccess = { requires: 'member' | Capability }
+export type RouteAccess = {
+  requires: 'member' | Capability
+  /**
+   * Declarative per-route rate limit, enforced after auth. Two dimensions:
+   * per-user (a single account looping a request) and per-org (a 50-seat org
+   * multiplying every per-user limit by 50 — the org cap bounds aggregate
+   * spend on expensive routes). perOrg defaults to 10× perUser; window
+   * defaults to 60s. The limiter deliberately fails OPEN on a Redis outage —
+   * availability over enforcement — which is why expensive routes also keep
+   * their token-budget checks.
+   */
+  rateLimit?: {
+    feature: string
+    perUser: number
+    perOrg?: number
+    windowSeconds?: number
+  }
+}
+
+async function checkRouteRateLimit(
+  auth: AuthContext,
+  config: NonNullable<RouteAccess['rateLimit']>,
+): Promise<{ retryAfterMs: number } | null> {
+  const { feature, perUser, perOrg = perUser * 10, windowSeconds = 60 } = config
+  const windowMs = windowSeconds * 1000
+  const [user, org] = await Promise.all([
+    rateLimit(`${feature}:user:${auth.dbUser.id}`, { limit: perUser, windowMs }),
+    rateLimit(`${feature}:org:${auth.organizationId}`, { limit: perOrg, windowMs }),
+  ])
+  const limited = [user, org].find((result) => !result.ok)
+  return limited ? { retryAfterMs: limited.retryAfterMs ?? windowMs } : null
+}
 
 /**
  * Throws unless the actor holds what the route declared.
@@ -79,6 +111,16 @@ export function withAuthenticatedApi(handler: AuthenticatedHandler, access: Rout
       authFinishedAt = performance.now()
 
       assertCapability(auth, access)
+
+      if (access.rateLimit) {
+        const limited = await checkRouteRateLimit(auth, access.rateLimit)
+        if (limited) {
+          return withTiming(NextResponse.json(
+            { success: false, error: 'Too many requests — please slow down.', code: 'RATE_LIMITED' },
+            { status: 429, headers: { 'Retry-After': String(Math.ceil(limited.retryAfterMs / 1000)) } },
+          ))
+        }
+      }
 
       const result = await handler(request, auth)
 

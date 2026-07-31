@@ -50,4 +50,4 @@ export const POST = withAuthenticatedApi(async (request) => {
   }
 
   return { success: true, matches: sanitizeIntegrationMatches(parseIntegrationMatches(raw), items) }
-}, { requires: 'member' })
+}, { requires: 'member', rateLimit: { feature: 'ai-search', perUser: 20 } })

@@ -1,4 +1,5 @@
 import { prisma } from '@/lib/prisma'
+import { cached } from '@/lib/cache'
 import { serializeAgent } from '@/lib/agents/serialize'
 import { isUsageExemptEmail } from '@/lib/usage/budget'
 import { entitlementPlanFor, isGrandfatheredOrganization } from '@/lib/billing/entitlements'
@@ -47,11 +48,16 @@ export async function readShellSnapshot(auth: AuthContext) {
       orderBy: { updatedAt: 'desc' },
       take: 300,
     }),
-    prisma.agentExecution.aggregate({
-      where: { organizationId: auth.organizationId, startedAt: { gte: monthStart } },
-      _sum: { inputTokens: true, outputTokens: true },
-      _count: true,
-    }),
+    // Cached 60s per org: this paints a usage meter on every shell poll
+    // (~1 req/15s/user), and uncached it re-scanned the org's entire month of
+    // executions on each poll — cost that grew with tenant age all month.
+    cached(`snapshot:usage:${auth.organizationId}:${monthStart.toISOString().slice(0, 7)}`, 60_000, () =>
+      prisma.agentExecution.aggregate({
+        where: { organizationId: auth.organizationId, startedAt: { gte: monthStart } },
+        _sum: { inputTokens: true, outputTokens: true },
+        _count: true,
+      }),
+    ),
     prisma.organization.findUnique({
       where: { id: auth.organizationId },
       select: { id: true, name: true, slug: true, plan: true, logoUrl: true, createdAt: true, grandfatheredAt: true },

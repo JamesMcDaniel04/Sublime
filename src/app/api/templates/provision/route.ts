@@ -584,4 +584,4 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
     if (error instanceof ApiError) throw error
     throw new ApiError('Failed to provision template', 500, 'PROVISION_FAILED', error)
   }
-}, { requires: 'member' })
+}, { requires: 'member', rateLimit: { feature: 'template-provision', perUser: 6 } })

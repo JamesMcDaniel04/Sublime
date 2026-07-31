@@ -1,7 +1,7 @@
 import { prisma } from '@/lib/prisma'
 import { apiLogger } from '@/lib/logger'
 import { KNOWN_SIGNALS } from '@/lib/flows/trigger'
-import { runFlowExecution } from './execute-flow'
+import { dispatchFlowExecution } from './execute-flow'
 
 // Re-exported so callers (including the client-safe builder UI) can import the
 // known signal catalog from either module; the canonical list lives in
@@ -69,27 +69,36 @@ export async function emitFlowSignal(params: {
 
   const flows = await prisma.flow.findMany({
     where: { organizationId: params.organizationId, status: 'ACTIVE' },
+    select: { id: true, userId: true, organizationId: true, status: true, trigger: true, publishedGraph: true },
     take: MAX_FLOWS_PER_EMIT,
   })
 
   const matches = flows.filter(
     (flow) => flow.id !== params.sourceFlowId && flowListensTo(flow, params.signal),
   )
+  if (matches.length === 0) return { matched: 0 }
+
+  // Owner attribution, batched (previously up to 2 queries per matched flow):
+  // the flow owner when set and still active; otherwise the org's oldest
+  // active member — mirrors the cron dispatcher's owner-attribution lookup.
+  const ownerIds = [...new Set(matches.map((flow) => flow.userId).filter((id): id is string => Boolean(id)))]
+  const owners = ownerIds.length
+    ? await prisma.user.findMany({
+        where: { id: { in: ownerIds }, organizationId: params.organizationId, isActive: true },
+        select: { id: true },
+      })
+    : []
+  const ownerSet = new Set(owners.map((user) => user.id))
+  const fallback = await prisma.user.findFirst({
+    where: { organizationId: params.organizationId, isActive: true },
+    orderBy: { createdAt: 'asc' },
+    select: { id: true },
+  })
 
   for (const flow of matches) {
     try {
-      // Attribute the run to the flow owner when set; otherwise the org's
-      // oldest active member (shared/ownerless flows have no single owner) —
-      // mirrors the cron dispatcher's owner-attribution lookup.
-      const owner = flow.userId
-        ? await prisma.user.findFirst({
-            where: { id: flow.userId, organizationId: flow.organizationId, isActive: true },
-          })
-        : await prisma.user.findFirst({
-            where: { organizationId: flow.organizationId, isActive: true },
-            orderBy: { createdAt: 'asc' },
-          })
-      if (!owner) {
+      const runAsId = flow.userId && ownerSet.has(flow.userId) ? flow.userId : fallback?.id
+      if (!runAsId) {
         apiLogger.warn('emitFlowSignal: no active user to attribute the run to, skipping flow', {
           flowId: flow.id,
           organizationId: params.organizationId,
@@ -97,16 +106,21 @@ export async function emitFlowSignal(params: {
         })
         continue
       }
-      await runFlowExecution({
+      // dispatchFlowExecution, NOT runFlowExecution: in production this
+      // enqueues onto the worker instead of executing up to 200 flows inline
+      // and sequentially inside whatever request emitted the signal (the
+      // signals route let any member pin a 20-minute lambda doing real work
+      // with real side effects). Dev inline mode is unchanged.
+      await dispatchFlowExecution({
         flowId: flow.id,
         organizationId: params.organizationId,
-        userId: owner.id,
+        userId: runAsId,
         input: params.payload,
         usePublished: true,
         trigger: { type: 'signal', signal: params.signal, depth },
       })
     } catch (error) {
-      apiLogger.warn('emitFlowSignal: flow run failed, continuing with other matches', {
+      apiLogger.warn('emitFlowSignal: flow dispatch failed, continuing with other matches', {
         flowId: flow.id,
         organizationId: params.organizationId,
         signal: params.signal,

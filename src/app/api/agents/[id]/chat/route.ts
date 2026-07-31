@@ -291,7 +291,7 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
     .catch(() => undefined)
 
   return { success: true, sessionId: session.id, messages: [serializeMessage(userMessage), serializeMessage(assistantMessage)] }
-}, { requires: 'member' })
+}, { requires: 'member', rateLimit: { feature: 'agent-chat', perUser: 30 } })
 
 // Marks a proposal message as applied after the client has confirmed the
 // change through the existing PUT /api/agents update endpoint.
