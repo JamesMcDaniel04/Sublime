@@ -32,6 +32,7 @@ const DIFFERENTLY_AUTHENTICATED: ReadonlyArray<{ route: string; mechanism: strin
   { route: 'stripe/checkout', mechanism: 'session + canManageBillingByRole; plan-exempt so a locked-out workspace can still pay' },
   { route: 'cron/retention', mechanism: 'cron shared secret' },
   { route: 'cron/dispatch', mechanism: 'cron shared secret' },
+  { route: 'cron/billing-reconcile', mechanism: 'cron shared secret' },
   { route: 'flows/[id]/trigger', mechanism: 'per-flow trigger token' },
   { route: 'agents/[id]/trigger', mechanism: 'per-agent trigger token' },
   { route: 'mcp-connections/oauth/callback', mechanism: 'OAuth state parameter' },
