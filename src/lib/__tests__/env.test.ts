@@ -15,7 +15,7 @@ function setNodeEnv(value: string) {
 
 const FULL_PROD_ENV = {
   NODE_ENV: 'production',
-  DATABASE_URL: 'postgresql://u:p@h:6543/db',
+  DATABASE_URL: 'postgresql://u:p@h:6543/db?pgbouncer=true&connection_limit=1',
   DIRECT_URL: 'postgresql://u:p@h:5432/db',
   NEXT_PUBLIC_SUPABASE_URL: 'https://x.supabase.co',
   NEXT_PUBLIC_SUPABASE_ANON_KEY: 'anon',
@@ -73,4 +73,55 @@ test('development with nothing set: does not throw (dev ergonomics)', async () =
   }
   const { assertServerEnv } = await freshEnv()
   assert.doesNotThrow(() => assertServerEnv())
+})
+
+test('production DATABASE_URL without pgbouncer/connection_limit: throws naming both', async () => {
+  Object.assign(process.env, FULL_PROD_ENV, { DATABASE_URL: 'postgresql://u:p@h:6543/db' })
+  const { assertServerEnv } = await freshEnv()
+  assert.throws(
+    () => assertServerEnv(),
+    (error: Error) => error.message.includes('pgbouncer=true') && error.message.includes('connection_limit'),
+  )
+})
+
+test('production DATABASE_URL escape hatch DATABASE_URL_UNPOOLED_OK: does not throw', async () => {
+  Object.assign(process.env, FULL_PROD_ENV, {
+    DATABASE_URL: 'postgresql://u:p@h:5432/db',
+    DATABASE_URL_UNPOOLED_OK: 'true',
+  })
+  const { assertServerEnv } = await freshEnv()
+  assert.doesNotThrow(() => assertServerEnv())
+})
+
+test('worker env: throws on missing required, passes with them set', async () => {
+  setNodeEnv('production')
+  for (const key of ['DATABASE_URL', 'REDIS_URL', 'ENCRYPTION_KEY', 'ANTHROPIC_API_KEY', 'QWEN_API_KEY']) delete process.env[key]
+  const { assertWorkerEnv } = await freshEnv()
+  assert.throws(
+    () => assertWorkerEnv(),
+    (error: Error) => error.message.includes('DATABASE_URL') && error.message.includes('REDIS_URL'),
+  )
+  Object.assign(process.env, {
+    DATABASE_URL: 'postgresql://u:p@h:5432/db?connection_limit=40',
+    REDIS_URL: 'rediss://h:6379',
+    ENCRYPTION_KEY: 'k',
+    ANTHROPIC_API_KEY: 'sk-ant-x',
+  })
+  const fresh = await freshEnv()
+  assert.doesNotThrow(() => fresh.assertWorkerEnv())
+})
+
+test('worker env: warns (never throws) when the pool is smaller than worker concurrency', async () => {
+  setNodeEnv('production')
+  Object.assign(process.env, {
+    DATABASE_URL: 'postgresql://u:p@h:6543/db?pgbouncer=true&connection_limit=1',
+    REDIS_URL: 'rediss://h:6379',
+    ENCRYPTION_KEY: 'k',
+    ANTHROPIC_API_KEY: 'sk-ant-x',
+    AGENT_WORKER_CONCURRENCY: '10',
+  })
+  const { assertWorkerEnv } = await freshEnv()
+  const warnings: string[] = []
+  assert.doesNotThrow(() => assertWorkerEnv({ warn: (msg: string) => warnings.push(msg) }))
+  assert.ok(warnings.some((msg) => msg.includes('connection_limit')), `expected a pool-size warning, got: ${warnings.join(' | ')}`)
 })

@@ -27,11 +27,32 @@ services:
       # Same Upstash rediss://…:6379 TCP URL as Vercel — set in the dashboard.
       - key: REDIS_URL
         sync: false
+      # NOT the same URL as Vercel! The serverless URL carries
+      # `connection_limit=1` (correct per lambda instance) — but this ONE
+      # process runs (2×agent + flow + backfill) concurrent jobs against one
+      # Prisma pool, so it needs its OWN URL with `connection_limit` >= that
+      # total (32 at the defaults below; the session pooler :5432 or a direct
+      # connection both work). assertWorkerEnv() warns at boot when this is
+      # mis-sized.
       - key: DATABASE_URL
         sync: false
       - key: DIRECT_URL
         sync: false
       - key: ENCRYPTION_KEY
+        sync: false
+      # Observability — REQUIRED in practice: without SENTRY_DSN every worker
+      # error (dead letters, crashes, unhandled rejections) is console-only.
+      - key: SENTRY_DSN
+        sync: false
+      # Web push — runs complete on THIS process in queue mode, so without
+      # these keys every run-completion push notification silently never
+      # sends (it worked in dev inline mode, which is why it went unnoticed).
+      - key: VAPID_PUBLIC_KEY
+        sync: false
+      - key: VAPID_PRIVATE_KEY
+        sync: false
+      # Absolute origin for digest/email deep links rendered on the worker.
+      - key: NEXT_PUBLIC_APP_URL
         sync: false
       # Model providers (runs execute here, so the worker needs both).
       - key: ANTHROPIC_API_KEY
@@ -64,5 +85,10 @@ services:
         sync: false
       - key: UPSTASH_REDIS_REST_TOKEN
         sync: false
+      # Per-queue concurrency. Agent runs are ~100% I/O-wait on the model
+      # provider, so this is deliberately above CPU count — 5 was the
+      # platform-wide ceiling that queued the 100th concurrent run ~100
+      # minutes out. FLOW_WORKER_CONCURRENCY / BACKFILL_WORKER_CONCURRENCY
+      # default to this value / 2 respectively (see src/lib/queue/config.ts).
       - key: AGENT_WORKER_CONCURRENCY
-        value: "5"
+        value: "10"

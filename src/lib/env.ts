@@ -5,6 +5,11 @@
  * throws a single aggregated error naming every missing required variable, so
  * a misconfigured deploy fails loudly at boot instead of 500ing per-request.
  *
+ * `assertWorkerEnv()` is the worker-runtime equivalent (runtime.ts start()) —
+ * the worker previously ran NO env validation at all, which is how it shipped
+ * to production without SENTRY_DSN (all error reporting silently console-only)
+ * and without VAPID keys (every push notification silently unsent).
+ *
  * Required in production only — development stays permissive so a fresh clone
  * can boot without a full env file.
  */
@@ -25,20 +30,109 @@ const REQUIRED_IN_PRODUCTION = [
  *  (Anthropic) is the default; Qwen is the OpenAI-compatible alternative. */
 const MODEL_KEYS = ['ANTHROPIC_API_KEY', 'QWEN_API_KEY'] as const
 
+function missingModelKey(): string | null {
+  return MODEL_KEYS.some((name) => Boolean(process.env[name])) ? null : `one of ${MODEL_KEYS.join(' or ')}`
+}
+
+function throwMissing(missing: string[]): never {
+  throw new Error(
+    `Missing required environment variables: ${missing.join(', ')}. ` +
+      'Set them in the deployment environment before starting the server.',
+  )
+}
+
+/**
+ * Serverless Prisma MUST go through the transaction pooler with an explicit
+ * per-instance connection budget. Without `pgbouncer=true` Prisma emits
+ * prepared statements that break behind Supavisor's transaction mode
+ * (`prepared statement "s0" already exists`); without `connection_limit` it
+ * defaults to cpu*2+1 connections PER lambda instance — 40 warm instances is
+ * ~360 connections against a Postgres cap in the low hundreds. This was
+ * previously documented in .env.example only, with nothing enforcing it.
+ *
+ * Escape hatch for a deliberate direct connection (self-hosted Postgres with
+ * a big max_connections): DATABASE_URL_UNPOOLED_OK=true.
+ */
+function assertPooledDatabaseUrl(rawUrl: string): void {
+  if (process.env.DATABASE_URL_UNPOOLED_OK === 'true') return
+  let params: URLSearchParams
+  try {
+    params = new URL(rawUrl).searchParams
+  } catch {
+    throw new Error('DATABASE_URL is not a parseable URL')
+  }
+  const problems: string[] = []
+  if (params.get('pgbouncer') !== 'true') problems.push('pgbouncer=true')
+  if (!params.get('connection_limit')) problems.push('connection_limit=<n>')
+  if (problems.length > 0) {
+    throw new Error(
+      `DATABASE_URL must include ${problems.join(' and ')} for serverless (transaction pooler, bounded per-instance pool). ` +
+        'See .env.example. Set DATABASE_URL_UNPOOLED_OK=true only for a deliberate direct connection.',
+    )
+  }
+}
+
 export function assertServerEnv(): void {
   if (process.env.NODE_ENV !== 'production') return
 
-  const missing = REQUIRED_IN_PRODUCTION.filter((name) => !process.env[name])
+  const missing: string[] = REQUIRED_IN_PRODUCTION.filter((name) => !process.env[name])
+  const modelKey = missingModelKey()
+  if (modelKey) missing.push(modelKey)
+  if (missing.length > 0) throwMissing(missing)
 
-  const hasModelKey = MODEL_KEYS.some((name) => Boolean(process.env[name]))
-  if (!hasModelKey) {
-    missing.push(`one of ${MODEL_KEYS.join(' or ')}` as never)
+  assertPooledDatabaseUrl(process.env.DATABASE_URL!)
+}
+
+const REQUIRED_FOR_WORKER = ['DATABASE_URL', 'REDIS_URL', 'ENCRYPTION_KEY'] as const
+
+// Missing these degrades silently rather than fatally — warn loudly instead
+// of refusing to boot, so a worker deploy never goes down over observability.
+const RECOMMENDED_FOR_WORKER = [
+  ['SENTRY_DSN', 'worker errors will be console-only (invisible to Sentry)'],
+  ['VAPID_PUBLIC_KEY', 'push notifications for queue-executed runs will silently never send'],
+  ['VAPID_PRIVATE_KEY', 'push notifications for queue-executed runs will silently never send'],
+  ['NEXT_PUBLIC_APP_URL', 'digest/email deep links will render without a host'],
+] as const
+
+export function assertWorkerEnv(logger: { warn: (message: string) => void } = console): void {
+  if (process.env.NODE_ENV !== 'production') return
+
+  const missing: string[] = REQUIRED_FOR_WORKER.filter((name) => !process.env[name])
+  const modelKey = missingModelKey()
+  if (modelKey) missing.push(modelKey)
+  if (missing.length > 0) throwMissing(missing)
+
+  for (const [name, consequence] of RECOMMENDED_FOR_WORKER) {
+    if (!process.env[name]) logger.warn(`env: ${name} is not set — ${consequence}`)
   }
 
-  if (missing.length > 0) {
-    throw new Error(
-      `Missing required environment variables: ${missing.join(', ')}. ` +
-        'Set them in the deployment environment before starting the server.',
+  // Pool-vs-concurrency sanity: the worker runs (2×agent + flow + backfill)
+  // concurrent jobs against ONE Prisma pool. Pointing it at the serverless
+  // URL (connection_limit=1) starves 20+ jobs into P2024 pool timeouts while
+  // the database is perfectly healthy — the exact misconfiguration the old
+  // render.yaml guidance ("share the same database URL as the web app")
+  // steered operators into.
+  const agent = Number(process.env.AGENT_WORKER_CONCURRENCY) || 10
+  const flow = Number(process.env.FLOW_WORKER_CONCURRENCY) || agent
+  const backfill = Number(process.env.BACKFILL_WORKER_CONCURRENCY) || 2
+  const totalConcurrency = agent * 2 + flow + backfill
+  let limit: number | null = null
+  try {
+    const raw = new URL(process.env.DATABASE_URL!).searchParams.get('connection_limit')
+    limit = raw ? Number(raw) : null
+  } catch {
+    // Unparseable URL will fail at Prisma connect with its own clear error.
+  }
+  if (limit !== null && limit < totalConcurrency) {
+    logger.warn(
+      `env: DATABASE_URL connection_limit=${limit} is below the worker's total concurrency (${totalConcurrency}). ` +
+        'Jobs will starve on pool acquisition (P2024). Give the worker its own URL with ' +
+        `connection_limit>=${totalConcurrency} (session pooler or direct connection).`,
+    )
+  } else if (limit === null) {
+    logger.warn(
+      `env: DATABASE_URL has no connection_limit — Prisma defaults to cpu*2+1, likely below the worker's total concurrency (${totalConcurrency}). ` +
+        `Set connection_limit>=${totalConcurrency} on the worker's DATABASE_URL.`,
     )
   }
 }

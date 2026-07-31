@@ -75,3 +75,50 @@ Most logic is unit-tested with `node:test` (`npm test`). API routes are addition
 - **Per-org credentials for built-in tools.** Slack, Granola, and Email are keyed to single global env vars, so every organization shares one account — acceptable single-tenant, blocking for multi-tenant. The per-user `Integration` table already exists and should hold these.
 - **Tool-discovery caching.** `loadTools` runs `initialize` + `tools/list` against every server on every run (drops past the per-server 20 / global 64 caps are now logged). Cache the discovered tool lists (the Klavis path already persists them for the capability cards) and run discovery in parallel.
 - **Frontend data layer.** Pages fetch with raw `fetch` + `useState` + `setInterval`; shared domain types now live in `src/lib/types.ts`, but a query cache (e.g. TanStack Query) would remove the hand-rolled polling, refetch-everything mutations, and the `AGENTS_CHANGED_EVENT` window-event bus.
+
+## Scale hardening (2026-07-31)
+
+A four-track audit (DB/connections, shared-state/scaling, settings
+persistence, stability) drove a hardening pass targeting 100+ concurrent
+users. What changed, at the architecture level:
+
+- **Queue plane:** producers use a bounded Redis connection (commands reject
+  in ~5s instead of retrying forever) and process-wide `getQueue()`
+  singletons; the worker runs per-queue concurrency (env-tunable, default 10
+  for agent/flow queues), pauses + force-closes within Render's SIGTERM
+  window, and dead-letters every genuinely-failed job (a redelivered job
+  whose row is already `failed` rethrows instead of resolving). Dead-letter
+  queues are pruned by the retention cron; `/api/health` reports queue depths.
+- **Run lifecycle:** pending→running claims are atomic and status-guarded
+  (a reaped/cancelled row can never be resurrected); resumes refresh
+  `startedAt`; the stuck-run threshold exceeds lockDuration×2; the pending
+  reaper verifies the BullMQ job is actually gone before failing a row; flow
+  stall redelivery consults the step ledger so completed side effects replay
+  as no-ops. Reaper sweeps are indexed (`agent_executions(status, startedAt)`,
+  `agent_tasks(status)`).
+- **Cron dispatch:** every background sweep goes through `afterResponse()`
+  (never a bare `void` — Vercel freezes those with the response), per-org
+  fan-outs are bounded (`mapWithConcurrency`), scans are ordered and
+  self-rotating, and every cap logs saturation instead of silently dropping.
+- **Abuse/limits:** `withAuthenticatedApi` takes a declarative `rateLimit`
+  (per-user + per-org) applied to all LLM-calling routes; `emitFlowSignal`
+  dispatches through the queue; the month-budget aggregate is cached 60s.
+- **Settings:** `organizations.settings` writes are atomic key-level jsonb
+  merges (`src/lib/server/org-settings.ts`); scan exclusions use add/remove
+  verbs; profile PATCH invalidates the auth cache; workspace-wide settings
+  writes require `settings:workspace`.
+- **External coupling:** Neo4j/Nango/LLM one-shot/web-push/Resend calls all
+  carry explicit deadlines; `maxDuration` values reflect Vercel's real
+  ceiling (800).
+- **Boot assertions:** `assertServerEnv` verifies the pooled DATABASE_URL
+  shape; the worker runs `assertWorkerEnv` (fails on missing core env, warns
+  on missing SENTRY_DSN/VAPID keys and pool-vs-concurrency mismatches). See
+  `docs/runbooks/migrations.md` for the expand/contract deploy rule.
+
+Deliberately deferred (product/infra decisions, not code gaps): cross-device
+preference sync (theme/sidebar/favorites are localStorage by design),
+Supabase Realtime run-completion delivery (poll backoff shipped instead),
+denormalized flow trigger columns (F8 — select-trimmed for now), per-tenant
+code-execution isolation (Pyodide/vm run process-global), a second worker
+replica (unblocked by the registrar lock, but a deploy action), and the
+goals-create transaction loops (bounded by schema limits).

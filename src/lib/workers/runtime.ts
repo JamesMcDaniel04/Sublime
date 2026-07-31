@@ -101,6 +101,12 @@ class WorkerRuntime {
   }
 
   async start(port = 3002) {
+    // Fail fast on missing required env; warn loudly on missing observability
+    // env. The worker previously ran no validation at all — which is how it
+    // shipped without SENTRY_DSN (errors console-only) and VAPID keys (push
+    // silently dead in production).
+    const { assertWorkerEnv } = await import('@/lib/env')
+    assertWorkerEnv(this.server.log)
     await initSentry('worker')
     // Reports and keeps running — does NOT exit, unlike uncaughtException
     // below. A single unhandled rejection in one BullMQ job must not take
