@@ -60,6 +60,7 @@ import { JamButton } from '@/components/flows/jam-button'
 import type { StepStatus } from '@/components/flows/step-card'
 import { SuggestedImprovementBanner } from '@/components/intelligence/suggested-improvement-banner'
 import { getCachedJson, invalidateCachedJson } from '@/lib/client/use-cached-json'
+import { useRunEvents } from '@/lib/client/use-run-events'
 
 type Agent = { id: string; title: string }
 
@@ -1145,6 +1146,12 @@ function FlowBuilder() {
     schedule()
     tick()
   }, [id])
+
+  // Push half of run delivery: an org run-event means "check now" — restart
+  // the poll loop immediately (which also resets its backoff to the fresh 2s
+  // cadence) instead of waiting out the current interval. Polling remains the
+  // authoritative fallback; without Supabase env this is simply inert.
+  useRunEvents(pollRuns)
 
   // Re-attach to a background run when the builder (re)mounts. A run started
   // here keeps executing server-side regardless of this page's lifetime, so

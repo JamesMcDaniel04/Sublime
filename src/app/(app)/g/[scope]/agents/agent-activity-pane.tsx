@@ -34,6 +34,7 @@ import { TypewriterStatus } from '@/components/ui/typewriter-status'
 import { IntegrationLogo } from '@/components/integrations/integration-logo'
 import { cn } from '@/lib/utils'
 import { isCancellableRunStatus, isTerminalRunStatus } from '@/lib/agents/run-status'
+import { useRunEvents } from '@/lib/client/use-run-events'
 import {
   buildProcessTimeline,
   type ContextFact,
@@ -479,6 +480,10 @@ function RunRow({
     .find((event) => event.kind === 'agent.question' && event.payload?.suggestedAnswer)
     ?.payload?.suggestedAnswer as { content: string } | undefined
 
+  // Push half of run delivery: an org run-event re-runs the polling effect
+  // below (fresh immediate fetch + reset schedule). Polling stays the fallback.
+  const [runEventTick, setRunEventTick] = useState(0)
+  useRunEvents(() => setRunEventTick((tick) => tick + 1), { enabled: expanded && isActive })
   useEffect(() => {
     if (!expanded) {
       setDetails(null)
@@ -511,7 +516,7 @@ function RunRow({
     }
     if (isActive) schedule()
     return () => { cancelled = true; if (timer !== undefined) window.clearTimeout(timer) }
-  }, [expanded, activity.id, status, isActive])
+  }, [expanded, activity.id, status, isActive, runEventTick])
 
   const sendReply = async () => {
     if (!reply.trim() || replying) return

@@ -1,6 +1,7 @@
 import { prisma } from '@/lib/prisma'
 import { apiLogger } from '@/lib/logger'
 import { captureError } from '@/lib/observability/sentry'
+import { broadcastRunEvent } from '@/lib/realtime/run-events'
 import { sendPushToUser } from './push'
 
 export type NotificationLevel = 'info' | 'success' | 'error' | 'action'
@@ -44,6 +45,18 @@ export async function notify(input: NotifyInput) {
         body: input.body,
         url: input.link ?? (input.executionId ? `/agents?run=${input.executionId}` : '/agents'),
       }).catch(() => {})
+    }
+    // Push half of run delivery: every agent-run transition that notifies
+    // (completed / failed / needs-input) also broadcasts on the org's private
+    // Realtime topic so open run-watch UIs refresh instantly instead of
+    // waiting out their poll interval. Fire-and-forget by construction.
+    if (input.executionId && input.type.startsWith('agent.')) {
+      broadcastRunEvent(input.organizationId, {
+        kind: 'agent',
+        runId: input.executionId,
+        status: input.type,
+        agentId: input.agentTaskId,
+      })
     }
     return notification
   } catch (error) {

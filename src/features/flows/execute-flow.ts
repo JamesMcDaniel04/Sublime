@@ -1,6 +1,7 @@
 import type { Job } from 'bullmq'
 import { prisma } from '@/lib/prisma'
 import { getQueue, QUEUE_NAMES, workersEnabled } from '@/lib/queue/config'
+import { broadcastRunEvent } from '@/lib/realtime/run-events'
 import { inlineExecution } from '@/lib/queue/execution-mode'
 import { flowJobOptions } from '@/lib/flows/queue-options'
 import { runAgentExecution } from '@/features/agents/execute-agent'
@@ -888,6 +889,12 @@ export async function runFlowExecution(
     where: { id: run.id, organizationId: job.organizationId },
     data: { status, output: jsonValue(result.output), error: runError, wakeAt: result.waiting?.wakeAt ? new Date(result.waiting.wakeAt) : null, webhookResponse: result.webhookResponse ? jsonValue(result.webhookResponse) : undefined, finishedAt: status === 'waiting' ? null : new Date() },
   })
+  // Push half of run delivery: the terminal/waiting transition broadcasts on
+  // the org's private Realtime topic so the builder/run panel refresh
+  // instantly instead of waiting out their poll interval. Fire-and-forget —
+  // a lost broadcast costs latency (the poll fallback still lands), never
+  // correctness.
+  broadcastRunEvent(job.organizationId, { kind: 'flow', runId: run.id, status, flowId: flow.id })
   if (status === 'succeeded') {
     void import('@/lib/knowledge/capture')
       .then(({ captureFlowRunKnowledge }) => captureFlowRunKnowledge({

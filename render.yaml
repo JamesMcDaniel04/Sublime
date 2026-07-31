@@ -16,7 +16,7 @@ services:
   # runs stuck in `pending` with nothing draining them.
   - type: worker
     name: sublime-worker
-    env: node
+    runtime: node
     buildCommand: npm ci && npm run db:generate
     startCommand: npm run worker:start
     envVars:
@@ -53,6 +53,12 @@ services:
         sync: false
       # Absolute origin for digest/email deep links rendered on the worker.
       - key: NEXT_PUBLIC_APP_URL
+        sync: false
+      # Realtime run-event broadcasts (runs complete on THIS process): without
+      # these, open run-watch UIs fall back to pure polling latency.
+      - key: NEXT_PUBLIC_SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
         sync: false
       # Model providers (runs execute here, so the worker needs both).
       - key: ANTHROPIC_API_KEY

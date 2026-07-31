@@ -8,6 +8,7 @@ import { Markdown } from '@/components/ui/markdown'
 import { HtmlPreview, looksLikeHtml } from '@/components/ui/html-preview'
 import { TypewriterStatus } from '@/components/ui/typewriter-status'
 import { buildProcessTimeline, processFeedRows, type ProcessFeedRow } from '@/lib/agents/process-feed'
+import { useRunEvents } from '@/lib/client/use-run-events'
 import type { StepStatus } from './step-card'
 import type { FlowFailureRemediation } from '@/lib/flows/failure-remediation'
 
@@ -115,8 +116,16 @@ function OutputView({ value }: { value: unknown }) {
  */
 function useAgentProcessFeed(executionId: string | null | undefined, active: boolean, waiting = false): ProcessFeedRow[] {
   const [rows, setRows] = useState<ProcessFeedRow[]>([])
+  // Push half of run delivery: an org run-event re-runs the polling effect
+  // (fresh immediate load + a reset schedule). Polling stays the fallback.
+  const [runEventTick, setRunEventTick] = useState(0)
+  useRunEvents(() => setRunEventTick((tick) => tick + 1), { enabled: Boolean(executionId && active) })
+  // Blank only when the WATCHED EXECUTION changes — a run-event tick must
+  // refresh in place, not flicker the feed empty.
   useEffect(() => {
-    setRows([]) // never show a previous execution's feed while the first fetch is in flight
+    setRows([])
+  }, [executionId])
+  useEffect(() => {
     if (!executionId || !active) return
     let cancelled = false
     const load = () =>
@@ -156,7 +165,7 @@ function useAgentProcessFeed(executionId: string | null | undefined, active: boo
       cancelled = true
       if (timer !== undefined) window.clearTimeout(timer)
     }
-  }, [executionId, active, waiting])
+  }, [executionId, active, waiting, runEventTick])
   return rows
 }
 

@@ -92,6 +92,8 @@ const RECOMMENDED_FOR_WORKER = [
   ['VAPID_PUBLIC_KEY', 'push notifications for queue-executed runs will silently never send'],
   ['VAPID_PRIVATE_KEY', 'push notifications for queue-executed runs will silently never send'],
   ['NEXT_PUBLIC_APP_URL', 'digest/email deep links will render without a host'],
+  ['NEXT_PUBLIC_SUPABASE_URL', 'realtime run-event broadcasts will be off (clients fall back to polling latency)'],
+  ['SUPABASE_SERVICE_ROLE_KEY', 'realtime run-event broadcasts will be off (clients fall back to polling latency)'],
 ] as const
 
 export function assertWorkerEnv(logger: { warn: (message: string) => void } = console): void {
