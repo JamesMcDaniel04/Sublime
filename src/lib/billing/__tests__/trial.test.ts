@@ -3,10 +3,16 @@ import assert from 'node:assert/strict'
 import { Plan } from '@prisma/client'
 import { billingStateFor, trialDaysRemaining } from '../trial'
 
+const NOW = new Date('2026-07-28T12:00:00.000Z')
+const daysFromNow = (days: number) => new Date(NOW.getTime() + days * 24 * 60 * 60 * 1000)
+const hoursAgo = (hours: number) => new Date(NOW.getTime() - hours * 60 * 60 * 1000)
+const AFTER_LAUNCH = new Date('2026-07-20T00:00:00.000Z')
+
 test('paid plans are never trial-gated, even past an old trial deadline', () => {
   const billing = billingStateFor({
     plan: Plan.PROFESSIONAL,
     trialEndsAt: new Date(0),
+    firstPaidAt: null,
     createdAt: new Date(0),
   })
   assert.equal(billing.state, 'paid')
@@ -16,6 +22,7 @@ test('a new unpaid workspace requires payment immediately', () => {
   const billing = billingStateFor({
     plan: Plan.TRIAL,
     trialEndsAt: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000),
+    firstPaidAt: null,
     createdAt: new Date(),
   })
   assert.equal(billing.state, 'payment_required')
@@ -25,6 +32,7 @@ test('legacy trial dates never grant product access', () => {
   const billing = billingStateFor({
     plan: Plan.TRIAL,
     trialEndsAt: new Date(Date.now() - 1000),
+    firstPaidAt: null,
     createdAt: new Date('2026-07-20T00:00:00.000Z'),
   })
   assert.equal(billing.state, 'payment_required')
@@ -34,6 +42,7 @@ test('workspaces that existed at paid launch stay unrestricted if the row backfi
   const billing = billingStateFor({
     plan: Plan.TRIAL,
     trialEndsAt: null,
+    firstPaidAt: null,
     createdAt: new Date('2026-07-19T20:30:59.000Z'),
   })
   assert.equal(billing.state, 'paid')
@@ -44,6 +53,7 @@ test('grandfathered test accounts remain paid and unrestricted without a subscri
   const billing = billingStateFor({
     plan: Plan.TRIAL,
     trialEndsAt: null,
+    firstPaidAt: null,
     createdAt: new Date(),
     grandfatheredAt: new Date(),
   })
@@ -51,8 +61,45 @@ test('grandfathered test accounts remain paid and unrestricted without a subscri
   assert.equal(billing.plan, Plan.ENTERPRISE)
 })
 
-const NOW = new Date('2026-07-28T12:00:00.000Z')
-const daysFromNow = (days: number) => new Date(NOW.getTime() + days * 24 * 60 * 60 * 1000)
+test('a lapsed trial with no payment is denied even if the webhook never downgraded the plan', () => {
+  const billing = billingStateFor(
+    { plan: Plan.PROFESSIONAL, trialEndsAt: hoursAgo(72), firstPaidAt: null, createdAt: AFTER_LAUNCH },
+    NOW,
+  )
+  assert.equal(billing.state, 'payment_required')
+})
+
+test('a lapsed trial that converted (payment collected) keeps access', () => {
+  const billing = billingStateFor(
+    { plan: Plan.PROFESSIONAL, trialEndsAt: hoursAgo(72), firstPaidAt: hoursAgo(70), createdAt: AFTER_LAUNCH },
+    NOW,
+  )
+  assert.equal(billing.state, 'paid')
+})
+
+test('a trial that ended within the 24h grace window keeps access while webhooks settle', () => {
+  const billing = billingStateFor(
+    { plan: Plan.PROFESSIONAL, trialEndsAt: hoursAgo(1), firstPaidAt: null, createdAt: AFTER_LAUNCH },
+    NOW,
+  )
+  assert.equal(billing.state, 'paid')
+})
+
+test('an in-flight trial keeps access', () => {
+  const billing = billingStateFor(
+    { plan: Plan.PROFESSIONAL, trialEndsAt: hoursAgo(-24 * 7), firstPaidAt: null, createdAt: AFTER_LAUNCH },
+    NOW,
+  )
+  assert.equal(billing.state, 'paid')
+})
+
+test('grandfathered workspaces are never lapse-denied', () => {
+  const billing = billingStateFor(
+    { plan: Plan.TRIAL, trialEndsAt: hoursAgo(72), firstPaidAt: null, createdAt: AFTER_LAUNCH, grandfatheredAt: new Date() },
+    NOW,
+  )
+  assert.equal(billing.state, 'paid')
+})
 
 test('no trial end date means the workspace is not trialing', () => {
   assert.equal(trialDaysRemaining(null, NOW), null)
