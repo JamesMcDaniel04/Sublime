@@ -38,9 +38,11 @@ if (TEST_DB) {
     return org
   }
 
+  // stripeCustomerId is unique on Organization and applySubscription writes it
+  // through — every fake subscription needs its own customer id.
   const fakeSubscription = (over: Record<string, unknown>) => ({
     id: 'sub_test',
-    customer: 'cus_ignored',
+    customer: `cus_${crypto.randomUUID()}`,
     status: 'active',
     items: { data: [{ price: { id: 'price_team_test' } }] },
     trial_end: null,
