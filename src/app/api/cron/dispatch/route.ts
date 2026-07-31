@@ -30,6 +30,7 @@ import { pruneSlackProcessedEvents } from '@/lib/slack/dedup'
 import { inferActivityPatterns } from '@/lib/intelligence/infer-patterns'
 import { runBehaviorIntelligence } from '@/lib/behavior/run-behavior-intelligence'
 import { sweepUnindexedUserEvents } from '@/lib/behavior/index-user-event'
+import { globalSweepsAllowed } from '@/lib/server/global-sweeps'
 
 export const runtime = 'nodejs'
 export const maxDuration = 1200
@@ -403,7 +404,7 @@ export async function GET(request: Request) {
     // they consume fresh counts rather than yesterday's.
     {
       const adoption = await import('@/lib/templates/aggregate-adoption')
-      if (adoption.shouldRunAdoptionSweep(now)) {
+      if (globalSweepsAllowed() && adoption.shouldRunAdoptionSweep(now)) {
         void adoption.aggregateTemplateAdoption().catch(() => undefined)
       }
     }
@@ -414,7 +415,7 @@ export async function GET(request: Request) {
     // extends the tick.
     {
       const archetypes = await import('@/lib/intelligence/aggregate-archetypes')
-      if (archetypes.shouldRunArchetypeSweep(now)) {
+      if (globalSweepsAllowed() && archetypes.shouldRunArchetypeSweep(now)) {
         void archetypes.aggregatePlatformArchetypes().catch(() => undefined)
       }
     }
@@ -423,7 +424,7 @@ export async function GET(request: Request) {
     // sweep stores only aggregate seed defaults and never rewrites existing links.
     {
       const calibration = await import('@/lib/goals/calibrate-estimates')
-      if (calibration.shouldRunEstimateCalibration(now)) {
+      if (globalSweepsAllowed() && calibration.shouldRunEstimateCalibration(now)) {
         void calibration.calibrateTemplateEstimates().catch(() => undefined)
       }
     }
@@ -432,7 +433,7 @@ export async function GET(request: Request) {
     // and stay invisible until the five-organization floor is met.
     {
       const benchmarks = await import('@/lib/goals/aggregate-benchmarks')
-      if (benchmarks.shouldRunGoalBenchmarkSweep(now)) {
+      if (globalSweepsAllowed() && benchmarks.shouldRunGoalBenchmarkSweep(now)) {
         void benchmarks.aggregateGoalBenchmarks().catch(() => undefined)
       }
     }
@@ -441,7 +442,7 @@ export async function GET(request: Request) {
     // 15-minute Monday window from double-sending.
     {
       const digest = await import('@/lib/goals/digest')
-      if (digest.shouldRunWeeklyGoalDigest(now)) {
+      if (globalSweepsAllowed() && digest.shouldRunWeeklyGoalDigest(now)) {
         void digest.sendWeeklyGoalDigests(now).catch(() => undefined)
       }
     }
@@ -498,9 +499,15 @@ export async function GET(request: Request) {
     // Goal metric freshness + evaluation: per-metric throttling happens
     // inside; source failures land on GoalMetric.lastError and never fail the
     // CRON_SECRET-gated tick.
-    void import('@/lib/goals/refresh')
-      .then(({ refreshGoalMetrics }) => refreshGoalMetrics())
-      .catch(() => undefined)
+    // Unlike the sweeps above this has no time window, so under a shared test
+    // database it collided on EVERY tick — a suite's tick restamped another
+    // suite's metrics mid-assertion. That was the flake tracked down the hard
+    // way; the guard removes the cause rather than the symptom.
+    if (globalSweepsAllowed()) {
+      void import('@/lib/goals/refresh')
+        .then(({ refreshGoalMetrics }) => refreshGoalMetrics())
+        .catch(() => undefined)
+    }
 
     return Response.json({
       success: true,
