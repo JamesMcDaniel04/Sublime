@@ -1124,8 +1124,25 @@ function FlowBuilder() {
         pollRef.current = null
       }
     }
+    // Backoff by poll age: 2s while fresh, 5s after a minute, 15s after five.
+    // A run sitting in a deep queue backlog previously generated a 2s poll for
+    // its entire wait (~900 requests per queued run) with a full-payload
+    // response each time.
+    const intervalFor = (elapsedMs: number) => {
+      if (elapsedMs < 60_000) return 2_000
+      if (elapsedMs < 300_000) return 5_000
+      return 15_000
+    }
+    const startedPolling = Date.now()
+    const schedule = () => {
+      pollRef.current = window.setTimeout(async () => {
+        await tick()
+        // tick() nulls pollRef when the run is terminal — stop rescheduling.
+        if (pollRef.current !== null) schedule()
+      }, intervalFor(Date.now() - startedPolling)) as unknown as ReturnType<typeof setInterval>
+    }
     if (pollRef.current) clearInterval(pollRef.current)
-    pollRef.current = setInterval(tick, 2000)
+    schedule()
     tick()
   }, [id])
 

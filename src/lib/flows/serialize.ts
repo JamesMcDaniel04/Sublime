@@ -1,6 +1,14 @@
 import type { FlowGraph } from '@/lib/flows/graph'
 
-/** Wire shape for a flow, shared by the list page and the builder. */
+/**
+ * Wire shape for a flow, shared by the list page and the builder.
+ *
+ * `precomputed` lets the LIST endpoint skip loading `publishedGraph`
+ * entirely: the published/changed flags are computed in Postgres
+ * (`IS DISTINCT FROM`) instead of shipping every flow's full published graph
+ * over the pooler and JSON.stringify-comparing it per row on the request
+ * path (200 flows = 400 full-graph serializations of lambda CPU, per poll).
+ */
 export function serializeFlow(flow: {
   id: string
   name: string
@@ -14,12 +22,12 @@ export function serializeFlow(flow: {
   metadata?: unknown
   createdAt: Date
   updatedAt: Date
-}) {
+}, precomputed?: { published: boolean; unpublishedChanges: boolean }) {
   const graph = (flow.graph && typeof flow.graph === 'object' ? flow.graph : { nodes: [], edges: [] }) as FlowGraph
   // Every executable node counts as a step — counting only agents made a
   // tool/http/condition-built flow read "0 steps" on the list card.
   const stepCount = (graph.nodes || []).filter((node) => node.type !== 'trigger').length
-  const published = flow.publishedGraph != null
+  const published = precomputed ? precomputed.published : flow.publishedGraph != null
   const metadata = flow.metadata && typeof flow.metadata === 'object' && !Array.isArray(flow.metadata) ? (flow.metadata as Record<string, unknown>) : {}
   return {
     id: flow.id,
@@ -38,7 +46,9 @@ export function serializeFlow(flow: {
     version: flow.version ?? 1,
     published,
     // True when the draft differs from what's published (or nothing is published).
-    unpublishedChanges: !published || JSON.stringify(flow.publishedGraph) !== JSON.stringify(graph),
+    unpublishedChanges: precomputed
+      ? !published || precomputed.unpublishedChanges
+      : !published || JSON.stringify(flow.publishedGraph) !== JSON.stringify(graph),
     createdAt: flow.createdAt,
     updatedAt: flow.updatedAt,
   }

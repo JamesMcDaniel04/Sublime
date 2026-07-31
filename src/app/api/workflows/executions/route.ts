@@ -26,20 +26,34 @@ export const GET = withAuthenticatedApi(async (request, auth) => {
       })
 
   const ids = executions.map((execution) => execution.id)
+  // Bounded child fetches, newest-first then re-sorted ascending: this
+  // endpoint is polled every 2s while a run is live, and a long multi-turn
+  // run accumulates hundreds of JSON-carrying events — unbounded, the whole
+  // set re-transferred in full on every tick, growing for the run's entire
+  // duration. Keeping the newest N preserves what live UIs render.
   const [steps, events, messages] = ids.length
     ? await Promise.all([
-        prisma.workflowStep.findMany({
-          where: { executionId: { in: ids } },
-          orderBy: { createdAt: 'asc' },
-        }),
-        prisma.workflowEvent.findMany({
-          where: { executionId: { in: ids } },
-          orderBy: { ts: 'asc' },
-        }),
-        prisma.executionMessage.findMany({
-          where: { executionId: { in: ids } },
-          orderBy: { createdAt: 'asc' },
-        }),
+        prisma.workflowStep
+          .findMany({
+            where: { executionId: { in: ids } },
+            orderBy: { createdAt: 'desc' },
+            take: 300,
+          })
+          .then((rows) => rows.reverse()),
+        prisma.workflowEvent
+          .findMany({
+            where: { executionId: { in: ids } },
+            orderBy: { ts: 'desc' },
+            take: 500,
+          })
+          .then((rows) => rows.reverse()),
+        prisma.executionMessage
+          .findMany({
+            where: { executionId: { in: ids } },
+            orderBy: { createdAt: 'desc' },
+            take: 200,
+          })
+          .then((rows) => rows.reverse()),
       ])
     : [[], [], []]
 

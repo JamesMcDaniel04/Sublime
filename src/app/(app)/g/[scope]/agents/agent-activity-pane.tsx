@@ -492,9 +492,25 @@ function RunRow({
         .catch(() => { if (!cancelled) setDetails(null) })
     fetchDetails()
     // While a run is active, poll its detail so thinking and tool calls stream in
-    // (near-real-time) without a full-page refetch.
-    const timer = isActive ? window.setInterval(fetchDetails, 2000) : undefined
-    return () => { cancelled = true; if (timer) window.clearInterval(timer) }
+    // (near-real-time) without a full-page refetch — backing off with age
+    // (2s fresh, 5s after 1 min, 15s after 5 min) so a run stuck in a queue
+    // backlog doesn't cost a 2s full-payload poll for its entire wait.
+    const startedPolling = Date.now()
+    const intervalFor = () => {
+      const elapsed = Date.now() - startedPolling
+      if (elapsed < 60_000) return 2_000
+      if (elapsed < 300_000) return 5_000
+      return 15_000
+    }
+    let timer: number | undefined
+    const schedule = () => {
+      timer = window.setTimeout(() => {
+        fetchDetails()
+        if (!cancelled) schedule()
+      }, intervalFor())
+    }
+    if (isActive) schedule()
+    return () => { cancelled = true; if (timer !== undefined) window.clearTimeout(timer) }
   }, [expanded, activity.id, status, isActive])
 
   const sendReply = async () => {

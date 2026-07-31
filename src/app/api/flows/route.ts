@@ -62,10 +62,27 @@ export const GET = withAuthenticatedApi(async (request, auth) => {
     : []
 
   const [flows, counts, unlinkedCount] = await Promise.all([
+    // select (not the full row): publishedGraph and collaborationMutationLog
+    // are the two fattest columns and the list never renders either — the
+    // published/changed flags are computed in Postgres below instead.
     prisma.flow.findMany({
       where: { organizationId: auth.organizationId, AND: [readScope, ...idFilter] },
       orderBy: { updatedAt: 'desc' },
       take: 200,
+      select: {
+        id: true,
+        name: true,
+        description: true,
+        status: true,
+        trigger: true,
+        graph: true,
+        version: true,
+        visibility: true,
+        metadata: true,
+        userId: true,
+        createdAt: true,
+        updatedAt: true,
+      },
     }),
     countActiveConnections(auth.organizationId),
     // Counted with the SAME read scope, so the number can never reveal the
@@ -78,10 +95,26 @@ export const GET = withAuthenticatedApi(async (request, auth) => {
   ])
   const totalConnections = counts.nango + counts.mcp
   const ready = meetsSuggestionGate(counts)
+  // Publish-state flags computed in the database (jsonb IS DISTINCT FROM is
+  // key-order-insensitive equality — strictly better than the old
+  // JSON.stringify comparison, at zero wire cost).
+  const flowIds = flows.map((flow) => flow.id)
+  const publishFlags = flowIds.length
+    ? await prisma.$queryRaw<Array<{ id: string; published: boolean; changed: boolean }>>`
+        SELECT "id",
+               ("publishedGraph" IS NOT NULL) AS "published",
+               ("publishedGraph" IS DISTINCT FROM "graph") AS "changed"
+        FROM "flows"
+        WHERE "id" = ANY(${flowIds}) AND "organizationId" = ${auth.organizationId}::uuid`
+    : []
+  const flagsById = new Map(publishFlags.map((row) => [row.id, row]))
   return {
     success: true,
     flows: flows.map((flow) => ({
-      ...serializeFlow(flow),
+      ...serializeFlow(flow, {
+        published: flagsById.get(flow.id)?.published ?? false,
+        unpublishedChanges: flagsById.get(flow.id)?.changed ?? true,
+      }),
       canManageJam: flow.userId === auth.dbUser.id,
       // In the list via a Jam invite or an org share, not ownership — the
       // flows page badges these so an invitee can find the flow again later.

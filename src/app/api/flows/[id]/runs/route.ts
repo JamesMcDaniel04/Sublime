@@ -49,6 +49,11 @@ export const GET = withAuthenticatedApi(async (request, auth) => {
     include: {
       steps: {
         orderBy: { order: 'asc' },
+        // Bounded tail-safe cap: a loop-heavy run accumulates steps without
+        // limit, and this endpoint is polled every 2s while a run is live —
+        // unbounded, the payload re-transferred in full and grew for the whole
+        // run. 500 is far above any sane flow; the cap is a safety valve.
+        take: 500,
         // output is always fetched (a waiting step stores its pause reason
         // there) but stripped from summary wire steps below to stay slim.
         select: summary

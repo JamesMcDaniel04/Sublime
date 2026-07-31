@@ -28,14 +28,32 @@ export const GET = withAuthenticatedApi(async (request, auth) => {
     where: { id: auth.organizationId },
     select: { settings: true },
   })
+  const wantDownload = new URL(request.url).searchParams.get('download') === '1'
+  // The list never renders document bodies, but `include` fetched every
+  // scalar — up to 250 full encrypted corpora into lambda memory per page
+  // view. `contentEncrypted` is loaded only on the explicit download branch.
   const docs = await prisma.knowledgeDocument.findMany({
     where: scope,
     orderBy: { updatedAt: 'desc' },
-    include: { _count: { select: { chunks: true } } },
+    select: {
+      id: true,
+      title: true,
+      filename: true,
+      sourceType: true,
+      sourceId: true,
+      visibility: true,
+      provenance: true,
+      charCount: true,
+      lastSyncedAt: true,
+      createdAt: true,
+      updatedAt: true,
+      ...(wantDownload ? { contentEncrypted: true } : {}),
+      _count: { select: { chunks: true } },
+    },
     take: 250,
   })
 
-  if (new URL(request.url).searchParams.get('download') === '1') {
+  if (wantDownload) {
     const exported = docs.map((doc) => ({
       id: doc.id,
       title: doc.title || doc.filename,
@@ -44,7 +62,7 @@ export const GET = withAuthenticatedApi(async (request, auth) => {
       sourceId: doc.sourceId,
       visibility: doc.visibility,
       provenance: doc.provenance,
-      content: decryptKnowledgeContent(doc.contentEncrypted),
+      content: decryptKnowledgeContent((doc as { contentEncrypted?: string }).contentEncrypted ?? ''),
       createdAt: doc.createdAt,
       updatedAt: doc.updatedAt,
     }))

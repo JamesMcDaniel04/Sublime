@@ -132,11 +132,29 @@ function useAgentProcessFeed(executionId: string | null | undefined, active: boo
         .catch(() => undefined)
     load()
     // A waiting step's feed is static until the user replies — poll gently so
-    // a panel left open on a long-waiting run doesn't hammer the API.
-    const timer = window.setInterval(load, waiting ? 15000 : 2000)
+    // a panel left open on a long-waiting run doesn't hammer the API. Active
+    // runs back off with age (2s fresh, 5s after 1 min, 15s after 5 min): a
+    // run queued behind a backlog no longer costs a 2s full-payload poll for
+    // its entire wait.
+    const startedPolling = Date.now()
+    const intervalFor = () => {
+      if (waiting) return 15_000
+      const elapsed = Date.now() - startedPolling
+      if (elapsed < 60_000) return 2_000
+      if (elapsed < 300_000) return 5_000
+      return 15_000
+    }
+    let timer: number | undefined
+    const schedule = () => {
+      timer = window.setTimeout(() => {
+        load()
+        if (!cancelled) schedule()
+      }, intervalFor())
+    }
+    schedule()
     return () => {
       cancelled = true
-      window.clearInterval(timer)
+      if (timer !== undefined) window.clearTimeout(timer)
     }
   }, [executionId, active, waiting])
   return rows

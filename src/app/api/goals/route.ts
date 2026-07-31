@@ -174,6 +174,9 @@ export const GET = withAuthenticatedApi(async (_request, auth) => {
       ...goalReadWhere(auth.dbUser.id, { isAdmin: auth.isAdmin }),
     },
     orderBy: [{ ownerUserId: 'asc' }, { createdAt: 'desc' }],
+    // Bounded: this was the one genuinely unbounded user-facing list — a
+    // workspace accumulating thousands of goals degraded it without limit.
+    take: 200,
     include: {
       metrics: {
         where: { role: 'primary' },

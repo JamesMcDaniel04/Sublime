@@ -14,6 +14,8 @@ export interface BackfillLoopResult {
   status: 'done' | 'partial' | 'failed'
   batches: number
   events: number
+  /** Real failure cause (status 'failed' only) — persisted on the row. */
+  error?: string
 }
 
 export async function runBackfillLoop(deps: {
@@ -35,8 +37,12 @@ export async function runBackfillLoop(deps: {
     }
     return { status: 'done', batches, events }
   } catch (error) {
-    apiLogger.warn('activity.backfill loop failed', { error: error instanceof Error ? error.message : String(error) })
-    return { status: 'failed', batches, events }
+    const message = error instanceof Error ? error.message : String(error)
+    apiLogger.warn('activity.backfill loop failed', { error: message })
+    // Carry the REAL cause: persisting a constant string discarded the only
+    // signal distinguishing a revoked OAuth grant from a 429 from a schema
+    // change — undiagnosable from the UI or the DB.
+    return { status: 'failed', batches, events, error: message }
   }
 }
 
@@ -71,7 +77,9 @@ export async function runActivityBackfill(backfillId: string, opts: { maxBatches
     data: {
       status: result.status,
       ...(result.status === 'done' ? { completedAt: new Date() } : {}),
-      ...(result.status === 'failed' ? { error: 'backfill batch failed — see logs; retry resumes from checkpoint' } : {}),
+      ...(result.status === 'failed'
+        ? { error: `${(result.error ?? 'backfill batch failed').slice(0, 280)} — retry resumes from checkpoint` }
+        : {}),
     },
   })
   if (result.status === 'done') {
@@ -103,6 +111,12 @@ export async function startActivityBackfill(params: {
   })
   if (!inlineExecution && workersEnabled) {
     const queue = getQueue(QUEUE_NAMES.ACTIVITY_BACKFILL)
+    // Clear any finished job record first: BullMQ's jobId dedup treats a
+    // completed/failed record still inside the removeOnComplete window as "this
+    // job exists" and silently drops the re-enqueue — a user's retry after
+    // reconnecting a revoked token left the row 'pending' forever. An ACTIVE
+    // job can't be removed (locked), and then the dedup drop is correct.
+    await queue.remove(row.id).catch(() => undefined)
     await queue.add('activity-backfill', { backfillId: row.id }, { jobId: row.id })
     return { backfillId: row.id, mode: 'queued' }
   }

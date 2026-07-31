@@ -13,6 +13,7 @@
  * Gated on embeddings being configured; never throws — the cron caller treats
  * any failure as "try again tomorrow".
  */
+import { Prisma } from '@prisma/client'
 import { systemPrisma } from '@/lib/prisma'
 import { apiLogger } from '@/lib/logger'
 import { embedTexts, embeddingsConfigured, toSqlVector } from '@/lib/rag/embeddings'
@@ -52,35 +53,39 @@ export async function reEmbedMissingVectors(db = systemPrisma, cap = DEFAULT_CAP
       ...chunks.map((c) => decryptKnowledgeContent(c.contentEncrypted, c.content)),
     ], { inputType: 'document' })
 
-    let memoryWrites = 0
-    for (let i = 0; i < memories.length; i++) {
-      const vec = vectors[i]
-      if (!vec || vec.length === 0) continue
-      const literal = toSqlVector(vec)
+    // One VALUES-join transaction per table (the pattern ingestKnowledge
+    // already uses) — this was one transaction PER ROW, up to 200 sequential
+    // round-trips each paying SET LOCAL + commit, fully serializing behind
+    // live traffic on a small pool.
+    const memoryRows = memories
+      .map((m, i) => ({ id: m.id, organizationId: m.organizationId, vec: vectors[i] }))
+      .filter((r): r is typeof r & { vec: number[] } => Boolean(r.vec && r.vec.length > 0))
+    if (memoryRows.length > 0) {
       await db.$transaction(async (tx) => {
         await tx.$executeRawUnsafe('SET LOCAL search_path = public, extensions')
+        const values = memoryRows.map((r) => Prisma.sql`(${r.id}, ${r.organizationId}::uuid, ${toSqlVector(r.vec)}::vector(1024))`)
         await tx.$executeRaw`
-          UPDATE "agent_memories" SET "embeddingVec" = ${literal}::vector(1024)
-          WHERE "id" = ${memories[i].id} AND "organizationId" = ${memories[i].organizationId}::uuid
+          UPDATE "agent_memories" AS m SET "embeddingVec" = v.vec
+          FROM (VALUES ${Prisma.join(values)}) AS v(id, org, vec)
+          WHERE m."id" = v.id AND m."organizationId" = v.org
         `
       })
-      memoryWrites += 1
     }
-    let chunkWrites = 0
-    for (let i = 0; i < chunks.length; i++) {
-      const vec = vectors[memories.length + i]
-      if (!vec || vec.length === 0) continue
-      const literal = toSqlVector(vec)
+    const chunkRows = chunks
+      .map((c, i) => ({ id: c.id, organizationId: c.organizationId, vec: vectors[memories.length + i] }))
+      .filter((r): r is typeof r & { vec: number[] } => Boolean(r.vec && r.vec.length > 0))
+    if (chunkRows.length > 0) {
       await db.$transaction(async (tx) => {
         await tx.$executeRawUnsafe('SET LOCAL search_path = public, extensions')
+        const values = chunkRows.map((r) => Prisma.sql`(${r.id}, ${r.organizationId}::uuid, ${toSqlVector(r.vec)}::vector(1024))`)
         await tx.$executeRaw`
-          UPDATE "knowledge_chunks" SET "embeddingVec" = ${literal}::vector(1024)
-          WHERE "id" = ${chunks[i].id} AND "organizationId" = ${chunks[i].organizationId}::uuid
+          UPDATE "knowledge_chunks" AS c SET "embeddingVec" = v.vec
+          FROM (VALUES ${Prisma.join(values)}) AS v(id, org, vec)
+          WHERE c."id" = v.id AND c."organizationId" = v.org
         `
       })
-      chunkWrites += 1
     }
-    return { memories: memoryWrites, chunks: chunkWrites }
+    return { memories: memoryRows.length, chunks: chunkRows.length }
   } catch (error) {
     apiLogger.warn('reEmbedMissingVectors failed', { error: error instanceof Error ? error.message : String(error) })
     return { skipped: 'error' }
