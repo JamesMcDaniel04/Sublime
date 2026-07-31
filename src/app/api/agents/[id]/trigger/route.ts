@@ -9,6 +9,7 @@ import { inlineExecution } from '@/lib/queue/execution-mode'
 import { hashToken, timingSafeEqualHex } from '@/lib/crypto/secrets'
 import { rateLimit } from '@/lib/ratelimit'
 import { agentWebhookEventName, agentWebhookInput } from '@/lib/agents/webhook-input'
+import { assertOrganizationBillingActive } from '@/lib/billing/enforce'
 
 export const runtime = 'nodejs'
 export const maxDuration = 1200
@@ -51,6 +52,17 @@ export async function POST(request: NextRequest) {
     const metadata = agent?.metadata && typeof agent.metadata === 'object' ? agent.metadata as Record<string, unknown> : {}
     if (!agent || !triggerSecretValid(provided, metadata)) {
       return NextResponse.json({ success: false, error: 'Invalid trigger secret' }, { status: 401 })
+    }
+
+    // Billing gate before any execution row exists: external callers get an
+    // honest 402 instead of a run that the execution choke point would fail.
+    try {
+      await assertOrganizationBillingActive(agent.organizationId)
+    } catch {
+      return NextResponse.json(
+        { success: false, error: 'This workspace needs an active plan before agents can run.' },
+        { status: 402 },
+      )
     }
 
     const body = await request.json().catch(() => ({})) as unknown

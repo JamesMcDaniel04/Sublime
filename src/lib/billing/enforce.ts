@@ -1,9 +1,10 @@
-import { prisma } from '@/lib/prisma'
+import { prisma, systemPrisma } from '@/lib/prisma'
 import { ApiError } from '@/lib/server/api-handler'
 import { formatLimit, limitsForOrg, type PlanLimits } from './limits'
 import { readAgentMetadata } from '@/lib/agents/metadata'
 import { departmentsForTools } from '@/lib/templates/departments'
 import { entitlementPlanFor } from './entitlements'
+import { billingStateFor } from './trial'
 
 /**
  * Plan-limit gates for resource creation. Each assert throws ApiError 403
@@ -136,6 +137,38 @@ export async function assertSeatCapacity(organizationId: string): Promise<void> 
   if (members + pendingInvitations >= limits.seats) {
     throw overLimitError('seats', limits.seats, limits.label)
   }
+}
+
+const ORG_ACCESS_FIELDS = {
+  plan: true, trialEndsAt: true, firstPaidAt: true, createdAt: true, grandfatheredAt: true,
+} as const
+
+/**
+ * Billing gate for execution paths that don't flow through requireAuthContext
+ * (cron dispatch, queue workers, Slack, trigger webhooks, timed resumes).
+ * Unknown org fails closed. Same 402 the interactive API raises.
+ */
+export async function assertOrganizationBillingActive(organizationId: string): Promise<void> {
+  const organization = await prisma.organization.findUnique({
+    where: { id: organizationId },
+    select: ORG_ACCESS_FIELDS,
+  })
+  if (!organization || billingStateFor(organization).state === 'payment_required') {
+    throw new ApiError('Choose a paid plan to start using Sublime. You can cancel anytime.', 402, 'PAYMENT_REQUIRED')
+  }
+}
+
+/** Batch form for the cron tick: which of these orgs are locked out? */
+export async function paymentRequiredOrgIds(organizationIds: string[]): Promise<Set<string>> {
+  if (organizationIds.length === 0) return new Set()
+  // systemPrisma: cross-org billing lookup for the CRON_SECRET-gated dispatch tick.
+  const orgs = await systemPrisma.organization.findMany({
+    where: { id: { in: organizationIds } },
+    select: { id: true, ...ORG_ACCESS_FIELDS },
+  })
+  return new Set(
+    orgs.filter((org) => billingStateFor(org).state === 'payment_required').map((org) => org.id),
+  )
 }
 
 /** Current usage snapshot for the billing UI. */

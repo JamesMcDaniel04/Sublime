@@ -27,6 +27,7 @@ import { resolveAgentConnectorKeys } from '@/lib/connectors/agent-connectors'
 import { agentReadScope } from '@/lib/server/visibility'
 import { notify } from '@/lib/notifications/service'
 import { checkMonthlyTokenBudget, recordTokenUsage } from '@/lib/usage/budget'
+import { assertOrganizationBillingActive } from '@/lib/billing/enforce'
 import { buildAgentSystemPrompt } from './system-prompt'
 import { structuredResponseInstruction, parseStructuredAgentOutput } from '@/features/flows/agent-response'
 import type { OutputField } from '@/lib/flows/graph'
@@ -368,6 +369,10 @@ export async function runAgentExecution(
   data: AgentExecutionJob & { onExecutionCreated?: (executionId: string) => void | Promise<void>; runBudget?: RunBudget },
 ) {
   const { agentId, organizationId, userId } = data
+  // Billing choke point: every execution path (cron, queue worker, Slack,
+  // trigger webhook, resume) funnels through here, so an unpaid workspace's
+  // automations stop even though these callers never hit requireAuthContext.
+  await assertOrganizationBillingActive(organizationId)
   const agent = await prisma.agentTask.findFirst({
     where: { id: agentId, organizationId, status: 'ACTIVE' },
   })

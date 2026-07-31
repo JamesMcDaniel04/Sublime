@@ -31,6 +31,7 @@ import { inferActivityPatterns } from '@/lib/intelligence/infer-patterns'
 import { runBehaviorIntelligence } from '@/lib/behavior/run-behavior-intelligence'
 import { sweepUnindexedUserEvents } from '@/lib/behavior/index-user-event'
 import { globalSweepsAllowed } from '@/lib/server/global-sweeps'
+import { paymentRequiredOrgIds } from '@/lib/billing/enforce'
 
 export const runtime = 'nodejs'
 export const maxDuration = 1200
@@ -164,8 +165,14 @@ export async function GET(request: Request) {
       take: 50,
       select: { id: true, flowId: true, organizationId: true, userId: true, trigger: true },
     })
+    // Unpaid workspaces get no background execution: skipping here (rather
+    // than letting the dispatch throw) keeps the tick log clean and avoids
+    // minting doomed run rows every 15 minutes. The billing gate inside
+    // runAgentExecution/dispatchFlowExecution remains the backstop.
+    const unpaidWaitOrgs = await paymentRequiredOrgIds([...new Set(dueWaits.map((waiting) => waiting.organizationId))])
     for (const waiting of dueWaits) {
       if (!waiting.userId) continue
+      if (unpaidWaitOrgs.has(waiting.organizationId)) continue
       await dispatchFlowExecution({
         flowId: waiting.flowId,
         organizationId: waiting.organizationId,
@@ -204,10 +211,19 @@ export async function GET(request: Request) {
       })
       .slice(0, MAX_AGENTS_PER_TICK)
 
-    const dueCount = dueAgents.length
+    // Same billing pre-filter for scheduled agents.
+    const unpaidAgentOrgs = await paymentRequiredOrgIds([...new Set(dueAgents.map((agent) => agent.organizationId))])
+    const billableAgents = dueAgents.filter((agent) => !unpaidAgentOrgs.has(agent.organizationId))
+    if (billableAgents.length < dueAgents.length) {
+      apiLogger.info('cron/dispatch: skipped agents for unpaid workspaces', {
+        skipped: dueAgents.length - billableAgents.length,
+      })
+    }
+
+    const dueCount = billableAgents.length
     const ranIds: string[] = []
 
-    for (const agent of dueAgents) {
+    for (const agent of billableAgents) {
       // I2 — advance lastExecutedAt BEFORE running so that even a persistently
       // failing (or throwing) agent does not re-fire on every tick. The whole
       // per-agent body is wrapped so one agent can never abort the tick.
@@ -332,8 +348,11 @@ export async function GET(request: Request) {
       take: 100,
     })
     const ranFlowIds: string[] = []
+    // Same billing pre-filter for scheduled flows.
+    const unpaidFlowOrgs = await paymentRequiredOrgIds([...new Set(flows.map((flow) => flow.organizationId))])
     for (const flow of flows) {
       try {
+        if (unpaidFlowOrgs.has(flow.organizationId)) continue
         const trigger = flow.trigger as { type?: string; schedule?: AgentSchedule; input?: string } | null
         const schedule = trigger?.schedule
         if (!trigger || trigger.type !== 'schedule' || !schedule || typeof schedule !== 'object') continue

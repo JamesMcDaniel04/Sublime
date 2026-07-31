@@ -14,6 +14,7 @@ import { notify } from '@/lib/notifications/service'
 import { recordAudit } from '@/lib/audit'
 import { assertPublicUrl } from '@/lib/net/ssrf'
 import { ApiError } from '@/lib/server/api-handler'
+import { assertOrganizationBillingActive } from '@/lib/billing/enforce'
 import { triggerFromGraph, triggerInputFieldsFromTrigger } from '@/lib/flows/trigger'
 import { stepLabelsOf } from '@/lib/flows/token-text'
 import { missingRequiredInputFields } from '@/lib/flows/input-validation'
@@ -1039,6 +1040,10 @@ export async function dispatchFlowExecution(
   job: FlowExecutionJob,
   opts: { background?: boolean } = {},
 ): Promise<{ flowRunId: string; status: string; output: unknown; error?: string; logs?: string[]; waiting?: { nodeId: string; question?: string; wakeAt?: string }; webhookResponse?: { statusCode: number; headers: Record<string, string>; bodyMode: 'json' | 'text' | 'binary' | 'none'; body?: unknown } } | { queued: true; flowRunId: string }> {
+  // Billing choke point: every flow execution path (cron schedule, trigger
+  // webhook, manual run, timed resume) dispatches through here — an unpaid
+  // workspace's flows stop even though these callers never hit requireAuthContext.
+  await assertOrganizationBillingActive(job.organizationId)
   if (inlineExecution) {
     // `background` decouples a FRESH run from the caller's request even in inline
     // mode: the manual builder run must survive the user navigating away, so we

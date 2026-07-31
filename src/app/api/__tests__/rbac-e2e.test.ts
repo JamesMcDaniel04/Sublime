@@ -359,4 +359,30 @@ if (TEST_DB) {
       })
     })
   })
+
+  describe('billing hard-stop', () => {
+    test('an unpaid workspace cannot fire an agent through its trigger webhook', async () => {
+      await withSeeded({ role: 'ADMIN', plan: 'TRIAL' as never }, async (seeded: any) => {
+        const secret = 'trigger-secret-test'
+        const { hashToken } = await import('@/lib/crypto/secrets')
+        const agent = await prisma.agentTask.create({
+          data: {
+            organizationId: seeded.organizationId,
+            userId: seeded.userId,
+            description: 'billing gate probe',
+            objective: 'noop',
+            status: 'ACTIVE',
+            metadata: { triggerSecretHash: hashToken(secret) },
+          },
+        })
+        const { POST } = await import('../agents/[id]/trigger/route')
+        const response = await POST(req(`/api/agents/${agent.id}/trigger`, {
+          method: 'POST',
+          headers: { 'x-trigger-secret': secret, 'content-type': 'application/json' },
+          body: JSON.stringify({}),
+        }))
+        assert.equal(response.status, 402, await response.text())
+      })
+    })
+  })
 }

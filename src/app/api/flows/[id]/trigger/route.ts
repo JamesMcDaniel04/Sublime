@@ -6,6 +6,7 @@ import { hashToken, timingSafeEqualHex } from '@/lib/crypto/secrets'
 import { rateLimit } from '@/lib/ratelimit'
 import { flowInputFromWebhookBody } from '@/lib/flows/input'
 import { ApiError } from '@/lib/server/api-handler'
+import { assertOrganizationBillingActive } from '@/lib/billing/enforce'
 
 export const runtime = 'nodejs'
 export const maxDuration = 1200
@@ -61,6 +62,18 @@ async function handle(request: NextRequest) {
     const allowedMethods = Array.isArray(trigger.webhookMethods) ? trigger.webhookMethods.map(String) : ['POST']
     if (!allowedMethods.includes(request.method)) {
       return NextResponse.json({ success: false, error: `Method ${request.method} is not enabled for this webhook.` }, { status: 405, headers: { Allow: allowedMethods.join(', ') } })
+    }
+
+    // Billing gate before any run row exists: external callers get an honest
+    // 402 (also covers the runFlowExecution fast-path, which bypasses the
+    // dispatchFlowExecution choke point).
+    try {
+      await assertOrganizationBillingActive(flow.organizationId)
+    } catch {
+      return NextResponse.json(
+        { success: false, error: 'This workspace needs an active plan before flows can run.' },
+        { status: 402 },
+      )
     }
 
     // The run is attributed to the flow's owner (or the org's oldest member).
