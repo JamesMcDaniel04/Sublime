@@ -44,8 +44,12 @@ export const PRICING_TIERS = [
   },
 ] as const
 
-/** Shared pricing surface used by marketing and the paid-activation gate. */
-export function PricingGrid() {
+/**
+ * Shared pricing surface used by marketing and the paid-activation gate.
+ * `trialUsed` swaps the trial CTAs for "Subscribe" — a workspace that already
+ * consumed its one free trial is charged at checkout (trialParamsFor).
+ */
+export function PricingGrid({ trialUsed = false }: Readonly<{ trialUsed?: boolean }>) {
   return (
     <div className="border border-border">
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4">
@@ -81,7 +85,7 @@ export function PricingGrid() {
                   : 'border border-foreground/40 text-foreground hover:bg-foreground hover:text-background'
               }`}
             >
-              {tier.cta}
+              {trialUsed && tier.cta.startsWith('Start') ? 'Subscribe' : tier.cta}
               <ArrowRight className="h-3.5 w-3.5" />
             </a>
           </div>

@@ -25,7 +25,9 @@ export default async function AppLayout({ children }: Readonly<{ children: React
   const access = await resolveBillingAccess()
 
   if (access.status === 'unavailable') return <BillingUnavailable />
-  if (access.status === 'payment_required') return <PlanPicker canManageBilling={access.canManageBilling} />
+  if (access.status === 'payment_required') {
+    return <PlanPicker canManageBilling={access.canManageBilling} trialUsed={access.trialUsed} />
+  }
 
   return (
     <AppShell trialDaysRemaining={trialDaysRemaining(access.trialEndsAt)}>

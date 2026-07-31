@@ -14,21 +14,26 @@ import { TRIAL_DAYS } from '@/lib/stripe/plans'
  * served this paywall again, looping without ever seeing why. Members get the
  * reason and who to ask instead of a button that cannot work.
  */
-export function PlanPicker({ canManageBilling }: Readonly<{ canManageBilling: boolean }>) {
+export function PlanPicker({ canManageBilling, trialUsed }: Readonly<{ canManageBilling: boolean; trialUsed: boolean }>) {
+  // One free trial per workspace, ever (trialParamsFor). A workspace back here
+  // after its trial gets subscription copy — promising "14 days free" again
+  // would be false: Stripe charges at checkout.
+  const headline = trialUsed ? 'Pick your plan.' : `Start your ${TRIAL_DAYS}-day trial.`
   return (
     <main id="main-content" className="min-h-screen bg-background px-6 py-16 text-foreground">
       <div className="mx-auto max-w-[1200px]">
         <p className="mb-4 text-[13px] uppercase tracking-[0.15em] text-muted-foreground">Pricing</p>
         <h1 className="max-w-[620px] text-[clamp(1.8rem,3vw,2.5rem)] font-[500] leading-[1.15] tracking-[-0.03em]">
-          {canManageBilling ? `Start your ${TRIAL_DAYS}-day trial.` : 'This workspace needs a plan.'}
+          {canManageBilling ? headline : 'This workspace needs a plan.'}
         </h1>
         {canManageBilling ? (
           <>
             <p className="mt-4 max-w-[620px] text-[14px] leading-6 text-muted-foreground">
-              Pick a plan and add a card to get in. You won&rsquo;t be charged for {TRIAL_DAYS} days —
-              cancel any time before then and you pay nothing.
+              {trialUsed
+                ? 'Your free trial has ended. Choose a plan to keep using Sublime — billing starts right away, and you can cancel anytime.'
+                : `Pick a plan and add a card to get in. You won’t be charged for ${TRIAL_DAYS} days — cancel any time before then and you pay nothing.`}
             </p>
-            <div className="mt-12"><PricingGrid /></div>
+            <div className="mt-12"><PricingGrid trialUsed={trialUsed} /></div>
             <p className="mt-5 text-xs text-muted-foreground">
               Checkout is handled securely by Stripe. Have questions?{' '}
               <a href="mailto:hello@trysublime.io" className="underline hover:text-foreground">

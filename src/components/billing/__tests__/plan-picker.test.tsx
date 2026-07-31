@@ -14,12 +14,12 @@ import { PlanPicker } from '../plan-picker'
  * link, and to say who can.
  */
 test('the paywall offers checkout to an admin', () => {
-  const html = renderToString(<PlanPicker canManageBilling />)
+  const html = renderToString(<PlanPicker canManageBilling trialUsed={false} />)
   assert.match(html, /\/api\/stripe\/checkout/)
 })
 
 test('the paywall never offers a member a checkout link they cannot use', () => {
-  const html = renderToString(<PlanPicker canManageBilling={false} />)
+  const html = renderToString(<PlanPicker canManageBilling={false} trialUsed={false} />)
   assert.doesNotMatch(
     html,
     /\/api\/stripe\/checkout/,
@@ -28,6 +28,23 @@ test('the paywall never offers a member a checkout link they cannot use', () => 
 })
 
 test('the paywall tells a member who can actually pay', () => {
-  const html = renderToString(<PlanPicker canManageBilling={false} />)
+  const html = renderToString(<PlanPicker canManageBilling={false} trialUsed={false} />)
   assert.match(html, /admin/i)
+})
+
+/**
+ * One free trial per workspace, ever (trialParamsFor returns {} once
+ * trialStartedAt is set) — so a workspace back at the paywall after its trial
+ * must not be promised another one: Stripe would charge them immediately.
+ */
+test('a workspace that used its trial is offered a subscription, not another trial', () => {
+  const html = renderToString(<PlanPicker canManageBilling trialUsed />)
+  assert.match(html, /Subscribe/)
+  assert.doesNotMatch(html, /14-day/)
+  assert.doesNotMatch(html, /charged/)
+})
+
+test('a fresh workspace still sees the trial offer', () => {
+  const html = renderToString(<PlanPicker canManageBilling trialUsed={false} />)
+  assert.match(html, /14-day trial/)
 })
