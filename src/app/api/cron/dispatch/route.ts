@@ -32,13 +32,15 @@ import { runBehaviorIntelligence } from '@/lib/behavior/run-behavior-intelligenc
 import { sweepUnindexedUserEvents } from '@/lib/behavior/index-user-event'
 import { globalSweepsAllowed } from '@/lib/server/global-sweeps'
 import { paymentRequiredOrgIds } from '@/lib/billing/enforce'
+import { afterResponse } from '@/lib/server/after-response'
+import { mapWithConcurrency } from '@/lib/server/concurrency'
 
 export const runtime = 'nodejs'
 export const maxDuration = 1200
 export const dynamic = 'force-dynamic'
 
-const MAX_AGENTS_PER_TICK = 25
-const MAX_FLOWS_PER_TICK = 10
+const MAX_AGENTS_PER_TICK = Number(process.env.MAX_AGENTS_PER_TICK) || 25
+const MAX_FLOWS_PER_TICK = Number(process.env.MAX_FLOWS_PER_TICK) || 10
 const STUCK_RUN_TIMEOUT_MS = AGENT_STUCK_TIMEOUT_MS
 const MAX_ERROR_LENGTH = 300
 
@@ -180,19 +182,26 @@ export async function GET(request: Request) {
     await pruneSlackProcessedEvents().catch((error) => {
       apiLogger.error('cron/dispatch: slack dedup prune failed', { error: capError(error) })
     })
-    // Behavior-ledger graph parity: project any rows the write-time indexer missed.
-    void sweepUnindexedUserEvents().catch(() => undefined)
+    // Behavior-ledger graph parity: project any rows the write-time indexer
+    // missed. afterResponse (not a bare void): on Vercel, work not registered
+    // with after() is killed the instant the response is flushed — a bare void
+    // here silently never completed in production.
+    afterResponse(() => sweepUnindexedUserEvents())
     const now = new Date()
 
     // Durable Wait nodes release their worker and resume on the first cron
     // tick at or after wakeAt. The execution path atomically claims
     // waiting->running, so overlapping cron invocations cannot resume twice.
+    const DUE_WAITS_CAP = 200
     const dueWaits = await systemPrisma.flowRun.findMany({
       where: { status: 'waiting', wakeAt: { lte: now } },
       orderBy: { wakeAt: 'asc' },
-      take: 50,
+      take: DUE_WAITS_CAP,
       select: { id: true, flowId: true, organizationId: true, userId: true, trigger: true },
     })
+    if (dueWaits.length === DUE_WAITS_CAP) {
+      apiLogger.warn('cron/dispatch: due-wait resume saturated its cap; oldest resumed first, rest next tick', { cap: DUE_WAITS_CAP })
+    }
     // Unpaid workspaces get no background execution: skipping here (rather
     // than letting the dispatch throw) keeps the tick log clean and avoids
     // minting doomed run rows every 15 minutes. The billing gate inside
@@ -219,25 +228,52 @@ export async function GET(request: Request) {
     // only path that can fire them — dispatch those even in worker mode.
     const workerOwnsRecurring = workersEnabled && EXECUTION_MODE === 'queue'
 
-    // Load all active agents (capped at 200 to avoid huge fetches)
+    // Load active agents, longest-idle first. The order matters: this scan is
+    // capped, and an unordered take() returned an arbitrary fixed subset — past
+    // the cap, the same agents were evaluated every tick and the rest NEVER
+    // fired while still showing "active" in the UI. lastExecutedAt asc (nulls
+    // first) makes the cap self-rotating: dispatched agents move to the back.
     // systemPrisma: global scheduling scan — reads active agents across all orgs by design (CRON_SECRET-gated).
+    const AGENT_SCAN_CAP = 1000
     const agents = await systemPrisma.agentTask.findMany({
       where: { status: 'ACTIVE' },
-      take: 200,
+      orderBy: { lastExecutedAt: { sort: 'asc', nulls: 'first' } },
+      take: AGENT_SCAN_CAP,
+      select: {
+        id: true,
+        agentType: true,
+        description: true,
+        objective: true,
+        schedule: true,
+        metadata: true,
+        lastExecutedAt: true,
+        userId: true,
+        organizationId: true,
+      },
     })
+    if (agents.length === AGENT_SCAN_CAP) {
+      apiLogger.warn('cron/dispatch: agent scan saturated its cap', { cap: AGENT_SCAN_CAP })
+    }
 
     // Filter to agents whose schedule is currently due
-    const dueAgents = agents
-      .filter((agent) => {
-        const schedule = agent.schedule as unknown as AgentSchedule | null
-        if (!schedule || typeof schedule !== 'object') return false
-        if (!isDue(schedule, agent.lastExecutedAt, now)) return false
-        // In worker mode, only 'once' agents are dispatched here; recurring ones
-        // are owned by the BullMQ JobScheduler.
-        if (workerOwnsRecurring && schedule.type !== 'once') return false
-        return true
+    const allDueAgents = agents.filter((agent) => {
+      const schedule = agent.schedule as unknown as AgentSchedule | null
+      if (!schedule || typeof schedule !== 'object') return false
+      if (!isDue(schedule, agent.lastExecutedAt, now)) return false
+      // In worker mode, only 'once' agents are dispatched here; recurring ones
+      // are owned by the BullMQ JobScheduler.
+      if (workerOwnsRecurring && schedule.type !== 'once') return false
+      return true
+    })
+    const dueAgents = allDueAgents.slice(0, MAX_AGENTS_PER_TICK)
+    if (allDueAgents.length > dueAgents.length) {
+      // Never a silent cap: dropped agents are due NOW and simply wait for the
+      // next tick (they stay due), but the operator should see the pressure.
+      apiLogger.warn('cron/dispatch: per-tick agent cap deferred due agents', {
+        cap: MAX_AGENTS_PER_TICK,
+        deferred: allDueAgents.length - dueAgents.length,
       })
-      .slice(0, MAX_AGENTS_PER_TICK)
+    }
 
     // Same billing pre-filter for scheduled agents.
     const unpaidAgentOrgs = await paymentRequiredOrgIds([...new Set(dueAgents.map((agent) => agent.organizationId))])
@@ -370,11 +406,27 @@ export async function GET(request: Request) {
     // flows are owned by this cron (no BullMQ scheduler for flows), so run them
     // even in worker mode.
     // systemPrisma: global scheduling scan — reads active flows across all orgs by design (CRON_SECRET-gated).
+    // select (not include): the scheduling decision needs the trigger and a
+    // published-graph existence check — loading every ACTIVE flow's draft
+    // graph, metadata, and collaboration log pulled megabytes through the
+    // pooler each tick for nothing.
+    const FLOW_SCAN_CAP = 500
     const flows = await systemPrisma.flow.findMany({
       where: { status: 'ACTIVE' },
-      include: { runs: { orderBy: { startedAt: 'desc' }, take: 1, select: { startedAt: true, status: true } } },
-      take: 100,
+      orderBy: { updatedAt: 'asc' },
+      take: FLOW_SCAN_CAP,
+      select: {
+        id: true,
+        userId: true,
+        organizationId: true,
+        trigger: true,
+        publishedGraph: true,
+        runs: { orderBy: { startedAt: 'desc' }, take: 1, select: { startedAt: true, status: true, wakeAt: true } },
+      },
     })
+    if (flows.length === FLOW_SCAN_CAP) {
+      apiLogger.warn('cron/dispatch: flow scan saturated its cap', { cap: FLOW_SCAN_CAP })
+    }
     const ranFlowIds: string[] = []
     // Same billing pre-filter for scheduled flows.
     const unpaidFlowOrgs = await paymentRequiredOrgIds([...new Set(flows.map((flow) => flow.organizationId))])
@@ -432,27 +484,41 @@ export async function GET(request: Request) {
     if (now.getUTCDay() === 1 && now.getUTCHours() === 9) {
       const { synthesizeWorkflowSuggestions } = await import('@/lib/intelligence/suggest-workflows')
       // systemPrisma: global weekly sweep — reads orgs across all tenants by design (CRON_SECRET-gated).
-      const orgs = await systemPrisma.organization.findMany({ select: { id: true }, take: 500 })
-      for (const org of orgs) {
-        try {
-          await synthesizeWorkflowSuggestions(org.id)
-        } catch (error) {
-          apiLogger.error('cron/dispatch: workflow suggestion synthesis failed', {
-            organizationId: org.id,
-            error: capError(error),
-          })
-        }
+      const ORG_SWEEP_CAP = 2000
+      const orgs = await systemPrisma.organization.findMany({ select: { id: true }, orderBy: { id: 'asc' }, take: ORG_SWEEP_CAP })
+      if (orgs.length === ORG_SWEEP_CAP) {
+        apiLogger.warn('cron/dispatch: synthesis org sweep saturated its cap', { cap: ORG_SWEEP_CAP })
       }
+      // LLM-backed and org-count-bound: run after the response with bounded
+      // parallelism instead of serially inside the tick (500 orgs of serial
+      // LLM synthesis would blow the function budget with the response held).
+      afterResponse(() =>
+        mapWithConcurrency(orgs, 5, async (org) => {
+          try {
+            await synthesizeWorkflowSuggestions(org.id)
+          } catch (error) {
+            apiLogger.error('cron/dispatch: workflow suggestion synthesis failed', {
+              organizationId: org.id,
+              error: capError(error),
+            })
+          }
+        }),
+      )
       suggestionOrgsChecked = orgs.length
     }
 
     // Daily k-anonymous template adoption counts. Runs an hour before the
     // archetype and benchmark sweeps, both of which read adoption scores, so
     // they consume fresh counts rather than yesterday's.
+    // All sweeps below run through afterResponse (never a bare `void`): on
+    // Vercel, work not registered with after() is frozen with the lambda the
+    // instant the response is flushed — these sweeps silently never completed
+    // in production, and any sweep that claims its daily/weekly slot before
+    // doing the work burned the slot with nothing to show for it.
     {
       const adoption = await import('@/lib/templates/aggregate-adoption')
       if (globalSweepsAllowed() && adoption.shouldRunAdoptionSweep(now)) {
-        void adoption.aggregateTemplateAdoption().catch(() => undefined)
+        afterResponse(() => adoption.aggregateTemplateAdoption())
       }
     }
 
@@ -463,7 +529,7 @@ export async function GET(request: Request) {
     {
       const archetypes = await import('@/lib/intelligence/aggregate-archetypes')
       if (globalSweepsAllowed() && archetypes.shouldRunArchetypeSweep(now)) {
-        void archetypes.aggregatePlatformArchetypes().catch(() => undefined)
+        afterResponse(() => archetypes.aggregatePlatformArchetypes())
       }
     }
 
@@ -472,7 +538,7 @@ export async function GET(request: Request) {
     {
       const calibration = await import('@/lib/goals/calibrate-estimates')
       if (globalSweepsAllowed() && calibration.shouldRunEstimateCalibration(now)) {
-        void calibration.calibrateTemplateEstimates().catch(() => undefined)
+        afterResponse(() => calibration.calibrateTemplateEstimates())
       }
     }
 
@@ -481,7 +547,7 @@ export async function GET(request: Request) {
     {
       const benchmarks = await import('@/lib/goals/aggregate-benchmarks')
       if (globalSweepsAllowed() && benchmarks.shouldRunGoalBenchmarkSweep(now)) {
-        void benchmarks.aggregateGoalBenchmarks().catch(() => undefined)
+        afterResponse(() => benchmarks.aggregateGoalBenchmarks())
       }
     }
 
@@ -490,7 +556,10 @@ export async function GET(request: Request) {
     {
       const digest = await import('@/lib/goals/digest')
       if (globalSweepsAllowed() && digest.shouldRunWeeklyGoalDigest(now)) {
-        void digest.sendWeeklyGoalDigests(now).catch(() => undefined)
+        // Especially load-bearing: sendWeeklyGoalDigests burns an atomic
+        // per-user weekly claim BEFORE sending. Frozen mid-batch, every
+        // remaining user was permanently skipped for the week.
+        afterResponse(() => digest.sendWeeklyGoalDigests(now))
       }
     }
 
@@ -500,9 +569,9 @@ export async function GET(request: Request) {
     // state at connect time. Fire-and-forget: bounded inside, never extends
     // or fails the tick.
     if (now.getUTCHours() === 5 && now.getUTCMinutes() < 15) {
-      void import('@/lib/intelligence/connection-resync')
-        .then(({ resyncStaleConnections }) => resyncStaleConnections())
-        .catch(() => undefined)
+      afterResponse(() =>
+        import('@/lib/intelligence/connection-resync').then(({ resyncStaleConnections }) => resyncStaleConnections()),
+      )
     }
 
     // Activity freshness leg: once a day (06:00 UTC window), incremental-sync
@@ -511,37 +580,54 @@ export async function GET(request: Request) {
     // keeps tracking reality after the one-shot connect backfill. Bounded and
     // fire-and-forget: never extends or fails the tick.
     if (now.getUTCHours() === 6 && now.getUTCMinutes() < 15) {
-      void import('@/lib/activity/incremental-sync')
-        .then(({ sweepIncrementalSync }) => sweepIncrementalSync())
-        .catch(() => undefined)
+      afterResponse(() =>
+        import('@/lib/activity/incremental-sync').then(({ sweepIncrementalSync }) => sweepIncrementalSync()),
+      )
     }
 
     // Revisit orgs that observed activity in the last day. Inference is
-    // best-effort background work and must not extend or fail the cron tick.
+    // best-effort background work and must not extend or fail the cron tick —
+    // afterResponse keeps it alive past the response, and the bounded fan-out
+    // (5 orgs at a time, not one unbounded promise per org) keeps hundreds of
+    // pipelines from contending for the instance's small Prisma pool at once.
+    // Both scans are bounded + ordered: a silent cap would mean orgs past it
+    // never get inference with no signal anywhere, so saturation is logged.
     const dayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000)
+    const SWEEP_ORG_CAP = 500
     const recentActivityOrgs = await systemPrisma.activityEvent.groupBy({
       by: ['organizationId'],
       where: { ingestedAt: { gte: dayAgo } },
+      orderBy: { organizationId: 'asc' },
+      take: SWEEP_ORG_CAP,
     })
-    for (const { organizationId } of recentActivityOrgs) {
-      void inferActivityPatterns(organizationId).catch(() => undefined)
+    if (recentActivityOrgs.length === SWEEP_ORG_CAP) {
+      apiLogger.warn('cron/dispatch: activity-org sweep saturated its cap; orgs beyond it skipped this tick', { cap: SWEEP_ORG_CAP })
     }
+    afterResponse(() =>
+      mapWithConcurrency(recentActivityOrgs, 5, ({ organizationId }) => inferActivityPatterns(organizationId)),
+    )
 
     // Same cadence for in-app behavior: orgs whose users acted in the last
     // day get a per-user inference + (self-throttled) synthesis pass.
     const recentBehaviorOrgs = await systemPrisma.userEvent.groupBy({
       by: ['organizationId'],
       where: { occurredAt: { gte: dayAgo } },
+      orderBy: { organizationId: 'asc' },
+      take: SWEEP_ORG_CAP,
     })
-    for (const { organizationId } of recentBehaviorOrgs) {
-      void runBehaviorIntelligence(organizationId).catch(() => undefined)
-      // Goal work learning: earn targeting rules from what humans did with
-      // agent output, retire the ones probes disproved. Best-effort in the
-      // same shape — a learning failure must not break the tick.
-      void import('@/lib/goals/run-work-learning')
-        .then((module) => module.runGoalWorkLearning(organizationId))
-        .catch(() => undefined)
+    if (recentBehaviorOrgs.length === SWEEP_ORG_CAP) {
+      apiLogger.warn('cron/dispatch: behavior-org sweep saturated its cap; orgs beyond it skipped this tick', { cap: SWEEP_ORG_CAP })
     }
+    afterResponse(async () => {
+      const { runGoalWorkLearning } = await import('@/lib/goals/run-work-learning')
+      await mapWithConcurrency(recentBehaviorOrgs, 5, async ({ organizationId }) => {
+        await runBehaviorIntelligence(organizationId).catch(() => undefined)
+        // Goal work learning: earn targeting rules from what humans did with
+        // agent output, retire the ones probes disproved. Best-effort in the
+        // same shape — a learning failure must not break the sweep.
+        await runGoalWorkLearning(organizationId).catch(() => undefined)
+      })
+    })
 
     // Goal metric freshness + evaluation: per-metric throttling happens
     // inside; source failures land on GoalMetric.lastError and never fail the
@@ -551,9 +637,7 @@ export async function GET(request: Request) {
     // suite's metrics mid-assertion. That was the flake tracked down the hard
     // way; the guard removes the cause rather than the symptom.
     if (globalSweepsAllowed()) {
-      void import('@/lib/goals/refresh')
-        .then(({ refreshGoalMetrics }) => refreshGoalMetrics())
-        .catch(() => undefined)
+      afterResponse(() => import('@/lib/goals/refresh').then(({ refreshGoalMetrics }) => refreshGoalMetrics()))
     }
 
     return Response.json({
