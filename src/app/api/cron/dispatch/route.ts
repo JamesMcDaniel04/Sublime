@@ -415,7 +415,10 @@ export async function GET(request: Request) {
     // pooler each tick for nothing.
     const FLOW_SCAN_CAP = 500
     const flows = await systemPrisma.flow.findMany({
-      where: { status: 'ACTIVE' },
+      // Denormalized-column narrowing: only published, schedule-triggered
+      // flows are scanned (previously every ACTIVE flow's publishedGraph was
+      // loaded per tick just to check it wasn't null).
+      where: { status: 'ACTIVE', triggerType: 'schedule', isPublished: true },
       orderBy: { updatedAt: 'asc' },
       take: FLOW_SCAN_CAP,
       select: {
@@ -423,7 +426,6 @@ export async function GET(request: Request) {
         userId: true,
         organizationId: true,
         trigger: true,
-        publishedGraph: true,
         runs: { orderBy: { startedAt: 'desc' }, take: 1, select: { startedAt: true, status: true, wakeAt: true } },
       },
     })
@@ -439,8 +441,8 @@ export async function GET(request: Request) {
         const trigger = flow.trigger as { type?: string; schedule?: AgentSchedule; input?: string } | null
         const schedule = trigger?.schedule
         if (!trigger || trigger.type !== 'schedule' || !schedule || typeof schedule !== 'object') continue
-        // Only PUBLISHED flows run on a schedule — a draft-only flow does not fire.
-        if (flow.publishedGraph == null) continue
+        // Publish state is enforced in the WHERE (isPublished: true) — a
+        // draft-only flow never reaches this loop.
         if (!isDue(schedule, flow.runs[0]?.startedAt ?? null, now)) continue
         // Overlap guard: a still-active previous run means skip this tick —
         // a slow flow must never stack concurrent scheduled executions. A

@@ -85,12 +85,14 @@ async function claimActivityTrigger(eventId: string, flowId: string): Promise<bo
 export async function routeActivityEvent(event: PersistedActivity): Promise<void> {
   if (event.ingestKind === 'backfill') return
   try {
-    const flows = await systemPrisma.flow.findMany({
-      where: { organizationId: event.organizationId, status: 'ACTIVE' },
-      select: { id: true, userId: true, organizationId: true, trigger: true, publishedGraph: true },
+    // Indexed narrowing on the denormalized columns: only published,
+    // activity-triggered flows are loaded (trigger JSON only — no more
+    // shipping every active flow's full publishedGraph per ingested event).
+    const candidates = await systemPrisma.flow.findMany({
+      where: { organizationId: event.organizationId, status: 'ACTIVE', triggerType: 'activity', isPublished: true },
+      select: { id: true, userId: true, organizationId: true, trigger: true },
       take: 200,
     })
-    const candidates = flows.filter((flow) => flow.publishedGraph != null)
     for (const match of matchActivityFlows(event, candidates)) {
       const flow = candidates.find((candidate) => candidate.id === match.id)
       if (!flow || !(await claimActivityTrigger(event.id, flow.id))) continue

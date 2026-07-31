@@ -731,6 +731,15 @@ model Flow {
   trigger                     Json     @default("{}") // { type: 'manual'|'schedule'|'signal', ... }
   graph                       Json     @default("{}") // working draft: { nodes, edges }
   publishedGraph              Json? // the live version scheduled/triggered runs execute
+  // Denormalized trigger/publish facts, maintained by the
+  // flows_sync_trigger_columns DB trigger (NEVER write from app code — any
+  // value set here is overwritten on write). They exist so event ingestion
+  // (activity events, Slack messages, signals) and the scheduling tick can
+  // find listening flows with an indexed SQL predicate instead of loading
+  // every ACTIVE flow's published graph per event to match in memory.
+  triggerType                 String? // = trigger->>'type'
+  triggerKey                  String? // = trigger->>'signal' for signal triggers
+  isPublished                 Boolean  @default(false) // = publishedGraph IS NOT NULL
   version                     Int      @default(1) // bumped on each publish
   visibility                  String   @default("private")
   organizationId              String   @db.Uuid
@@ -755,6 +764,9 @@ model Flow {
   nodePins      FlowNodePin[]
 
   @@index([organizationId, updatedAt])
+  // Event-side flow matching: activity/Slack/signal ingestion narrows to
+  // listening flows in SQL (triggerKey checked in the WHERE for signals).
+  @@index([organizationId, status, triggerType])
   @@map("flows")
 }
 

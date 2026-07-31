@@ -67,15 +67,24 @@ export async function emitFlowSignal(params: {
     return { matched: 0 }
   }
 
-  const flows = await prisma.flow.findMany({
-    where: { organizationId: params.organizationId, status: 'ACTIVE' },
-    select: { id: true, userId: true, organizationId: true, status: true, trigger: true, publishedGraph: true },
-    take: MAX_FLOWS_PER_EMIT,
-  })
-
-  const matches = flows.filter(
-    (flow) => flow.id !== params.sourceFlowId && flowListensTo(flow, params.signal),
-  )
+  // Fully-indexed SQL match on the denormalized columns (triggerKey =
+  // trigger->>'signal', maintained by the flows_sync_trigger_columns DB
+  // trigger): a signal emit no longer loads ANY trigger/graph JSON — just the
+  // ids of the exact listeners. flowListensTo remains the reference
+  // implementation of the predicate (and the property the DB columns encode).
+  const matches = (
+    await prisma.flow.findMany({
+      where: {
+        organizationId: params.organizationId,
+        status: 'ACTIVE',
+        triggerType: 'signal',
+        triggerKey: params.signal,
+        isPublished: true,
+      },
+      select: { id: true, userId: true },
+      take: MAX_FLOWS_PER_EMIT,
+    })
+  ).filter((flow) => flow.id !== params.sourceFlowId)
   if (matches.length === 0) return { matched: 0 }
 
   // Owner attribution, batched (previously up to 2 queries per matched flow):

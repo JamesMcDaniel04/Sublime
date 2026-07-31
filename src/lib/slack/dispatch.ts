@@ -59,11 +59,11 @@ async function tryThreadContinuation(args: {
   const [sessionFlow, sessionRun] = await Promise.all([
     systemPrisma.flow.findFirst({
       where: { id: session.flowId, organizationId, status: 'ACTIVE' },
-      select: { id: true, userId: true, organizationId: true, publishedGraph: true, trigger: true },
+      select: { id: true, userId: true, organizationId: true, isPublished: true, trigger: true },
     }),
     systemPrisma.flowRun.findFirst({ where: { id: session.flowRunId, organizationId }, select: { status: true } }),
   ])
-  const flowActive = Boolean(sessionFlow && sessionFlow.publishedGraph != null)
+  const flowActive = Boolean(sessionFlow?.isPublished)
   const routing = resolveSessionRouting({ session, runStatus: sessionRun?.status ?? null, flowActive })
   if (!flowActive) {
     // Unpublished/deleted flow: the conversation is over — close and fall
@@ -168,12 +168,15 @@ export async function routeSlackEvent(args: SlackRouteArgs): Promise<void> {
 
   // systemPrisma: session-less ingress continuation — org id came from the
   // binding row, and every query below is scoped to it.
-  const flows = await systemPrisma.flow.findMany({
-    where: { organizationId, status: 'ACTIVE' },
-    select: { id: true, userId: true, organizationId: true, trigger: true, publishedGraph: true },
+  // Indexed narrowing on the denormalized columns: only published,
+  // slack-triggered flows are loaded (trigger JSON only) — Slack ingress is
+  // event-rate-driven, and this previously pulled every active flow's full
+  // publishedGraph per message in a busy workspace.
+  const candidates = await systemPrisma.flow.findMany({
+    where: { organizationId, status: 'ACTIVE', triggerType: 'slack', isPublished: true },
+    select: { id: true, userId: true, organizationId: true, trigger: true },
     take: 200,
   })
-  const candidates = flows.filter((flow) => flow.publishedGraph != null)
   const matches = matchSlackFlows(input, candidates, bindingId)
   if (!matches.length) return
 
