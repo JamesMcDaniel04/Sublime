@@ -63,3 +63,22 @@ export async function reapStuckFlowRuns(now = new Date(), onAfterRead?: () => Pr
     return reaped.count
   })
 }
+
+const ORPHANED_WAIT_ERROR = 'Wait expired with no resumable user'
+
+/**
+ * Durable Waits are resumed by the cron dispatch loop, which must attribute
+ * the resume to a user — so it skips `waiting` runs whose userId is null.
+ * Nothing else ever touches them: unreaped, each one permanently occupies a
+ * dueWaits slot on every tick, progressively starving legitimate waits.
+ * Terminalize once wakeAt is a full day past due.
+ */
+export async function reapOrphanedWaits(now = new Date()): Promise<number> {
+  const cutoff = new Date(now.getTime() - 24 * 60 * 60 * 1000)
+  // systemPrisma: global reaper sweep — runs across all orgs by design (invoked from CRON_SECRET-gated dispatch).
+  const reaped = await systemPrisma.flowRun.updateMany({
+    where: { status: 'waiting', userId: null, wakeAt: { lt: cutoff } },
+    data: { status: 'failed', error: ORPHANED_WAIT_ERROR, finishedAt: now },
+  })
+  return reaped.count
+}

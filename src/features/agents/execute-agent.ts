@@ -521,20 +521,52 @@ export async function runAgentExecution(
     transcript = runner.start(data.input || agent.objective)
   }
 
-  const execution = queuedExecution
-    ? // systemPrisma: id-keyed terminal write on worker job data; execution id was
+  const claimExecution = async () => {
+    if (!queuedExecution) return null
+    if (resuming || resumeFromCrash) {
+      // The atomic waiting->running claim (resume) already happened above, and
+      // a crash-resume adopts a row that is still 'running'.
+      // startedAt is refreshed in BOTH cases: the stuck-run reaper keys on it,
+      // so a run resumed after a >reaper-window human reply delay — or a stall
+      // redelivery arriving up to lockDuration after a crash — would otherwise
+      // be failed by the reaper while actively executing. (The flow path
+      // already does this in its waiting->running claim.)
+      // systemPrisma: id-keyed write on worker job data; execution id was
       // validated against this tenant when queuedExecution was loaded above.
-      await systemPrisma.agentExecution.update({
+      return systemPrisma.agentExecution.update({
         where: { id: queuedExecution.id },
         data: {
           status: 'running',
           model: runner.model,
+          startedAt: new Date(),
           ...(resuming
             ? { metadata: jsonValue({ ...metadataOf(queuedExecution.metadata), pendingQuestion: null, pendingApproval: null }) }
-            : { startedAt: new Date() }),
+            : {}),
         },
       })
-    : await prisma.agentExecution.create({
+    }
+    // Fresh queued run: claim pending->running atomically. If the row is no
+    // longer pending (the reaper failed it, or the user cancelled it), this
+    // job must not run — and must never resurrect a terminal row into
+    // 'running' (the "failure notification, then completion notification"
+    // incident class).
+    // systemPrisma: id-keyed claim on worker job data; tenant-validated above.
+    const claimed = await systemPrisma.agentExecution.updateMany({
+      where: { id: queuedExecution.id, status: 'pending' },
+      data: { status: 'running', model: runner.model, startedAt: new Date() },
+    })
+    if (claimed.count === 0) {
+      throw new Error(`Execution ${queuedExecution.id} is no longer pending — refusing to run a terminalized row`)
+    }
+    // systemPrisma: id-keyed read-back of the row claimed just above.
+    const row = await systemPrisma.agentExecution.findUnique({ where: { id: queuedExecution.id } })
+    if (!row) throw new Error(`Execution ${queuedExecution.id} vanished after claim`)
+    return row
+  }
+
+  const execution =
+    (await claimExecution()) ??
+    (await prisma.agentExecution.create({
         data: {
           agentType: agent.agentType,
           agentTaskId: agent.id,
@@ -546,7 +578,7 @@ export async function runAgentExecution(
           userId,
           organizationId,
         },
-      })
+      }))
 
   // The execution row now exists: hand its id to the caller. Fire-and-forget
   // and fully fenced — a callback failure (sync or async) must never fail or
@@ -1335,15 +1367,16 @@ export async function runAgentExecution(
       // Durable checkpoint at a clean turn boundary (results appended → the
       // stored transcript is a valid, resumable conversation). A crash/retry
       // after this resumes from turn+1 instead of losing prior turns.
-      // systemPrisma: id-keyed terminal write on worker job data; execution id was
-      // validated against this tenant when execution was loaded/created above.
-      await systemPrisma.agentExecution.update({
-        where: { id: execution.id },
-        data: {
-          transcript: jsonValue(transcript),
-          metadata: jsonValue({ ...executionMetadata, turnCursor: turn + 1 }),
-        },
-      })
+      // jsonb merge (not a spread of the boot-time snapshot): metadata written
+      // to the row DURING the loop — a pending cancel marker, a reply — must
+      // not be silently reverted by each turn's checkpoint.
+      // systemPrisma: id-keyed checkpoint write on worker job data; execution id
+      // was validated against this tenant when execution was loaded/created above.
+      await systemPrisma.$executeRaw`
+        UPDATE "agent_executions"
+        SET "transcript" = ${JSON.stringify(transcript)}::jsonb,
+            "metadata" = COALESCE("metadata", '{}'::jsonb) || jsonb_build_object('turnCursor', ${turn + 1}::int)
+        WHERE "id" = ${execution.id}`
     }
 
     // A cancel requested near this run's natural end can land after the
@@ -1388,31 +1421,41 @@ export async function runAgentExecution(
     await prisma.executionMessage.create({
       data: { executionId: execution.id, role: 'agent', content: summary },
     })
+    // Status-guarded terminal write: only a still-running row may be
+    // completed. If the reaper (or a cancel that landed after the
+    // liveBeforeCompletion check) already terminalized this row, that terminal
+    // state wins — completing over it would resurrect a run the user was
+    // already told failed/was cancelled.
     // systemPrisma: id-keyed terminal writes on worker job data; execution/agent
     // ids were validated against this tenant when they were loaded/created above.
-    await systemPrisma.$transaction([
-      systemPrisma.agentExecution.update({
-        where: { id: execution.id },
-        data: {
-          status: 'completed',
-          output: jsonValue(output),
-          transcript: jsonValue(transcript),
-          inputTokens: { increment: usage.inputTokens },
-          outputTokens: { increment: usage.outputTokens },
-          executionTime: { increment: Date.now() - segmentStart },
-          completedAt: new Date(),
-          metadata: jsonValue({ ...executionMetadata, pendingQuestion: null, pendingApproval: null, ...(headline ? { headline } : {}) }),
-        },
-      }),
-      systemPrisma.agentTask.update({
-        where: { id: agent.id },
-        data: {
-          lastExecutedAt: new Date(),
-          executionCount: { increment: 1 },
-          lastResult: jsonValue(output),
-        },
-      }),
-    ])
+    const completionClaim = await systemPrisma.agentExecution.updateMany({
+      where: { id: execution.id, status: 'running' },
+      data: {
+        status: 'completed',
+        output: jsonValue(output),
+        transcript: jsonValue(transcript),
+        inputTokens: { increment: usage.inputTokens },
+        outputTokens: { increment: usage.outputTokens },
+        executionTime: { increment: Date.now() - segmentStart },
+        completedAt: new Date(),
+        metadata: jsonValue({ ...executionMetadata, pendingQuestion: null, pendingApproval: null, ...(headline ? { headline } : {}) }),
+      },
+    })
+    if (completionClaim.count === 0) {
+      const live = await systemPrisma.agentExecution
+        .findUnique({ where: { id: execution.id }, select: { status: true } })
+        .catch(() => null)
+      await recordEvent(execution.id, null, 'run.completion_superseded', { liveStatus: live?.status ?? 'unknown' })
+      return { status: live?.status ?? 'failed', skipped: true as const }
+    }
+    await systemPrisma.agentTask.update({
+      where: { id: agent.id },
+      data: {
+        lastExecutedAt: new Date(),
+        executionCount: { increment: 1 },
+        lastResult: jsonValue(output),
+      },
+    })
     await notify({
       organizationId,
       userId,
@@ -1517,10 +1560,13 @@ export async function runAgentExecution(
     }
 
     const message = error instanceof Error ? error.message : String(error)
+    // Status-guarded: a row the reaper already failed (or a cancel already
+    // finalized) keeps its terminal state; skip the duplicate error
+    // notification in that case, but still rethrow so BullMQ dead-letters.
     // systemPrisma: id-keyed terminal write on worker job data; execution id was
     // validated against this tenant when execution was loaded/created above.
-    await systemPrisma.agentExecution.update({
-      where: { id: execution.id },
+    const failureClaim = await systemPrisma.agentExecution.updateMany({
+      where: { id: execution.id, status: { in: ['pending', 'running', 'waiting_for_input', 'waiting_for_approval'] } },
       data: {
         status: 'failed',
         // M5 — cap persisted error strings so they can't bloat the row.
@@ -1532,6 +1578,7 @@ export async function runAgentExecution(
         completedAt: new Date(),
       },
     })
+    if (failureClaim.count === 0) throw error
     await notify({
       organizationId,
       userId,

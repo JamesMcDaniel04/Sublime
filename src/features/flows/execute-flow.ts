@@ -372,6 +372,25 @@ export async function runFlowExecution(
       data: { status: 'resumed', finishedAt: new Date() },
     })
     if (priorSteps.length) order = Math.max(...priorSteps.map((step) => step.order)) + 1
+  } else if (adoptedRun) {
+    // A fresh queued job normally adopts a bare row with no steps. If the
+    // worker was killed mid-run (deploy, crash), BullMQ's stall recovery
+    // redelivers the SAME job with the same queuedRunId — and the adopted row
+    // already carries a step ledger. Replaying from node 1 with an empty
+    // `completed` map would re-fire every side effect that already happened
+    // (duplicate HTTP calls, Slack posts, emails). Consult the ledger exactly
+    // like a resume: completed nodes replay as no-ops; the node that was
+    // interrupted mid-flight re-runs (at-least-once for the node, not the
+    // whole flow).
+    const priorSteps = await prisma.flowRunStep.findMany({ where: { flowRunId: run.id }, orderBy: { order: 'asc' } })
+    if (priorSteps.length) {
+      ;({ completed } = resolveResumeState(priorSteps, nodeTypeById))
+      await prisma.flowRunStep.updateMany({
+        where: { flowRunId: run.id, status: { in: ['queued', 'running', 'waiting'] } },
+        data: { status: 'failed', error: 'Interrupted by worker restart', finishedAt: new Date() },
+      })
+      order = Math.max(...priorSteps.map((step) => step.order)) + 1
+    }
   }
 
   // Container (condition/loop/parallel/stop) outcomes are reported via onStep;

@@ -22,8 +22,8 @@ import { parseFlowInput } from '@/lib/flows/input'
 import { isDue, type AgentSchedule } from '@/lib/scheduling/due'
 import { getQueue, QUEUE_NAMES, workersEnabled } from '@/lib/queue/config'
 import { EXECUTION_MODE } from '@/lib/queue/execution-mode'
-import { AGENT_RUN_TIMEOUT_MS, AGENT_PENDING_TIMEOUT_MS } from '@/lib/agents/timeouts'
-import { reapStuckFlowRuns } from '@/lib/flows/reap'
+import { AGENT_PENDING_TIMEOUT_MS, AGENT_STUCK_TIMEOUT_MS } from '@/lib/agents/timeouts'
+import { reapStuckFlowRuns, reapOrphanedWaits } from '@/lib/flows/reap'
 import { blocksSchedule } from '@/lib/flows/schedule-blocking'
 import { captureError } from '@/lib/observability/sentry'
 import { pruneSlackProcessedEvents } from '@/lib/slack/dedup'
@@ -39,7 +39,7 @@ export const dynamic = 'force-dynamic'
 
 const MAX_AGENTS_PER_TICK = 25
 const MAX_FLOWS_PER_TICK = 10
-const STUCK_RUN_TIMEOUT_MS = AGENT_RUN_TIMEOUT_MS
+const STUCK_RUN_TIMEOUT_MS = AGENT_STUCK_TIMEOUT_MS
 const MAX_ERROR_LENGTH = 300
 
 function capError(error: unknown): string {
@@ -112,27 +112,55 @@ export async function GET(request: Request) {
       },
     })
 
-    // A run still 'pending' far past the run window never made it onto a
-    // worker (lost queue job) — without this it is uncancellable, undeletable,
-    // and shows as active until the 90-day retention sweep.
-    // systemPrisma: global reaper sweep — runs across all orgs by design (CRON_SECRET-gated).
-    await systemPrisma.agentExecution.updateMany({
-      where: {
-        status: 'pending',
-        startedAt: { lt: new Date(Date.now() - AGENT_PENDING_TIMEOUT_MS) },
-      },
-      data: {
-        status: 'failed',
-        error: 'Run never started (queue job lost)',
-        completedAt: new Date(),
-      },
-    })
+    // A run still 'pending' far past the run window MAY never have made it
+    // onto a worker (lost queue job) — without this it is uncancellable,
+    // undeletable, and shows as active until the 90-day retention sweep. But
+    // "old and pending" alone is NOT proof of loss: under a deep backlog the
+    // job is still queued and will run. So verify against BullMQ — only rows
+    // whose job is genuinely gone (or already dead) are failed. If Redis is
+    // unreachable we skip the sweep entirely this tick: falsely failing live
+    // runs is far worse than a stale pending row surviving 15 more minutes.
+    try {
+      // systemPrisma: global reaper sweep — runs across all orgs by design (CRON_SECRET-gated).
+      const stalePending = await systemPrisma.agentExecution.findMany({
+        where: {
+          status: 'pending',
+          startedAt: { lt: new Date(Date.now() - AGENT_PENDING_TIMEOUT_MS) },
+        },
+        select: { id: true },
+        take: 500,
+      })
+      if (stalePending.length > 0 && workersEnabled && process.env.REDIS_URL) {
+        const queue = getQueue(QUEUE_NAMES.AGENT_EXECUTION)
+        const lostIds: string[] = []
+        for (const row of stalePending) {
+          // Manual/triggered runs enqueue with jobId = execution id.
+          const job = await queue.getJob(row.id)
+          if (!job) {
+            lostIds.push(row.id)
+            continue
+          }
+          const state = await job.getState().catch(() => 'unknown')
+          if (state === 'failed' || state === 'completed' || state === 'unknown') lostIds.push(row.id)
+        }
+        if (lostIds.length > 0) {
+          // systemPrisma: global reaper sweep — runs across all orgs by design (CRON_SECRET-gated).
+          await systemPrisma.agentExecution.updateMany({
+            where: { id: { in: lostIds }, status: 'pending' },
+            data: { status: 'failed', error: 'Run never started (queue job lost)', completedAt: new Date() },
+          })
+        }
+      }
+    } catch (error) {
+      apiLogger.error('cron/dispatch: pending reaper skipped (queue unreachable)', { error: capError(error) })
+    }
 
     // Same recovery for flows: a crashed inline flow execution leaves its run
     // `running` forever, which also wedges that flow's schedule via the
     // overlap guard. Isolated so a reaper failure never aborts the tick.
     try {
       await reapStuckFlowRuns()
+      await reapOrphanedWaits()
     } catch (error) {
       apiLogger.error('cron/dispatch: flow reaper failed', { error: capError(error) })
       captureError(error, { source: 'cron.dispatch.flowReaper' })

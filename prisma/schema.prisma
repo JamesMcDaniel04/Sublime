@@ -182,6 +182,10 @@ model AgentTask {
   @@index([organizationId, userId, status, updatedAt])
   @@index([organizationId, visibility, status, updatedAt])
   @@index([userId])
+  // Cross-org scans (cron scheduling tick, worker schedule registrar) filter
+  // on status alone; every other index leads with organizationId, so without
+  // this they sequential-scan the table every 15 minutes / 60 seconds.
+  @@index([status])
   @@map("agent_tasks")
 }
 
@@ -370,6 +374,9 @@ model AgentExecution {
   @@index([organizationId, startedAt])
   @@index([organizationId, userId, agentTaskId, startedAt])
   @@index([agentTaskId])
+  // Reaper sweeps (stuck/cancelling/pending) filter on status + startedAt
+  // globally; without this every 15-minute tick sequential-scans the table.
+  @@index([status, startedAt])
   @@map("agent_executions")
 }
 
