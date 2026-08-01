@@ -17,8 +17,11 @@ export type ResolvedBinding = { provider: string; connectionId: string; connecti
  */
 function candidatesFor(provider: string, catalog: FlowToolCatalogConnection[]): FlowToolCatalogConnection[] {
   const rank = (id: string) => (id.startsWith('nango:') ? 0 : 1)
+  // Provider id first (native groups display as "Slack — <team>", so a name
+  // match alone can never satisfy `slack`), then display name (MCP groups
+  // carry no provider id — the connection NAME is the template contract).
   return catalog
-    .filter((connection) => slug(connection.name) === slug(provider))
+    .filter((connection) => (connection.provider && slug(connection.provider) === slug(provider)) || slug(connection.name) === slug(provider))
     .sort((a, b) => rank(a.id) - rank(b.id) || a.id.localeCompare(b.id))
 }
 
@@ -69,6 +72,11 @@ export function resolveGraphToolConnections(
  * collapsed into a single agent — when it has an HTTP node (deterministic
  * mid-flow API/data passing) or more than one tool step (multi-step
  * orchestration). Single-delivery flows still collapse cleanly to an agent.
+ *
+ * The http branch is defensive: built-in catalogue seeds may not ship http
+ * nodes (catalogue.test.ts forbids them — a shipped template must run on
+ * connected integrations, not placeholder endpoints), so today it can only
+ * fire for future graph sources (e.g. user-authored shared templates).
  */
 export function graphNeedsBackingFlow(graph: FlowGraph): boolean {
   let toolNodes = 0
@@ -82,9 +90,10 @@ export function graphNeedsBackingFlow(graph: FlowGraph): boolean {
 /**
  * Return a deep copy of `graph` with every agent node's placeholder `agentId`
  * (a TemplateAgentSpec.ref) replaced by the materialized AgentTask id from
- * `refToId`. Throws when a ref has no mapping — a real AgentTask id is
- * mandatory because the flow interpreter executes agent nodes purely by
- * `data.agentId` (inline prompts are not executed; see interpret.ts L321).
+ * `refToId`. Throws when a ref has no mapping — catalogue agent nodes carry a
+ * spec ref, never an inline prompt, so an unmapped ref would execute as an
+ * EMPTY inline agent (the interpreter treats a blank agentId as inline;
+ * interpret.ts agent branch) instead of the persona the template promised.
  */
 export function rewriteGraphAgentRefs(graph: FlowGraph, refToId: Record<string, string>): FlowGraph {
   const clone: FlowGraph = JSON.parse(JSON.stringify(graph))

@@ -96,3 +96,55 @@ test('template tool placeholders fail clearly when the integration is disconnect
   assert.throws(() => resolveGraphToolConnections(graph, []), /Connect salesforce/)
   assert.deepEqual(missingRequiredProviders(['salesforce'], []), ['salesforce'])
 })
+
+// ── MCP portability through template: placeholders ───────────────────────────
+// Templates cannot ship raw MCP row ids (per-org, non-portable), but a
+// `template:<name>` placeholder binds to an MCP connection whose NAME matches
+// at provision time — the catalog includes the MCP plane, and MCP catalog ids
+// are the raw row id (no prefix), which is exactly what the executor expects.
+
+const MCP_CATALOG = [
+  { id: 'cmqa_mcp_row_id_123', name: 'QA Tools', tools: [{ name: 'qa_echo', description: '', inputSchema: {} }] },
+] as never[]
+
+test('template: placeholder binds to a same-named MCP connection, yielding its raw row id', () => {
+  const graph: FlowGraph = {
+    nodes: [
+      { id: 'trigger', type: 'trigger', data: { trigger: { type: 'manual' } } },
+      { id: 'm', type: 'tool', data: { connectionId: 'template:qatools', toolName: 'qa_echo', args: '{}' } },
+    ],
+    edges: [],
+  }
+  const { graph: bound, bindings } = resolveGraphToolConnections(graph, MCP_CATALOG)
+  const node = bound.nodes.find((n) => n.id === 'm') as any
+  assert.equal(node.data.connectionId, 'cmqa_mcp_row_id_123', 'bound to the raw MCP row id')
+  assert.equal(node.data.toolName, 'qa_echo')
+  assert.deepEqual(bindings, [{ provider: 'qatools', connectionId: 'cmqa_mcp_row_id_123', connectionName: 'QA Tools' }])
+})
+
+test('pre-flight treats a same-named MCP connection as satisfying the requirement', () => {
+  assert.deepEqual(missingRequiredProviders(['qatools'], MCP_CATALOG), [])
+  assert.deepEqual(missingRequiredProviders(['qatools'], []), ['qatools'])
+})
+
+// A native Slack workspace connection is displayed as "Slack — <team>", so
+// name-slug matching alone cannot satisfy a template's `slack` requirement.
+// Matching must consult the catalog entry's provider id when present —
+// otherwise every Slack-requiring template refuses to provision for orgs on
+// the native-bot path (the 2026-08-01 flows parity audit hit exactly this).
+const NATIVE_SLACK_CATALOG = [
+  { id: 'native:slack', name: 'Slack — Acme', provider: 'slack', tools: [{ name: 'post_message', description: '', inputSchema: {} }] },
+] as never[]
+
+test('pre-flight and binding match a team-suffixed native connection by provider id', () => {
+  assert.deepEqual(missingRequiredProviders(['slack'], NATIVE_SLACK_CATALOG), [])
+  const graph: FlowGraph = {
+    nodes: [
+      { id: 'trigger', type: 'trigger', data: { trigger: { type: 'manual' } } },
+      { id: 's', type: 'tool', data: { connectionId: 'template:slack', toolName: 'post_message', args: '{}' } },
+    ],
+    edges: [],
+  }
+  const { graph: bound } = resolveGraphToolConnections(graph, NATIVE_SLACK_CATALOG)
+  assert.equal((bound.nodes.find((n) => n.id === 's') as any).data.connectionId, 'native:slack')
+})

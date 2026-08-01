@@ -33,7 +33,7 @@ import { toVerification, type Verification } from '@/lib/connections/verificatio
 export { mcpConnectionScope } from '@/features/agents/tool-planes'
 
 export type FlowToolSummary = { name: string; description: string; inputSchema?: unknown; outputSchema?: unknown; schemaHash?: string; risk?: 'read' | 'write' | 'destructive' }
-export type FlowToolCatalogConnection = { id: string; name: string; tools: FlowToolSummary[]; toolsError?: string; verification?: Verification }
+export type FlowToolCatalogConnection = { id: string; name: string; provider?: string; tools: FlowToolSummary[]; toolsError?: string; verification?: Verification }
 
 export async function loadFlowToolCatalog(
   organizationId: string,
@@ -86,6 +86,9 @@ export async function loadFlowToolCatalog(
     .map((group) => ({
       id: group.id,
       name: group.name,
+      // The stable provider id (e.g. 'slack') — template binding matches on
+      // this first, because display names may embed per-org detail.
+      ...(group.provider ? { provider: group.provider } : {}),
       ...(group.toolsError ? { toolsError: group.toolsError } : {}),
       verification: toVerification(verifications.get(group.id)),
       tools: group.tools.slice(0, options.takeTools ?? group.tools.length).map((tool) => ({

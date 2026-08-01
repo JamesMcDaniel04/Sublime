@@ -9,6 +9,7 @@ import { hasSaveConflict } from '@/lib/flows/save-conflict'
 import { FLOW_TRIGGER_TYPES, normalizeFlowTrigger, preserveWebhookSecretHash, triggerFromGraph } from '@/lib/flows/trigger'
 import { countActiveConnections, meetsSuggestionGate } from '@/lib/intelligence/suggest-workflows'
 import { assertFlowCapacity } from '@/lib/billing/enforce'
+import { loadFlowToolCatalog } from '@/lib/flows/tool-catalog'
 import { contributionResourceIds, resolveGoalScope } from '@/lib/server/goal-scope'
 
 // Strip undefined + narrow to plain JSON so Prisma's InputJsonValue accepts the
@@ -151,7 +152,29 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
     kind: 'flow_created', resourceType: 'flow', resourceId: flow.id,
     context: { name: flow.name },
   })
-  return { success: true, flow: serializeFlow(flow) }
+  // Construction-time integration warning: templates arrive here with
+  // plane-scoped connection ids the workspace may not have connected yet.
+  // Creating the draft stays permissive (publish is the hard gate — the same
+  // catalog check there fails closed), but surfacing what's missing NOW lets
+  // the client prompt "connect Slack" at creation instead of first at publish.
+  const usedConnectionIds = Array.from(new Set(graph.nodes.flatMap((node) =>
+    node.type === 'tool' || node.type === 'http' ? [node.data.connectionId] : [],
+  ).filter((id): id is string => Boolean(id))))
+  let missingIntegrations: Array<{ nodeId: string; connectionId: string }> = []
+  if (usedConnectionIds.length) {
+    const catalog = await loadFlowToolCatalog(auth.organizationId, {
+      userId: auth.dbUser.id, connectionIds: usedConnectionIds, takeConnections: usedConnectionIds.length,
+    }).catch(() => null)
+    if (catalog) {
+      const available = new Set(catalog.map((connection) => connection.id))
+      missingIntegrations = graph.nodes.flatMap((node) =>
+        (node.type === 'tool' || node.type === 'http') && node.data.connectionId && !available.has(node.data.connectionId)
+          ? [{ nodeId: node.id, connectionId: node.data.connectionId }]
+          : [],
+      )
+    }
+  }
+  return { success: true, flow: serializeFlow(flow), missingIntegrations }
 }, { requires: 'member' })
 
 export const PUT = withAuthenticatedApi(async (request, auth) => {

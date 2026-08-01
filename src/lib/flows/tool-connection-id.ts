@@ -15,6 +15,12 @@
  * Parsing is pure so execution routing and the catalog agree on one scheme.
  * An id with an unrecognized prefix is treated as a raw MCP row id (colons are
  * technically legal there), which preserves backward compatibility.
+ *
+ * Portability: raw MCP ids are per-org and must never ship in a template.
+ * Templates reference MCP servers with a `template:<connection-name>`
+ * placeholder instead — provisioning binds it to the same-named MCP
+ * connection's raw row id (provision-plan.ts resolveGraphToolConnections;
+ * the workspace tool catalog includes the MCP plane).
  */
 
 export const FLOW_TOOL_PLANES = ['mcp', 'native', 'nango', 'postgres', 'flow'] as const

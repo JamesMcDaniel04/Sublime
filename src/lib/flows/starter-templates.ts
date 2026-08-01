@@ -6,7 +6,11 @@ import type { FlowGraph } from '@/lib/flows/graph'
  * Portability rules (what makes these work for ANY workspace):
  *   - Tool steps only use plane-scoped connection ids (`nango:<capability>`,
  *     `native:<provider>`) which resolve to the org's own connection at
- *     runtime — never a concrete MCP row id.
+ *     runtime — never a concrete MCP row id. (MCP servers CAN be referenced
+ *     portably, but only via a `template:<connection-name>` placeholder, and
+ *     only on the /api/templates/provision path, which binds placeholders to
+ *     the workspace's connections. This client-constructed path performs no
+ *     binding, so starter templates must stay on runtime-resolving planes.)
  *   - Agent steps are inline prompts (blank agentId) so no saved agent is
  *     required; structured steps declare outputFields so downstream tool args
  *     can map their fields.

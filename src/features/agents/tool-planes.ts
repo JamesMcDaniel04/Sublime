@@ -605,6 +605,14 @@ export async function resolveFlowToolExecutor(params: {
   const { organizationId, userId, plane, ref, resource } = params
 
   if (plane === 'mcp') {
+    // `template:` is a provisioning placeholder, not a plane — the parser
+    // classifies unknown prefixes as raw MCP ids, so an unbound placeholder
+    // would otherwise surface as a baffling "connection no longer exists".
+    if (ref.startsWith('template:')) {
+      throw new Error(
+        `This step still holds the template placeholder "${ref}" — it was never bound to a real connection. Re-provision the template, or pick a connection in the step config.`,
+      )
+    }
     const conn = await prisma.mcpConnection.findFirst({
       where: { id: ref, organizationId, isActive: true },
     })
