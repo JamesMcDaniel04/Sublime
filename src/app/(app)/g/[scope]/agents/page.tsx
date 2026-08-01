@@ -124,8 +124,13 @@ function AgentHQ() {
   const scopedAgentsUrl = scope !== ALL_SCOPE ? `/api/agents?goal=${encodeURIComponent(scope)}` : null
   const { data: scopedAgents } = useCachedJson<{ agents?: Agent[]; unlinkedCount?: number }>(scopedAgentsUrl)
   // Shadows the state deliberately so every downstream reference to `agents`
-  // gets the lensed list without touching a single render site.
-  const agents = scope !== ALL_SCOPE ? (scopedAgents?.agents ?? []) : allAgents
+  // gets the lensed list without touching a single render site. Memoized: the
+  // `?? []` fallback would otherwise mint a fresh array each render and churn
+  // every downstream hook that lists `agents` as a dependency.
+  const agents = useMemo(
+    () => (scope !== ALL_SCOPE ? (scopedAgents?.agents ?? []) : allAgents),
+    [scope, scopedAgents?.agents, allAgents],
+  )
   const unlinkedAgentCount = scopedAgents?.unlinkedCount ?? 0
   const [activities, setActivities] = useState<Activity[]>(() => initialSnapshot?.activities || [])
   const [loading, setLoading] = useState(() => !initialSnapshot)

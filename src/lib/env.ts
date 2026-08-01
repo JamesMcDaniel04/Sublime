@@ -72,7 +72,29 @@ function assertPooledDatabaseUrl(rawUrl: string): void {
   }
 }
 
-export function assertServerEnv(): void {
+// Missing these degrades a product surface rather than the whole server —
+// warn loudly at boot (same policy as RECOMMENDED_FOR_WORKER below) instead
+// of refusing to start. The 2026-08-01 audit found every one of these was
+// unasserted while production code hard-depends on it.
+const RECOMMENDED_FOR_SERVER = [
+  ['STRIPE_SECRET_KEY', 'checkout/portal/webhook will 500 — no subscription ever syncs, no top-up ever grants'],
+  ['STRIPE_WEBHOOK_SECRET', 'the Stripe webhook rejects every event — plan changes never reach the database'],
+  ['SUPABASE_SERVICE_ROLE_KEY', 'realtime run-event broadcasts will be off (clients fall back to polling latency)'],
+  ['RESEND_API_KEY', 'the contact form 503s and digest emails are silently unsent'],
+  ['VAPID_PUBLIC_KEY', 'push notifications will silently never send'],
+  ['VAPID_PRIVATE_KEY', 'push notifications will silently never send'],
+  ['NEXT_PUBLIC_APP_URL', 'invite/digest deep links will render without a host'],
+] as const
+
+/** True when SOME shared rate-limit backend is configured (Upstash REST pair
+ *  or plain Redis). Without one, every limit silently becomes per-instance
+ *  in-memory — a 40-instance fan-out multiplies every cap by 40. */
+function rateLimitBackendConfigured(): boolean {
+  if (process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN) return true
+  return Boolean(process.env.REDIS_URL)
+}
+
+export function assertServerEnv(logger: { warn: (message: string) => void } = console): void {
   if (process.env.NODE_ENV !== 'production') return
 
   const missing: string[] = REQUIRED_IN_PRODUCTION.filter((name) => !process.env[name])
@@ -81,6 +103,16 @@ export function assertServerEnv(): void {
   if (missing.length > 0) throwMissing(missing)
 
   assertPooledDatabaseUrl(process.env.DATABASE_URL!)
+
+  for (const [name, consequence] of RECOMMENDED_FOR_SERVER) {
+    if (!process.env[name]) logger.warn(`env: ${name} is not set — ${consequence}`)
+  }
+  if (!rateLimitBackendConfigured()) {
+    logger.warn(
+      'env: no shared rate-limit backend (UPSTASH_REDIS_REST_URL+TOKEN or REDIS_URL) — ' +
+        'limits degrade to per-instance in-memory counters and multiply by the instance count.',
+    )
+  }
 }
 
 const REQUIRED_FOR_WORKER = ['DATABASE_URL', 'REDIS_URL', 'ENCRYPTION_KEY'] as const

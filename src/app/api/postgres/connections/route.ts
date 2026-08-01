@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import { prisma } from '@/lib/prisma'
 import { ApiError, withAuthenticatedApi } from '@/lib/server/api-handler'
+import { assertIntegrationCapacity } from '@/lib/billing/enforce'
 import { afterResponse } from '@/lib/server/after-response'
 import { recordAudit } from '@/lib/audit'
 import {
@@ -65,6 +66,10 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
     select: { id: true },
   })
   if (clash) throw new ApiError('A database with that name already exists.', 409, 'DUPLICATE_NAME')
+
+  // Databases mirror into nango_connections and count as integrations — same
+  // gate as the Nango/MCP creation entrypoints.
+  await assertIntegrationCapacity(auth.organizationId)
 
   const row = await prisma.postgresConnection.create({
     data: {

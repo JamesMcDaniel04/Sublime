@@ -15,6 +15,7 @@
 
 import { NextResponse } from 'next/server'
 import { withAuthenticatedApi } from '@/lib/server/api-handler'
+import { assertIntegrationCapacity } from '@/lib/billing/enforce'
 import { encryptSecret } from '@/lib/crypto/secrets'
 import { prisma } from '@/lib/prisma'
 import { assertPublicUrl, SsrfError } from '@/lib/net/ssrf'
@@ -58,6 +59,11 @@ export const GET = withAuthenticatedApi(async (request, auth) => {
       new URL('/connections?error=oauth_params', request.nextUrl.origin),
     )
   }
+
+  // A fresh connection (no connectionId = not a re-auth) lands as a new
+  // mcpConnection row at the callback — gate it here, where a clean 403 is
+  // still possible, instead of after the provider round-trip.
+  if (!connectionId) await assertIntegrationCapacity(auth.organizationId)
 
   // SSRF guard: re-checked here (not just at connection-save time) so a host
   // that now resolves to a private/internal address is still blocked, and so

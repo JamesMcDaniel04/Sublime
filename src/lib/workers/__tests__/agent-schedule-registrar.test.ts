@@ -125,12 +125,11 @@ if (TEST_DB) {
     assert.deepEqual(upsertOf('dailySingleField')?.repeat, { pattern: '0 8 * * *', tz: 'UTC' })
   })
 
-  test('KNOWN GAP: a non-numeric time yields a NaN cron pattern (only a real BullMQ upsert would reject it)', () => {
-    // Documents current behavior, deliberately: Number('noon') is NaN and
-    // repeatFor does not validate. In production the invalid pattern is only
-    // caught because upsertJobScheduler throws and the registrar counts it as
-    // `failed`. Do not "fix" this test without fixing repeatFor's validation.
-    assert.deepEqual(upsertOf('dailyGarbageTime')?.repeat, { pattern: '0 NaN * * *', tz: 'UTC' })
+  test('a non-numeric time falls back to 09:00 instead of a NaN cron pattern', () => {
+    // Number('noon') is NaN; unvalidated it produced '0 NaN * * *', which
+    // only failed later inside BullMQ's upsert (counted as `failed`). A
+    // malformed time is data, not a crash — same policy as scheduleOf.
+    assert.deepEqual(upsertOf('dailyGarbageTime')?.repeat, { pattern: '0 9 * * *', tz: 'UTC' })
   })
 
   test('cron type without an expression registers nothing', () => {

@@ -44,13 +44,10 @@ const VERBS = ['POST', 'PUT', 'PATCH', 'DELETE'] as const
 const PENDING_COVERAGE: ReadonlySet<string> = new Set([
   // Highest value: substantial route-layer logic, no test at all.
   'executions/[id]/reply#POST',
-  'flows/[id]/execute#POST',
   'connections/verify#POST',
-  'flows/[id]/trigger-secret#POST',
   // Resource lifecycle.
   'agent-templates#PUT',
   'agent-templates#DELETE',
-  'agents#DELETE',
   'agents/[id]/chat#PATCH',
   'agents/[id]/knowledge#DELETE',
   'agents/[id]/memories#PUT',
@@ -93,7 +90,6 @@ const PENDING_COVERAGE: ReadonlySet<string> = new Set([
   'nango/connections/[integrationId]#DELETE',
   'nango/session-token#POST',
   'postgres/connections/[id]/test#POST',
-  'push/subscribe#POST',
   'push/subscribe#DELETE',
   // LLM-backed: degrade without a provider key, so a smoke case asserts the
   // degradation rather than the output.
@@ -115,7 +111,15 @@ function walk(dir: string, match: (name: string) => boolean): string[] {
   return out
 }
 
-/** Every authenticated mutation handler, as "<route>#<VERB>". */
+/**
+ * Every mutation handler, as "<route>#<VERB>" — BOTH forms:
+ * `export const VERB = withAuthenticatedApi(...)` and the bare
+ * `export async function VERB(...)` used by differently-authenticated
+ * surfaces (stripe webhook, public contact form, cron, per-flow triggers).
+ * The bare form was invisible to this guard until the 2026-08-01 audit —
+ * which is exactly how the Stripe webhook shipped with zero tests: the
+ * hand-rolled-auth routes are the ones only a test can check.
+ */
 function mutationHandlers(): string[] {
   const out: string[] = []
   for (const file of walk(API_DIR, (n) => n === 'route.ts')) {
@@ -123,7 +127,10 @@ function mutationHandlers(): string[] {
     const source = readFileSync(file, 'utf8')
     const route = path.relative(API_DIR, path.dirname(file))
     for (const verb of VERBS) {
-      if (new RegExp(`export const ${verb} = withAuthenticatedApi`).test(source)) {
+      if (
+        new RegExp(`export const ${verb} = withAuthenticatedApi`).test(source) ||
+        new RegExp(`export async function ${verb}\\b`).test(source)
+      ) {
         out.push(`${route}#${verb}`)
       }
     }
@@ -198,7 +205,11 @@ test('the pending list has no stale entries, so the debt can only shrink', () =>
 test('the known-gap list is not silently growing', () => {
   // A ratchet. Raising this number is a deliberate, reviewable act; forgetting
   // to lower it after adding coverage fails the stale-entry test above.
-  const BASELINE = 55
+  // 55 at introduction; 51 after the 2026-08-01 audit landed coverage for
+  // execute, trigger-secret, push/subscribe#POST, and agents#DELETE — and the
+  // enumerator learned to see bare `export async function` handlers (stripe
+  // webhook, contact, system/behavior, per-flow triggers), all now tested.
+  const BASELINE = 51
   assert.ok(
     PENDING_COVERAGE.size <= BASELINE,
     `PENDING_COVERAGE grew to ${PENDING_COVERAGE.size} (baseline ${BASELINE}). `

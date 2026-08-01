@@ -25,9 +25,14 @@ function repeatFor(schedule: Schedule) {
   if (schedule.type === 'cron' && schedule.cron) return { pattern: schedule.cron, tz: timezone }
   if (schedule.type === 'hourly') return { pattern: '0 * * * *', tz: timezone }
   if (schedule.type === 'daily' || schedule.type === 'weekly') {
-    const [hour = '9', minute = '0'] = String(schedule.time || '09:00').split(':')
+    const [rawHour = '9', rawMinute = '0'] = String(schedule.time || '09:00').split(':')
+    // A malformed time ("noon") is data, not a crash — same policy as
+    // scheduleOf below. Unvalidated it became the cron pattern '0 NaN * * *',
+    // which only failed later inside BullMQ's upsert. Fall back to 09:00.
+    const hour = Number.isInteger(Number(rawHour)) && Number(rawHour) >= 0 && Number(rawHour) <= 23 ? Number(rawHour) : 9
+    const minute = Number.isInteger(Number(rawMinute)) && Number(rawMinute) >= 0 && Number(rawMinute) <= 59 ? Number(rawMinute) : 0
     const day = schedule.type === 'weekly' ? '1' : '*'
-    return { pattern: `${Number(minute)} ${Number(hour)} * * ${day}`, tz: timezone }
+    return { pattern: `${minute} ${hour} * * ${day}`, tz: timezone }
   }
   return null
 }

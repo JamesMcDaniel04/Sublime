@@ -26,9 +26,14 @@ export async function recordDeadLetter(input: DeadLetterInput): Promise<void> {
   // Best-effort: mark the execution failed so the UI reflects it.
   if (input.executionId) {
     // systemPrisma: id-keyed terminal write from worker job data; execution id was minted org-scoped upstream.
+    // Status-guarded like the flow twin (flow-dead-letter.ts): only a run the
+    // dead job could still own — pending (died before the running claim) or
+    // running — may be terminalized here. An execution that already settled,
+    // or is parked in waiting_for_input with no live loop, must never be
+    // clobbered to failed by a late per-attempt BullMQ failure.
     await systemPrisma.agentExecution
-      .update({
-        where: { id: input.executionId },
+      .updateMany({
+        where: { id: input.executionId, status: { in: ['pending', 'running'] } },
         data: { status: 'failed', error: input.error.slice(0, 300), completedAt: new Date() },
       })
       .catch(() => undefined)

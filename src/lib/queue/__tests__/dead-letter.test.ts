@@ -168,14 +168,13 @@ if (TEST_DB) {
     assert.equal(agentAdds.at(-1)?.data.error, 'orphan')
   })
 
-  test('KNOWN GAP: recordDeadLetter is not status-guarded — it clobbers an already-completed execution to failed', async () => {
-    // Documents current behavior: unlike the flow writer (updateMany gated on
-    // status: 'running'), the agent writer is a bare id-keyed update. Do not
-    // "fix" this test without adding the status guard to recordDeadLetter.
+  test('recordDeadLetter is status-guarded: an already-completed execution is never clobbered to failed', async () => {
+    // Mirrors the flow writer's guard (updateMany gated on live statuses): a
+    // late per-attempt BullMQ failure must not overwrite a settled run.
     const execution = await seedExecution(orgA, 'completed')
     await dl.recordDeadLetter({ queue: 'agent-execution', executionId: execution.id, data: {}, error: 'late failure' })
     const row = await systemPrisma.agentExecution.findUnique({ where: { id: execution.id } })
-    assert.equal(row.status, 'failed')
+    assert.equal(row.status, 'completed')
   })
 
   test('deadLetterFromJob extracts string ids from job data and defaults a blank error message', async () => {

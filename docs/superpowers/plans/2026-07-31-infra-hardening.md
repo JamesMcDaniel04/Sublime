@@ -148,11 +148,14 @@
 ## Deferred (documented, not implemented — product/infra decisions)
 - Server-side cross-device preference sync (theme/sidebar/favorites) — new table + product surface.
 - Notification preferences table — feature, not a gap fix.
-- Supabase Realtime run-completion delivery (replaces polling) — follow-up epic; poll backoff lands now.
-- Flow trigger denormalization (F8) — schema + backfill; bounded now by select-trim only.
 - Pyodide/vm isolation (per-tenant sandboxes) — separate infra effort.
 - Second worker replica — enabled by registrar lock (7.3) but a deploy action, not code.
 - Dashboard-side env values (actual SENTRY_DSN, worker DATABASE_URL pool params) — operator action; code now asserts/warns.
+
+## Since shipped (were deferred above when this plan landed)
+- Supabase Realtime run-completion delivery — landed as private run-events channels (dc996e1); polling is the fallback transport.
+- Flow trigger denormalization (F8) — landed as triggerType/triggerKey/isPublished columns kept by a BEFORE trigger (6793912).
+- Server env assertions grew a recommended warn tier (Stripe, Resend, VAPID, service-role, rate-limit backend) in the 2026-08-01 QA-audit pass.
 
 ---
 Execution: inline in this session (superpowers:executing-plans), one commit per task, `npm run typecheck && npm test` at each workstream boundary, full `npm run check` at the end.

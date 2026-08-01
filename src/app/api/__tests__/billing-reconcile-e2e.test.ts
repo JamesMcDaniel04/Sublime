@@ -204,9 +204,24 @@ if (TEST_DB) {
     const res = await runRoute(process.env.CRON_SECRET)
     assert.equal(res.status, 200)
     const body = await res.json()
-    // Nothing between the two sweeps changed orphan-eligibility except these
-    // two seeds — an unchanged count proves neither was counted.
-    assert.equal(body.orphaned, orphanedBaseline, 'grandfathered/pre-cutoff org counted as orphan')
+    assert.equal(body.success, true)
+
+    // The orphan alarm is a pure WHERE clause (paid plan, no subscription, no
+    // grandfather marker, post-cutoff creation). Assert it directly against
+    // the two seeds — a global-count comparison is racy on the shared QA DB,
+    // where concurrent suites seed orgs between the two sweeps.
+    const { systemPrisma } = await import('@/lib/prisma')
+    const matched = await systemPrisma.organization.findMany({
+      where: {
+        id: { in: [orgMarked.id, orgPreCutoff.id] },
+        plan: { not: 'TRIAL' },
+        stripeSubscriptionId: null,
+        grandfatheredAt: null,
+        createdAt: { gt: new Date('2026-07-19T00:00:00Z') },
+      },
+      select: { id: true },
+    })
+    assert.deepEqual(matched, [], 'grandfathered/pre-cutoff org matched the orphan alarm clause')
 
     assert.equal((await findOrg(orgMarked.id)).plan, 'ENTERPRISE')
     assert.equal((await findOrg(orgPreCutoff.id)).plan, 'BUSINESS')
