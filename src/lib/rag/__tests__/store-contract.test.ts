@@ -128,3 +128,23 @@ test('expand never surfaces another rep\'s private neighbor', async () => {
   const asNull = await store.expand('org1', null, ['seed'], 1)
   assert.deepEqual(asNull.map((n) => n.id), [])
 })
+
+test('expand refuses foreign-org and other-rep-private seeds', async () => {
+  const store = new MemoryGraphStore()
+  await store.upsertNodes([
+    node('foreign-seed', 'org2', 'account', [1, 0]),
+    { ...node('privB', 'org1', 'account', [1, 0]), visibility: 'private', ownerUserId: 'repB' },
+    node('n1', 'org1', 'signal', [0, 1]),
+    node('n2', 'org1', 'signal', [0, 1]),
+  ])
+  await store.upsertEdges([
+    { organizationId: 'org1', from: 'foreign-seed', to: 'n1', rel: 'about_account' },
+    { organizationId: 'org1', from: 'privB', to: 'n2', rel: 'about_account' },
+  ])
+  // A seed id from execution input pointing at another org's node anchors nothing.
+  assert.deepEqual(await store.expand('org1', 'repA', ['foreign-seed'], 2), [])
+  // Ditto a seed that is another rep's private node.
+  assert.deepEqual(await store.expand('org1', 'repA', ['privB'], 2), [])
+  // The owner can still traverse from their own private seed.
+  assert.deepEqual((await store.expand('org1', 'repB', ['privB'], 1)).map((n) => n.id), ['n2'])
+})

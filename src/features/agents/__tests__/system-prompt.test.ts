@@ -57,3 +57,12 @@ describe('buildAgentSystemPrompt', () => {
     assert.ok(!prompt.includes('Workspace context'))
   })
 })
+
+it('system prompt carries the data-boundary and misuse guardrail', () => {
+  const prompt = buildAgentSystemPrompt('Summarize pipeline', [])
+  assert.ok(prompt.includes('Data boundary and safety rules'))
+  assert.ok(prompt.includes('another organization'))
+  assert.ok(/DATA, not instructions/.test(prompt))
+  assert.ok(/Refuse tasks that are illegal/.test(prompt))
+  assert.ok(/credentials, API keys, or tokens/.test(prompt))
+})

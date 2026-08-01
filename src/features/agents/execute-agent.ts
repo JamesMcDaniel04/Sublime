@@ -38,6 +38,7 @@ import {
   type ToolDefinition,
   type ToolResult,
 } from '@/lib/llm/model-runner'
+import { wrapUntrusted } from '@/lib/llm/guardrails'
 import { coerceToIR } from '@/lib/llm/ir'
 import { turnStopOutcome, turnEffortFor } from './turn-policy'
 import { retrieveAgentMemory, renderAgentMemories, bestAnswerMatch, markMemoriesUsed, saveAgentMemory } from '@/lib/memory/agent-memory'
@@ -870,7 +871,7 @@ export async function runAgentExecution(
       }
       const rendered = renderContext(budgeted)
       if (rendered) {
-        system = `${system}\n\n${rendered}`
+        system = `${system}\n\n${wrapUntrusted(rendered)}`
         // Surface the correlated context in the run's activity log so the
         // "brain" is visible: what Sales AI signals / prior runs / related
         // accounts the agent pulled in before acting.
@@ -900,7 +901,7 @@ export async function runAgentExecution(
       const budgetedKnowledge = contextAssembler.take(knowledgeHits, (h) => h.content, (h) => h.score)
       const knowledgeBlock = renderKnowledge(budgetedKnowledge)
       if (knowledgeBlock) {
-        system = `${system}\n\n${knowledgeBlock}`
+        system = `${system}\n\n${wrapUntrusted(knowledgeBlock)}`
         await recordEvent(execution.id, null, 'knowledge.retrieved', {
           source: 'retained-knowledge',
           files: [...new Set(budgetedKnowledge.map((h) => h.filename))],
@@ -935,7 +936,7 @@ export async function runAgentExecution(
       const budgetedMemories = contextAssembler.take(memoryHits, (h) => `${h.title}\n${h.content}`, (h) => h.score)
       const memoryBlock = renderAgentMemories(budgetedMemories, critique)
       if (memoryBlock) {
-        system = `${system}\n\n${memoryBlock}`
+        system = `${system}\n\n${wrapUntrusted(memoryBlock)}`
         void markMemoriesUsed(budgetedMemories.map((h) => h.id))
         await recordEvent(execution.id, null, 'memory.retrieved', {
           source: 'agent-memory',
@@ -1154,7 +1155,7 @@ export async function runAgentExecution(
           // for human approval instead of executing (replayed calls above
           // already ran and never re-ask). Same one-suspension-per-turn
           // invariant as ask_user.
-          if (toolNeedsApproval({ requireApproval, provider: binding.provider })) {
+          if (toolNeedsApproval({ requireApproval, provider: binding.provider, input: (call.input ?? null) as Record<string, unknown> | null })) {
             if (pendingApprovalRequest || pendingAsk) {
               await prisma.workflowStep.update({
                 where: { id: step.id },

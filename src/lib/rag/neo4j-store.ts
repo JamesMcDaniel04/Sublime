@@ -167,10 +167,15 @@ export class Neo4jGraphStore implements GraphRagStore {
   async expand(organizationId: string, viewerUserId: string | null, nodeIds: string[], hops: number): Promise<GraphNode[]> {
     if (nodeIds.length === 0) return []
     const driver = await this.driver()
-    // Only return neighbors the viewer may see — a private node owned by another
-    // rep is never surfaced, even if reachable by an edge.
+    // Seeds are scoped to the org AND the viewer, not just the returned
+    // neighbors: node ids are partly derived from execution input, so an
+    // unscoped seed match would let a foreign-tenant (or another rep's
+    // private) node anchor the traversal even though its neighbors are
+    // filtered. Only return neighbors the viewer may see — a private node
+    // owned by another rep is never surfaced, even if reachable by an edge.
     const { records } = await driver.executeQuery(
-      `MATCH (seed:Entity) WHERE seed.id IN $ids
+      `MATCH (seed:Entity { organizationId: $org }) WHERE seed.id IN $ids
+         AND (coalesce(seed.visibility, 'shared') <> 'private' OR seed.ownerUserId = $viewer)
        MATCH (seed)-[*1..${Math.max(1, Math.min(hops, 3))}]-(n:Entity { organizationId: $org })
        WHERE NOT n.id IN $ids
          AND (coalesce(n.visibility, 'shared') <> 'private' OR n.ownerUserId = $viewer)

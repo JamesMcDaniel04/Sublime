@@ -9,10 +9,14 @@
  * looking at a truncated view.
  */
 
+import { redactSecrets } from '@/lib/llm/guardrails'
+
 export const TOOL_RESULT_MAX_CHARS = Number(process.env.AGENT_TOOL_RESULT_MAX_CHARS) || 50_000
 
 export function serializeToolResult(value: unknown, maxChars = TOOL_RESULT_MAX_CHARS): string {
-  const raw = JSON.stringify(value ?? null)
+  // Redact credential-shaped strings before the result enters the transcript
+  // (and therefore the provider). The full result stays on the step row.
+  const raw = redactSecrets(JSON.stringify(value ?? null))
   if (maxChars <= 0 || raw.length <= maxChars) return raw
   return JSON.stringify({
     truncated: true,

@@ -41,8 +41,16 @@ export class MemoryGraphStore implements GraphRagStore {
   }
 
   async expand(organizationId: string, viewerUserId: string | null, nodeIds: string[], hops: number): Promise<GraphNode[]> {
-    const seen = new Set(nodeIds)
-    let frontier = new Set(nodeIds)
+    // Seeds must be org-scoped and viewer-visible (mirrors Neo4jStore.expand):
+    // ids partly derive from execution input, so a foreign-tenant or
+    // other-rep-private id must not anchor the traversal.
+    const validSeeds = nodeIds.filter((id) => {
+      const node = this.nodes.get(id)
+      if (!node) return false
+      return node.organizationId === organizationId && nodeVisibleTo(node, viewerUserId)
+    })
+    const seen = new Set(validSeeds)
+    let frontier = new Set(validSeeds)
     for (let hop = 0; hop < hops; hop++) {
       const next = new Set<string>()
       for (const edge of this.edges) {

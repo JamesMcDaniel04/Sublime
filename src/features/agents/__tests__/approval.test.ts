@@ -54,3 +54,18 @@ test('approvalQuestion: names the tool, includes bounded input, asks for "approv
   const huge = approvalQuestion('email.send', { body: 'x'.repeat(10_000) })
   assert.ok(huge.length < 1_500, 'question stays bounded for huge inputs')
 })
+
+test('toolNeedsApproval: non-GET http.request pauses even when the agent never opted in', () => {
+  // The model chooses URL, headers, AND body for http.request — an un-gated
+  // POST is an exfiltration primitive for prompt-injected instructions.
+  for (const method of ['POST', 'post', 'PUT', 'PATCH', 'DELETE']) {
+    assert.equal(toolNeedsApproval({ requireApproval: false, provider: 'http', input: { method } }), true, `${method} must be gated`)
+  }
+  // Reads stay un-gated without opt-in (GET explicit, GET-by-default, HEAD).
+  assert.equal(toolNeedsApproval({ requireApproval: false, provider: 'http', input: { method: 'GET' } }), false)
+  assert.equal(toolNeedsApproval({ requireApproval: false, provider: 'http', input: {} }), false)
+  assert.equal(toolNeedsApproval({ requireApproval: false, provider: 'http' }), false)
+  assert.equal(toolNeedsApproval({ requireApproval: false, provider: 'http', input: { method: 'HEAD' } }), false)
+  // Opt-in still gates everything http (write plane).
+  assert.equal(toolNeedsApproval({ requireApproval: true, provider: 'http', input: { method: 'GET' } }), true)
+})

@@ -37,17 +37,28 @@ export function isApprovalReply(reply: string | null | undefined): boolean {
 /**
  * True when this call must pause for a human.
  *
- * Two independent paths reach a pause:
+ * Three independent paths reach a pause:
  *   - the plane requires approval unconditionally (Postgres writes — a
- *     model-authored statement against a customer database), or
+ *     model-authored statement against a customer database),
+ *   - a non-GET http.request — the model chooses URL, headers, and body with
+ *     no credential gate, which makes an un-gated POST an exfiltration
+ *     primitive for prompt-injected instructions in retrieved content, or
  *   - the agent opted in AND the plane writes (every other write plane).
  *
- * Both derive from the connector registry rather than a local regex, so a new
- * plane cannot drift out of the gate.
+ * Plane classification derives from the connector registry rather than a
+ * local regex, so a new plane cannot drift out of the gate.
  */
-export function toolNeedsApproval(params: { requireApproval: boolean; provider: string | null | undefined }): boolean {
+export function toolNeedsApproval(params: {
+  requireApproval: boolean
+  provider: string | null | undefined
+  input?: Record<string, unknown> | null
+}): boolean {
   if (!params.provider) return false
   if (alwaysRequiresApproval(params.provider)) return true
+  if (params.provider === 'http') {
+    const method = String(params.input?.method ?? 'GET').toUpperCase()
+    if (method !== 'GET' && method !== 'HEAD') return true
+  }
   if (!params.requireApproval) return false
   return isWriteProvider(params.provider)
 }

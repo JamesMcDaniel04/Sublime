@@ -5,6 +5,11 @@
  * Safety: assertPublicUrl blocks private/internal targets (SSRF), redirects are
  * refused (they could bypass the check), one attempt is capped at 30s, and the
  * response body is truncated so a huge payload can't blow the context window.
+ * Non-GET calls are unconditionally approval-gated (see toolNeedsApproval) —
+ * the model chooses URL, headers, AND body, so an un-gated POST is a data
+ * exfiltration primitive for any injected instruction in retrieved content.
+ * HTTP_TOOL_ALLOWED_DOMAINS (comma-separated hostnames; subdomains match)
+ * optionally restricts egress to an allowlist; unset means any public host.
  */
 
 import type { ToolDefinition } from '@/lib/llm/model-runner'
@@ -12,6 +17,24 @@ import { assertPublicUrl } from '@/lib/net/ssrf'
 
 const HTTP_TIMEOUT_MS = 30_000
 const MAX_RESPONSE_CHARS = 50_000
+
+/** True when `host` is `domain` or a subdomain of it. */
+function hostMatches(host: string, domain: string): boolean {
+  return host === domain || host.endsWith(`.${domain}`)
+}
+
+/** Throws unless the URL's host passes the egress allowlist (no-op when unset). */
+export function assertEgressAllowed(url: string, allowlistEnv = process.env.HTTP_TOOL_ALLOWED_DOMAINS): void {
+  const domains = (allowlistEnv ?? '')
+    .split(',')
+    .map((d) => d.trim().toLowerCase())
+    .filter(Boolean)
+  if (domains.length === 0) return
+  const host = new URL(url).hostname.toLowerCase()
+  if (!domains.some((domain) => hostMatches(host, domain))) {
+    throw new Error(`HTTP tool egress to "${host}" is not permitted by this workspace's allowed-domains policy.`)
+  }
+}
 
 export function httpTools(): ToolDefinition[] {
   return [
@@ -37,6 +60,7 @@ export class HttpToolClient {
   async executeTool(_serverUrl: string, name: string, args: Record<string, unknown>): Promise<unknown> {
     if (name !== 'request') throw new Error(`Unknown HTTP tool: ${name}`)
     const url = String(args.url || '')
+    assertEgressAllowed(url)
     await assertPublicUrl(url)
 
     const method = String(args.method || 'GET').toUpperCase()

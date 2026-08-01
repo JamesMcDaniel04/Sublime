@@ -7,6 +7,7 @@ import {
   DELIVERY_TOOLS,
   capabilityForProviderConfigKey,
   capabilitiesToPurgeOnDisconnect,
+  chooseDeliveryConnection,
   type NangoProxyArgs,
 } from '../delivery'
 
@@ -260,4 +261,19 @@ test('capabilitiesToPurgeOnDisconnect: no affected capabilities purges nothing',
 
 test('capabilitiesToPurgeOnDisconnect: dedupes repeated affected capabilities', () => {
   assert.deepEqual(capabilitiesToPurgeOnDisconnect(['slack', 'slack'], []), ['slack'])
+})
+
+test('chooseDeliveryConnection: own first, then org-shared, NEVER another user\'s personal connection', () => {
+  const own = { connectionId: 'own', userId: 'user-1' }
+  const shared = { connectionId: 'shared', userId: null }
+  const foreign = { connectionId: 'foreign', userId: 'user-2' }
+
+  assert.equal(chooseDeliveryConnection([foreign, shared, own], 'user-1'), own)
+  assert.equal(chooseDeliveryConnection([foreign, shared], 'user-1'), shared)
+  // Only another user's personal connection available → fail closed.
+  assert.equal(chooseDeliveryConnection([foreign], 'user-1'), null)
+  assert.equal(chooseDeliveryConnection([foreign], null), null)
+  assert.equal(chooseDeliveryConnection([], 'user-1'), null)
+  // No acting user: org-shared only.
+  assert.equal(chooseDeliveryConnection([foreign, shared], null), shared)
 })

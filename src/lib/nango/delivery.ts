@@ -78,9 +78,27 @@ export function capabilitiesToPurgeOnDisconnect<T extends string>(affected: T[],
 }
 
 /**
+ * Pure selection rule for delivery credentials: the acting user's own
+ * connection, else an org-shared one (userId null). Another user's personal
+ * connection is NEVER eligible — using it would send outbound writes under
+ * someone else's identity. No match → null (delivery fails closed).
+ */
+export function chooseDeliveryConnection<T extends { userId?: string | null }>(
+  connections: T[],
+  userId?: string | null,
+): T | null {
+  const own = userId ? connections.find((connection) => connection.userId === userId) : undefined
+  return own ?? connections.find((connection) => !connection.userId) ?? null
+}
+
+/**
  * Resolve the connection to use for a capability: the acting user's own
- * connection first, then any org connection. Matches provider config keys for
- * the capability.
+ * connection first, then an org-shared connection (no userId). Another user's
+ * personal connection is NEVER used — falling back to it would send Gmail/
+ * Slack/Salesforce writes under someone else's identity and leak their
+ * credential to whatever the agent composes. No own/shared connection means
+ * the delivery fails closed (null). Matches provider config keys for the
+ * capability.
  */
 export async function resolveDeliveryConnection(
   organizationId: string,
@@ -93,8 +111,8 @@ export async function resolveDeliveryConnection(
   })
   if (connections.length === 0) return null
 
-  const own = userId ? connections.find((connection) => connection.userId === userId) : undefined
-  const chosen = own ?? connections.find((connection) => !connection.userId) ?? connections[0]
+  const chosen = chooseDeliveryConnection(connections, userId)
+  if (!chosen) return null
   return {
     connectionId: chosen.connectionId,
     providerConfigKey: chosen.providerConfigKey,

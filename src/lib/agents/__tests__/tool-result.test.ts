@@ -24,3 +24,15 @@ test('default cap is 50k chars', () => {
   const out = serializeToolResult('y'.repeat(80_000))
   assert.equal((JSON.parse(out) as { truncated: boolean }).truncated, true)
 })
+
+test('serializeToolResult redacts credential-shaped strings before the transcript', () => {
+  const out = serializeToolResult({
+    ok: true,
+    token: 'xoxb-1234567890-abcdefghij',
+    headers: { authorization: 'Bearer abcdefghijklmnopqrstuvwxyz0123456789' },
+  })
+  assert.ok(!out.includes('xoxb-1234567890-abcdefghij'))
+  assert.ok(!out.includes('abcdefghijklmnopqrstuvwxyz0123456789'))
+  assert.ok(out.includes('[redacted:'))
+  assert.doesNotThrow(() => JSON.parse(out))
+})
