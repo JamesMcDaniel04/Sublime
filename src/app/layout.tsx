@@ -25,7 +25,7 @@ const anonymousPro = Anonymous_Pro({
 export const metadata: Metadata = {
   title: 'Sublime',
   description:
-    'AI that proves its ROI for RevOps teams. Sublime deploys specialized agents against the goals that matter — quota, ARR, KPIs — and shows the work behind every run.',
+    'Agents that achieve your goals. Sublime deploys specialized agents against the goals that matter — quota, ARR, KPIs — and proves the ROI of every run.',
 }
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {

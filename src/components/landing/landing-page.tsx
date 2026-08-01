@@ -124,12 +124,12 @@ export function LandingPage({ fontClassName = '' }: { fontClassName?: string }) 
             {/* Left column — text */}
             <div className="relative z-[3] flex-1 min-w-0 max-w-[540px]">
               <h1 className="text-[clamp(2rem,4vw,3.2rem)] font-[500] leading-[1.08] tracking-[-0.04em] text-foreground max-w-[540px]">
-                AI that proves its ROI
+                Agents that achieve your goals
               </h1>
               <p className="mt-6 text-base leading-relaxed text-muted-foreground max-w-[420px]">
-                Sublime connects to your tech stack, connects the dots, and deploys specialized
-                agents against the goals that matter: Quota, ARR, and KPIs. Every run shows
-                its work and every goal shows its progress.
+                Sublime connects to your stack and deploys specialized agents against the
+                goals that matter — quota, ARR, KPIs. Every run shows its work, and every
+                goal shows the ROI.
               </p>
               <div className="mt-10 flex items-center gap-4">
                 <Link href="/auth/signup">
@@ -375,25 +375,25 @@ export function LandingPage({ fontClassName = '' }: { fontClassName?: string }) 
             What you get
           </p>
           <h2 className="text-[clamp(1.8rem,3vw,2.5rem)] font-[500] tracking-[-0.03em] text-foreground max-w-[500px] leading-[1.15]">
-            Three ways it<br />pays for itself.
+            Agents that pay<br />for themselves.
           </h2>
 
           <div className="mt-16 border border-border">
             <div className="grid grid-cols-1 md:grid-cols-3">
               {[
                 {
-                  title: 'Automate the repetitive',
-                  desc: 'Specialized agents take over the recurring work — digests, triage, follow-ups — so your people stop doing robot work.',
+                  title: 'Agents own the busywork',
+                  desc: 'Specialized agents take over the recurring work behind your goals — digests, triage, follow-ups — so your people stop doing robot work.',
                   graphic: 'bars',
                 },
                 {
-                  title: 'Cut the cost',
-                  desc: 'Agents run in minutes for cents, and every run is logged — so you can see exactly what got done and what it replaced.',
+                  title: 'Every run proves its cost',
+                  desc: 'Agents run in minutes for cents, and every run is logged against its goal — so you see exactly what got done and what it replaced.',
                   graphic: 'flow',
                 },
                 {
-                  title: 'Find the process wins',
-                  desc: 'Connected across your stack, Sublime spots bottlenecks and leaks, then proposes specialized agents to fix them.',
+                  title: 'Goals show their progress',
+                  desc: 'Connected across your stack, Sublime tracks each goal, spots the bottlenecks in its way, and proposes new agents to close the gap.',
                   graphic: 'chart',
                 },
               ].map((feature, i) => (
