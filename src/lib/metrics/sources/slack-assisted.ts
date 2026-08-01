@@ -78,6 +78,7 @@ export function makeSlackAssistedMetricSource(deps?: {
         metricHint: typeof ctx.config.metricHint === 'string' ? ctx.config.metricHint : undefined,
         sourceLabel: `#${rawChannel.replace(/^#/, '')}`,
         corpus,
+        organizationId: ctx.organizationId,
         generate: deps?.generate,
       })
       return { value: reading.value, asOf: new Date() }

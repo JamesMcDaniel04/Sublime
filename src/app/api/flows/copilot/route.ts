@@ -1,7 +1,7 @@
 import { z } from 'zod'
 import { ApiError, withAuthenticatedApi } from '@/lib/server/api-handler'
 import { rateLimit } from '@/lib/ratelimit'
-import { checkMonthlyTokenBudget } from '@/lib/usage/budget'
+import { checkMonthlyTokenBudget, recordTokenUsage } from '@/lib/usage/budget'
 import { flowGraphSchema, emptyGraph } from '@/lib/flows/graph'
 import { generateFlowGraph } from '@/lib/flows/copilot-generate'
 import { buildCopilotGrounding } from '@/lib/flows/copilot-grounding'
@@ -41,6 +41,8 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
 
   try {
     const { graph, validation, needsAttention } = await generateFlowGraph({ system, user, roster, toolCatalog })
+    // Rough metering (~chars/4) since the generation returns no token usage.
+    void recordTokenUsage(auth.organizationId, Math.ceil((system.length + user.length + JSON.stringify(graph).length) / 4)).catch(() => undefined)
     return { success: true, graph, validation, needsAttention }
   } catch (error) {
     return {

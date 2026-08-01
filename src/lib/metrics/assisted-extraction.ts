@@ -7,6 +7,7 @@
  * charting an invented number. Runs on the cheap summary model.
  */
 import { DEFAULT_SUMMARY_MODEL, generateStructured } from '@/lib/llm/model-runner'
+import { recordTokenUsage } from '@/lib/usage/budget'
 import { parseSheetNumber } from './sources/google-sheets'
 
 const MAX_CORPUS_CHARS = 12_000
@@ -40,6 +41,9 @@ export async function extractMetricReading(params: {
   metricHint?: string
   sourceLabel: string
   corpus: string
+  // Meters the extraction against the workspace token budget when provided —
+  // both the preview route and the sync path pass it.
+  organizationId?: string
   generate?: typeof generateStructured
 }): Promise<AssistedReading> {
   const corpus = params.corpus.slice(0, MAX_CORPUS_CHARS)
@@ -58,6 +62,11 @@ export async function extractMetricReading(params: {
     maxTokens: 400,
     model: DEFAULT_SUMMARY_MODEL,
   })
+
+  // Rough metering (~chars/4) since generateStructured returns no token usage.
+  if (params.organizationId) {
+    void recordTokenUsage(params.organizationId, Math.ceil((SYSTEM.length + corpus.length + (raw?.length ?? 0)) / 4)).catch(() => undefined)
+  }
 
   let parsed: { found?: unknown; value?: unknown; confidence?: unknown; evidence?: unknown }
   try {

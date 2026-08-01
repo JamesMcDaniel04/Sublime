@@ -3,7 +3,7 @@ import { ApiError, withAuthenticatedApi } from '@/lib/server/api-handler'
 import { listMetricSourceOptions } from '@/lib/metrics/available-sources'
 import { CopilotDraftError, draftGoalDashboard } from '@/lib/goals/copilot'
 import { rateLimit } from '@/lib/ratelimit'
-import { checkMonthlyTokenBudget } from '@/lib/usage/budget'
+import { checkMonthlyTokenBudget, recordTokenUsage } from '@/lib/usage/budget'
 import { apiLogger } from '@/lib/logger'
 
 export const runtime = 'nodejs'
@@ -43,6 +43,8 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
       description,
       sources,
     })
+    // Rough metering (~chars/4) since the draft returns no token usage.
+    void recordTokenUsage(auth.organizationId, Math.ceil((description.length + JSON.stringify(draft).length) / 4)).catch(() => undefined)
     return { success: true, draft, notes }
   } catch (error) {
     if (error instanceof CopilotDraftError) {

@@ -2,6 +2,7 @@ import { z } from 'zod'
 import { generateStructured } from '@/lib/llm/model-runner'
 import { parseIntegrationMatches, sanitizeIntegrationMatches } from '@/lib/integrations/ai-search'
 import { ApiError, withAuthenticatedApi } from '@/lib/server/api-handler'
+import { checkMonthlyTokenBudget, recordTokenUsage } from '@/lib/usage/budget'
 
 // Structured-output calls are bounded at ~100s (structuredCallDeadlineMs);
 // without an explicit maxDuration the platform default can kill the request
@@ -34,8 +35,10 @@ const RESULT_SCHEMA = {
   required: ['matches'],
 } as const
 
-export const POST = withAuthenticatedApi(async (request) => {
+export const POST = withAuthenticatedApi(async (request, auth) => {
   const { query, items } = BodySchema.parse(await request.json())
+  const budget = await checkMonthlyTokenBudget(auth.organizationId, auth.dbUser.id)
+  if (budget.over) throw new ApiError('Monthly token budget reached for this workspace. Buy additional credits in Settings → Billing or upgrade your plan.', 429, 'BUDGET_EXCEEDED')
   let raw: string
   try {
     raw = await generateStructured({
@@ -54,5 +57,7 @@ export const POST = withAuthenticatedApi(async (request) => {
     throw new ApiError('AI integration search is not configured for this workspace.', 503, 'AI_SEARCH_UNAVAILABLE', error)
   }
 
+  // Rough metering (~chars/4) since generateStructured returns no token usage.
+  void recordTokenUsage(auth.organizationId, Math.ceil((query.length + raw.length) / 4)).catch(() => undefined)
   return { success: true, matches: sanitizeIntegrationMatches(parseIntegrationMatches(raw), items) }
 }, { requires: 'member', rateLimit: { feature: 'ai-search', perUser: 20 } })

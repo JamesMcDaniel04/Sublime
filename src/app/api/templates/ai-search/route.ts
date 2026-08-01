@@ -2,7 +2,7 @@ import { z } from 'zod'
 import { generateStructured } from '@/lib/llm/model-runner'
 import { ApiError, withAuthenticatedApi } from '@/lib/server/api-handler'
 import { rateLimit } from '@/lib/ratelimit'
-import { checkMonthlyTokenBudget } from '@/lib/usage/budget'
+import { checkMonthlyTokenBudget, recordTokenUsage } from '@/lib/usage/budget'
 import { parseMatches, sanitizeMatches, type CatalogItem } from '@/lib/templates/ai-search'
 
 // Structured-output calls are bounded at ~100s (structuredCallDeadlineMs);
@@ -88,6 +88,8 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
     throw new ApiError('AI search is not configured for this workspace.', 503, 'AI_SEARCH_UNAVAILABLE', error)
   }
 
+  // Rough metering (~chars/4) since generateStructured returns no token usage.
+  void recordTokenUsage(auth.organizationId, Math.ceil((query.length + raw.length) / 4)).catch(() => undefined)
   const matches = sanitizeMatches(parseMatches(raw), items as CatalogItem[])
   return { success: true, matches }
 }, { requires: 'member', rateLimit: { feature: 'template-search', perUser: 20 } })

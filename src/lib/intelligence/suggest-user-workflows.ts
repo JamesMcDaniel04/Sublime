@@ -10,6 +10,7 @@ import { prisma } from '@/lib/prisma'
 import { apiLogger } from '@/lib/logger'
 import { generateStructured, DEFAULT_SUMMARY_MODEL } from '@/lib/llm/model-runner'
 import { checkMonthlyTokenBudget, recordTokenUsage } from '@/lib/usage/budget'
+import { flowCapacityAvailable } from '@/lib/billing/enforce'
 import { captureError } from '@/lib/observability/sentry'
 import { saveAgentMemory } from '@/lib/memory/agent-memory'
 import { notify } from '@/lib/notifications/service'
@@ -159,7 +160,7 @@ export function renderPatternEvidence(patterns: EligiblePattern[]): string[] {
 export { suggestionOutcomeLabel, ADOPTION_WINDOW_MS, type SuggestionFeedbackRow } from '@/lib/behavior/outcome-weights'
 
 export type UserSynthesisResult =
-  | { skipped: 'below-gate' | 'pending-suggestion' | 'no-eligible-patterns' | 'budget-exceeded' | 'throttled' | 'no-suggestion' | 'generation-failed' | 'error' }
+  | { skipped: 'below-gate' | 'pending-suggestion' | 'no-eligible-patterns' | 'budget-exceeded' | 'throttled' | 'no-suggestion' | 'generation-failed' | 'flow-capacity' | 'error' }
   | { created: true; suggestionId: string; kind: 'new_flow' | 'enhancement' }
 
 export type UserSynthesisOverrides = {
@@ -294,6 +295,12 @@ export async function synthesizeUserSuggestions(
         if (!validation.ok) {
           await releaseClaim(userId, previous)
           return { skipped: 'generation-failed' }
+        }
+        // Same rule as org-level suggestion drafts: background work skips at
+        // plan capacity instead of consuming the user's remaining slots.
+        if (!(await flowCapacityAvailable(organizationId))) {
+          await releaseClaim(userId, previous)
+          return { skipped: 'flow-capacity' }
         }
         const flow = await prisma.flow.create({
           data: {

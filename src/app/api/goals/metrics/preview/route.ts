@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import { getMetricSource } from '@/lib/metrics/registry'
 import { ApiError, withAuthenticatedApi } from '@/lib/server/api-handler'
+import { checkMonthlyTokenBudget } from '@/lib/usage/budget'
 
 export const runtime = 'nodejs'
 
@@ -29,6 +30,13 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
   }
   const adapter = getMetricSource(body.source)
   if (!adapter) throw new ApiError('Metric source is unavailable', 400, 'SOURCE_UNAVAILABLE')
+  // Assisted previews run LLM extraction over mailbox/channel history — the
+  // workspace token ceiling applies. Non-assisted sources are plain reads and
+  // stay available even when the budget is exhausted.
+  if (body.source === 'slack_assisted' || body.source === 'gmail_assisted') {
+    const budget = await checkMonthlyTokenBudget(auth.organizationId, auth.dbUser.id)
+    if (budget.over) throw new ApiError('Monthly token budget reached for this workspace. Buy additional credits in Settings → Billing or upgrade your plan.', 429, 'BUDGET_EXCEEDED')
+  }
   try {
     const reading = await adapter.fetchValue(
       {
@@ -48,4 +56,4 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
       error,
     )
   }
-}, { requires: 'member' })
+}, { requires: 'member', rateLimit: { feature: 'goals-metrics-preview', perUser: 20 } })

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { apiLogger } from '@/lib/logger'
+import { rateLimit } from '@/lib/ratelimit'
 import { getAuthWithUser } from '@/lib/supabase/auth-utils'
 import { capabilitiesForPlan } from '@/lib/billing/capabilities'
 import { entitlementPlanFor } from '@/lib/billing/entitlements'
@@ -20,8 +21,9 @@ const contactSchema = z.object({
   reason: z.enum(['enterprise', 'support', 'billing', 'privacy', 'feedback', 'other']),
   message: z.string().trim().min(1).max(5000),
   // Honeypot: real users never fill this hidden field. Bots that do get a
-  // success response and no email — no signal that they were caught.
-  website: z.string().max(0).optional().default(''),
+  // success response and no email — no signal that they were caught. Any
+  // content must therefore VALIDATE (a max-length 400 would be the signal).
+  website: z.string().max(2000).optional().default(''),
 })
 
 const REASON_LABELS: Record<z.infer<typeof contactSchema>['reason'], string> = {
@@ -37,6 +39,19 @@ const REASON_LABELS: Record<z.infer<typeof contactSchema>['reason'], string> = {
 // Not wrapped in withAuthenticatedApi: no session is required, and unpaid
 // users must still be able to reach sales and support.
 export async function POST(request: NextRequest) {
+  // Per-IP throttle before any other work — this is the only unauthenticated
+  // POST that spends money (a Resend send per submission), and the honeypot
+  // alone doesn't stop a scripted submitter. First x-forwarded-for hop is the
+  // client on Vercel; 'unknown' shares one modest bucket rather than passing.
+  const ip = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || 'unknown'
+  const limited = await rateLimit(`contact:${ip}`, { limit: 5, windowMs: 60_000 })
+  if (!limited.ok) {
+    return NextResponse.json(
+      { success: false, error: `Too many messages — please wait a minute, or email us directly at ${CONTACT_INBOX}.` },
+      { status: 429 },
+    )
+  }
+
   const parsed = contactSchema.safeParse(await request.json().catch(() => null))
   if (!parsed.success) {
     return NextResponse.json({ success: false, error: 'Please fill in your name, a valid email, and a message.' }, { status: 400 })

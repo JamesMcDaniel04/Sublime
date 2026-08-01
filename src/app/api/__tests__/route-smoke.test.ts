@@ -95,6 +95,8 @@ if (TEST_DB) {
     { name: 'GET /api/organizations', run: async () => (await import('../organizations/route')).GET(req('/api/organizations')) },
     { name: 'GET /api/organizations/members', run: async () => (await import('../organizations/members/route')).GET(req('/api/organizations/members')) },
     { name: 'GET /api/push/key', run: async () => (await import('../push/key/route')).GET(req('/api/push/key')) },
+    // Reconcile probe: no endpoint param is a valid "not registered" answer.
+    { name: 'GET /api/push/subscribe', run: async () => (await import('../push/subscribe/route')).GET(req('/api/push/subscribe')) },
     { name: 'GET /api/search', run: async () => (await import('../search/route')).GET(req('/api/search?q=smoke')) },
     { name: 'GET /api/settings/members', run: async () => (await import('../settings/members/route')).GET(req('/api/settings/members')) },
     { name: 'GET /api/settings/insights', run: async () => (await import('../settings/insights/route')).GET(req('/api/settings/insights')) },

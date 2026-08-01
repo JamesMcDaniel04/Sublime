@@ -84,7 +84,9 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
     if (error instanceof UnsupportedFileError) throw new ApiError(error.message, 415, 'UNSUPPORTED_TYPE')
     throw error
   }
-}, { requires: 'member' })
+  // Each upload fans out into chunking + embedding generation — throttled so a
+  // scripted loop can't turn the embedding pipeline into a cost hole.
+}, { requires: 'member', rateLimit: { feature: 'knowledge-upload', perUser: 20 } })
 
 // DELETE — remove a knowledge document (and its chunks, via cascade).
 export const DELETE = withAuthenticatedApi(async (request, auth) => {

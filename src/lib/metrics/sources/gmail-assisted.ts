@@ -106,6 +106,7 @@ export function makeGmailAssistedMetricSource(deps?: {
         metricHint: typeof ctx.config.metricHint === 'string' ? ctx.config.metricHint : undefined,
         sourceLabel: `Gmail (“${query}”)`,
         corpus: bodies.join('\n---\n'),
+        organizationId: ctx.organizationId,
         generate: deps?.generate,
       })
       return { value: reading.value, asOf: new Date() }

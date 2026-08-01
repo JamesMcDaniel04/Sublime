@@ -24,6 +24,7 @@ import { generateStructured, DEFAULT_SUMMARY_MODEL } from '@/lib/llm/model-runne
 import { saveAgentMemory } from '@/lib/memory/agent-memory'
 import { orgIntelligenceAgentId, NANGO_CONNECTED_STATUS } from '@/lib/intelligence/connection-scan'
 import { notify } from '@/lib/notifications/service'
+import { flowCapacityAvailable } from '@/lib/billing/enforce'
 import { buildCopilotGrounding } from '@/lib/flows/copilot-grounding'
 import { generateFlowGraph } from '@/lib/flows/copilot-generate'
 import { topPersonaDepartments } from '@/lib/persona/weights'
@@ -451,6 +452,15 @@ export async function synthesizeWorkflowSuggestions(organizationId: string, over
                 title: suggestion.title,
                 errors: validation.errors.map((issue) => issue.message),
               })
+              await prisma.agentMemory.delete({ where: { id: saved.id, organizationId } }).catch(() => undefined)
+              continue
+            }
+            // Suggestion drafts must not fill plan slots the user then can't
+            // use for their own flows — at capacity the idea stays an open
+            // memory and the draft is skipped, not forced.
+            if (!(await flowCapacityAvailable(organizationId))) {
+              discardedCount += 1
+              apiLogger.info('synthesizeWorkflowSuggestions: at flow capacity, skipping draft flow', { organizationId, title: suggestion.title })
               await prisma.agentMemory.delete({ where: { id: saved.id, organizationId } }).catch(() => undefined)
               continue
             }

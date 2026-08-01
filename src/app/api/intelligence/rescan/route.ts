@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import { prisma } from '@/lib/prisma'
 import { ApiError, withAuthenticatedApi } from '@/lib/server/api-handler'
+import { checkMonthlyTokenBudget } from '@/lib/usage/budget'
 import { scanConnection } from '@/lib/intelligence/connection-scan'
 import { DELIVERY_PROVIDERS, type DeliveryCapability } from '@/lib/nango/delivery'
 
@@ -45,6 +46,11 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
   const { plane, connectionRef, connectionName } = bodySchema.parse(await request.json())
   await assertOwnedConnection(auth.organizationId, auth.dbUser.id, plane, connectionRef)
 
+  // The scan runs LLM distillation plus live tool sampling for up to 5
+  // minutes — the workspace ceiling applies like every other LLM route.
+  const budget = await checkMonthlyTokenBudget(auth.organizationId, auth.dbUser.id)
+  if (budget.over) throw new ApiError('Monthly token budget reached for this workspace. Buy additional credits in Settings → Billing or upgrade your plan.', 429, 'BUDGET_EXCEEDED')
+
   const result = await scanConnection({
     organizationId: auth.organizationId,
     userId: auth.dbUser.id,
@@ -54,4 +60,4 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
   })
 
   return { success: true, result }
-}, { requires: 'member' })
+}, { requires: 'member', rateLimit: { feature: 'intelligence-rescan', perUser: 5, windowSeconds: 300 } })

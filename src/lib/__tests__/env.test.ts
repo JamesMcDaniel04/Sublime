@@ -34,6 +34,38 @@ test('production with everything set: does not throw', async () => {
   assert.doesNotThrow(() => assertServerEnv())
 })
 
+test('server env: warns (never throws) on missing recommended vars, naming the consequence', async () => {
+  Object.assign(process.env, FULL_PROD_ENV)
+  for (const name of [
+    'STRIPE_SECRET_KEY', 'STRIPE_WEBHOOK_SECRET', 'SUPABASE_SERVICE_ROLE_KEY',
+    'RESEND_API_KEY', 'VAPID_PUBLIC_KEY', 'VAPID_PRIVATE_KEY', 'NEXT_PUBLIC_APP_URL',
+    'UPSTASH_REDIS_REST_URL', 'UPSTASH_REDIS_REST_TOKEN', 'REDIS_URL',
+  ]) delete process.env[name]
+  const warnings: string[] = []
+  const { assertServerEnv } = await freshEnv()
+  assert.doesNotThrow(() => assertServerEnv({ warn: (message: string) => warnings.push(message) }))
+  const joined = warnings.join('\n')
+  for (const name of ['STRIPE_SECRET_KEY', 'STRIPE_WEBHOOK_SECRET', 'SUPABASE_SERVICE_ROLE_KEY', 'RESEND_API_KEY', 'VAPID_PUBLIC_KEY', 'NEXT_PUBLIC_APP_URL']) {
+    assert.ok(joined.includes(name), `expected a warning naming ${name}`)
+  }
+  // No Upstash pair and no REDIS_URL: the rate limiter silently becomes
+  // per-instance memory — every limit multiplies by the instance count.
+  assert.ok(/per-instance|in-memory/i.test(joined), 'expected a rate-limit backend warning')
+})
+
+test('server env: a configured Redis backend silences the rate-limit warning', async () => {
+  Object.assign(process.env, FULL_PROD_ENV, {
+    STRIPE_SECRET_KEY: 'sk', STRIPE_WEBHOOK_SECRET: 'whsec', SUPABASE_SERVICE_ROLE_KEY: 'srk',
+    RESEND_API_KEY: 're', VAPID_PUBLIC_KEY: 'vp', VAPID_PRIVATE_KEY: 'vk', NEXT_PUBLIC_APP_URL: 'https://app',
+    UPSTASH_REDIS_REST_URL: 'https://r.upstash.io', UPSTASH_REDIS_REST_TOKEN: 'tok',
+  })
+  delete process.env.REDIS_URL
+  const warnings: string[] = []
+  const { assertServerEnv } = await freshEnv()
+  assertServerEnv({ warn: (message: string) => warnings.push(message) })
+  assert.equal(warnings.length, 0, `expected no warnings, got: ${warnings.join(' | ')}`)
+})
+
 test('production with missing vars: throws listing every missing name', async () => {
   Object.assign(process.env, FULL_PROD_ENV)
   delete process.env.DATABASE_URL

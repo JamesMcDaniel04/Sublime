@@ -30,10 +30,15 @@ function overLimitError(what: string, cap: number, planLabel: string): ApiError 
   )
 }
 
+// Capacity counts only what the agents list shows: DELETED is a soft delete
+// and SYSTEM is the hidden org-intelligence agent — neither may hold a slot
+// the user can't see or free.
+const VISIBLE_AGENTS = { status: { not: 'DELETED' }, agentType: { not: 'SYSTEM' } } as const
+
 export async function assertAgentCapacity(organizationId: string): Promise<void> {
   const limits = await orgLimits(organizationId)
   if (!Number.isFinite(limits.maxAgents)) return
-  const count = await prisma.agentTask.count({ where: { organizationId } })
+  const count = await prisma.agentTask.count({ where: { organizationId, ...VISIBLE_AGENTS } })
   if (count >= limits.maxAgents) throw overLimitError('agents', limits.maxAgents, limits.label)
 }
 
@@ -86,6 +91,20 @@ export async function assertFlowCapacity(organizationId: string): Promise<void> 
   if (!Number.isFinite(limits.maxFlows)) return
   const count = await prisma.flow.count({ where: { organizationId } })
   if (count >= limits.maxFlows) throw overLimitError('flows', limits.maxFlows, limits.label)
+}
+
+/**
+ * Non-throwing capacity probe for background creators (intelligence
+ * suggestion drafts). Cron work must SKIP at capacity, not throw — and it
+ * must never fill slots the user then can't use for their own flows.
+ */
+export async function flowCapacityAvailable(organizationId: string): Promise<boolean> {
+  try {
+    await assertFlowCapacity(organizationId)
+    return true
+  } catch {
+    return false
+  }
 }
 
 export async function assertIntegrationCapacity(organizationId: string): Promise<void> {
@@ -174,7 +193,7 @@ export async function paymentRequiredOrgIds(organizationIds: string[]): Promise<
 /** Current usage snapshot for the billing UI. */
 export async function orgUsageSummary(organizationId: string) {
   const [agents, flows, nango, mcp, members] = await Promise.all([
-    prisma.agentTask.count({ where: { organizationId } }),
+    prisma.agentTask.count({ where: { organizationId, ...VISIBLE_AGENTS } }),
     prisma.flow.count({ where: { organizationId } }),
     prisma.nangoConnection.count({ where: { organizationId } }),
     prisma.mcpConnection.count({ where: { organizationId } }),

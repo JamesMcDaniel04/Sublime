@@ -2,7 +2,7 @@ import { z } from 'zod'
 import { ApiError, withAuthenticatedApi } from '@/lib/server/api-handler'
 import { recordUserEvent } from '@/lib/behavior/record-event'
 import { rateLimit } from '@/lib/ratelimit'
-import { checkMonthlyTokenBudget } from '@/lib/usage/budget'
+import { checkMonthlyTokenBudget, recordTokenUsage } from '@/lib/usage/budget'
 import { generateStructured } from '@/lib/llm/model-runner'
 import { flowGraphSchema, emptyGraph } from '@/lib/flows/graph'
 import { validateFlowGraph } from '@/lib/flows/validate'
@@ -95,6 +95,8 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
 
   try {
     const raw = await generateStructured({ system, user, schema: OPS_JSON_SCHEMA, schemaName: 'flow_edit_ops', maxTokens: 3500 })
+    // Rough metering (~chars/4) since generateStructured returns no token usage.
+    void recordTokenUsage(auth.organizationId, Math.ceil((system.length + user.length + raw.length) / 4)).catch(() => undefined)
     const reply = parseCopilotChatReply(raw)
     const { ops, discarded } = sanitizeCopilotOps(reply.candidates, { agents: roster, toolCatalog })
     const totalDiscarded = discarded + (reply.opsUnreadable ? 1 : 0)
