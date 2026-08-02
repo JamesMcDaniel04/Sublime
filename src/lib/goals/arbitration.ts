@@ -37,18 +37,26 @@ export function rankGoals(goals: ArbitrationGoal[]): ArbitrationGoal[] {
   })
 }
 
+/** Keeps the prompt bounded for a many-goal agent — same discipline as the
+ *  two-goal work-feedback cap in execute-agent.ts. Goals past the cap are
+ *  summarized as a count, not silently dropped. */
+const MAX_RENDERED_GOALS = 5
+
 /** Prompt block for a multi-goal agent; empty below two goals — a single
  *  goal needs no arbitration and the extra block would be noise. */
 export function arbitrationSection(ranked: ArbitrationGoal[]): string {
   if (ranked.length < 2) return ''
-  const lines = ranked.map(
+  const rendered = ranked.slice(0, MAX_RENDERED_GOALS)
+  const lines = rendered.map(
     (goal, index) =>
       `${index + 1}. ${goal.name} — ${goal.riskLevel}, due ${goal.targetDate.toISOString().slice(0, 10)}`,
   )
+  const remainder = ranked.length - rendered.length
   return [
     '## Goal priorities',
     'This agent serves more than one goal. Current ranking, most important first:',
     ...lines,
+    ...(remainder > 0 ? [`(${remainder} more linked goals rank below these.)`] : []),
     'When actions trade off between goals, favor the higher-ranked goal. Never spend a turn on a lower-ranked goal while a higher-ranked one has an available next step.',
   ].join('\n')
 }

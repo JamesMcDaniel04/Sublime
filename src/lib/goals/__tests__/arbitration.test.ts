@@ -67,3 +67,16 @@ test('arbitrationSection renders the ranking with risk levels and the trade-off 
   assert.match(section, /off_track/)
   assert.match(section, /higher-ranked/)
 })
+
+test('arbitrationSection caps rendered goals and summarizes the remainder', () => {
+  const many = rankGoals(
+    Array.from({ length: 8 }, (_, i) =>
+      goal({ id: `g${i}`, name: `Goal ${i}`, targetDate: new Date(2026, 11, i + 1) }),
+    ),
+  )
+  const section = arbitrationSection(many)
+  assert.match(section, /Goal 0/)
+  assert.match(section, /Goal 4/)
+  assert.ok(!section.includes('Goal 5'))
+  assert.match(section, /3 more linked goals/)
+})

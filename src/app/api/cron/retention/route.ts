@@ -160,7 +160,10 @@ export async function GET(request: Request) {
     const transcriptsPruned = staleTranscripts.length
       ? (await systemPrisma.agentExecution.updateMany({
           where: { id: { in: staleTranscripts.map((e) => e.id) } },
-          data: { transcript: Prisma.DbNull },
+          // The in-run plan artifact shares the transcript's lifecycle (its
+          // schema comment promises "pruned with the run like the transcript"):
+          // both only matter while a run could still be resumed or inspected.
+          data: { transcript: Prisma.DbNull, plan: Prisma.DbNull },
         })).count
       : 0
 
