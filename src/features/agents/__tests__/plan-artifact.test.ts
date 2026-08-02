@@ -61,6 +61,24 @@ test('applyPlanUpdate with revisedSteps replaces later pending steps and records
   assert.deepEqual(next.plan!.revisions, [{ turn: 4, reason: 'API returned 403' }])
 })
 
+test('applyPlanUpdate only accepts explained revisions after a failed step', () => {
+  const plan = createPlan(['a', 'b'])
+  assert.match(
+    applyPlanUpdate(plan, { stepN: 1, status: 'done', note: 'changed my mind', revisedSteps: ['c'], turn: 2 }).error ?? '',
+    /only valid.*failed/i,
+  )
+  assert.match(
+    applyPlanUpdate(plan, { stepN: 1, status: 'failed', revisedSteps: ['c'], turn: 2 }).error ?? '',
+    /note explaining why/i,
+  )
+  assert.match(
+    applyPlanUpdate(plan, { stepN: 1, status: 'failed', note: 'blocked', revisedSteps: ['  '], turn: 2 }).error ?? '',
+    /non-empty step/i,
+  )
+  assert.equal(plan.steps[0].status, 'pending')
+  assert.deepEqual(plan.revisions, [])
+})
+
 test('auditPlan: strategize run that never set a plan is the only finding', () => {
   assert.deepEqual(auditPlan(null, true), ['plan_never_set'])
   assert.deepEqual(auditPlan(null, false), [])

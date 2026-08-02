@@ -145,6 +145,7 @@ export const GET = withAuthenticatedApi(async (request, auth) => {
       recurrence: goal.recurrence,
       status: goal.status,
       riskLevel: goal.riskLevel,
+      priority: goal.priority,
       personal: goal.ownerUserId !== null,
       // For the Restricted badge: visible only to people who can already see
       // the goal, so it reveals nothing to anyone else.

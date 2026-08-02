@@ -123,13 +123,21 @@ export async function recordGoalRunVerdicts(
     runId: string
     verdict: ContributionVerdict
     evidence: string
+    /** Exact ranked goals used to ground this run. Omit only when the caller
+     *  did not resolve grounding, in which case the persistence layer falls
+     *  back to the linked-goal query for compatibility. */
+    goalIds?: string[]
   },
   deps: VerdictDeps = defaultDeps,
 ): Promise<void> {
   try {
-    const goalIds = (
-      await deps.linkedGoalIds(input.organizationId, { type: input.resourceType, id: input.resourceId })
-    ).slice(0, VERDICT_GOAL_BOUND)
+    const goalIds = (input.goalIds ??
+      (await deps.linkedGoalIds(input.organizationId, {
+        type: input.resourceType,
+        id: input.resourceId,
+      })))
+      .filter((goalId, index, all) => goalId && all.indexOf(goalId) === index)
+      .slice(0, VERDICT_GOAL_BOUND)
     for (const goalId of goalIds) {
       await deps.createVerdict({
         organizationId: input.organizationId,

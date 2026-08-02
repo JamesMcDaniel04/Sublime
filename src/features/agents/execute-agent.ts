@@ -733,6 +733,10 @@ export async function runAgentExecution(
     // ever told to log work when it genuinely holds log_work.
     const goalWork = goalWorkSection(tools)
     if (goalWork) system += `\n\n${goalWork}`
+    // Keep the exact linked goals used to ground this run. Reflection verdicts
+    // must land on these same goals, not a second arbitrarily ordered query.
+    let groundedGoalIds: string[] | null = null
+    let linkedGoalContext: string | null = null
     // Multi-goal arbitration + per-goal work feedback. Best-effort: a
     // learning-layer failure must never stop a run that would otherwise do
     // useful work. Work feedback stays bounded to two goals so a many-goal
@@ -745,7 +749,7 @@ export async function runAgentExecution(
         id: agent.id,
       })
       let orderedGoalIds = linkedGoalIds
-      if (linkedGoalIds.length >= 2) {
+      if (linkedGoalIds.length > 0) {
         const { rankGoals, arbitrationSection } = await import('@/lib/goals/arbitration')
         const rows = await prisma.goal.findMany({
           where: { id: { in: linkedGoalIds }, organizationId, status: 'active' },
@@ -754,9 +758,16 @@ export async function runAgentExecution(
         const ranked = rankGoals(
           rows.map((row) => ({ ...row, riskLevel: row.riskLevel as 'on_track' | 'at_risk' | 'off_track' | 'no_data' })),
         )
-        const arbitration = arbitrationSection(ranked)
-        if (arbitration) system += `\n\n${arbitration}`
+        if (linkedGoalIds.length >= 2) {
+          const arbitration = arbitrationSection(ranked)
+          if (arbitration) system += `\n\n${arbitration}`
+        }
         orderedGoalIds = ranked.map((row) => row.id)
+        groundedGoalIds = orderedGoalIds.slice(0, 2)
+        linkedGoalContext = ranked
+          .slice(0, 2)
+          .map((row, index) => `${index + 1}. ${row.name} (${row.riskLevel}, due ${row.targetDate.toISOString().slice(0, 10)})`)
+          .join('\n')
       }
       if (goalWork) {
         const [{ loadWorkFeedback }, { renderWorkFeedback }] = await Promise.all([
@@ -1064,9 +1075,10 @@ export async function runAgentExecution(
     const persistPlan = async () => {
       // systemPrisma: id-keyed plan checkpoint on worker job data; execution id
       // was validated against this tenant when it was loaded/created above.
-      await systemPrisma.agentExecution
-        .update({ where: { id: execution.id }, data: { plan: jsonValue(runPlan) } })
-        .catch(() => undefined)
+      await systemPrisma.agentExecution.update({
+        where: { id: execution.id },
+        data: { plan: jsonValue(runPlan) },
+      })
     }
     // Why the run stopped early, if it did — drives the run.capped event and a
     // distinct (non-success) completion notification.
@@ -1610,7 +1622,7 @@ export async function runAgentExecution(
       organizationId,
       agentId: agent.id,
       executionId: execution.id,
-      goal: (agent as { goal?: string | null }).goal ?? null,
+      goal: linkedGoalContext ?? (agent as { goal?: string | null }).goal ?? null,
       objective: agent.objective,
       summary,
       processLog: transcriptSummaryForReflection(transcript),
@@ -1635,6 +1647,7 @@ export async function runAgentExecution(
           runId: execution.id,
           verdict: reflection.goalContribution.verdict,
           evidence: reflection.goalContribution.evidence,
+          ...(groundedGoalIds ? { goalIds: groundedGoalIds } : {}),
         })
       })
       .catch(() => undefined)

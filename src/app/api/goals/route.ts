@@ -222,6 +222,7 @@ export const GET = withAuthenticatedApi(async (_request, auth) => {
         recurrence: goal.recurrence,
         status: goal.status,
         riskLevel: goal.riskLevel,
+        priority: goal.priority,
         // Read straight off the goal row: the column exists precisely so the
         // list can show composition health without loading every component
         // for every card.

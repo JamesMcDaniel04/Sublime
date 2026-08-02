@@ -47,6 +47,17 @@ export function applyPlanUpdate(
     return { error: `No step ${update.stepN} in the current plan. Steps: ${plan.steps.map((s) => s.n).join(', ')}` }
   }
   const note = update.note?.trim().slice(0, MAX_NOTE)
+  if (update.revisedSteps && update.revisedSteps.length > 0) {
+    if (update.status !== 'failed') {
+      return { error: 'revisedSteps is only valid when marking a step failed.' }
+    }
+    if (!note) {
+      return { error: 'A plan revision needs a note explaining why the approach changed.' }
+    }
+    if (createPlan(update.revisedSteps).steps.length === 0) {
+      return { error: 'revisedSteps needs at least one non-empty step.' }
+    }
+  }
   let steps = plan.steps.map((step) =>
     step.n === update.stepN ? { ...step, status: update.status, ...(note ? { note } : {}) } : step,
   )
@@ -57,7 +68,7 @@ export function applyPlanUpdate(
     const kept = steps.filter((step) => step.n <= update.stepN || step.status !== 'pending')
     const fresh = createPlan(update.revisedSteps).steps
     steps = [...kept, ...fresh].map((step, index) => ({ ...step, n: index + 1 }))
-    revisions = [...revisions, { turn: update.turn, reason: note || 'plan revised' }]
+    revisions = [...revisions, { turn: update.turn, reason: note! }]
   }
   return { plan: { steps, revisions } }
 }

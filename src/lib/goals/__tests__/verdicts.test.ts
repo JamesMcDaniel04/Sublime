@@ -74,6 +74,36 @@ test('recordGoalRunVerdicts writes one row per linked goal (bounded to two) and 
   assert.deepEqual(escalated, [{ goalId: 'g1', ownerUserId: 'u1' }]) // on_track goal never escalates
 })
 
+test('recordGoalRunVerdicts persists the exact ranked goals supplied by execution grounding', async () => {
+  const created: Array<{ goalId: string }> = []
+  let fallbackReads = 0
+  await recordGoalRunVerdicts(
+    {
+      organizationId: 'org1',
+      resourceType: 'agent',
+      resourceId: 'agent1',
+      runId: 'run1',
+      verdict: 'advanced',
+      evidence: 'moved the metric',
+      goalIds: ['highest', 'second', 'third', 'highest'],
+    },
+    {
+      linkedGoalIds: async () => {
+        fallbackReads += 1
+        return ['arbitrary-first']
+      },
+      createVerdict: async (row) => {
+        created.push({ goalId: row.goalId })
+      },
+      goalState: async () => null,
+      recentVerdicts: async () => [],
+      escalate: async () => {},
+    },
+  )
+  assert.equal(fallbackReads, 0)
+  assert.deepEqual(created, [{ goalId: 'highest' }, { goalId: 'second' }])
+})
+
 test('recordGoalRunVerdicts never escalates below the streak threshold', async () => {
   const escalated: unknown[] = []
   await recordGoalRunVerdicts(
