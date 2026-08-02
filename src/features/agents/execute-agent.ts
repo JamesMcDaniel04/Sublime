@@ -246,7 +246,7 @@ async function loadTools(
   providers: string[],
   ownerUserId?: string | null,
   query?: string,
-  flowOptions?: { allowFlows?: boolean; flowIds?: string[]; resource?: GoalResource },
+  flowOptions?: { allowFlows?: boolean; flowIds?: string[]; resource?: GoalResource; depth?: number },
 ) {
   // Every plane contributes to one list; the cap/priority policy is applied once
   // at the end (capDiscoveredTools) so write tools aren't crowded out. Plane
@@ -305,6 +305,7 @@ async function loadTools(
   if (ownerUserId && flowOptions?.allowFlows) {
     const flowGroups = await loadFlowPlaneGroups(organizationId, ownerUserId, {
       ...(flowOptions.flowIds?.length ? { flowIds: flowOptions.flowIds } : {}),
+      depth: flowOptions.depth ?? 0,
     })
     for (const group of flowGroups) pushGroup(group)
   }
@@ -683,6 +684,10 @@ export async function runAgentExecution(
       allowFlows: agentMetadata.allowFlows === true,
       flowIds: Array.isArray(agentMetadata.flowIds) ? agentMetadata.flowIds.map(String) : [],
       resource: { type: 'agent', id: agent.id },
+      // Shared recursion counter: a child flow started by this agent runs at
+      // this agent's depth + 1 (see loadFlowPlaneGroups), so agent<->flow
+      // cycles are bounded by the subflow cap instead of resetting per hop.
+      depth: data.depth ?? 0,
     })
     // Resolve only attached skills this run owner can still see. Visibility
     // changes take effect immediately even if an old id remains attached.

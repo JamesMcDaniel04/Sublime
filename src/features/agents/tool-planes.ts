@@ -509,10 +509,29 @@ export async function loadNangoPlaneGroups(
  * "All flows" always resolved to zero; the per-agent allowFlows toggle plus
  * its optional flowIds list is the real opt-in.)
  */
+// A flow called as an agent tool holds the agent's turn open while it runs, so
+// it must be bounded here — unlike flow TOOL STEPS, whose per-node
+// flowActionTimeoutMs already bounds them. The child keeps running server-side
+// past the deadline; the agent just stops waiting.
+const FLOW_TOOL_TIMEOUT_MS = Number(process.env.AGENT_FLOW_TOOL_TIMEOUT_MS) || 5 * 60_000
+
+function flowToolDeadline<T>(promise: Promise<T>, flowName: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(
+      () => reject(new Error(`The "${flowName}" flow did not finish within ${Math.round(FLOW_TOOL_TIMEOUT_MS / 1000)}s — it may still complete in the background. Check its run history before retrying.`)),
+      FLOW_TOOL_TIMEOUT_MS,
+    )
+    promise.then(
+      (value) => { clearTimeout(timer); resolve(value) },
+      (error) => { clearTimeout(timer); reject(error instanceof Error ? error : new Error(String(error))) },
+    )
+  })
+}
+
 export async function loadFlowPlaneGroups(
   organizationId: string,
   userId: string,
-  options: { flowIds?: string[] } = {},
+  options: { flowIds?: string[]; depth?: number } = {},
 ): Promise<ToolPlaneGroup[]> {
   const flows = await prisma.flow.findMany({
     where: {
@@ -536,21 +555,31 @@ export async function loadFlowPlaneGroups(
     const description = flow.description?.trim() || `Run the "${flow.name}" flow and return its output.`
     const client: McpToolClient = {
       executeTool: async (_serverUrl, _name, args) => {
-        const { dispatchFlowExecution, terminalizeAbandonedChildRun } = await import('@/features/flows/execute-flow')
-        const res = await dispatchFlowExecution({
-          flowId: flow.id,
-          organizationId,
-          userId,
-          input: (args && typeof args === 'object' ? args : {}) as Record<string, unknown>,
-          usePublished: flow.publishedGraph != null,
-          trigger: { type: 'signal', via: 'flow-tool' },
-        })
+        // runFlowExecution DIRECTLY, never dispatchFlowExecution: dispatch
+        // enqueues under EXECUTION_MODE=queue (the production default), which
+        // made every agent flow-tool call throw "requires inline execution
+        // mode" in prod. The agent itself already runs on the worker there, so
+        // a synchronous child flow is safe — exactly how subflow nodes run.
+        // subflowDepth carries the agent's sub-agent depth so an
+        // agent -> flow -> agent -> flow... cycle shares ONE counter instead of
+        // resetting it every hop (see the matching depth hand-off in
+        // execute-flow's agent-node adapter).
+        const { runFlowExecution, terminalizeAbandonedChildRun } = await import('@/features/flows/execute-flow')
+        const res = await flowToolDeadline(
+          runFlowExecution({
+            flowId: flow.id,
+            organizationId,
+            userId,
+            input: (args && typeof args === 'object' ? args : {}) as Record<string, unknown>,
+            usePublished: flow.publishedGraph != null,
+            trigger: { type: 'signal', via: 'flow-tool' },
+            subflowDepth: (options.depth ?? 0) + 1,
+          }),
+          flow.name,
+        )
         // Agent-callable flows are synchronous-only: THROW on every non-success
         // outcome so execute-agent records a failed tool call (a returned value —
         // even null — is mis-recorded as success and the real error is lost).
-        if ('queued' in res) {
-          throw new Error('This flow runs in the background; agent-callable flows require inline execution mode.')
-        }
         if (res.status === 'failed') {
           throw new Error(res.error ?? 'The flow failed.')
         }
@@ -601,8 +630,11 @@ export async function resolveFlowToolExecutor(params: {
   /** The running flow. Required to reach the goals plane, which scopes itself
    *  to the goals this resource is linked to. */
   resource?: GoalResource
+  /** The calling flow run's subflowDepth — threaded into a flow-plane child so
+   *  flow->flow chains through tool steps share the recursion counter. */
+  subflowDepth?: number
 }): Promise<FlowToolExecutor> {
-  const { organizationId, userId, plane, ref, resource } = params
+  const { organizationId, userId, plane, ref, resource, subflowDepth } = params
 
   if (plane === 'mcp') {
     // `template:` is a provisioning placeholder, not a plane — the parser
@@ -711,13 +743,17 @@ export async function resolveFlowToolExecutor(params: {
       provider: 'flow',
       isWrite: false,
       execute: async (_name, args) => {
-        const { dispatchFlowExecution, terminalizeAbandonedChildRun } = await import('@/features/flows/execute-flow')
-        const res = await dispatchFlowExecution({
+        // Direct run, not dispatch — dispatch enqueues in queue mode and made
+        // this path throw in production (see loadFlowPlaneGroups). The caller's
+        // subflowDepth carries over so tool-step chains cannot reset the
+        // recursion counter. flowActionTimeoutMs already bounds this call.
+        const { runFlowExecution, terminalizeAbandonedChildRun } = await import('@/features/flows/execute-flow')
+        const res = await runFlowExecution({
           flowId: flow.id, organizationId, userId,
           input: args, usePublished: flow.publishedGraph != null, trigger: { type: 'signal', via: 'flow-tool' },
+          subflowDepth: (subflowDepth ?? 0) + 1,
         })
         // Synchronous-only: throw on every non-success outcome (see loadFlowPlaneGroups).
-        if ('queued' in res) throw new Error('This flow runs in the background; call it from a subflow step instead.')
         if (res.status === 'failed') throw new Error(res.error ?? 'The flow failed.')
         if (res.status === 'waiting') {
           await terminalizeAbandonedChildRun(organizationId, res.flowRunId)

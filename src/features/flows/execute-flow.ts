@@ -498,10 +498,16 @@ export async function runFlowExecution(
       })
       const continueExecutionId = slackSeed.continueExecutionId
       if (slackSeed.consumed) slackSeedRemaining = false
+      // depth: an agent started FROM a flow inherits the flow's recursion
+      // counter (+1) instead of starting at 0 — otherwise an
+      // agent -> flow-tool -> agent-node -> flow-tool... cycle resets both the
+      // sub-agent and subflow caps every hop and recurses without bound. The
+      // flow-tool plane does the mirror hand-off (agent depth -> subflowDepth).
+      const agentNodeDepth = (job.subflowDepth ?? 0) + 1
       const result = (await runAgentExecution(
         resumeThis
-          ? { agentId: node.agentId, organizationId: job.organizationId, userId: job.userId, executionId: resumeExecutionId, resume: true, reply: job.reply, onExecutionCreated }
-          : { agentId: node.agentId, organizationId: job.organizationId, userId: job.userId, input: node.input, onExecutionCreated, ...(continueExecutionId ? { continueExecutionId } : {}) },
+          ? { agentId: node.agentId, organizationId: job.organizationId, userId: job.userId, executionId: resumeExecutionId, resume: true, reply: job.reply, onExecutionCreated, depth: agentNodeDepth }
+          : { agentId: node.agentId, organizationId: job.organizationId, userId: job.userId, input: node.input, onExecutionCreated, depth: agentNodeDepth, ...(continueExecutionId ? { continueExecutionId } : {}) },
       )) as { summary?: string; status?: string; question?: string; executionId?: string }
 
       // Record this run's execution id as the next iteration's continuation
@@ -700,6 +706,8 @@ export async function runFlowExecution(
           // The goals plane scopes itself to the goals THIS resource is linked
           // to, so the executor needs to know which flow is running.
           resource: { type: 'flow', id: job.flowId },
+          // Flow-plane children inherit this run's recursion depth.
+          subflowDepth: job.subflowDepth ?? 0,
         })
 
         const retries = flowActionRetries(node.config.retries)

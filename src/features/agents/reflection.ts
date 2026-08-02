@@ -8,6 +8,21 @@ import { maybeCreateTemplateFromRun } from '@/lib/intelligence/template-from-run
 
 const ACTION_TYPES = ['connect', 'config', 'data', 'other'] as const
 
+export const CONTRIBUTION_VERDICTS = ['advanced', 'no_change', 'unclear', 'counterproductive'] as const
+export type ContributionVerdict = (typeof CONTRIBUTION_VERDICTS)[number]
+
+const contributionSchema = z
+  .object({
+    verdict: z
+      .string()
+      .default('unclear')
+      .transform((value) =>
+        CONTRIBUTION_VERDICTS.includes(value as ContributionVerdict) ? (value as ContributionVerdict) : 'unclear',
+      ),
+    evidence: z.string().default(''),
+  })
+  .default({ verdict: 'unclear', evidence: '' })
+
 const reflectionSchema = z.object({
   learnings: z.array(z.object({ title: z.string(), content: z.string() })).default([]),
   selfCritique: z.string().default(''),
@@ -23,7 +38,7 @@ const reflectionSchema = z.object({
       }),
     )
     .default([]),
-  goalAssessment: z.string().default(''),
+  goalContribution: contributionSchema,
   suggestedGoal: z.string().optional(),
   replayable: z
     .object({
@@ -53,7 +68,14 @@ export const REFLECTION_JSON_SCHEMA: Record<string, unknown> = {
         required: ['title', 'rationale'],
       },
     },
-    goalAssessment: { type: 'string' },
+    goalContribution: {
+      type: 'object',
+      properties: {
+        verdict: { type: 'string', enum: [...CONTRIBUTION_VERDICTS] },
+        evidence: { type: 'string' },
+      },
+      required: ['verdict', 'evidence'],
+    },
     suggestedGoal: { type: 'string' },
     replayable: {
       type: 'object',
@@ -66,7 +88,7 @@ export const REFLECTION_JSON_SCHEMA: Record<string, unknown> = {
       required: ['worthTemplating'],
     },
   },
-  required: ['learnings', 'selfCritique', 'suggestions', 'goalAssessment'],
+  required: ['learnings', 'selfCritique', 'suggestions', 'goalContribution'],
 }
 
 /**
@@ -106,15 +128,20 @@ export function buildReflectionPrompt(params: {
   objective: string
   summary: string
   processLog: string
+  /** Plan-vs-actual audit findings from this run, if any (plan-artifact.ts). */
+  planFindings?: string[]
 }): { system: string; user: string } {
   return {
     system:
-      'You are the reflection pass for an autonomous agent. Given a completed run, extract durable learnings (facts about where data lives, what worked, what failed), one short self-critique paragraph the agent should read before its next run, and up to 3 user-actionable suggestions that would help future runs serve the larger goal better (missing connections, data gaps, objective improvements). Be concrete and terse. If no goal was provided, infer one from the objective and return it as suggestedGoal. Also judge replayability: would a reasonable operator want to run this same job again with different inputs? Only true for a self-contained, repeatable job (not a one-off Q&A). If true, return replayable.worthTemplating=true with a short reusable title, a one-paragraph description, and an example input; otherwise return worthTemplating=false.',
+      'You are the reflection pass for an autonomous agent. Given a completed run, extract durable learnings (facts about where data lives, what worked, what failed), one short self-critique paragraph the agent should read before its next run, and up to 3 user-actionable suggestions that would help future runs serve the larger goal better (missing connections, data gaps, objective improvements). Be concrete and terse. If no goal was provided, infer one from the objective and return it as suggestedGoal. For goalContribution, give a verdict on whether THIS run actually advanced the larger goal: advanced (produced something that plausibly moves the goal metric), no_change (completed but nothing goal-moving), counterproductive (wasted budget or produced work humans reject), or unclear — with one evidence sentence grounded in the run summary. If plan-audit findings are listed, the self-critique must address them. Also judge replayability: would a reasonable operator want to run this same job again with different inputs? Only true for a self-contained, repeatable job (not a one-off Q&A). If true, return replayable.worthTemplating=true with a short reusable title, a one-paragraph description, and an example input; otherwise return worthTemplating=false.',
     user: [
       `Larger goal: ${params.goal ?? '(none provided — infer one)'}`,
       `Objective: ${params.objective}`,
       `Run summary:\n${params.summary.slice(0, 6000)}`,
       `Process log (condensed):\n${params.processLog.slice(0, 6000)}`,
+      ...(params.planFindings && params.planFindings.length
+        ? [`Plan audit (plan-vs-actual divergence this run):\n${params.planFindings.join('\n')}`]
+        : []),
     ].join('\n\n'),
   }
 }
