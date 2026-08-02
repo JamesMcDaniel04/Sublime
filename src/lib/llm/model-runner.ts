@@ -401,6 +401,14 @@ type StructuredOpts = {
    * unset or when the override isn't a Claude model.
    */
   model?: string
+  /**
+   * Set for conversational callers whose system prompt repeats across turns
+   * (flow copilot, assistant chat): adds a prompt-cache breakpoint on the
+   * system block, so repeat turns bill ~0.1x on the prefix and skip its
+   * prefill latency. Leave unset for one-shot prompts — the cache write
+   * premium (1.25x) would never be recouped.
+   */
+  cacheSystem?: boolean
 }
 
 /**
@@ -470,7 +478,7 @@ async function anthropicWireStructured(opts: StructuredOpts, client: Anthropic, 
   const stream = client.messages.stream({
     model,
     max_tokens: opts.maxTokens ?? 4096,
-    system: opts.system,
+    system: opts.cacheSystem ? [{ type: 'text' as const, text: opts.system, cache_control: CACHE_CONTROL }] : opts.system,
     messages: [{ role: 'user', content: opts.user }],
     output_config: {
       format: { type: 'json_schema', schema: strictifySchema(opts.schema) },

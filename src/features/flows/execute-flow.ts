@@ -27,7 +27,7 @@ import { buildRouterPrompt, routerBranchSchema, parseRouterChoice } from '@/lib/
 import { generateStructured, generateText } from '@/lib/llm/model-runner'
 import { flowActionRetries, flowActionTimeoutMs, runWithRetries, shouldRetryAfterTimeout } from './action-reliability'
 import { performHttpRequest, prepareHttpRequest, redactHttpStepInput, withBearerAuthorization } from './http'
-import { resolveHttpConnectionToken } from './http-auth'
+import { assertLiteralOriginForConnectionAuth, resolveHttpConnectionToken } from './http-auth'
 import { resolveHttpCredential } from '@/lib/credentials/resolve'
 import { applyCredentialPlan } from '@/lib/credentials/apply'
 import { shouldPersistInterpreterStep } from './run-step-persistence'
@@ -770,6 +770,13 @@ export async function runFlowExecution(
         // credential added, whatever header it chose to use.
         request.credentialHeaders = Object.keys(resolvedCredential.plan.headers ?? {})
       } else if (httpAuthMode !== 'none' && httpConnectionId) {
+        // The token goes wherever the URL points, so the origin must be
+        // author-written — templated hosts would let upstream data (webhook
+        // payloads, LLM output) steer the token to an arbitrary public host.
+        // Older persisted runs may predate urlTemplate; the resolved URL is
+        // then its own template, i.e. fully literal, which the check accepts.
+        const urlTemplate = typeof node.config.urlTemplate === 'string' ? node.config.urlTemplate : request.url
+        assertLiteralOriginForConnectionAuth(urlTemplate, request.url)
         const token = await resolveHttpConnectionToken({
           connectionId: httpConnectionId,
           organizationId: job.organizationId,

@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { usableConnectionToken } from '../http-auth'
+import { assertLiteralOriginForConnectionAuth, usableConnectionToken } from '../http-auth'
 
 const NOW = 1_750_000_000_000
 
@@ -89,4 +89,32 @@ test('usableConnectionToken returns undefined for other auth types', () => {
   assert.equal(usableConnectionToken({ authType: 'none' }, NOW), undefined)
   assert.equal(usableConnectionToken({ authType: 'oauth2', accessToken: 'tok-cc' }, NOW), undefined)
   assert.equal(usableConnectionToken({}, NOW), undefined)
+})
+
+test('assertLiteralOriginForConnectionAuth accepts literal origins with templated paths', () => {
+  for (const [template, resolved] of [
+    ['https://api.example.com/items', 'https://api.example.com/items'],
+    ['https://api.example.com/{{upstream.id}}', 'https://api.example.com/42'],
+    ['https://api.example.com/v1?q={{trigger.input}}', 'https://api.example.com/v1?q=hello'],
+  ] as const) {
+    assert.doesNotThrow(() => assertLiteralOriginForConnectionAuth(template, resolved))
+  }
+})
+
+test('assertLiteralOriginForConnectionAuth rejects templated or mismatched origins', () => {
+  const cases: Array<[string, string]> = [
+    // Host assembled from upstream data.
+    ['https://{{vars.host}}/path', 'https://evil.example.net/path'],
+    // Whole URL templated.
+    ['{{upstream.url}}', 'https://evil.example.net/x'],
+    // Literal prefix parses but resolved host was extended past it.
+    ['https://api.example.com{{suffix}}/p', 'https://api.example.com.evil.net/p'],
+    // Templated port shifts the origin.
+    ['https://api.example.com:{{port}}/p', 'https://api.example.com:8443/p'],
+    // Resolved URL is not even a URL.
+    ['https://api.example.com/x', 'not-a-url'],
+  ]
+  for (const [template, resolved] of cases) {
+    assert.throws(() => assertLiteralOriginForConnectionAuth(template, resolved), /origin/)
+  }
 })

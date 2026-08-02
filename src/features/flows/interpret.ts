@@ -798,6 +798,9 @@ export async function interpretFlow(graph: FlowGraph, input: unknown, opts: Opts
               ...(node.data.auth ? { auth: resolveTemplateValue(node.data.auth, ctx) } : {}),
               method: node.data.method,
               url: resolveTemplate(node.data.url, ctx),
+              // Raw template preserved so connection/credential auth can verify
+              // the ORIGIN was author-written, not steered by upstream data.
+              urlTemplate: node.data.url,
               query: resolveConfigValue(node.data.query, ctx),
               ...(node.data.sendQuery !== undefined ? { sendQuery: node.data.sendQuery } : {}),
               ...(node.data.queryArrayFormat ? { queryArrayFormat: node.data.queryArrayFormat } : {}),

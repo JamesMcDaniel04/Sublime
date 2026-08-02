@@ -1,7 +1,6 @@
 import { z } from 'zod'
 import { ApiError, withAuthenticatedApi } from '@/lib/server/api-handler'
 import { recordUserEvent } from '@/lib/behavior/record-event'
-import { rateLimit } from '@/lib/ratelimit'
 import { checkMonthlyTokenBudget, recordTokenUsage } from '@/lib/usage/budget'
 import { generateStructured } from '@/lib/llm/model-runner'
 import { flowGraphSchema, emptyGraph } from '@/lib/flows/graph'
@@ -65,19 +64,23 @@ const requestSchema = z.object({
 })
 
 export const POST = withAuthenticatedApi(async (request, auth) => {
-  // Copilot chat is a full LLM call — same guardrails as agent chat.
-  const limited = await rateLimit(`copilot:${auth.dbUser.id}`, { limit: 20, windowMs: 60_000 })
-  if (!limited.ok) throw new ApiError('Rate limit exceeded', 429, 'RATE_LIMITED')
-  const budget = await checkMonthlyTokenBudget(auth.organizationId, auth.dbUser.id)
-  if (budget.over) throw new ApiError('Monthly token budget reached for this workspace.', 429, 'BUDGET_EXCEEDED')
+  // Copilot chat is a full LLM call — rate limiting lives in the wrapper
+  // (`flow-copilot`, perUser 30); the budget check and grounding are
+  // independent reads, so they run in parallel off the hot path.
   const { messages, graph: rawGraph } = requestSchema.parse(await request.json())
+  const [budget, grounding] = await Promise.all([
+    checkMonthlyTokenBudget(auth.organizationId, auth.dbUser.id),
+    buildCopilotGrounding(auth.organizationId, auth.dbUser.id),
+  ])
+  if (budget.over) throw new ApiError('Monthly token budget reached for this workspace.', 429, 'BUDGET_EXCEEDED')
   // Behavior capture: the ask itself, by reference only (no prompt text).
-  await recordUserEvent({
+  // Fire-and-forget — analytics must never add latency to the user's turn.
+  void recordUserEvent({
     organizationId: auth.organizationId, userId: auth.dbUser.id,
     kind: 'copilot_prompt', resourceType: 'flow', resourceId: null,
     context: { turns: messages.length },
-  })
-  const { roster, toolCatalog, contextBlock, graphRules } = await buildCopilotGrounding(auth.organizationId, auth.dbUser.id)
+  }).catch(() => undefined)
+  const { roster, toolCatalog, contextBlock, graphRules } = grounding
 
   // An invalid/missing graph means we're chatting over a blank canvas.
   const parsedGraph = flowGraphSchema.safeParse(rawGraph)
@@ -94,7 +97,10 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
   ].join('\n')
 
   try {
-    const raw = await generateStructured({ system, user, schema: OPS_JSON_SCHEMA, schemaName: 'flow_edit_ops', maxTokens: 3500 })
+    // cacheSystem: the graph rules + ops contract + grounding block repeat
+    // verbatim across a session's turns — cache the prefix instead of
+    // re-prefilling ~10k tokens at full price and latency every message.
+    const raw = await generateStructured({ system, user, schema: OPS_JSON_SCHEMA, schemaName: 'flow_edit_ops', maxTokens: 3500, cacheSystem: true })
     // Rough metering (~chars/4) since generateStructured returns no token usage.
     void recordTokenUsage(auth.organizationId, Math.ceil((system.length + user.length + raw.length) / 4)).catch(() => undefined)
     const reply = parseCopilotChatReply(raw)

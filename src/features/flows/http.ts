@@ -2,6 +2,9 @@ export type FlowHttpConfig = {
   connectionId?: unknown
   method?: unknown
   url?: unknown
+  /** The author-written URL template (pre-resolution). Carried so connection
+   *  auth can require a literal origin — see assertLiteralOriginForConnectionAuth. */
+  urlTemplate?: unknown
   query?: unknown
   sendQuery?: unknown
   headers?: unknown
@@ -587,7 +590,17 @@ export async function performHttpRequest(
     } else {
       const next = atPath(pageOutput.body, pagination.nextUrlPath ?? 'next')
       if (typeof next !== 'string' || !next) break
-      pageUrl = new URL(next, pageUrl).toString()
+      const resolved = new URL(next, pageUrl).toString()
+      // The next-page URL comes from the RESPONSE BODY — remote-chosen, like a
+      // redirect target. Unlike the redirect path above, pagination re-sends
+      // the full credentialed init on every page, so an off-origin hop would
+      // hand the Authorization header (or injected connection token) to
+      // whatever host the body names. Real APIs paginate same-origin; refuse
+      // anything else instead of quietly stripping auth mid-sequence.
+      if (!sameOrigin(pageUrl, resolved)) {
+        throw new Error(`Pagination stopped: the API returned a next-page URL on a different origin (${new URL(resolved).origin}), which is not allowed for credentialed requests.`)
+      }
+      pageUrl = resolved
     }
   }
   return { ok: true, pages, pageCount: pages.length }

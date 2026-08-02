@@ -59,7 +59,10 @@ export async function buildCopilotGrounding(
   contextBlock: string
   graphRules: string
 }> {
-  const [agents, toolCatalog, callableFlows] = await Promise.all([
+  // One batch: patterns + goals used to run in a second Promise.all AFTER this
+  // one, serializing 20-60ms (more when the tool catalog is cold) for no reason
+  // — none of the five reads depend on another.
+  const [agents, toolCatalog, callableFlows, userPatterns, goalsBlock] = await Promise.all([
     prisma.agentTask.findMany({
       where: { organizationId, status: 'ACTIVE', ...agentReadScope(userId) },
       select: { id: true, description: true, metadata: true },
@@ -74,6 +77,10 @@ export async function buildCopilotGrounding(
       select: { id: true, name: true, graph: true, publishedGraph: true },
       take: 50,
     }),
+    // Evidence-gated behavior patterns (spec §5.2): generated flows should
+    // match how this user actually works. Best-effort — never throws.
+    listEligiblePatterns(organizationId, userId),
+    goalGroundingBlock(organizationId, userId),
   ])
   const roster = agents
     .map((agent) => ({ id: agent.id, name: readAgentMetadata(agent.metadata).title || agent.description }))
@@ -95,12 +102,6 @@ export async function buildCopilotGrounding(
       return flowToolGroundingLine(flow, inputParamsFromGraph(parsed.data), outputFieldsFromGraph(parsed.data))
     })
     .filter((line): line is string => Boolean(line))
-  // Evidence-gated behavior patterns (spec §5.2): generated flows should match
-  // how this user actually works. Best-effort — listEligiblePatterns never throws.
-  const [userPatterns, goalsBlock] = await Promise.all([
-    listEligiblePatterns(organizationId, userId),
-    goalGroundingBlock(organizationId, userId),
-  ])
   const patternLines = userPatterns.slice(0, 6).map((p) => `- ${p.summary} (observed ${p.occurrenceCount}x)`)
   const patternsBlock = patternLines.length
     ? ['', '', 'How this user actually works (observed, evidence-gated — prefer flows that match these habits):', ...patternLines].join('\n')

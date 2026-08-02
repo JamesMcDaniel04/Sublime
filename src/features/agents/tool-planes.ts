@@ -613,10 +613,14 @@ export async function resolveFlowToolExecutor(params: {
         `This step still holds the template placeholder "${ref}" — it was never bound to a real connection. Re-provision the template, or pick a connection in the step config.`,
       )
     }
+    // Same visibility rule as the catalog (mcpConnectionScope): org-shared
+    // rows plus the acting user's OWN personal connections. Node config is
+    // client-editable JSON, so resolving by bare id would let a hand-edited
+    // connectionId execute with another member's personal credential.
     const conn = await prisma.mcpConnection.findFirst({
-      where: { id: ref, organizationId, isActive: true },
+      where: { id: ref, ...mcpConnectionScope(organizationId, userId) },
     })
-    if (!conn) throw new Error('The selected connection no longer exists — pick another in the step config.')
+    if (!conn) throw new Error('The selected connection no longer exists or is not yours to use — pick another in the step config.')
     const fresh = await ensureFreshConnectionToken(conn)
     const client = new McpClient({
       ...mcpConfigFromConnection(fresh),

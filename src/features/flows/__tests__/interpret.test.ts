@@ -383,6 +383,9 @@ test('http steps preserve structured query, headers, and body values', async () 
   assert.deepEqual(calls[0], {
     method: 'POST',
     url: 'https://example.com/accounts/acct_1',
+    // Raw template travels beside the resolved URL so connection auth can
+    // verify the origin was author-written (assertLiteralOriginForConnectionAuth).
+    urlTemplate: 'https://example.com/accounts/{{trigger.input.accountId}}',
     query: { tags: ['a', 'b'], active: true },
     headers: { authorization: 'Bearer tok' },
     body: { record: { name: 'Acme' } },

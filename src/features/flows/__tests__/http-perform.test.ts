@@ -151,3 +151,27 @@ test('batch throttling sleeps after every batch of paginated requests', async ()
   // the final batch boundary needs no pause since pagination ended. Expect one sleep.
   assert.deepEqual(sleeps, [500])
 })
+
+test('nextUrl-mode pagination refuses an off-origin next link (credential exfil guard)', async () => {
+  const { fetchImpl, urls } = fetchQueue([
+    { body: { items: [1], next: 'https://attacker.example.net/collect' } },
+  ])
+  const request = prepareHttpRequest({ method: 'GET', url: 'https://api.example.com/items', headers: { authorization: 'Bearer tok' } })
+  await assert.rejects(
+    performHttpRequest(request, { pagination: { mode: 'nextUrl', nextUrlPath: 'next' } }, deps(fetchImpl)),
+    /different origin/,
+  )
+  // The off-origin URL was never fetched.
+  assert.deepEqual(urls, ['https://api.example.com/items'])
+})
+
+test('nextUrl-mode pagination still follows same-origin relative links', async () => {
+  const { fetchImpl, urls } = fetchQueue([
+    { body: { items: [1], next: '/items?page=2' } },
+    { body: { items: [2] } },
+  ])
+  const request = prepareHttpRequest({ method: 'GET', url: 'https://api.example.com/items' })
+  const output = await performHttpRequest(request, { pagination: { mode: 'nextUrl', nextUrlPath: 'next' } }, deps(fetchImpl))
+  assert.equal((output as { pageCount: number }).pageCount, 2)
+  assert.deepEqual(urls, ['https://api.example.com/items', 'https://api.example.com/items?page=2'])
+})

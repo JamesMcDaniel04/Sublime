@@ -20,6 +20,36 @@ import { parseFlowToolConnectionId } from '@/lib/flows/tool-connection-id'
 export const HTTP_CONNECTION_UNAVAILABLE =
   'The connection for this HTTP step is unavailable — reconnect it in Integrations.'
 
+export const HTTP_CONNECTION_ORIGIN_NOT_LITERAL =
+  'This HTTP step uses connection auth, so the URL\'s origin (scheme + host) must be written literally in the step — template placeholders are only allowed in the path or query. Otherwise upstream data could steer the connection\'s token to an arbitrary host.'
+
+/**
+ * Guard for token-bearing HTTP steps: the destination ORIGIN must be
+ * author-written, never assembled from upstream data (webhook payloads, LLM
+ * output, prior HTTP responses are all template-reachable). The template's
+ * literal prefix (everything before the first `{{`) must parse as a URL, and
+ * its origin must equal the resolved URL's origin. Placeholders in the path,
+ * query, or fragment remain fine. Throws on violation.
+ */
+export function assertLiteralOriginForConnectionAuth(urlTemplate: string, resolvedUrl: string): void {
+  const literalPrefix = urlTemplate.split('{{')[0]
+  let expectedOrigin: string
+  try {
+    expectedOrigin = new URL(literalPrefix).origin
+  } catch {
+    throw new Error(HTTP_CONNECTION_ORIGIN_NOT_LITERAL)
+  }
+  let resolvedOrigin: string
+  try {
+    resolvedOrigin = new URL(resolvedUrl).origin
+  } catch {
+    throw new Error(HTTP_CONNECTION_ORIGIN_NOT_LITERAL)
+  }
+  if (expectedOrigin !== resolvedOrigin || expectedOrigin === 'null') {
+    throw new Error(HTTP_CONNECTION_ORIGIN_NOT_LITERAL)
+  }
+}
+
 
 /**
  * Pure token selection: given a decrypted connection config, return the

@@ -76,7 +76,7 @@ export async function generateFlowGraph(params: {
     toolCatalog,
   }
 
-  const raw = await generateStructured({ system, user, schema: GRAPH_JSON_SCHEMA, schemaName: 'flow_graph', maxTokens: 3500 })
+  const raw = await generateStructured({ system, user, schema: GRAPH_JSON_SCHEMA, schemaName: 'flow_graph', maxTokens: 3500, cacheSystem: true })
   let graph = repairGeneratedFlowGraph(flowGraphSchema.parse(normalizeGeneratedFlowGraphInput(parseGeneratedGraphReply(raw))), { agents: roster, toolCatalog })
   let validation = validateFlowGraph(graph, { ...validationContext, requireRunnable: graph.nodes.length > 1 })
 
@@ -90,7 +90,7 @@ export async function generateFlowGraph(params: {
       '',
       `Broken graph:\n${JSON.stringify(graph)}`,
     ].join('\n')
-    const repairedRaw = await generateStructured({ system, user: repairUser, schema: GRAPH_JSON_SCHEMA, schemaName: 'flow_graph_repair', maxTokens: 3500 })
+    const repairedRaw = await generateStructured({ system, user: repairUser, schema: GRAPH_JSON_SCHEMA, schemaName: 'flow_graph_repair', maxTokens: 3500, cacheSystem: true })
     graph = repairGeneratedFlowGraph(flowGraphSchema.parse(normalizeGeneratedFlowGraphInput(parseGeneratedGraphReply(repairedRaw))), { agents: roster, toolCatalog })
     validation = validateFlowGraph(graph, { ...validationContext, requireRunnable: graph.nodes.length > 1 })
   }
