@@ -28,8 +28,8 @@ test('createPlan drops blank titles and caps step count', () => {
 test('applyPlanUpdate marks a step done with a note', () => {
   const plan = createPlan(['a', 'b'])
   const next = applyPlanUpdate(plan, { stepN: 1, status: 'done', note: 'found 12', turn: 3 })
-  assert.equal(next.plan.steps[0].status, 'done')
-  assert.equal(next.plan.steps[0].note, 'found 12')
+  assert.equal(next.plan!.steps[0].status, 'done')
+  assert.equal(next.plan!.steps[0].note, 'found 12')
   assert.equal(next.error, undefined)
 })
 
