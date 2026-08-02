@@ -225,3 +225,15 @@ test('surfaced benchmark is appended as anonymous evidence on both paths', async
   const legacyCreated = legacy.calls.create[0] as { evidence: string[] }
   assert.ok(legacyCreated.evidence.some((line) => line.includes('Across 5 teams')))
 })
+
+test('run-verdict summary is appended as evidence when reflection judged runs non-advancing', async () => {
+  const withVerdicts = deps({ runVerdictCounts: async () => ({ total: 9, nonAdvancing: 7 }) })
+  await emitGoalRecommendation(goal, offTrack, withVerdicts as never)
+  const created = withVerdicts.calls.create[0] as { evidence: string[] }
+  assert.ok(created.evidence.some((line) => line.includes('9 agent runs completed') && line.includes('7 judged non-advancing')))
+
+  const noVerdicts = deps({ runVerdictCounts: async () => ({ total: 0, nonAdvancing: 0 }) })
+  await emitGoalRecommendation(goal, offTrack, noVerdicts as never)
+  const clean = noVerdicts.calls.create[0] as { evidence: string[] }
+  assert.ok(!clean.evidence.some((line) => line.includes('non-advancing')))
+})

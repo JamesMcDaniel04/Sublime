@@ -79,6 +79,7 @@ model Organization {
   goalRecoveryActions       GoalRecoveryAction[]
   goalWork                  GoalWork[]
   goalWorkRules             GoalWorkRule[]
+  goalRunVerdicts           GoalRunVerdict[]
 
   @@map("organizations")
 }
@@ -355,6 +356,10 @@ model AgentExecution {
   metadata        Json?
   model           String?
   transcript      Json?
+  /// Persisted in-run plan artifact { steps, revisions } written by the
+  /// set_plan/update_plan tools (features/agents/plan-artifact.ts). Null when
+  /// the run never planned; pruned with the run like the transcript.
+  plan            Json?
   inputTokens     Int       @default(0)
   outputTokens    Int       @default(0)
   userId          String
@@ -1335,6 +1340,10 @@ model Goal {
   /// Copilot-drafted and manually-created goals. Read by the agent-bundle
   /// lookup to offer the template's curated agents; never edited after create.
   templateKey     String?
+  /// User-set arbitration priority for multi-goal agents; lower = more
+  /// important, null = rank automatically by risk then deadline. Any set
+  /// priority outranks every unset one (see lib/goals/arbitration.ts).
+  priority        Int?
   createdByUserId String?
   createdAt       DateTime  @default(now()) @db.Timestamptz(6)
   updatedAt       DateTime  @updatedAt @db.Timestamptz(6)
@@ -1349,6 +1358,7 @@ model Goal {
   recoveryPlans GoalRecoveryPlan[]
   work          GoalWork[]
   members       GoalMember[]
+  runVerdicts   GoalRunVerdict[]
 
   @@index([organizationId, status])
   @@index([organizationId, ownerUserId, status])
@@ -1595,6 +1605,29 @@ model GoalContribution {
   @@index([organizationId, goalId])
   @@index([seedKey])
   @@map("goal_contributions")
+}
+
+/// The reflection pass's per-run judgment of whether a run advanced a linked
+/// goal. `runId` is deliberately not an FK — verdicts outlive run pruning
+/// (same reasoning as GoalWork.runId). Consumed by recovery-plan evidence and
+/// the stalled-agent escalation (lib/goals/verdicts.ts).
+model GoalRunVerdict {
+  id             String   @id @default(cuid())
+  organizationId String   @db.Uuid
+  goalId         String
+  resourceType   String // 'agent' | 'flow'
+  resourceId     String
+  runId          String
+  verdict        String // 'advanced' | 'no_change' | 'unclear' | 'counterproductive'
+  evidence       String   @default("") @db.Text
+  createdAt      DateTime @default(now()) @db.Timestamptz(6)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  goal         Goal         @relation(fields: [goalId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, goalId, createdAt])
+  @@index([organizationId, goalId, resourceId, createdAt])
+  @@map("goal_run_verdicts")
 }
 
 /// AI-generated recovery plan for a goal whose risk worsened. At most one

@@ -23,6 +23,9 @@ const patchSchema = z
     targetDate: z.coerce.date().optional(),
     recurrence: z.enum(RECURRENCES).nullable().optional(),
     status: z.enum(['active', 'paused', 'achieved', 'missed']).optional(),
+    // Multi-goal arbitration rank: lower = more important, null = automatic
+    // (risk then deadline; see lib/goals/arbitration.ts).
+    priority: z.number().int().min(1).max(100).nullable().optional(),
     dashboardLayout: z.unknown().optional(),
     composition: z.unknown().optional(),
   })

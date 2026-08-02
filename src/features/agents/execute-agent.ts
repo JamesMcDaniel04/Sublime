@@ -45,6 +45,7 @@ import { retrieveAgentMemory, renderAgentMemories, bestAnswerMatch, markMemories
 import { findOrgIntelligenceAgentId } from '@/lib/intelligence/connection-scan'
 import { reflectAndRemember } from './reflection'
 import { shouldStrategize, goalSection, goalWorkSection, strategizeSection, STRATEGIZE_RETRIEVAL } from './strategy'
+import { createPlan, applyPlanUpdate, auditPlan, PLAN_TOOLS, type RunPlan, type PlanStepStatus } from './plan-artifact'
 import { isWriteProvider } from '@/lib/connectors/registry'
 import { approvalQuestion, isApprovalReply, toolNeedsApproval, type PendingApproval } from './approval'
 import { serializeToolResult } from '@/lib/agents/tool-result'
@@ -732,34 +733,53 @@ export async function runAgentExecution(
     // ever told to log work when it genuinely holds log_work.
     const goalWork = goalWorkSection(tools)
     if (goalWork) system += `\n\n${goalWork}`
-    // What this agent's own work has taught us, per linked goal. Best-effort:
-    // a learning-layer failure must never stop a run that would otherwise do
-    // useful work. Bounded to two goals so a many-goal agent cannot grow an
-    // unbounded prompt.
-    if (goalWork) {
-      try {
-        const [{ resolveLinkedGoalIds }, { loadWorkFeedback }, { renderWorkFeedback }] =
-          await Promise.all([
-            import('@/lib/integrations/goals-port'),
-            import('@/lib/goals/work-rules-port'),
-            import('@/lib/goals/work-feedback'),
-          ])
-        const linkedGoalIds = await resolveLinkedGoalIds(organizationId, {
-          type: 'agent',
-          id: agent.id,
+    // Multi-goal arbitration + per-goal work feedback. Best-effort: a
+    // learning-layer failure must never stop a run that would otherwise do
+    // useful work. Work feedback stays bounded to two goals so a many-goal
+    // agent cannot grow an unbounded prompt — but it now loads in ARBITRATION
+    // order, so the two goals it learns about are the two that matter most.
+    try {
+      const { resolveLinkedGoalIds } = await import('@/lib/integrations/goals-port')
+      const linkedGoalIds = await resolveLinkedGoalIds(organizationId, {
+        type: 'agent',
+        id: agent.id,
+      })
+      let orderedGoalIds = linkedGoalIds
+      if (linkedGoalIds.length >= 2) {
+        const { rankGoals, arbitrationSection } = await import('@/lib/goals/arbitration')
+        const rows = await prisma.goal.findMany({
+          where: { id: { in: linkedGoalIds }, organizationId, status: 'active' },
+          select: { id: true, name: true, riskLevel: true, targetDate: true, priority: true },
         })
-        for (const linkedGoalId of linkedGoalIds.slice(0, 2)) {
+        const ranked = rankGoals(
+          rows.map((row) => ({ ...row, riskLevel: row.riskLevel as 'on_track' | 'at_risk' | 'off_track' | 'no_data' })),
+        )
+        const arbitration = arbitrationSection(ranked)
+        if (arbitration) system += `\n\n${arbitration}`
+        orderedGoalIds = ranked.map((row) => row.id)
+      }
+      if (goalWork) {
+        const [{ loadWorkFeedback }, { renderWorkFeedback }] = await Promise.all([
+          import('@/lib/goals/work-rules-port'),
+          import('@/lib/goals/work-feedback'),
+        ])
+        for (const linkedGoalId of orderedGoalIds.slice(0, 2)) {
           const feedback = await loadWorkFeedback(organizationId, linkedGoalId, agent.id)
           if (!feedback) continue
           const block = renderWorkFeedback(feedback)
           if (block) system += `\n\n${block}`
         }
-      } catch {
-        // Non-fatal by design.
       }
+    } catch {
+      // Non-fatal by design.
     }
     const strategize = shouldStrategize({ objective: agent.objective, metadata: agentMetadata, toolCount: tools.length })
-    if (strategize) system += `\n\n${strategizeSection()}`
+    if (strategize) {
+      system += `\n\n${strategizeSection()}`
+      // The plan tools only exist where the prompt demands a plan — offering
+      // them to a simple run would be an instruction to bureaucratize it.
+      tools.push(...PLAN_TOOLS)
+    }
 
     // Multi-agent handoff: an opted-in agent can delegate to other agents via a
     // run_agent tool (fan-out over a set, or sequential pipeline stages). Bounded
@@ -1034,6 +1054,20 @@ export async function runAgentExecution(
     const monthlyLimit = budget.limit
     let finalText = ''
     let planEmitted = false
+    // The persisted in-run plan (plan-artifact.ts). Seeded from the row so a
+    // resumed run keeps the plan it set before suspending; written back on
+    // every change so the artifact survives crashes mid-run.
+    let runPlan: RunPlan | null =
+      execution.plan && typeof execution.plan === 'object' && !Array.isArray(execution.plan)
+        ? (execution.plan as unknown as RunPlan)
+        : null
+    const persistPlan = async () => {
+      // systemPrisma: id-keyed plan checkpoint on worker job data; execution id
+      // was validated against this tenant when it was loaded/created above.
+      await systemPrisma.agentExecution
+        .update({ where: { id: execution.id }, data: { plan: jsonValue(runPlan) } })
+        .catch(() => undefined)
+    }
     // Why the run stopped early, if it did — drives the run.capped event and a
     // distinct (non-success) completion notification.
     let cappedReason: 'per_run_token_cap' | 'monthly_budget' | 'max_turns' | 'model_refusal' | 'model_incomplete' | null = null
@@ -1123,6 +1157,49 @@ export async function runAgentExecution(
             toolCallId: call.id,
             question: String(call.input.question || 'The agent needs your input to continue.'),
           }
+          continue
+        }
+
+        // Plan meta-tools: handled inline like ask_user (no binding, no
+        // workflow step) — they mutate the run's own artifact, not the world.
+        if (call.name === 'set_plan' || call.name === 'update_plan') {
+          if (call.name === 'set_plan') {
+            const titles = Array.isArray(call.input.steps) ? call.input.steps.map(String) : []
+            const plan = createPlan(titles)
+            if (!plan.steps.length) {
+              results.push({ toolCallId: call.id, content: JSON.stringify({ error: 'set_plan needs at least one non-empty step.' }), isError: true })
+              continue
+            }
+            runPlan = plan
+            await persistPlan()
+            await recordEvent(execution.id, null, 'agent.plan_set', { steps: runPlan.steps })
+            results.push({ toolCallId: call.id, content: JSON.stringify({ ok: true, steps: runPlan.steps }) })
+            continue
+          }
+          if (!runPlan) {
+            results.push({ toolCallId: call.id, content: JSON.stringify({ error: 'No plan exists yet — call set_plan first.' }), isError: true })
+            continue
+          }
+          const status = String(call.input.status ?? '')
+          if (status !== 'done' && status !== 'failed' && status !== 'skipped') {
+            results.push({ toolCallId: call.id, content: JSON.stringify({ error: 'status must be done, failed, or skipped.' }), isError: true })
+            continue
+          }
+          const outcome = applyPlanUpdate(runPlan, {
+            stepN: Number(call.input.stepN),
+            status: status as PlanStepStatus,
+            note: typeof call.input.note === 'string' ? call.input.note : undefined,
+            revisedSteps: Array.isArray(call.input.revisedSteps) ? call.input.revisedSteps.map(String) : undefined,
+            turn,
+          })
+          if (outcome.error || !outcome.plan) {
+            results.push({ toolCallId: call.id, content: JSON.stringify({ error: outcome.error ?? 'plan update failed' }), isError: true })
+            continue
+          }
+          runPlan = outcome.plan
+          await persistPlan()
+          await recordEvent(execution.id, null, 'agent.plan_updated', { steps: runPlan.steps, revisions: runPlan.revisions })
+          results.push({ toolCallId: call.id, content: JSON.stringify({ ok: true, steps: runPlan.steps }) })
           continue
         }
 
@@ -1410,15 +1487,23 @@ export async function runAgentExecution(
     const summary =
       finalText ||
       `Run stopped at its turn limit (${maxTurns}) before producing a final answer. Work completed so far is preserved in the run's steps.`
-    let output: Record<string, unknown> = { summary, ...(cappedReason ? { capped: cappedReason } : {}) }
+    // Plan-vs-actual audit: deterministic findings on how the run's recorded
+    // plan matched what actually happened. On the output for operators, in
+    // the reflection prompt so the next run's critique addresses them.
+    const planFindings = auditPlan(runPlan, strategize)
+    let output: Record<string, unknown> = {
+      summary,
+      ...(cappedReason ? { capped: cappedReason } : {}),
+      ...(planFindings.length ? { planFindings } : {}),
+    }
     if (structuredFields.length) {
       const parsed = parseStructuredAgentOutput(finalText, structuredFields)
       if (parsed.output) {
-        output = { summary, structured: parsed.output }
+        output = { ...output, structured: parsed.output }
       } else {
         // Loud, but the text answer keeps its value: surface the contract
         // violation on the run instead of silently shipping unstructured text.
-        output = { summary, structuredError: parsed.error }
+        output = { ...output, structuredError: parsed.error }
         await recordEvent(execution.id, null, 'agent.structured_output_invalid', { error: parsed.error })
       }
     }
@@ -1529,13 +1614,30 @@ export async function runAgentExecution(
       objective: agent.objective,
       summary,
       processLog: transcriptSummaryForReflection(transcript),
+      planFindings,
       recordSuggestionEvent: (payload) => recordEvent(execution.id, null, 'agent.suggestion', payload),
       userId: agent.userId ?? userId,
       model,
       integrations: providers,
       category: typeof agentMetadata.category === 'string' ? agentMetadata.category : undefined,
       runSucceeded: true,
-    }).catch(() => undefined)
+    })
+      .then(async (reflection) => {
+        // Run→goal contribution: persist the verdict against each linked goal
+        // and escalate stalls. Chained after reflection because the verdict IS
+        // reflection output; still fire-and-forget relative to the run.
+        if (!reflection) return
+        const { recordGoalRunVerdicts } = await import('@/lib/goals/verdicts')
+        await recordGoalRunVerdicts({
+          organizationId,
+          resourceType: 'agent',
+          resourceId: agent.id,
+          runId: execution.id,
+          verdict: reflection.goalContribution.verdict,
+          evidence: reflection.goalContribution.evidence,
+        })
+      })
+      .catch(() => undefined)
     // Fire the agent.completed signal for flows listening in this org. Dynamic
     // import avoids pulling the flows feature (and its execute-flow ->
     // signals static edge) into every agent-execution module load; strictly

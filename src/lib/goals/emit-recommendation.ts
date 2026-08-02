@@ -25,6 +25,7 @@ import { surfaceGoalBenchmark } from './aggregate-benchmarks'
 import { GOAL_TEMPLATES } from './goal-templates'
 import { assembleRecoveryCandidates } from './recovery-candidates'
 import { draftRecoveryPlan, riskWorse } from './recovery'
+import { verdictEvidenceLine } from './verdicts'
 
 export type EmitGoal = {
   id: string
@@ -76,6 +77,8 @@ export type EmitDeps = {
   listSources: (organizationId: string, userId: string) => Promise<MetricSourceOption[]>
   draft: typeof draftRecoveryPlan
   goalTemplateSourcesFor: (kind: string) => string[]
+  /** Reflection verdict counts over the last 30 days (lib/goals/verdicts.ts). */
+  runVerdictCounts: (organizationId: string, goalId: string) => Promise<{ total: number; nonAdvancing: number }>
 }
 
 const defaultDeps: EmitDeps = {
@@ -137,6 +140,16 @@ const defaultDeps: EmitDeps = {
   draft: draftRecoveryPlan,
   goalTemplateSourcesFor: (kind) =>
     GOAL_TEMPLATES.find((template) => template.kind === kind)?.sources ?? [],
+  runVerdictCounts: async (organizationId, goalId) => {
+    const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)
+    const [total, nonAdvancing] = await Promise.all([
+      prisma.goalRunVerdict.count({ where: { organizationId, goalId, createdAt: { gte: since } } }),
+      prisma.goalRunVerdict.count({
+        where: { organizationId, goalId, createdAt: { gte: since }, verdict: { in: ['no_change', 'counterproductive'] } },
+      }),
+    ])
+    return { total, nonAdvancing }
+  },
 }
 
 function fmt(value: number, unit: string): string {
@@ -203,6 +216,16 @@ export async function emitGoalRecommendation(
     evidence.push(
       `Across ${benchmark.orgCount} teams tracking this kind of goal, ${benchmark.achievedRate}% hit their last target.`,
     )
+  }
+  // Run→goal disconnect: agents completing runs that reflection judged
+  // non-advancing is exactly the evidence a recovery diagnosis needs to stop
+  // recommending "launch more agents". Best-effort — a verdict-store failure
+  // must not block the alert.
+  try {
+    const line = verdictEvidenceLine(await deps.runVerdictCounts(goal.organizationId, goal.id))
+    if (line) evidence.push(line)
+  } catch {
+    // Evidence enrichment only.
   }
 
   const title = `${goal.name} is ${evaluation.riskLevel === 'off_track' ? 'off track' : 'at risk'}`

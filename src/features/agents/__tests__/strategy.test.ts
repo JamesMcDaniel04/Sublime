@@ -17,9 +17,11 @@ test('goalSection renders the heading or empty', () => {
   assert.equal(goalSection('   '), '')
 })
 
-test('strategizeSection demands a numbered plan before tools', () => {
+test('strategizeSection demands set_plan first and update_plan on failure', () => {
   const section = strategizeSection()
   assert.match(section, /^## Think before acting\n/)
-  assert.match(section, /numbered plan/i)
+  assert.match(section, /set_plan/)
+  assert.match(section, /update_plan/)
+  assert.match(section, /fail/i)
   assert.ok(STRATEGIZE_RETRIEVAL.topK === 10 && STRATEGIZE_RETRIEVAL.hops === 3)
 })

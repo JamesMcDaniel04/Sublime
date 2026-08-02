@@ -57,7 +57,7 @@ export function goalWorkSection(tools: { name: string }[]): string {
 export function strategizeSection(): string {
   return [
     '## Think before acting',
-    'This task is complex. Before calling ANY tool, produce a short numbered plan: the steps you will take, which tools each step needs, and what "done" looks like. State the plan in your first reply, then execute it.',
-    'When a step fails or returns something unexpected, pause and revise the plan explicitly before continuing.',
+    'This task is complex. Before calling ANY other tool, record a short plan with set_plan: the steps you will take, in order, each a short imperative sentence, ending with what "done" looks like. Then execute it.',
+    'As you work, keep the plan honest with update_plan: mark each step done when it completes. When a step fails or returns something unexpected, mark it failed and pass revisedSteps with your new approach — never silently continue on a plan that reality has already broken.',
   ].join('\n')
 }

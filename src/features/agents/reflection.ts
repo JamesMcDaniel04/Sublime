@@ -160,6 +160,8 @@ export async function reflectAndRemember(
     objective: string
     summary: string
     processLog: string
+    /** Plan-vs-actual audit findings from this run (plan-artifact.ts). */
+    planFindings?: string[]
     recordSuggestionEvent: (payload: Record<string, unknown>) => Promise<void>
     /** The run's owner — templates auto-distilled from this run are attributed to them. */
     userId?: string
