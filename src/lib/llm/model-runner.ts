@@ -31,6 +31,9 @@ export type ToolResult = {
 
 export type Effort = 'low' | 'medium' | 'high' | 'xhigh' | 'max'
 
+/** Optional per-call streaming hooks. Absent for batch callers (agent runs). */
+export type ModelHooks = { onTextDelta?: (delta: string) => void }
+
 // Mirrors Anthropic's Message['stop_reason'] (minus null — finalMessage()
 // always resolves one of these). Callers use this to distinguish a turn that
 // naturally ended or asked for tools from one that was cut off mid-generation
@@ -53,7 +56,7 @@ export interface ModelRunner {
   start(input: string): unknown[]
   appendUserMessage(transcript: unknown[], content: string): void
   appendToolResults(transcript: unknown[], results: ToolResult[]): void
-  next(transcript: unknown[], system: string, tools: ToolDefinition[], effort?: Effort): Promise<ModelTurn>
+  next(transcript: unknown[], system: string, tools: ToolDefinition[], effort?: Effort, hooks?: ModelHooks): Promise<ModelTurn>
 }
 
 const ADAPTIVE_THINKING_MODELS = /^claude-(opus-4-[678]|sonnet-(4-6|5)|fable-5|mythos-5)/
@@ -118,7 +121,7 @@ function withRollingCache(messages: Anthropic.MessageParam[]): Anthropic.Message
 interface Provider {
   readonly kind: ProviderKind
   readonly model: string
-  next(ir: IRMessage[], system: string, tools: ToolDefinition[], effort?: Effort): Promise<ModelTurn>
+  next(ir: IRMessage[], system: string, tools: ToolDefinition[], effort?: Effort, hooks?: ModelHooks): Promise<ModelTurn>
 }
 
 // Anthropic-wire provider. Serves BOTH Claude (api.anthropic.com) and Qwen
@@ -130,7 +133,7 @@ class AnthropicProvider implements Provider {
 
   constructor(readonly model: string, private readonly client: Anthropic) {}
 
-  async next(ir: IRMessage[], system: string, tools: ToolDefinition[], effort?: Effort): Promise<ModelTurn> {
+  async next(ir: IRMessage[], system: string, tools: ToolDefinition[], effort?: Effort, hooks?: ModelHooks): Promise<ModelTurn> {
     // Effort is only meaningful on the same current-generation family that gets
     // adaptive thinking (Haiku and Qwen don't support it) — gate on the model,
     // not on whether the caller happened to pass one, so a caller can't
@@ -158,6 +161,7 @@ class AnthropicProvider implements Provider {
       // persisted IR (which is replayed verbatim and must stay unmodified).
       messages: withRollingCache(toAnthropicMessages(ir)),
     }, { signal: AbortSignal.timeout(STREAM_DEADLINE_MS) })
+    if (hooks?.onTextDelta) stream.on('text', hooks.onTextDelta)
     const message = await stream.finalMessage()
     ir.push(irFromAnthropic(message))
 
@@ -222,13 +226,13 @@ class AgentRunner implements ModelRunner {
     )
   }
 
-  async next(transcript: unknown[], system: string, tools: ToolDefinition[], effort?: Effort): Promise<ModelTurn> {
+  async next(transcript: unknown[], system: string, tools: ToolDefinition[], effort?: Effort, hooks?: ModelHooks): Promise<ModelTurn> {
     const ir = transcript as IRMessage[]
     let lastError: unknown
     for (let i = 0; i < this.chain.length; i += 1) {
       const provider = this.chain[i]
       try {
-        return await provider.next(ir, system, tools, effort)
+        return await provider.next(ir, system, tools, effort, hooks)
       } catch (error) {
         lastError = error
         // Only fall back on availability failures, and only if a fallback exists.
