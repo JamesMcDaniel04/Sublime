@@ -166,7 +166,7 @@ if (!TEST_DB) {
       assert.equal((await put(created.credential.id, { name: 'hijacked' })).status, 404)
       assert.equal((await del(created.credential.id)).status, 404)
 
-      const untouched = await prisma.credential.findUnique({ where: { id: created.credential.id } })
+      const untouched = await prisma.credential.findFirst({ where: { id: created.credential.id, organizationId: seeded.organizationId } })
       assert.equal(untouched?.name, 'Just mine')
     } finally {
       installTestAuth(seeded.auth)

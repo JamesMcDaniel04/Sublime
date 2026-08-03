@@ -279,7 +279,7 @@ if (TEST_DB) {
     )
     assert.equal(await prisma.flowRun.count({ where: { flowId: privateFlow.id, organizationId: ids.org } }), 0)
 
-    await prisma.flow.update({ where: { id: privateFlow.id }, data: { visibility: 'org_viewer' } })
+    await prisma.flow.updateMany({ where: { id: privateFlow.id, organizationId: ids.org }, data: { visibility: 'org_viewer' } })
     const shared = await runFlowExecution({
       flowId: privateFlow.id,
       organizationId: ids.org,
@@ -287,7 +287,11 @@ if (TEST_DB) {
       usePublished: true,
       subflowDepth: 1,
     })
-    assert.equal(shared.status, 'stopped')
+    // Positive control: once the flow is org-visible the same call runs it.
+    // A `stop` NODE is an author-placed early exit, so the run SUCCEEDS — the
+    // 'stopped' status is reserved for a user-requested cancellation
+    // (opts.shouldStop). See interpret.test.ts "stop node ends the flow early".
+    assert.equal(shared.status, 'succeeded')
   })
 
 }

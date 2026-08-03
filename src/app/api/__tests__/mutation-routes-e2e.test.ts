@@ -280,12 +280,12 @@ if (TEST_DB) {
     const active = await makeRun('running')
     const cancelled = await POST(json(`/api/agents/${active.agent.id}/runs/${active.run.id}`, 'POST', { action: 'cancel' }))
     assert.equal(cancelled.status, 200, await cancelled.clone().text())
-    assert.equal((await prisma.agentExecution.findUnique({ where: { id: active.run.id } }))?.status, 'cancelling')
+    assert.equal((await prisma.agentExecution.findFirst({ where: { id: active.run.id, organizationId } }))?.status, 'cancelling')
 
     const finished = await makeRun('completed')
     const deleted = await DELETE(new NextRequest(new URL(`http://test/api/agents/${finished.agent.id}/runs/${finished.run.id}`), { method: 'DELETE' }) as never)
     assert.equal(deleted.status, 200, await deleted.clone().text())
-    assert.equal(await prisma.agentExecution.findUnique({ where: { id: finished.run.id } }), null)
+    assert.equal(await prisma.agentExecution.findFirst({ where: { id: finished.run.id, organizationId } }), null)
   })
 
   test('sharing an agent never lets a same-org user cancel or delete its owner\'s run', async () => {
@@ -307,8 +307,8 @@ if (TEST_DB) {
       assert.equal(cancel.status, 404)
       const remove = await DELETE(new NextRequest(new URL(`http://test/api/agents/${finished.agent.id}/runs/${finished.run.id}`), { method: 'DELETE' }) as never)
       assert.equal(remove.status, 404)
-      assert.equal((await prisma.agentExecution.findUnique({ where: { id: active.run.id } }))?.status, 'running')
-      assert.ok(await prisma.agentExecution.findUnique({ where: { id: finished.run.id } }))
+      assert.equal((await prisma.agentExecution.findFirst({ where: { id: active.run.id, organizationId } }))?.status, 'running')
+      assert.ok(await prisma.agentExecution.findFirst({ where: { id: finished.run.id, organizationId } }))
     } finally {
       installTestAuth(seeded.auth)
     }

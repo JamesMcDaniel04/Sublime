@@ -42,6 +42,14 @@ import { recordToolCallEvents } from '@/lib/behavior/record-event'
 import { credentialVerificationKey } from '@/lib/connections/verification'
 import { recordVerificationAsync } from '@/lib/connections/record-verification'
 import { flowReadScope } from '@/lib/server/visibility'
+import {
+  chargeRunBudget,
+  createRunBudget,
+  estimateTokens,
+  runBudgetExceededMessage,
+  runBudgetExhausted,
+  type RunBudget,
+} from '@/lib/agents/run-budget'
 
 /**
  * Guard every URL a flow http step reaches — the initial request, each
@@ -69,6 +77,12 @@ export type FlowExecutionJob = {
   reply?: string
   /** Scheduler-driven resume for a durable Wait node. */
   resumeReason?: 'time'
+  /**
+   * Inline-only (never serialized into a queue job): the parent's token budget,
+   * passed BY REFERENCE so a subflow tree spends one cap instead of minting a
+   * fresh one per child. Mirrors runAgentExecution's runBudget.
+   */
+  runBudget?: RunBudget
   /** Draft-test partial execution controls. Never used by external triggers. */
   startNodeId?: string
   /** Builder single-node test: execute ONLY this node (never downstream). */
@@ -198,6 +212,14 @@ export async function runFlowExecution(
   // Cross-tool ledger (behavior spec §2): providers this run's tool steps
   // touched, deduped to one tool_call event per (run segment, provider).
   const touchedTools = new Map<string, Set<string>>()
+  // ONE token budget per flow-run TREE. Each agent node used to mint its own
+  // cap, so a 100-node flow could spend 100x the intended per-run ceiling with
+  // nothing aggregating it; subflows compounded that again per level. Created
+  // once here and passed BY REFERENCE into every agent node and child flow, so
+  // the whole tree spends a single allowance. FLOW_MAX_RUN_TOKENS overrides;
+  // otherwise the agent cap applies to flows too.
+  const runBudget: RunBudget =
+    job.runBudget ?? createRunBudget(process.env.FLOW_MAX_RUN_TOKENS ?? process.env.AGENT_MAX_RUN_TOKENS)
 
   // Resume: atomically claim the run — only a genuinely `waiting` run may be
   // resumed. A concurrent resume, a run the reaper already terminalized, or a
@@ -495,7 +517,15 @@ export async function runFlowExecution(
       // (runAgentExecution requires an ACTIVE AgentTask and cannot run a
       // prompt-only ephemeral agent — see the design note.)
       if (!node.agentId?.trim()) {
+        if (runBudgetExhausted(runBudget)) {
+          const error = runBudgetExceededMessage(runBudget)
+          await finishStep({ status: 'failed', error, finishedAt: new Date() })
+          return { error }
+        }
         const text = await generateText({ system: node.prompt ?? '', user: node.input, model: node.model })
+        // generateText returns only text, so the spend is estimated. Without
+        // this the inline-agent node was invisible to the run's cap.
+        chargeRunBudget(runBudget, estimateTokens(node.prompt, node.input, text))
         await finishStep({ status: 'succeeded', output: jsonValue(text), finishedAt: new Date() })
         return { output: text }
       }
@@ -532,8 +562,8 @@ export async function runFlowExecution(
       const agentNodeDepth = (job.subflowDepth ?? 0) + 1
       const result = (await runAgentExecution(
         resumeThis
-          ? { agentId: node.agentId, organizationId: job.organizationId, userId: job.userId, executionId: resumeExecutionId, resume: true, reply: job.reply, onExecutionCreated, depth: agentNodeDepth }
-          : { agentId: node.agentId, organizationId: job.organizationId, userId: job.userId, input: node.input, onExecutionCreated, depth: agentNodeDepth, ...(continueExecutionId ? { continueExecutionId } : {}) },
+          ? { agentId: node.agentId, organizationId: job.organizationId, userId: job.userId, executionId: resumeExecutionId, resume: true, reply: job.reply, onExecutionCreated, depth: agentNodeDepth, runBudget }
+          : { agentId: node.agentId, organizationId: job.organizationId, userId: job.userId, input: node.input, onExecutionCreated, depth: agentNodeDepth, runBudget, ...(continueExecutionId ? { continueExecutionId } : {}) },
       )) as { summary?: string; status?: string; question?: string; executionId?: string }
 
       // Record this run's execution id as the next iteration's continuation
@@ -637,6 +667,7 @@ export async function runFlowExecution(
             usePublished: true,
             trigger: { type: 'signal', via: 'subflow' },
             subflowDepth: (job.subflowDepth ?? 0) + 1,
+            runBudget,
           })
         } else {
           // 'running': a concurrent resume owns the child — park again and let
@@ -652,6 +683,7 @@ export async function runFlowExecution(
           usePublished: true,
           trigger: { type: 'signal', via: 'subflow' },
           subflowDepth: (job.subflowDepth ?? 0) + 1,
+          runBudget,
         })
       }
       if (res.status === 'waiting') {
@@ -932,8 +964,10 @@ export async function runFlowExecution(
   // cross-provider fallback and JSON-schema-constrained output.
   const routeAi: RouteAiFn = async (node) => {
     try {
+      if (runBudgetExhausted(runBudget)) return { error: runBudgetExceededMessage(runBudget) }
       const { system, user } = buildRouterPrompt(node.branches, node.instructions, node.input)
       const raw = await generateStructured({ system, user, schema: routerBranchSchema(node.branches), schemaName: 'router_choice', maxTokens: 64 })
+      chargeRunBudget(runBudget, estimateTokens(system, user, raw))
       return parseRouterChoice(raw, node.branches)
     } catch (error) {
       return { error: error instanceof Error ? error.message : String(error) }

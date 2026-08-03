@@ -100,6 +100,7 @@ if (TEST_DB) {
     { name: 'GET /api/search', run: async () => (await import('../search/route')).GET(req('/api/search?q=smoke')) },
     { name: 'GET /api/settings/members', run: async () => (await import('../settings/members/route')).GET(req('/api/settings/members')) },
     { name: 'GET /api/settings/insights', run: async () => (await import('../settings/insights/route')).GET(req('/api/settings/insights')) },
+    { name: 'GET /api/feedback', run: async () => (await import('../feedback/route')).GET(req('/api/feedback')) },
     { name: 'GET /api/settings/members/[id]/resources', run: async () => (await import('../settings/members/[id]/resources/route')).GET(req(`/api/settings/members/${memberId}/resources`)) },
     { name: 'GET /api/settings/profile', run: async () => (await import('../settings/profile/route')).GET(req('/api/settings/profile')) },
     { name: 'GET /api/slack/connections', run: async () => (await import('../slack/connections/route')).GET(req('/api/slack/connections')) },

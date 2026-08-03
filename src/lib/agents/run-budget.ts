@@ -27,3 +27,24 @@ export function chargeRunBudget(budget: RunBudget, tokens: number): boolean {
   if (Number.isFinite(tokens) && tokens > 0) budget.spent += tokens
   return budget.cap > 0 && budget.spent >= budget.cap
 }
+
+/** True when the cap is already spent, so the next call should not be made. */
+export function runBudgetExhausted(budget: RunBudget): boolean {
+  return budget.cap > 0 && budget.spent >= budget.cap
+}
+
+/**
+ * Rough token count for LLM calls that return only text (the flow inline-agent
+ * and router paths call helpers that don't surface provider usage). ~4 chars
+ * per token is the standard approximation; this feeds a runaway backstop, not
+ * billing, so approximate is the right precision.
+ */
+export function estimateTokens(...parts: Array<string | undefined | null>): number {
+  const chars = parts.reduce((sum, part) => sum + (part?.length ?? 0), 0)
+  return Math.ceil(chars / 4)
+}
+
+/** The error a run fails with when its token cap is spent. */
+export function runBudgetExceededMessage(budget: RunBudget): string {
+  return `This run hit its token budget (${budget.cap.toLocaleString()} tokens) and was stopped before making another model call.`
+}

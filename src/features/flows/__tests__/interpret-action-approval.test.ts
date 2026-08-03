@@ -73,7 +73,7 @@ test('resuming with an approval fires the held call and continues', async () => 
     runAgent,
     runAction: approvalAwareRunAction({ reply: 'approve', executed }),
     resumeKey: 'call',
-    reply: 'approve',
+    resumeReply: 'approve',
   })
 
   assert.equal(result.status, 'succeeded')
@@ -86,7 +86,7 @@ test('resuming with anything else cancels the step instead of firing it', async 
     runAgent,
     runAction: approvalAwareRunAction({ reply: 'no, wrong customer', executed }),
     resumeKey: 'call',
-    reply: 'no, wrong customer',
+    resumeReply: 'no, wrong customer',
   })
 
   assert.equal(result.status, 'failed')

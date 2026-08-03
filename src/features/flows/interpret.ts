@@ -8,6 +8,7 @@ import { resolveInputParams, bindOutputFields } from '@/lib/flows/io-nodes'
 import type { RouterBranchSpec } from '@/lib/flows/router'
 import { joinBranchOutputs } from '@/lib/flows/join'
 import { completedKey, nodeIdOfCompletedKey } from './completed-key'
+import { redactSecrets, wrapUntrusted } from '@/lib/llm/guardrails'
 
 export type StepOutcome = {
   nodeId: string

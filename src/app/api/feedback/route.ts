@@ -16,6 +16,30 @@ const feedbackSchema = z.object({
   path: z.string().trim().max(300).optional(),
 })
 
+/**
+ * This workspace's own feedback, newest first.
+ *
+ * The email to the support inbox is the primary read path, but it is sent
+ * best-effort AFTER the response — a bounced or failed send used to leave the
+ * row reachable only by direct database access, with the submitter believing
+ * it had been received. Admin-gated and org-scoped: a workspace reads its own
+ * submissions and nobody else's.
+ *
+ * `message` is returned as the user typed it. Every current consumer renders
+ * through React (which escapes by default); any future non-React surface —
+ * an email, a CSV, an HTML export — must escape it explicitly.
+ */
+export const GET = withAuthenticatedApi(async (request, auth) => {
+  const limit = Math.min(Number(request.nextUrl.searchParams.get('limit') ?? 50) || 50, 200)
+  const submissions = await prisma.feedbackSubmission.findMany({
+    where: { organizationId: auth.organizationId },
+    orderBy: { createdAt: 'desc' },
+    take: limit,
+    select: { id: true, category: true, message: true, path: true, createdAt: true, userId: true },
+  })
+  return { success: true, submissions }
+}, { requires: 'insights:workspace' })
+
 export const POST = withAuthenticatedApi(async (request, auth) => {
   const limited = await rateLimit(`feedback:${auth.dbUser.id}`, { limit: 5, windowMs: 60_000 })
   if (!limited.ok) throw new ApiError('Too many submissions — please wait a minute.', 429, 'RATE_LIMITED')
