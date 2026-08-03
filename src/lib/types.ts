@@ -128,9 +128,33 @@ export interface RecoveryPlanView {
   actions: RecoveryActionView[]
 }
 
+/** Reflection's run→goal contribution verdicts, aggregated for the funnel. */
+export interface RunVerdictSummary {
+  /** Last-30-day counts; total is the sum of the four verdicts. */
+  counts: {
+    advanced: number
+    no_change: number
+    unclear: number
+    counterproductive: number
+  }
+  recent: Array<{
+    id: string
+    resourceType: 'agent' | 'flow'
+    resourceId: string
+    runId: string
+    verdict: 'advanced' | 'no_change' | 'unclear' | 'counterproductive'
+    evidence: string
+    createdAt: string
+  }>
+}
+
 /** GET /api/goals/[id] response shape, shared with dashboard widgets. */
 export interface GoalDetail extends Omit<GoalSummary, 'sparkline'> {
   recoveryPlan: RecoveryPlanView | null
+  /** Multi-goal arbitration rank; lower = more important, null = automatic. */
+  priority: number | null
+  /** Run→goal contribution verdicts (last 30 days); null when none exist. */
+  runVerdicts: RunVerdictSummary | null
   description: string | null
   projectedValue: number | null
   metric: (GoalSummary['metric'] & { id: string }) | null

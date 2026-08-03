@@ -129,6 +129,38 @@ export const GET = withAuthenticatedApi(async (request, auth) => {
     },
   })
 
+  // Run→goal contribution funnel: reflection's last-30-day verdicts. One
+  // grouped count + a short recent list; null (absent card) when no runs have
+  // been judged yet — an empty funnel would only imply tracking that isn't on.
+  const verdictSince = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)
+  const [verdictCounts, recentVerdicts] = await Promise.all([
+    prisma.goalRunVerdict.groupBy({
+      by: ['verdict'],
+      where: { organizationId: auth.organizationId, goalId: id, createdAt: { gte: verdictSince } },
+      _count: { _all: true },
+    }),
+    prisma.goalRunVerdict.findMany({
+      where: { organizationId: auth.organizationId, goalId: id, createdAt: { gte: verdictSince } },
+      orderBy: { createdAt: 'desc' },
+      take: 8,
+      select: {
+        id: true,
+        resourceType: true,
+        resourceId: true,
+        runId: true,
+        verdict: true,
+        evidence: true,
+        createdAt: true,
+      },
+    }),
+  ])
+  const counts = { advanced: 0, no_change: 0, unclear: 0, counterproductive: 0 }
+  for (const row of verdictCounts) {
+    if (row.verdict in counts) counts[row.verdict as keyof typeof counts] = row._count._all
+  }
+  const runVerdicts =
+    recentVerdicts.length > 0 ? { counts, recent: recentVerdicts } : null
+
   return {
     success: true,
     goal: {
@@ -146,6 +178,7 @@ export const GET = withAuthenticatedApi(async (request, auth) => {
       status: goal.status,
       riskLevel: goal.riskLevel,
       priority: goal.priority,
+      runVerdicts,
       personal: goal.ownerUserId !== null,
       // For the Restricted badge: visible only to people who can already see
       // the goal, so it reveals nothing to anyone else.

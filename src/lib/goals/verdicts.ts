@@ -174,3 +174,68 @@ export async function recordGoalRunVerdicts(
     })
   }
 }
+
+export type FlowVerdictDeps = {
+  linkedGoalIds: (organizationId: string, resource: { type: 'flow'; id: string }) => Promise<string[]>
+  /** GoalWork rows this flow logged for this goal since the run started. */
+  workCount: (goalId: string, organizationId: string, flowId: string, since: Date) => Promise<number>
+  record: typeof recordGoalRunVerdicts
+}
+
+const defaultFlowDeps: FlowVerdictDeps = {
+  linkedGoalIds: async (organizationId, resource) => {
+    const { resolveLinkedGoalIds } = await import('@/lib/integrations/goals-port')
+    return resolveLinkedGoalIds(organizationId, resource)
+  },
+  workCount: (goalId, organizationId, flowId, since) =>
+    prisma.goalWork.count({
+      where: {
+        organizationId,
+        goalId,
+        resourceType: 'flow',
+        resourceId: flowId,
+        createdAt: { gte: since },
+      },
+    }),
+  record: recordGoalRunVerdicts,
+}
+
+/**
+ * Flow parity for verdicts. Flows have no reflection pass, so the verdict is
+ * DETERMINISTIC, not judged: a run that logged goal work during its window
+ * advanced the goal; a clean run that logged nothing is no_change. Keyed on
+ * the run's time window because GoalWork rows carry resource provenance but
+ * no per-run id. Per goal (work differs per goal), bounded by the same cap
+ * as agent verdicts. Fire-and-forget; never throws.
+ */
+export async function recordFlowRunVerdicts(
+  input: { organizationId: string; flowId: string; flowRunId: string; startedAt: Date },
+  deps: FlowVerdictDeps = defaultFlowDeps,
+): Promise<void> {
+  try {
+    const goalIds = (
+      await deps.linkedGoalIds(input.organizationId, { type: 'flow', id: input.flowId })
+    ).slice(0, VERDICT_GOAL_BOUND)
+    for (const goalId of goalIds) {
+      const count = await deps.workCount(goalId, input.organizationId, input.flowId, input.startedAt)
+      const plural = count === 1 ? '' : 's'
+      await deps.record({
+        organizationId: input.organizationId,
+        resourceType: 'flow',
+        resourceId: input.flowId,
+        runId: input.flowRunId,
+        verdict: count > 0 ? 'advanced' : 'no_change',
+        evidence:
+          count > 0
+            ? `Flow run logged ${count} work item${plural} toward this goal.`
+            : 'Flow run completed without logging any work toward this goal.',
+        goalIds: [goalId],
+      })
+    }
+  } catch (error) {
+    apiLogger.warn('goals.verdicts: flow record failed', {
+      flowRunId: input.flowRunId,
+      error: error instanceof Error ? error.message.slice(0, 200) : String(error),
+    })
+  }
+}

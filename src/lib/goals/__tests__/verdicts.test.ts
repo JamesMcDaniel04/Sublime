@@ -154,3 +154,46 @@ test('recordGoalRunVerdicts persists an unclear verdict (it counts in totals) bu
   assert.equal(created.length, 1)
   assert.equal(escalated.length, 0)
 })
+
+test('recordFlowRunVerdicts judges each linked goal by work logged during the run window', async () => {
+  const { recordFlowRunVerdicts } = await import('../verdicts')
+  const created: Array<{ goalId: string; verdict: string; resourceType: string; runId: string }> = []
+  await recordFlowRunVerdicts(
+    {
+      organizationId: 'org1',
+      flowId: 'flow1',
+      flowRunId: 'fr1',
+      startedAt: new Date('2026-08-01T00:00:00Z'),
+    },
+    {
+      linkedGoalIds: async () => ['g1', 'g2'],
+      workCount: async (goalId) => (goalId === 'g1' ? 2 : 0),
+      record: async (input) => {
+        created.push({
+          goalId: input.goalIds![0],
+          verdict: input.verdict,
+          resourceType: input.resourceType,
+          runId: input.runId,
+        })
+      },
+    },
+  )
+  assert.deepEqual(created, [
+    { goalId: 'g1', verdict: 'advanced', resourceType: 'flow', runId: 'fr1' },
+    { goalId: 'g2', verdict: 'no_change', resourceType: 'flow', runId: 'fr1' },
+  ])
+})
+
+test('recordFlowRunVerdicts never throws on a failing dep', async () => {
+  const { recordFlowRunVerdicts } = await import('../verdicts')
+  await recordFlowRunVerdicts(
+    { organizationId: 'o', flowId: 'f', flowRunId: 'r', startedAt: new Date('2026-08-01T00:00:00Z') },
+    {
+      linkedGoalIds: async () => {
+        throw new Error('db down')
+      },
+      workCount: async () => 0,
+      record: async () => {},
+    },
+  )
+})

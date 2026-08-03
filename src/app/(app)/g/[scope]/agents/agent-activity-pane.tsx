@@ -340,6 +340,73 @@ function PlanCard({ text }: { text: string }) {
   )
 }
 
+/** The structured plan artifact recorded via set_plan/update_plan, with the
+ *  run-end plan-vs-actual audit findings. Distinct from PlanCard (a prose
+ *  plan the model narrated); this one is the machine-checked version. */
+type StructuredPlan = {
+  steps: Array<{ n: number; title: string; status: 'pending' | 'done' | 'failed' | 'skipped'; note?: string }>
+  revisions: Array<{ turn: number; reason: string }>
+}
+
+const PLAN_FINDING_LABELS: Record<string, string> = {
+  plan_never_set: 'The agent never recorded a plan despite being asked to.',
+  steps_left_pending: 'The run finished with plan steps still pending.',
+  failed_step_no_revision: 'A step failed and the plan was never revised.',
+}
+
+const PLAN_STEP_CHIP: Record<string, string> = {
+  done: 'bg-emerald-100 text-emerald-700',
+  failed: 'bg-red-100 text-red-700',
+  skipped: 'bg-muted text-muted-foreground line-through',
+  pending: 'bg-amber-50 text-amber-700',
+}
+
+function RunPlanCard({ plan, findings }: { plan: StructuredPlan; findings: string[] }) {
+  if (!Array.isArray(plan.steps) || plan.steps.length === 0) return null
+  return (
+    <div className="rounded-lg border bg-card/60 px-3 py-2">
+      <p className="mono-label mb-2 flex items-center gap-1.5 text-muted-foreground">
+        <ListOrdered className="h-3 w-3" /> Recorded plan
+        {plan.revisions.length > 0 && (
+          <span>· revised {plan.revisions.length}×</span>
+        )}
+      </p>
+      <ol className="space-y-1.5">
+        {plan.steps.map((step) => (
+          <li key={step.n} className="flex items-start gap-2 text-sm">
+            <span
+              className={cn(
+                'mt-0.5 shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide',
+                PLAN_STEP_CHIP[step.status] ?? PLAN_STEP_CHIP.pending,
+              )}
+            >
+              {step.status}
+            </span>
+            <span className="min-w-0">
+              {step.n}. {step.title}
+              {step.note && <span className="text-muted-foreground"> — {step.note}</span>}
+            </span>
+          </li>
+        ))}
+      </ol>
+      {plan.revisions.length > 0 && (
+        <ul className="mt-2 space-y-0.5 border-t pt-2 text-xs text-muted-foreground">
+          {plan.revisions.map((revision, index) => (
+            <li key={index}>Turn {revision.turn}: re-planned — {revision.reason}</li>
+          ))}
+        </ul>
+      )}
+      {findings.length > 0 && (
+        <ul className="mt-2 space-y-0.5 border-t pt-2 text-xs text-amber-700">
+          {findings.map((finding) => (
+            <li key={finding}>⚠ {PLAN_FINDING_LABELS[finding] ?? finding}</li>
+          ))}
+        </ul>
+      )}
+    </div>
+  )
+}
+
 // A memory the agent pulled in from a prior run — kept to a single collapsed
 // summary line, matching the context card's default (unexpanded) density.
 function MemoryCard({ summary }: { summary: string }) {
@@ -673,6 +740,17 @@ function RunRow({
               )}
             </div>
           )}
+
+          {/* The structured plan artifact (set_plan/update_plan), when this
+              run recorded one — with the plan-vs-actual audit findings. */}
+          {(() => {
+            const plan = (details?.execution as { plan?: StructuredPlan } | undefined)?.plan
+            const findings =
+              ((details?.execution?.output as { planFindings?: string[] } | undefined)?.planFindings ??
+                (activity.output as { planFindings?: string[] } | undefined)?.planFindings ??
+                [])
+            return plan ? <RunPlanCard plan={plan} findings={findings} /> : null
+          })()}
 
           {/* Process timeline: the agent's reasoning interleaved with its tool
               calls, streaming in while the run is active. Conversation with the

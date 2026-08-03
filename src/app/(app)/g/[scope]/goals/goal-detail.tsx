@@ -36,6 +36,7 @@ import type { MetricSourceOption } from '@/lib/metrics/available-sources'
 import { AgentBundleCard } from '@/components/goals/agent-bundle-card'
 import { GoalAccessCard } from '@/components/goals/goal-access-card'
 import { WorkQueue } from '@/components/goals/workroom/work-queue'
+import { VerdictFunnel } from '@/components/goals/verdict-funnel'
 import { connectedSlugSet } from '@/lib/templates/relevance'
 import {
   GoalDashboard,
@@ -105,6 +106,7 @@ export function GoalDetail({ goalId }: { goalId: string }) {
     targetValue: '',
     targetDate: '',
     recurrence: null as GoalSummary['recurrence'],
+    priority: null as number | null,
   })
 
   const load = useCallback(async () => {
@@ -137,6 +139,7 @@ export function GoalDetail({ goalId }: { goalId: string }) {
         targetValue: String(goalBody.goal.targetValue),
         targetDate: String(goalBody.goal.targetDate).slice(0, 10),
         recurrence: goalBody.goal.recurrence,
+        priority: goalBody.goal.priority ?? null,
       })
     } catch (cause) {
       setError(
@@ -160,6 +163,7 @@ export function GoalDetail({ goalId }: { goalId: string }) {
           `${edit.targetDate}T23:59:59`,
         ).toISOString(),
         recurrence: edit.recurrence,
+        priority: edit.priority,
       }),
     })
     const body = await response.json()
@@ -225,6 +229,11 @@ export function GoalDetail({ goalId }: { goalId: string }) {
               </Badge>
             )}
             <RiskBadge riskLevel={goal.riskLevel} />
+            {goal.priority !== null && (
+              <Badge variant="outline" title="Arbitration priority — outranks automatic ordering for multi-goal agents">
+                P{goal.priority}
+              </Badge>
+            )}
             <Badge variant="outline">
               {GOAL_KIND_LABELS[goal.kind]}
             </Badge>
@@ -308,6 +317,35 @@ export function GoalDetail({ goalId }: { goalId: string }) {
                     </SelectContent>
                   </Select>
                 </label>
+                <label className="space-y-1.5 text-sm">
+                  <span>Priority</span>
+                  <Select
+                    value={edit.priority === null ? 'auto' : String(edit.priority)}
+                    onValueChange={(value) =>
+                      setEdit({
+                        ...edit,
+                        priority: value === 'auto' ? null : Number(value),
+                      })
+                    }
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="auto">Automatic (by risk, then deadline)</SelectItem>
+                      <SelectItem value="1">P1 — highest</SelectItem>
+                      <SelectItem value="2">P2</SelectItem>
+                      <SelectItem value="3">P3</SelectItem>
+                      <SelectItem value="4">P4</SelectItem>
+                      <SelectItem value="5">P5 — lowest</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-muted-foreground">
+                    When one agent serves several goals, higher-priority goals
+                    win when actions trade off. A set priority outranks every
+                    automatic one.
+                  </p>
+                </label>
                 {goal.recurrence && (
                   <p className="text-xs text-muted-foreground">
                     Target edits apply to the current window only; future
@@ -374,6 +412,10 @@ export function GoalDetail({ goalId }: { goalId: string }) {
           restricts them, and the API refuses them with PERSONAL_GOAL). */}
       {!goal.personal && <GoalAccessCard goalId={goalId} />}
       <WorkQueue goalId={goalId} />
+      {/* Next to the work ledger: whether those runs actually moved the goal.
+          The stalled-agent notification links here, so this card is what
+          explains it. Absent until at least one run has been judged. */}
+      <VerdictFunnel verdicts={goal.runVerdicts} />
 
       <AgentBundleCard
         goalId={goalId}

@@ -1049,6 +1049,20 @@ export async function runFlowExecution(
         }),
       )
       .catch(() => undefined)
+    // Run→goal contribution, flow parity: deterministic verdict per linked
+    // goal (work logged during this run's window ⇒ advanced). Published runs
+    // only — a builder Test/Run must not pollute the goal's funnel. Fire and
+    // forget: a verdict hiccup never blocks or fails the run.
+    void import('@/lib/goals/verdicts')
+      .then(({ recordFlowRunVerdicts }) =>
+        recordFlowRunVerdicts({
+          organizationId: job.organizationId,
+          flowId: flow.id,
+          flowRunId: run.id,
+          startedAt: run.startedAt,
+        }),
+      )
+      .catch(() => undefined)
   }
 
   return {
