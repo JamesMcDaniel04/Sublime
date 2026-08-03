@@ -486,7 +486,10 @@ export function AssistantPanel({
         )}
       </div>
 
-      <div className="border-t p-4">
+      {/* shrink-0: the composer is the one row that must never give up space
+          to the transcript above it — a flex item defaults to shrinkable, so
+          under any height pressure this is what gets squeezed. */}
+      <div className="shrink-0 border-t p-4">
         <div className="flex gap-2">
           <Input
             value={input}

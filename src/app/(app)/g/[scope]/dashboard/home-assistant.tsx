@@ -572,7 +572,10 @@ export function HomeAssistant() {
 
   return (
     <div
-      className="relative flex h-screen min-h-0 flex-col bg-background"
+      // h-full, not h-screen — see the note in the agents page: the shell has
+      // already spent the viewport, so a second 100vh here pushes this
+      // surface's composer below the fold by the trial banner's height.
+      className="relative flex h-full min-h-0 flex-col bg-background"
       onDragEnter={onDragEnter}
       onDragOver={onDragOver}
       onDragLeave={onDragLeave}

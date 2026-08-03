@@ -2,22 +2,7 @@ import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
 import { getSupabaseConfig } from './config'
 import { safeReturnTo } from './return-to'
-
-const publicPages = new Set([
-  '/',
-  '/auth',
-  '/auth/login',
-  '/auth/signin',
-  '/auth/signup',
-  '/auth/callback',
-  '/auth/auth-code-error',
-  '/auth/forgot-password',
-  '/auth/update-password',
-  '/privacy',
-  '/terms',
-  '/about',
-  '/contact',
-])
+import { PUBLIC_PATHS as publicPages } from '@/lib/auth/public-paths'
 
 function copyCookies(source: NextResponse, target: NextResponse) {
   source.cookies.getAll().forEach((cookie) => target.cookies.set(cookie))

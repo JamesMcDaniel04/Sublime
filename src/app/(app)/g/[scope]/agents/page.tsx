@@ -625,7 +625,13 @@ function AgentHQ() {
   }
 
   return (
-    <div className="flex flex-col lg:h-screen lg:overflow-hidden">
+    <div
+      // h-full, NOT h-screen: AppShell already spends the viewport, so <main>
+      // is 100vh minus the trial banner. Asking for a second 100vh in there
+      // overflows by exactly the banner's height, and the grid's
+      // overflow-hidden clips that strip — the chat composer.
+      className="flex flex-col lg:h-full lg:overflow-hidden"
+    >
       {/* Agents ↔ Templates segmented toggle — the template library lives
           inside HQ now instead of its own sidebar destination. */}
       <div className="flex shrink-0 justify-center border-b bg-muted px-4 py-3">

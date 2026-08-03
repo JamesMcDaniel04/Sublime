@@ -3,11 +3,9 @@
 import { createContext, useContext, useEffect, useMemo, useState } from 'react'
 import type { User } from '@supabase/supabase-js'
 import { createClient } from '@/lib/supabase/client'
+import { isPublicPath } from '@/lib/auth/public-paths'
 
 const supabase = createClient()
-
-// Pages a signed-out user may see (mirrors the middleware allow-list).
-const PUBLIC_PATHS = new Set(['/', '/privacy', '/terms', '/auth-code-error'])
 
 /** The canonical app origin for auth redirects: the configured production URL
  *  when set (so links never point at localhost/preview), else the live origin. */
@@ -67,10 +65,7 @@ export function SupabaseProvider({ children }: { children: React.ReactNode }) {
   // no protected content flashes), re-check the session from local storage, and
   // either reveal it or bounce to sign-in. Public pages are exempt.
   useEffect(() => {
-    const onProtectedPath = () => {
-      const path = window.location.pathname
-      return !PUBLIC_PATHS.has(path) && !path.startsWith('/auth/')
-    }
+    const onProtectedPath = () => !isPublicPath(window.location.pathname)
     const reveal = () => {
       document.documentElement.style.visibility = ''
     }
