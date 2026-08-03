@@ -92,7 +92,7 @@ if (!TEST_DB) {
     assert.equal(plan.headers?.['X-New'], SECRET)
   })
 
-  test('a duplicate org-shared name is a 409', async () => {
+  test('a duplicate personal name is a 409', async () => {
     await post({ name: 'Unique one', type: 'bearer', token: 'a', allowedDomains: ['example.com'] })
     const again = await post({ name: 'Unique one', type: 'bearer', token: 'b', allowedDomains: ['example.com'] })
     assert.equal(again.status, 409)

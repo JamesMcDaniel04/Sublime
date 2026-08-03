@@ -36,20 +36,22 @@ if (!TEST_DB) {
       const row = await prisma.credential.create({
         data: {
           organizationId: seeded.organizationId,
+          userId: seeded.userId,
           name,
           type: 'bearer',
           authConfig: buildCredentialConfig({ type: 'bearer', token: `tok-${name}` }),
+          allowedDomains: ['example.com'],
           ...extra,
         },
         select: { id: true },
       })
       ids[name] = row.id
     }
-    await make('shared')
     await make('mine', { userId: seeded.userId })
     await make('theirs', { userId: other.userId })
     await make('inactive', { isActive: false })
     await make('scoped', { allowedDomains: ['acme.com'] })
+    await make('legacy-shared', { userId: null })
   })
 
   after(async () => {
@@ -57,12 +59,11 @@ if (!TEST_DB) {
     if (other) await other.cleanup()
   })
 
-  const resolve = (name: string, url = 'https://api.example.com/x', userId?: string) =>
+  const resolve = (name: string, url = 'https://api.example.com/x', userId = seeded.userId) =>
     resolveCredential({ credentialId: ids[name], organizationId: seeded.organizationId, userId, requestUrl: url })
 
-  test('resolves an org-shared credential into a plan', async () => {
-    const plan = await resolve('shared')
-    assert.equal(plan.headers?.authorization, 'Bearer tok-shared')
+  test('refuses a legacy org-shared credential', async () => {
+    await assert.rejects(() => resolve('legacy-shared'), new RegExp(CREDENTIAL_UNAVAILABLE))
   })
 
   test("resolves the acting user's own personal credential", async () => {
@@ -80,7 +81,7 @@ if (!TEST_DB) {
 
   test('refuses a credential from another org', async () => {
     await assert.rejects(
-      () => resolveCredential({ credentialId: ids.shared, organizationId: other.organizationId, requestUrl: 'https://api.example.com/x' }),
+      () => resolveCredential({ credentialId: ids.mine, organizationId: other.organizationId, userId: other.userId, requestUrl: 'https://api.example.com/x' }),
       new RegExp(CREDENTIAL_UNAVAILABLE),
     )
   })
@@ -93,19 +94,19 @@ if (!TEST_DB) {
 
   test('a missing credential id refuses rather than injecting nothing silently', async () => {
     await assert.rejects(
-      () => resolveCredential({ credentialId: 'nope', organizationId: seeded.organizationId, requestUrl: 'https://api/x' }),
+      () => resolveCredential({ credentialId: 'nope', organizationId: seeded.organizationId, userId: seeded.userId, requestUrl: 'https://api/x' }),
       new RegExp(CREDENTIAL_UNAVAILABLE),
     )
   })
 
   test('stamps lastUsedAt without blocking the request', async () => {
-    await resolve('shared')
+    await resolve('mine')
     // Best-effort and fire-and-forget, so poll briefly rather than assume.
     let stamped: Date | null = null
     for (let i = 0; i < 20 && !stamped; i++) {
       await new Promise((r) => setTimeout(r, 25))
       const row = await prisma.credential.findFirst({
-        where: { id: ids.shared, organizationId: seeded.organizationId },
+        where: { id: ids.mine, organizationId: seeded.organizationId },
         select: { lastUsedAt: true },
       })
       stamped = row?.lastUsedAt ?? null

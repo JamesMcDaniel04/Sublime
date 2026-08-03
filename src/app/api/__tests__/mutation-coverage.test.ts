@@ -53,8 +53,6 @@ const PENDING_COVERAGE: ReadonlySet<string> = new Set([
   'agents/[id]/memories#PUT',
   'agents/[id]/memories#PATCH',
   'agents/[id]/memories#DELETE',
-  'agents/[id]/runs/[runId]#POST',
-  'agents/[id]/runs/[runId]#DELETE',
   'agents/[id]/skills#POST',
   'agents/[id]/skills#DELETE',
   'agents/draft#POST',

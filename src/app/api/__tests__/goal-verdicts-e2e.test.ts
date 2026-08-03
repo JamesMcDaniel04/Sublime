@@ -86,10 +86,7 @@ if (TEST_DB) {
   test('GET /api/goals/[id] returns the verdict funnel and priority', async () => {
     const { NextRequest } = await import('next/server')
     const { GET } = await import('@/app/api/goals/[id]/route')
-    const response = await GET(
-      new NextRequest(`http://localhost/api/goals/${goalId}`),
-      { params: Promise.resolve({ id: goalId }) } as never,
-    )
+    const response = await GET(new NextRequest(`http://localhost/api/goals/${goalId}`))
     const body = await (response as Response).json()
     assert.equal(body.success, true)
     assert.ok(body.goal.runVerdicts, 'runVerdicts present after judged runs')

@@ -1,7 +1,7 @@
 import { z } from 'zod'
 import { prisma } from '@/lib/prisma'
 import { ApiError, withAuthenticatedApi } from '@/lib/server/api-handler'
-import { agentReadScope } from '@/lib/server/visibility'
+import { agentReadScope, executionVisibilityScope } from '@/lib/server/visibility'
 import { notify } from '@/lib/notifications/service'
 import { isCancellableRunStatus, isTerminalRunStatus, isWaitingRunStatus } from '@/lib/agents/run-status'
 
@@ -25,7 +25,12 @@ async function requireAgentAndRun(request: Request, auth: { organizationId: stri
   if (!agent) throw new ApiError('Agent not found', 404, 'NOT_FOUND')
 
   const run = await prisma.agentExecution.findFirst({
-    where: { id: runId, agentTaskId: agent.id, organizationId: auth.organizationId },
+    where: {
+      id: runId,
+      agentTaskId: agent.id,
+      organizationId: auth.organizationId,
+      ...executionVisibilityScope(auth.dbUser.id),
+    },
     select: { id: true, status: true, userId: true, metadata: true },
   })
   if (!run) throw new ApiError('Run not found', 404, 'NOT_FOUND')
@@ -60,7 +65,7 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
       : { status: 'cancelling' }
 
   const updated = await prisma.agentExecution.updateMany({
-    where: { id: run.id, agentTaskId: agent.id, organizationId: auth.organizationId, status: run.status },
+    where: { id: run.id, agentTaskId: agent.id, organizationId: auth.organizationId, userId: auth.dbUser.id, status: run.status },
     data,
   })
   if (updated.count !== 1) {
@@ -99,7 +104,7 @@ export const DELETE = withAuthenticatedApi(async (request, auth) => {
   // `onDelete: Cascade` on their executionId relation to AgentExecution, so
   // the DB cascades their deletion — no manual child cleanup needed here.
   const deleted = await prisma.agentExecution.deleteMany({
-    where: { id: run.id, agentTaskId: agent.id, organizationId: auth.organizationId, status: run.status },
+    where: { id: run.id, agentTaskId: agent.id, organizationId: auth.organizationId, userId: auth.dbUser.id, status: run.status },
   })
   if (deleted.count !== 1) {
     throw new ApiError('Run is still active', 409, 'RUN_ACTIVE')
