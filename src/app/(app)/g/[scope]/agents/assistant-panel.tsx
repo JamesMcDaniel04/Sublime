@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { toast } from 'sonner'
+import { streamCopilot } from '@/lib/client/copilot-stream'
 import { Check, Clock, Loader2, MessageSquare, Plus, Send } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -47,6 +48,10 @@ type ChatMessage = {
   createdAt: string
   proposal?: AssistantProposal | null
   appliedAt?: string | null
+  /** Tool-activity labels streamed during this reply ("Reading run 4f2a…"). */
+  activity?: string[]
+  /** True while this reply is still streaming in. */
+  streaming?: boolean
 }
 
 type SessionSummary = {
@@ -250,27 +255,52 @@ export function AssistantPanel({
     // A legacy synthetic thread is read-only; sending from it opens a fresh
     // session rather than appending to the null-session bucket.
     const targetSessionId = sessionId && sessionId !== 'legacy' ? sessionId : undefined
+    const pendingId = `pending-${Date.now()}`
     try {
-      const response = await fetch(`/api/agents/${targetAgentId}/chat`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: content, ...(targetSessionId ? { sessionId: targetSessionId } : {}) }),
-      })
-      const data = await response.json().catch(() => ({}))
+      setMessages((previous) => [
+        ...previous,
+        { id: pendingId, role: 'assistant', content: '', createdAt: new Date().toISOString(), streaming: true, activity: [] },
+      ])
+      const outcome = await streamCopilot(
+        `/api/agents/${targetAgentId}/chat`,
+        { message: content, ...(targetSessionId ? { sessionId: targetSessionId } : {}) },
+        {
+          onText: (delta) => {
+            if (agentIdRef.current !== targetAgentId) return
+            setMessages((previous) => previous.map((entry) =>
+              entry.id === pendingId ? { ...entry, content: entry.content + delta } : entry))
+          },
+          onTool: (activity) => {
+            if (agentIdRef.current !== targetAgentId) return
+            setMessages((previous) => previous.map((entry) =>
+              entry.id === pendingId ? { ...entry, activity: [...(entry.activity ?? []), activity.label] } : entry))
+          },
+        },
+      )
       // The user switched agents while the request was in flight; this
       // response belongs to another agent's thread, so leave state alone.
       if (agentIdRef.current !== targetAgentId) return
-      if (!response.ok) {
-        toast.error(data.error || 'The assistant is unavailable right now.')
-        setMessages((previous) => previous.filter((message) => message.id !== localId))
+      if (!outcome.ok) {
+        toast.error(outcome.error)
+        setMessages((previous) => previous.filter((message) => message.id !== localId && message.id !== pendingId))
         setInput(content)
         return
       }
-      setMessages((previous) => [
-        ...previous.filter((message) => message.id !== localId),
-        ...(Array.isArray(data.messages) ? data.messages : []),
-      ])
-      if (typeof data.sessionId === 'string') setSessionId(data.sessionId)
+      // The result payload is authoritative: replace the streamed approximation
+      // (covers provider failover, where partial deltas may not match the final
+      // text) while carrying the streamed activity labels onto the final reply.
+      const result = outcome.result as { sessionId?: string; messages?: ChatMessage[] }
+      const finalMessages = Array.isArray(result.messages) ? result.messages : []
+      setMessages((previous) => {
+        const activity = previous.find((entry) => entry.id === pendingId)?.activity ?? []
+        const withActivity = finalMessages.map((entry, index) =>
+          index === finalMessages.length - 1 && activity.length ? { ...entry, activity } : entry)
+        return [
+          ...previous.filter((message) => message.id !== localId && message.id !== pendingId),
+          ...withActivity,
+        ]
+      })
+      if (typeof result.sessionId === 'string') setSessionId(result.sessionId)
       // Refresh history so a new chat appears / its title + ordering update.
       void loadSessions(targetAgentId)
     } finally {
@@ -463,11 +493,30 @@ export function AssistantPanel({
                   message.role === 'user' ? 'ml-8 bg-indigo-50' : 'mr-8 border bg-muted',
                 )}
               >
-                {message.role === 'user'
+                {message.streaming && !message.content && !message.activity?.length ? (
+                  <span className="flex items-center gap-2 text-muted-foreground">
+                    <Loader2 className="h-4 w-4 animate-spin" /> Thinking…
+                  </span>
+                ) : message.role === 'user'
                   ? <p className="whitespace-pre-wrap">{message.content}</p>
                   : looksLikeHtml(message.content)
                     ? <HtmlPreview html={message.content} />
                     : <Markdown>{message.content}</Markdown>}
+                {message.role !== 'user' && message.streaming && message.activity && message.activity.length > 0 && (
+                  <p className="mt-2 flex items-center gap-1.5 text-xs text-muted-foreground">
+                    <Loader2 className="h-3 w-3 animate-spin" /> {message.activity[message.activity.length - 1]}
+                  </p>
+                )}
+                {message.role !== 'user' && !message.streaming && message.activity && message.activity.length > 0 && (
+                  <details className="mt-2 text-xs text-muted-foreground">
+                    <summary className="cursor-pointer select-none">
+                      Investigated {message.activity.length} thing{message.activity.length === 1 ? '' : 's'}
+                    </summary>
+                    <ul className="mt-1 list-disc space-y-0.5 pl-4">
+                      {message.activity.map((label, index) => <li key={index}>{label}</li>)}
+                    </ul>
+                  </details>
+                )}
                 {message.role !== 'user' && message.proposal && (
                   <ProposalCard
                     message={message}
@@ -477,11 +526,6 @@ export function AssistantPanel({
                 )}
               </div>
             ))}
-            {sending && (
-              <div className="mr-8 flex items-center gap-2 rounded-lg border bg-muted p-3 text-sm text-muted-foreground">
-                <Loader2 className="h-4 w-4 animate-spin" /> Thinking…
-              </div>
-            )}
           </div>
         )}
       </div>
