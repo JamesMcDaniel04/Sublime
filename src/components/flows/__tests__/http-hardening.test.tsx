@@ -144,7 +144,7 @@ test('verification failure keeps the credential detached until Attach anyway', a
 
   const attached: string[] = []
   const { container, getByText } = render(React.createElement(CredentialEditor, {
-    initial: { ...emptyDraft(), name: 'X', token: 'tok' },
+    initial: { ...emptyDraft(), name: 'X', token: 'tok', allowedDomains: 'api.example.com' },
     verifyAgainst: 'https://api.example.com/x',
     context: 'http',
     onSaved: (credential) => { attached.push(credential.id) },

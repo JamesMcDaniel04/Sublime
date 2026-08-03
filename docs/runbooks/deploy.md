@@ -82,3 +82,17 @@ DROP TYPE "IntegrationType"; DROP TYPE "MCPAgentType";`
 without it (see `src/lib/env.ts`, enforced at startup via
 `instrumentation.ts`; secrets code hard-fails too). Rotate by setting the new
 key, re-saving stored connection secrets, then removing the old one.
+
+## Lifecycle email and feedback
+
+Before enabling lifecycle delivery in production:
+
+- Set `RESEND_API_KEY` and a verified-domain `EMAIL_FROM` (do not use the
+  `onboarding@resend.dev` fallback for real customers).
+- Set `CONTACT_INBOX` to the monitored founder/support inbox.
+- Set `EMAIL_LINK_SECRET`; `CRON_SECRET` is an accepted fallback, but marketing
+  email fails closed when neither signing secret exists.
+- Add `invoice.payment_failed` to the Stripe webhook events and enable Smart
+  Retries under Billing → Revenue recovery.
+- Confirm the lifecycle schema migration is applied before deploying code that
+  writes `email_sends` or `feedback_submissions`.

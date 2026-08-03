@@ -87,21 +87,21 @@ model Organization {
 }
 
 model User {
-  id             String    @id @default(cuid())
-  supabaseId     String    @unique @db.Uuid
-  email          String?
-  name           String?
-  imageUrl       String?
-  role           UserRole  @default(MEMBER)
-  organizationId String?   @db.Uuid
-  isActive       Boolean   @default(true)
-  lastSeenAt     DateTime? @db.Timestamptz(6)
-  metadata       Json?
+  id                    String    @id @default(cuid())
+  supabaseId            String    @unique @db.Uuid
+  email                 String?
+  name                  String?
+  imageUrl              String?
+  role                  UserRole  @default(MEMBER)
+  organizationId        String?   @db.Uuid
+  isActive              Boolean   @default(true)
+  lastSeenAt            DateTime? @db.Timestamptz(6)
+  metadata              Json?
   // Suppresses marketing email (onboarding drip, win-back, goal digest).
   // Transactional email (trial-ending, dunning, welcome) always sends.
-  marketingEmailsOptOut Boolean @default(false)
-  createdAt      DateTime  @default(now()) @db.Timestamptz(6)
-  updatedAt      DateTime  @updatedAt @db.Timestamptz(6)
+  marketingEmailsOptOut Boolean   @default(false)
+  createdAt             DateTime  @default(now()) @db.Timestamptz(6)
+  updatedAt             DateTime  @updatedAt @db.Timestamptz(6)
 
   organization       Organization?      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   executions         AgentExecution[]
@@ -1357,34 +1357,34 @@ enum UserRole {
 /// rollup display — never an auto-sum). riskLevel is PERSISTED so the
 /// evaluator can detect transitions: only a transition emits a suggestion.
 model Goal {
-  id              String    @id @default(cuid())
-  organizationId  String    @db.Uuid
-  ownerUserId     String?
-  parentGoalId    String?
-  name            String
-  description     String?   @db.Text
-  kind            String // 'arr' | 'mrr' | 'revenue' | 'quota' | 'savings' | 'lead_gen' | 'custom_kpi'
-  direction       String    @default("increase") // 'increase' | 'decrease' (savings count down)
-  unit            String    @default("usd") // 'usd' | 'count' | 'percent'
-  startValue      Float
-  targetValue     Float
-  startAt         DateTime  @default(now()) @db.Timestamptz(6)
-  targetDate      DateTime  @db.Timestamptz(6)
-  recurrence      String? // 'monthly' | 'quarterly' | 'yearly' | null
-  status          String    @default("active") // 'active' | 'paused' | 'achieved' | 'missed' | 'archived'
+  id               String    @id @default(cuid())
+  organizationId   String    @db.Uuid
+  ownerUserId      String?
+  parentGoalId     String?
+  name             String
+  description      String?   @db.Text
+  kind             String // 'arr' | 'mrr' | 'revenue' | 'quota' | 'savings' | 'lead_gen' | 'custom_kpi'
+  direction        String    @default("increase") // 'increase' | 'decrease' (savings count down)
+  unit             String    @default("usd") // 'usd' | 'count' | 'percent'
+  startValue       Float
+  targetValue      Float
+  startAt          DateTime  @default(now()) @db.Timestamptz(6)
+  targetDate       DateTime  @db.Timestamptz(6)
+  recurrence       String? // 'monthly' | 'quarterly' | 'yearly' | null
+  status           String    @default("active") // 'active' | 'paused' | 'achieved' | 'missed' | 'archived'
   /// 'workspace' (default) — anyone in the org who can see goals may lens in.
   /// 'restricted' — only GoalMember rows and workspace admins; for everyone
   /// else the goal is ABSENT (404), never forbidden (403), because a 403
   /// confirms the goal exists and for a confidential goal that is most of the
   /// secret. Personal goals ignore this entirely: ownerUserId already restricts
   /// them, and two mechanisms for one idea is how contradictions get built.
-  access          String    @default("workspace")
-  riskLevel       String    @default("no_data") // 'on_track' | 'at_risk' | 'off_track' | 'no_data'
-  lastEvaluatedAt DateTime? @db.Timestamptz(6)
+  access           String    @default("workspace")
+  riskLevel        String    @default("no_data") // 'on_track' | 'at_risk' | 'off_track' | 'no_data'
+  lastEvaluatedAt  DateTime? @db.Timestamptz(6)
   /// Ordered widget layout {version:1, widgets:[{id,type,config}]}. Null =
   /// render defaultLayoutForGoal(). Invalid persisted layouts fail soft to
   /// that default in the detail renderer.
-  dashboardLayout Json?
+  dashboardLayout  Json?
   /// Composition shape: the kind's declared rollup config (KPI shape, weights,
   /// per-rep targets, variance tolerance, coverage threshold). Null =
   /// uncomposed; such a goal evaluates exactly as it did before composition.
@@ -1397,14 +1397,14 @@ model Goal {
   /// The GoalTemplate.key this goal was created from, or null for
   /// Copilot-drafted and manually-created goals. Read by the agent-bundle
   /// lookup to offer the template's curated agents; never edited after create.
-  templateKey     String?
+  templateKey      String?
   /// User-set arbitration priority for multi-goal agents; lower = more
   /// important, null = rank automatically by risk then deadline. Any set
   /// priority outranks every unset one (see lib/goals/arbitration.ts).
-  priority        Int?
-  createdByUserId String?
-  createdAt       DateTime  @default(now()) @db.Timestamptz(6)
-  updatedAt       DateTime  @updatedAt @db.Timestamptz(6)
+  priority         Int?
+  createdByUserId  String?
+  createdAt        DateTime  @default(now()) @db.Timestamptz(6)
+  updatedAt        DateTime  @updatedAt @db.Timestamptz(6)
 
   organization  Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   owner         User?              @relation(fields: [ownerUserId], references: [id], onDelete: Cascade)
@@ -1448,22 +1448,22 @@ model GoalMember {
 /// (migration-managed, not expressible here — same discipline as
 /// goal_recovery_plans_one_open_per_goal).
 model GoalWork {
-  id             String    @id @default(cuid())
-  organizationId String    @db.Uuid
+  id             String @id @default(cuid())
+  organizationId String @db.Uuid
   goalId         String
 
   /// Provenance. runId is an AgentExecution.id or FlowRun.id depending on
   /// resourceType — deliberately not an FK, because work outlives run pruning.
-  resourceType   String // 'agent' | 'flow'
-  resourceId     String
-  runId          String?
+  resourceType String // 'agent' | 'flow'
+  resourceId   String
+  runId        String?
 
-  subject        String
+  subject    String
   /// Stable external id. The dedupe key; null means this row is never deduped.
-  subjectRef     String?
-  produced       String
-  body           String?   @db.Text
-  bodyFormat     String    @default("markdown") // 'markdown' | 'html'
+  subjectRef String?
+  produced   String
+  body       String? @db.Text
+  bodyFormat String  @default("markdown") // 'markdown' | 'html'
 
   /// Flat, untyped features the agent used to pick this subject. The miner
   /// reads numbers and short strings and ignores anything else — a schema
@@ -1479,23 +1479,23 @@ model GoalWork {
   /// plain text, matching Goal.ownerUserId and Goal.createdByUserId.
   assigneeUserId String?
 
-  disposition    String    @default("pending") // pending | used | edited | skipped
-  dispositionBy  String?
-  dispositionAt  DateTime? @db.Timestamptz(6)
+  disposition   String    @default("pending") // pending | used | edited | skipped
+  dispositionBy String?
+  dispositionAt DateTime? @db.Timestamptz(6)
   /// The closed vocabulary value. Kept separate from skipNote so reasons stay
   /// countable without an LLM — that countability is what makes rules derivable.
-  skipReason     String?
+  skipReason    String?
   /// Free text, offered only when skipReason is 'other'. `other` is exactly
   /// where the five fixed reasons failed, so it is the one case where the
   /// words matter more than the count.
-  skipNote       String?
+  skipNote      String?
 
-  outcome        String    @default("unknown") // unknown | worked | no_response | failed
-  outcomeSource  String? // 'agent' | 'human'
-  outcomeNote    String?
-  outcomeAt      DateTime? @db.Timestamptz(6)
+  outcome       String    @default("unknown") // unknown | worked | no_response | failed
+  outcomeSource String? // 'agent' | 'human'
+  outcomeNote   String?
+  outcomeAt     DateTime? @db.Timestamptz(6)
 
-  createdAt      DateTime  @default(now()) @db.Timestamptz(6)
+  createdAt DateTime @default(now()) @db.Timestamptz(6)
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   goal         Goal         @relation(fields: [goalId], references: [id], onDelete: Cascade)
@@ -1519,32 +1519,32 @@ model GoalWork {
 /// wasting exactly the work the rule exists to prevent. `signal` exists only
 /// to dedupe and group rules for display.
 model GoalWorkRule {
-  id             String    @id @default(cuid())
-  organizationId String    @db.Uuid
+  id             String @id @default(cuid())
+  organizationId String @db.Uuid
 
-  goalId         String?
-  resourceId     String?
-  seedKey        String?
+  goalId     String?
+  resourceId String?
+  seedKey    String?
 
-  signal         String
-  statement      String
+  signal    String
+  statement String
   /// The same conclusion phrased as an observation for a human. Null on rules
   /// learned before this shipped; the strip falls back to `statement`, so no
   /// backfill is needed.
-  finding        String?
+  finding   String?
 
-  skippedCount   Int
-  totalCount     Int
-  topSkipReason  String?
+  skippedCount  Int
+  totalCount    Int
+  topSkipReason String?
 
-  status         String    @default("active") // active | retired
+  status      String @default("active") // active | retired
   /// Share of suppressed subjects the agent must work anyway, as probes.
   /// Without it a rule can never be disproved.
-  exploreRate    Float     @default(0.2)
+  exploreRate Float  @default(0.2)
 
-  learnedAt      DateTime  @default(now()) @db.Timestamptz(6)
-  retiredAt      DateTime? @db.Timestamptz(6)
-  retiredReason  String? // 'probes_contradicted' | 'unprobed' | 'revoked'
+  learnedAt       DateTime  @default(now()) @db.Timestamptz(6)
+  retiredAt       DateTime? @db.Timestamptz(6)
+  retiredReason   String? // 'probes_contradicted' | 'unprobed' | 'revoked'
   /// Set when a human revoked it, so a rule someone deliberately turned off is
   /// distinguishable from one the evidence killed.
   revokedByUserId String?
@@ -1559,20 +1559,20 @@ model GoalWorkRule {
 /// Immutable settlement history for a recurring goal window. The Goal row
 /// advances in place; periods preserve the frozen target and outcome.
 model GoalPeriod {
-  id             String   @id @default(cuid())
-  organizationId String   @db.Uuid
-  goalId         String
-  periodStart    DateTime @db.Timestamptz(6)
-  periodEnd      DateTime @db.Timestamptz(6)
-  startValue     Float
-  targetValue    Float
-  finalValue     Float
-  outcome        String // 'achieved' | 'missed'
+  id                        String   @id @default(cuid())
+  organizationId            String   @db.Uuid
+  goalId                    String
+  periodStart               DateTime @db.Timestamptz(6)
+  periodEnd                 DateTime @db.Timestamptz(6)
+  startValue                Float
+  targetValue               Float
+  finalValue                Float
+  outcome                   String // 'achieved' | 'missed'
   /// Component values that decided this settlement, frozen at settlement time.
   compositionSnapshot       Json?
   /// Read-vs-derived headline variance at settlement, in percent.
   reconciliationVariancePct Float?
-  createdAt      DateTime @default(now()) @db.Timestamptz(6)
+  createdAt                 DateTime @default(now()) @db.Timestamptz(6)
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   goal         Goal         @relation(fields: [goalId], references: [id], onDelete: Cascade)

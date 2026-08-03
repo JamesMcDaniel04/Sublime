@@ -146,6 +146,7 @@ if (!TEST_DB) {
         isActive: true,
         role: 'MEMBER',
       },
+      include: { organization: true },
     })
     installTestAuth(testAuth.makeTestAuthContext({
       organizationId: seeded.organizationId,

@@ -40,6 +40,7 @@ const DIFFERENTLY_AUTHENTICATED: ReadonlyArray<{ route: string; mechanism: strin
   { route: 'slack/events/[bindingId]', mechanism: 'Slack request signature' },
   { route: 'system/behavior', mechanism: 'internal system endpoint' },
   { route: 'health', mechanism: 'public liveness probe' },
+  { route: 'email/unsubscribe', mechanism: 'signed HMAC unsubscribe token' },
 ]
 
 function walk(dir: string): string[] {

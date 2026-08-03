@@ -42,6 +42,8 @@ jobs:
           node-version: 20
           cache: npm
       - run: npm ci --no-audit --no-fund
+      - name: Bootstrap Supabase objects for migration tests
+        run: psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f scripts/bootstrap-supabase-migration-test.sql
       - run: npx prisma migrate deploy
       - run: npm run typecheck
       - run: npm run lint
@@ -99,6 +101,8 @@ jobs:
           node-version: 20
           cache: npm
       - run: npm ci --no-audit --no-fund
+      - name: Bootstrap Supabase objects for migration tests
+        run: psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f scripts/bootstrap-supabase-migration-test.sql
       - run: npx prisma migrate deploy
       - name: Fail on schema drift (migrations must match schema.prisma)
         run: >-

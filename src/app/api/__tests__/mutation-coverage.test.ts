@@ -41,62 +41,7 @@ const VERBS = ['POST', 'PUT', 'PATCH', 'DELETE'] as const
  * Ordered roughly by how much logic lives in the route layer rather than in an
  * already-tested library beneath it, which is the useful burn-down order.
  */
-const PENDING_COVERAGE: ReadonlySet<string> = new Set([
-  // Highest value: substantial route-layer logic, no test at all.
-  'executions/[id]/reply#POST',
-  'connections/verify#POST',
-  // Resource lifecycle.
-  'agent-templates#PUT',
-  'agent-templates#DELETE',
-  'agents/[id]/chat#PATCH',
-  'agents/[id]/knowledge#DELETE',
-  'agents/[id]/memories#PUT',
-  'agents/[id]/memories#PATCH',
-  'agents/[id]/memories#DELETE',
-  'agents/[id]/skills#POST',
-  'agents/[id]/skills#DELETE',
-  'agents/draft#POST',
-  'flows#DELETE',
-  'flows/[id]/comments#PATCH',
-  'flows/[id]/comments#DELETE',
-  'flows/[id]/dismiss-suggestion#POST',
-  'flows/[id]/runs/[runId]#PATCH',
-  'flows/[id]/runs/[runId]#DELETE',
-  'flows/[id]/runs/[runId]/resubmit#POST',
-  'flows/[id]/suggestions#PATCH',
-  'flows/[id]/versions#PATCH',
-  'flows/[id]/versions#DELETE',
-  'flows/signals/[name]#POST',
-  'goals/[id]/contributions#DELETE',
-  'goals/settings#PATCH',
-  'knowledge#DELETE',
-  'notifications/[id]#DELETE',
-  'notifications/read#POST',
-  'organizations#PATCH',
-  'organizations#DELETE',
-  'settings/profile#PATCH',
-  'skills#PUT',
-  'skills#DELETE',
-  // Integration plumbing — most need a live third party to do anything real.
-  'integrations/granola#DELETE',
-  'integrations/granola/test#POST',
-  'intelligence/learnings#DELETE',
-  'intelligence/rescan#POST',
-  'mcp-connections#PUT',
-  'mcp-connections/discover#POST',
-  'mcp-connections/test#POST',
-  'nango/connections/[integrationId]#DELETE',
-  'nango/session-token#POST',
-  'postgres/connections/[id]/test#POST',
-  'push/subscribe#DELETE',
-  // LLM-backed: degrade without a provider key, so a smoke case asserts the
-  // degradation rather than the output.
-  'flows/copilot#POST',
-  'goals/copilot/draft#POST',
-  'goals/metrics/preview#POST',
-  'integrations/ai-search#POST',
-  'templates/ai-search#POST',
-])
+const PENDING_COVERAGE: ReadonlySet<string> = new Set()
 
 function walk(dir: string, match: (name: string) => boolean): string[] {
   const out: string[] = []
@@ -207,7 +152,7 @@ test('the known-gap list is not silently growing', () => {
   // execute, trigger-secret, push/subscribe#POST, and agents#DELETE — and the
   // enumerator learned to see bare `export async function` handlers (stripe
   // webhook, contact, system/behavior, per-flow triggers), all now tested.
-  const BASELINE = 51
+  const BASELINE = 0
   assert.ok(
     PENDING_COVERAGE.size <= BASELINE,
     `PENDING_COVERAGE grew to ${PENDING_COVERAGE.size} (baseline ${BASELINE}). `

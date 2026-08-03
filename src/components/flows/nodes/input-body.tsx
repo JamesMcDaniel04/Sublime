@@ -8,7 +8,7 @@ import type { NodeBodyModule, NodeBodyProps } from './types'
 function InputBody({ node: raw, update, tokenWiring }: NodeBodyProps) {
   const node = raw as Extract<FlowNode, { type: 'input' }>
   const { blockActive, unblockActive } = tokenWiring
-  const params = node.data.params
+  const params = node.data.params ?? []
   const setParams = (next: InputParam[]) => update({ ...node, data: { ...node.data, params: next } })
   const patchParam = (index: number, patch: Partial<InputParam>) =>
     setParams(params.map((param, current) => (current === index ? { ...param, ...patch } : param)))

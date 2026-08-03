@@ -11,7 +11,7 @@ import type { NodeBodyModule, NodeBodyProps } from './types'
 function OutputBody({ node: raw, update, tokenWiring, previewContext }: NodeBodyProps) {
   const node = raw as Extract<FlowNode, { type: 'output' }>
   const { labelCtx, registerEditor, focusEditor, blockActive, unblockActive } = tokenWiring
-  const fields = node.data.fields
+  const fields = node.data.fields ?? []
   const setFields = (next: OutputFieldBinding[]) => update({ ...node, data: { ...node.data, fields: next } })
   const patchField = (index: number, patch: Partial<OutputFieldBinding>) =>
     setFields(fields.map((field, current) => (current === index ? { ...field, ...patch } : field)))

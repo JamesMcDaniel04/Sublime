@@ -81,8 +81,6 @@ const RECOMMENDED_FOR_SERVER = [
   ['STRIPE_WEBHOOK_SECRET', 'the Stripe webhook rejects every event — plan changes never reach the database'],
   ['SUPABASE_SERVICE_ROLE_KEY', 'realtime run-event broadcasts will be off (clients fall back to polling latency)'],
   ['RESEND_API_KEY', 'the contact form 503s and digest emails are silently unsent'],
-  ['CONTACT_INBOX', 'contact and in-app feedback use hello@trysublime.io by default'],
-  ['EMAIL_LINK_SECRET', 'marketing email is skipped unless this or CRON_SECRET can sign unsubscribe links'],
   ['VAPID_PUBLIC_KEY', 'push notifications will silently never send'],
   ['VAPID_PRIVATE_KEY', 'push notifications will silently never send'],
   ['NEXT_PUBLIC_APP_URL', 'invite/digest deep links will render without a host'],
@@ -108,6 +106,9 @@ export function assertServerEnv(logger: { warn: (message: string) => void } = co
 
   for (const [name, consequence] of RECOMMENDED_FOR_SERVER) {
     if (!process.env[name]) logger.warn(`env: ${name} is not set — ${consequence}`)
+  }
+  if (!process.env.EMAIL_LINK_SECRET && !process.env.CRON_SECRET) {
+    logger.warn('env: EMAIL_LINK_SECRET and CRON_SECRET are not set — marketing email is skipped because unsubscribe links cannot be signed')
   }
   if (!rateLimitBackendConfigured()) {
     logger.warn(

@@ -561,9 +561,8 @@ export async function GET(request: Request) {
     {
       const digest = await import('@/lib/goals/digest')
       if (globalSweepsAllowed() && digest.shouldRunWeeklyGoalDigest(now)) {
-        // Especially load-bearing: sendWeeklyGoalDigests burns an atomic
-        // per-user weekly claim BEFORE sending. Frozen mid-batch, every
-        // remaining user was permanently skipped for the week.
+        // Email sends are claim-logged and FAILED claims are retryable; a
+        // frozen batch resumes safely on the next tick without double-send.
         afterResponse(() => digest.sendWeeklyGoalDigests(now))
       }
     }

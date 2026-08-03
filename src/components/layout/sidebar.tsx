@@ -16,6 +16,7 @@ import {
   Loader2,
   Lock,
   LogOut,
+  MessageSquarePlus,
   PanelLeft,
   PanelLeftClose,
   Play,
@@ -31,6 +32,7 @@ import {
 import { toast } from 'sonner'
 import { CommandPalette } from '@/components/search/command-palette'
 import { NotificationBell } from '@/components/notifications/notification-bell'
+import { FeedbackDialog } from '@/components/feedback/feedback-dialog'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
@@ -145,6 +147,7 @@ export function Sidebar() {
     })
   }, [])
   const [paletteOpen, setPaletteOpen] = useState(false)
+  const [feedbackOpen, setFeedbackOpen] = useState(false)
   const [organizations, setOrganizations] = useState<Organization[]>(() => sidebarCache?.organizations ?? [])
   const [uploadingLogo, setUploadingLogo] = useState(false)
   const logoInputRef = useRef<HTMLInputElement>(null)
@@ -514,6 +517,11 @@ export function Sidebar() {
                 </Button>
               </RailTooltip>
               <NotificationBell buttonClassName="border-border bg-muted text-foreground hover:bg-secondary" />
+              <RailTooltip label="Send feedback">
+                <Button variant="outline" size="icon" aria-label="Send feedback" className="h-8 w-8 border-border bg-muted" onClick={() => setFeedbackOpen(true)}>
+                  <MessageSquarePlus className="h-4 w-4" />
+                </Button>
+              </RailTooltip>
             </div>
           ) : (
             <>
@@ -604,6 +612,9 @@ export function Sidebar() {
               <span className="flex-1 text-left">Search</span>
             </button>
             <NotificationBell buttonClassName="border-border bg-muted text-foreground hover:bg-secondary" />
+            <Button variant="outline" size="icon" aria-label="Send feedback" title="Send feedback" className="h-8 w-8 shrink-0 border-border bg-muted" onClick={() => setFeedbackOpen(true)}>
+              <MessageSquarePlus className="h-4 w-4" />
+            </Button>
             <RailTooltip label="Collapse sidebar" shortcut="⌘B">
               <Button
                 variant="ghost"
@@ -803,6 +814,7 @@ export function Sidebar() {
       </div>
 
       <CommandPalette open={paletteOpen} onOpenChange={setPaletteOpen} />
+      <FeedbackDialog open={feedbackOpen} onOpenChange={setFeedbackOpen} />
     </>
   )
 }

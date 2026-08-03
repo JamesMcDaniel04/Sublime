@@ -1,7 +1,8 @@
 import { prisma, systemPrisma } from '@/lib/prisma'
 import { apiLogger } from '@/lib/logger'
 import { notify } from '@/lib/notifications/service'
-import { emailConfigured, sendEmail } from '@/lib/integrations/email'
+import { sendLoggedEmail } from '@/lib/email/logged'
+import { unsubscribeUrl } from '@/lib/email/unsubscribe'
 
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000
 const MAX_GOALS_PER_ORG = 200
@@ -58,26 +59,6 @@ function escapeHtml(value: string): string {
 
 export function shouldRunWeeklyGoalDigest(now: Date): boolean {
   return now.getUTCDay() === 1 && now.getUTCHours() === 14 && now.getUTCMinutes() < 15
-}
-
-async function claimDigest(userId: string, organizationId: string, now: Date): Promise<boolean> {
-  const iso = now.toISOString()
-  // systemPrisma raw write: cross-tenant sweep bookkeeping on users.metadata,
-  // CRON_SECRET-gated at the route; the org id is part of the predicate.
-  // The interval is 6 days, not 7: the fire window is one 15-minute slot per
-  // week, so a full-week predicate would skip a week whenever this run lands
-  // a few minutes earlier in the window than the last one.
-  const affected = await systemPrisma.$executeRaw`
-    UPDATE users
-    SET metadata = jsonb_set(COALESCE(metadata, '{}'::jsonb), '{lastGoalDigestAt}', to_jsonb(${iso}::text))
-    WHERE id = ${userId}
-      AND "organizationId" = ${organizationId}::uuid
-      AND (
-        COALESCE(metadata->>'lastGoalDigestAt', '') = ''
-        OR (metadata->>'lastGoalDigestAt')::timestamptz < (${iso}::timestamptz - interval '6 days')
-      )
-  `
-  return affected > 0
 }
 
 type OrgGoalRow = {
@@ -201,7 +182,7 @@ export async function sendWeeklyGoalDigests(
 
       const recipients = await systemPrisma.user.findMany({
         where: { organizationId, isActive: true },
-        select: { id: true, email: true },
+        select: { id: true, email: true, marketingEmailsOptOut: true },
         take: 500,
       })
       for (const user of recipients) {
@@ -211,35 +192,30 @@ export async function sendWeeklyGoalDigests(
             (goal) => goal.ownerUserId === null || goal.ownerUserId === user.id,
           )
           if (visible.length === 0) continue
-          if (!(await claimDigest(user.id, organizationId, now))) continue
-          users += 1
-
           const digestGoals = visible.flatMap((goal) => {
             const entry = entryByGoal.get(goal.id)
             return entry ? [entry] : []
           })
           const content = formatGoalDigest(digestGoals, appUrl)
-          const notification = await notify({
-            organizationId,
-            userId: user.id,
-            type: 'goal.digest',
-            level: 'info',
-            title: 'Your goals this week',
-            body: content.text,
-            link: '/goals',
+          const weekKey = now.toISOString().slice(0, 10)
+          const alreadyNotified = await prisma.notification.findFirst({
+            where: { organizationId, userId: user.id, type: 'goal.digest', createdAt: { gte: new Date(`${weekKey}T00:00:00.000Z`) } },
+            select: { id: true },
           })
-          if (notification) sent += 1
-          if (user.email && emailConfigured()) {
-            await sendEmail({
-              to: user.email,
-              subject: 'Your goals this week',
-              body: content.html,
-            }).catch((error) => {
-              apiLogger.warn('goals.digest: email failed', {
-                userId: user.id,
-                error: error instanceof Error ? error.message : String(error),
-              })
+          if (!alreadyNotified) {
+            const notification = await notify({ organizationId, userId: user.id, type: 'goal.digest', level: 'info', title: 'Your goals this week', body: content.text, link: '/goals' })
+            if (notification) sent += 1
+          }
+          if (user.email && !user.marketingEmailsOptOut) {
+            const unsubscribe = unsubscribeUrl(user.id)
+            if (!unsubscribe) continue
+            const result = await sendLoggedEmail({
+              organizationId, userId: user.id, emailKey: 'goal-digest',
+              dedupeKey: `goal-digest:${user.id}:${weekKey}`,
+              to: user.email, subject: 'Your goals this week',
+              html: `${content.html}<p style="font-size:12px;color:#888"><a href="${unsubscribe}" style="color:#888">Unsubscribe</a></p>`,
             })
+            if (result === 'sent') users += 1
           }
         } catch (error) {
           apiLogger.warn('goals.digest: recipient failed', {
