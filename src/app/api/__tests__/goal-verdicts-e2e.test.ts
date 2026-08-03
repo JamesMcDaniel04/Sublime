@@ -20,8 +20,9 @@ if (TEST_DB) {
 
   before(async () => {
     ;({ prisma } = await import('@/lib/prisma'))
-    const { seedTestOrg } = await import('@/lib/server/__tests__/test-auth')
+    const { seedTestOrg, installTestAuth } = await import('@/lib/server/__tests__/test-auth')
     seeded = await seedTestOrg(prisma)
+    installTestAuth(seeded.auth)
     const goal = await prisma.goal.create({
       data: {
         organizationId: seeded.organizationId,
@@ -80,6 +81,21 @@ if (TEST_DB) {
     assert.equal(notifications.length, 1)
     assert.equal(notifications[0].userId, seeded.userId)
     assert.match(notifications[0].title, /stopped advancing/)
+  })
+
+  test('GET /api/goals/[id] returns the verdict funnel and priority', async () => {
+    const { NextRequest } = await import('next/server')
+    const { GET } = await import('@/app/api/goals/[id]/route')
+    const response = await GET(
+      new NextRequest(`http://localhost/api/goals/${goalId}`),
+      { params: Promise.resolve({ id: goalId }) } as never,
+    )
+    const body = await (response as Response).json()
+    assert.equal(body.success, true)
+    assert.ok(body.goal.runVerdicts, 'runVerdicts present after judged runs')
+    assert.equal(body.goal.runVerdicts.counts.no_change, 3)
+    assert.equal(body.goal.runVerdicts.recent.length, 3)
+    assert.ok('priority' in body.goal)
   })
 
   test('goal priority and execution plan columns round-trip', async () => {
