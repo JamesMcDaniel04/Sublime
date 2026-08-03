@@ -5,14 +5,12 @@ import { rateLimit } from '@/lib/ratelimit'
 import { getAuthWithUser } from '@/lib/supabase/auth-utils'
 import { capabilitiesForPlan } from '@/lib/billing/capabilities'
 import { entitlementPlanFor } from '@/lib/billing/entitlements'
+import { contactInbox, sendRawEmail } from '@/lib/email/send'
 
 export const dynamic = 'force-dynamic'
 // Comfortably above the 30s Resend deadline so the timeout error path (a
 // clean 502 with a fallback address) always runs before the platform kill.
 export const maxDuration = 60
-
-const CONTACT_INBOX = 'hello@trysublime.io'
-const RESEND_API_URL = 'https://api.resend.com/emails'
 
 const contactSchema = z.object({
   name: z.string().trim().min(1).max(200),
@@ -39,6 +37,7 @@ const REASON_LABELS: Record<z.infer<typeof contactSchema>['reason'], string> = {
 // Not wrapped in withAuthenticatedApi: no session is required, and unpaid
 // users must still be able to reach sales and support.
 export async function POST(request: NextRequest) {
+  const inbox = contactInbox()
   // Per-IP throttle before any other work — this is the only unauthenticated
   // POST that spends money (a Resend send per submission), and the honeypot
   // alone doesn't stop a scripted submitter. First x-forwarded-for hop is the
@@ -47,7 +46,7 @@ export async function POST(request: NextRequest) {
   const limited = await rateLimit(`contact:${ip}`, { limit: 5, windowMs: 60_000 })
   if (!limited.ok) {
     return NextResponse.json(
-      { success: false, error: `Too many messages — please wait a minute, or email us directly at ${CONTACT_INBOX}.` },
+      { success: false, error: `Too many messages — please wait a minute, or email us directly at ${inbox}.` },
       { status: 429 },
     )
   }
@@ -64,12 +63,11 @@ export async function POST(request: NextRequest) {
   if (!apiKey) {
     apiLogger.error('contact form: RESEND_API_KEY is not configured — submission not deliverable')
     return NextResponse.json(
-      { success: false, error: `Sending is temporarily unavailable — please email us directly at ${CONTACT_INBOX}.` },
+      { success: false, error: `Sending is temporarily unavailable — please email us directly at ${inbox}.` },
       { status: 503 },
     )
   }
 
-  const from = process.env.EMAIL_FROM || 'Sublime <onboarding@resend.dev>'
   const authenticated = await getAuthWithUser().catch(() => null)
   const organization = authenticated?.dbUser?.organization
   const plan = organization ? entitlementPlanFor(organization) : null
@@ -86,26 +84,16 @@ export async function POST(request: NextRequest) {
     message,
   ].filter((line) => line !== null).join('\n')
 
-  // 30s bound (matching every other Resend call site) + explicit maxDuration:
-  // this was the one fetch in the repo with no signal at all.
-  const response = await fetch(RESEND_API_URL, {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      from,
-      to: [CONTACT_INBOX],
-      reply_to: email,
+  try {
+    await sendRawEmail({
+      to: inbox, replyTo: email,
       subject: `[${support === 'dedicated' ? 'Dedicated' : support === 'priority' ? 'Priority' : 'Contact'}] ${REASON_LABELS[reason]} — ${name}`,
       text,
-    }),
-    signal: AbortSignal.timeout(30_000),
-  })
-
-  if (!response.ok) {
-    const detail = await response.text().catch(() => '')
-    apiLogger.error('contact form: Resend send failed', { status: response.status, detail: detail.slice(0, 500) })
+    })
+  } catch (error) {
+    apiLogger.error('contact form: Resend send failed', { error: error instanceof Error ? error.message : String(error) })
     return NextResponse.json(
-      { success: false, error: `We could not send your message — please email us directly at ${CONTACT_INBOX}.` },
+      { success: false, error: `We could not send your message — please email us directly at ${inbox}.` },
       { status: 502 },
     )
   }

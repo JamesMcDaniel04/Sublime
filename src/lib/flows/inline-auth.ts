@@ -20,6 +20,14 @@
 
 /** The auth-option fields that carry a secret value. Mirrors http.ts's list. */
 export const INLINE_AUTH_SECRET_FIELDS = ['password', 'token', 'value'] as const
+const SENSITIVE_HEADER_NAMES = new Set([
+  'authorization',
+  'proxy-authorization',
+  'x-api-key',
+  'api-key',
+  'apikey',
+  'x-auth-token',
+])
 
 const FULL_TOKEN_RE = /^\{\{\s*[^{}]+?\s*\}\}$/
 
@@ -51,4 +59,34 @@ export function hasInlineLiteralSecret(node: { type: string; data?: unknown }): 
   if (node.type !== 'http') return false
   const data = node.data as { auth?: unknown } | undefined
   return literalAuthSecrets(data?.auth).length > 0
+}
+
+export function literalSensitiveHeaders(headers: unknown): string[] {
+  if (typeof headers !== 'string' || !headers.trim()) return []
+  try {
+    const parsed = JSON.parse(headers)
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return []
+    return Object.entries(parsed as Record<string, unknown>).flatMap(([name, value]) =>
+      SENSITIVE_HEADER_NAMES.has(name.trim().toLowerCase())
+      && typeof value === 'string'
+      && value.trim()
+      && !isRuntimeReference(value)
+        ? [name]
+        : [],
+    )
+  } catch {
+    return []
+  }
+}
+
+export function inlineLiteralSecretNodes(graph: { nodes: Array<{ id: string; type: string; data?: unknown }> }) {
+  return graph.nodes.flatMap((node) => {
+    if (node.type !== 'http') return []
+    const data = node.data as { auth?: unknown; headers?: unknown } | undefined
+    const fields = [
+      ...literalAuthSecrets(data?.auth),
+      ...literalSensitiveHeaders(data?.headers).map((name) => `header:${name}`),
+    ]
+    return fields.length ? [{ nodeId: node.id, fields }] : []
+  })
 }

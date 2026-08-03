@@ -3,6 +3,7 @@ import { getAuthWithUser } from '@/lib/supabase/auth-utils'
 import { billingStateFor } from '@/lib/billing/trial'
 import { entitlementPlanFor } from '@/lib/billing/entitlements'
 import type { Actor } from './permissions'
+import { prisma } from '@/lib/prisma'
 
 type AuthResult = NonNullable<Awaited<ReturnType<typeof getAuthWithUser>>>
 
@@ -54,6 +55,20 @@ export class AuthContextError extends Error {
   }
 }
 
+const LAST_SEEN_THROTTLE_MS = 24 * 60 * 60 * 1000
+
+/** Atomic, best-effort presence stamp used by the inactive-user lifecycle
+ * sweep. It never adds latency to or fails an authenticated request. */
+export function touchLastSeen(userId: string, now = new Date()): void {
+  void prisma.user.updateMany({
+    where: {
+      id: userId,
+      OR: [{ lastSeenAt: null }, { lastSeenAt: { lt: new Date(now.getTime() - LAST_SEEN_THROTTLE_MS) } }],
+    },
+    data: { lastSeenAt: now },
+  }).catch(() => {})
+}
+
 export async function requireAuthContext(): Promise<AuthContext> {
   if (testAuthContext && testAuthActive()) return testAuthContext
 
@@ -66,6 +81,10 @@ export async function requireAuthContext(): Promise<AuthContext> {
   if (!auth.dbUser || !auth.organizationId) {
     throw new AuthContextError('Organization access required', 403)
   }
+
+  // Count a visit to the billing wall as activity; an actively returning user
+  // must not receive a win-back message merely because payment is locked.
+  touchLastSeen(auth.dbUser.id)
 
   // Payment enforcement: every data API flows through here, so an unpaid
   // workspace is blocked server-side (not just in the UI). Billing endpoints

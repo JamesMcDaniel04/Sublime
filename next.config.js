@@ -6,6 +6,18 @@ const nextConfig = {
   // .wasm / python_stdlib.zip assets that only resolve from node_modules —
   // outputFileTracing carries the real files into the serverless function.
   serverExternalPackages: ['@prisma/client', 'pyodide'],
+  // Pyodide discovers these data files at runtime, so Node's static file
+  // tracer cannot infer them from the dynamic import alone. Keep the CPython
+  // WASM binary, standard library and lockfile beside every API function that
+  // may execute a flow (direct tests, triggers, agents and cron dispatch).
+  outputFileTracingIncludes: {
+    '/api/**/*': [
+      './node_modules/pyodide/pyodide.asm.wasm',
+      './node_modules/pyodide/pyodide.asm.mjs',
+      './node_modules/pyodide/python_stdlib.zip',
+      './node_modules/pyodide/pyodide-lock.json',
+    ],
+  },
   /**
    * The goal lens moved every app surface under /g/[scope]. Permanent, because
    * these paths live in bookmarks, notification emails and Slack messages.

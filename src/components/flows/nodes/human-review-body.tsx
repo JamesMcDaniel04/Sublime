@@ -1,9 +1,10 @@
 'use client'
 
+import { useEffect, useState } from 'react'
 import { cn } from '@/lib/utils'
 import type { FlowNode } from '@/lib/flows/graph'
 import { TokenTextEditor } from '../token-text-editor'
-import { labelClass, tokenControlBase } from './field-primitives'
+import { controlClass, labelClass, tokenControlBase } from './field-primitives'
 import { FieldPreview } from './field-preview'
 import type { NodeBodyModule, NodeBodyProps, TokenEditorWiring } from './types'
 
@@ -22,6 +23,22 @@ function HumanReviewBody({
 }) {
   const { labelCtx, registerEditor, focusEditor } = tokenWiring
   const messageInvalid = Boolean(showErrors && !node.data.message.trim())
+  const [members, setMembers] = useState<Array<{ id: string; name: string; email?: string | null; isSelf?: boolean }>>([])
+  const [membersFailed, setMembersFailed] = useState(false)
+
+  useEffect(() => {
+    let active = true
+    fetch('/api/organizations/members', { cache: 'no-store' })
+      .then(async (response) => {
+        const body = await response.json().catch(() => ({}))
+        if (!response.ok) throw new Error(body.error || 'Could not load members')
+        if (active) setMembers(Array.isArray(body.members) ? body.members : [])
+      })
+      .catch(() => {
+        if (active) setMembersFailed(true)
+      })
+    return () => { active = false }
+  }, [])
   return (
     <div className="space-y-4">
       <div className="grid gap-2">
@@ -41,13 +58,25 @@ function HumanReviewBody({
         />
         <FieldPreview value={node.data.message ?? ''} ctx={previewContext} />
       </div>
-      {/* No org-member roster is fetched anywhere in the builder today, so an
-          assignee select would need a new members API + fetch. v1 keeps the
-          engine default (data.assigneeUserId unset = the run owner is asked)
-          and says so in plain english. */}
       <div className="grid gap-2">
         <label className={labelClass}>Assigned to</label>
-        <p className="rounded-lg bg-muted p-3 text-sm text-muted-foreground">The flow owner is asked by default. The run pauses here until they reply, and the reply becomes this step&apos;s output.</p>
+        <select
+          value={node.data.assigneeUserId ?? ''}
+          onChange={(event) => update({ ...node, data: { ...node.data, assigneeUserId: event.target.value || undefined } })}
+          className={controlClass}
+          aria-label="Person assigned to answer"
+        >
+          <option value="">Person who started the run (default)</option>
+          {members.map((member) => (
+            <option key={member.id} value={member.id}>
+              {member.name}{member.isSelf ? ' (you)' : ''}{member.email && member.email !== member.name ? ` — ${member.email}` : ''}
+            </option>
+          ))}
+        </select>
+        <p className="text-xs text-muted-foreground">
+          The run pauses here until this person replies. Their reply becomes this step&apos;s output.
+        </p>
+        {membersFailed && <p className="text-xs text-red-600">Workspace members could not be loaded. Leave the default selected or reopen this step to retry.</p>}
       </div>
     </div>
   )

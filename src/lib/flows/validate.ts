@@ -1,5 +1,5 @@
 import { FIELD_TYPES, type FlowGraph, type FlowNode } from '@/lib/flows/graph'
-import { literalAuthSecrets } from '@/lib/flows/inline-auth'
+import { literalAuthSecrets, literalSensitiveHeaders } from '@/lib/flows/inline-auth'
 import { FLOW_TRIGGER_TYPES } from '@/lib/flows/trigger'
 import { SLACK_EVENT_KINDS } from '@/lib/slack/payload'
 
@@ -472,15 +472,25 @@ export function validateFlowGraph(graph: FlowGraph, context: FlowValidationConte
       // Inline auth holding a LITERAL secret keeps that secret in the graph,
       // which fans out to publishedGraph, version snapshots, run snapshots,
       // exports, copilot grounding, and the clipboard — each an independent
-      // place it can escape. A warning rather than an error: existing flows must
-      // keep running while their owner moves the secret to the vault.
+      // place it can escape. This is a hard error: new drafts cannot persist or
+      // publish literal secrets, while pure {{runtime.references}} remain valid.
       const inlineSecrets = literalAuthSecrets(node.data.auth)
       if (inlineSecrets.length > 0) {
         add(
           issues,
-          'warning',
+          'error',
           'INLINE_AUTH_SECRET',
           `${nodeLabel(node)} stores its ${inlineSecrets.join(' and ')} directly in this flow. Save it as a credential (Integrations → Credentials) and attach it instead, so the secret stays out of the flow's definition, history, and exports.`,
+          node.id,
+        )
+      }
+      const sensitiveHeaders = literalSensitiveHeaders(node.data.headers)
+      if (sensitiveHeaders.length > 0) {
+        add(
+          issues,
+          'error',
+          'INLINE_AUTH_SECRET',
+          `${nodeLabel(node)} stores ${sensitiveHeaders.join(' and ')} directly in its headers. Save the value as a private credential and attach it instead.`,
           node.id,
         )
       }

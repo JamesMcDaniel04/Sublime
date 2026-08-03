@@ -4,7 +4,7 @@
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { hasInlineLiteralSecret, isRuntimeReference, literalAuthSecrets } from '../inline-auth'
+import { hasInlineLiteralSecret, inlineLiteralSecretNodes, isRuntimeReference, literalAuthSecrets, literalSensitiveHeaders } from '../inline-auth'
 import { validateFlowGraph } from '../validate'
 import type { FlowGraph } from '../graph'
 
@@ -65,6 +65,35 @@ test('hasInlineLiteralSecret only looks at http nodes', () => {
   assert.equal(hasInlineLiteralSecret({ type: 'tool', data: { args: '{"token":"tok"}' } }), false)
 })
 
+test('literal sensitive headers are detected case-insensitively', () => {
+  assert.deepEqual(
+    literalSensitiveHeaders(JSON.stringify({ Authorization: 'Bearer secret', 'X-API-Key': 'secret-2', Accept: 'application/json' })),
+    ['Authorization', 'X-API-Key'],
+  )
+})
+
+test('runtime-referenced sensitive headers may remain in the graph', () => {
+  assert.deepEqual(literalSensitiveHeaders(JSON.stringify({ authorization: '{{trigger.input.authorization}}' })), [])
+})
+
+test('malformed or non-object header JSON is not misclassified', () => {
+  assert.deepEqual(literalSensitiveHeaders('{bad'), [])
+  assert.deepEqual(literalSensitiveHeaders('[]'), [])
+})
+
+test('the persistence gate reports both auth fields and sensitive headers', () => {
+  assert.deepEqual(inlineLiteralSecretNodes({
+    nodes: [{
+      id: 'http-1',
+      type: 'http',
+      data: {
+        auth: { type: 'basic', password: 'secret' },
+        headers: JSON.stringify({ Authorization: 'Bearer secret' }),
+      },
+    }],
+  }), [{ nodeId: 'http-1', fields: ['password', 'header:Authorization'] }])
+})
+
 // ── Validation surfacing ──────────────────────────────────────────────────────
 
 const httpFlow = (auth: unknown, extra: Record<string, unknown> = {}): FlowGraph =>
@@ -76,14 +105,12 @@ const httpFlow = (auth: unknown, extra: Record<string, unknown> = {}): FlowGraph
     edges: [{ id: 'e0', source: 'trigger', target: 'h' }],
   }) as unknown as FlowGraph
 
-test('a literal inline secret warns and points at the vault', () => {
+test('a literal inline secret is a blocking error and points at the vault', () => {
   const result = validateFlowGraph(httpFlow({ type: 'bearer', token: 'sk_live_abc' }))
-  const issue = result.warnings.find((entry) => entry.code === 'INLINE_AUTH_SECRET')
-  assert.ok(issue, 'no INLINE_AUTH_SECRET warning')
+  const issue = result.errors.find((entry) => entry.code === 'INLINE_AUTH_SECRET')
+  assert.ok(issue, 'no INLINE_AUTH_SECRET error')
   assert.match(issue.message, /Credentials/)
-  // A warning, not an error: an existing flow must keep running while its owner
-  // moves the secret.
-  assert.equal(result.errors.some((entry) => entry.code === 'INLINE_AUTH_SECRET'), false)
+  assert.equal(result.ok, false)
 })
 
 test('a tokenized inline value produces NO warning', () => {
@@ -100,4 +127,12 @@ test('a vault-attached step produces no inline warning', () => {
 test('generic auth with no credential chosen is an error', () => {
   const result = validateFlowGraph(httpFlow(null, { authMode: 'generic' }))
   assert.ok(result.errors.some((entry) => entry.code === 'MISSING_CREDENTIAL'))
+})
+
+test('a literal authorization header is a blocking validation error', () => {
+  const result = validateFlowGraph(httpFlow(null, {
+    headers: JSON.stringify({ Authorization: 'Bearer sk_live_abc' }),
+  }))
+  assert.equal(result.ok, false)
+  assert.ok(result.errors.some((entry) => entry.code === 'INLINE_AUTH_SECRET'))
 })

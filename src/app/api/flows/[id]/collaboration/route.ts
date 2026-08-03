@@ -5,6 +5,7 @@ import { prisma } from '@/lib/prisma'
 import { ApiError, withAuthenticatedApi } from '@/lib/server/api-handler'
 import { flowReadScope, flowWriteScope } from '@/lib/server/visibility'
 import { flowGraphSchema } from '@/lib/flows/graph'
+import { inlineLiteralSecretNodes } from '@/lib/flows/inline-auth'
 import {
   applyFlowCollaborationPatch,
   flowCollaborationPatchSchema,
@@ -118,6 +119,13 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
     }
 
     const applied = applyFlowCollaborationPatch(graph, input.patch)
+    if (inlineLiteralSecretNodes(applied.graph).length) {
+      throw new ApiError(
+        'HTTP authentication secrets must be saved as a private credential before this flow can be saved.',
+        400,
+        'INLINE_AUTH_SECRET',
+      )
+    }
     if (JSON.stringify(applied.graph) === JSON.stringify(graph)) {
       return {
         success: true,

@@ -28,6 +28,8 @@ if (TEST_DB) {
   let seeded: any
   let organizationId: string
   let userId: string
+  let installTestAuth: (auth: any) => void
+  let makeTestAuthContext: (auth: any) => any
 
   const json = (path: string, method: string, body: unknown) =>
     new NextRequest(new URL(`http://test${path}`), {
@@ -38,7 +40,10 @@ if (TEST_DB) {
 
   before(async () => {
     ;({ prisma } = await import('@/lib/prisma'))
-    const { seedTestOrg, installTestAuth } = await import('@/lib/server/__tests__/test-auth')
+    const testAuth = await import('@/lib/server/__tests__/test-auth')
+    const { seedTestOrg } = testAuth
+    installTestAuth = testAuth.installTestAuth
+    makeTestAuthContext = testAuth.makeTestAuthContext
     seeded = await seedTestOrg(prisma)
     installTestAuth(seeded.auth)
     organizationId = seeded.organizationId
@@ -239,5 +244,73 @@ if (TEST_DB) {
     const res = await importCsv(goal.id, '2026-05-01,10\n')
     assert.equal(res.status, 409)
     assert.equal((await res.json()).code, 'METRIC_NOT_FOUND')
+  })
+
+  // ── agents/[id]/runs/[runId]#POST/#DELETE ──────────────────────────────
+
+  const makeRun = async (status: string) => {
+    const agent = await prisma.agentTask.create({
+      data: {
+        description: 'Shared definition, private runs',
+        objective: 'o',
+        status: 'ACTIVE',
+        agentType: 'assistant',
+        visibility: 'org_viewer',
+        organizationId,
+        userId,
+      },
+    })
+    const run = await prisma.agentExecution.create({
+      data: {
+        agentType: 'assistant',
+        agentTaskId: agent.id,
+        status,
+        input: {},
+        trigger: { type: 'manual' },
+        organizationId,
+        userId,
+      },
+    })
+    return { agent, run }
+  }
+
+  test('a run owner can cancel an active run and delete a finished run', async () => {
+    installTestAuth(seeded.auth)
+    const { POST, DELETE } = await import('../agents/[id]/runs/[runId]/route')
+    const active = await makeRun('running')
+    const cancelled = await POST(json(`/api/agents/${active.agent.id}/runs/${active.run.id}`, 'POST', { action: 'cancel' }))
+    assert.equal(cancelled.status, 200, await cancelled.clone().text())
+    assert.equal((await prisma.agentExecution.findUnique({ where: { id: active.run.id } }))?.status, 'cancelling')
+
+    const finished = await makeRun('completed')
+    const deleted = await DELETE(new NextRequest(new URL(`http://test/api/agents/${finished.agent.id}/runs/${finished.run.id}`), { method: 'DELETE' }) as never)
+    assert.equal(deleted.status, 200, await deleted.clone().text())
+    assert.equal(await prisma.agentExecution.findUnique({ where: { id: finished.run.id } }), null)
+  })
+
+  test('sharing an agent never lets a same-org user cancel or delete its owner\'s run', async () => {
+    const otherUser = await prisma.user.create({
+      data: { supabaseId: crypto.randomUUID(), organizationId, isActive: true, role: 'MEMBER' },
+    })
+    installTestAuth(makeTestAuthContext({
+      organizationId,
+      userId: otherUser.supabaseId,
+      dbUser: otherUser,
+      user: { id: otherUser.supabaseId },
+      role: 'MEMBER',
+    }))
+    const { POST, DELETE } = await import('../agents/[id]/runs/[runId]/route')
+    const active = await makeRun('running')
+    const finished = await makeRun('completed')
+    try {
+      const cancel = await POST(json(`/api/agents/${active.agent.id}/runs/${active.run.id}`, 'POST', { action: 'cancel' }))
+      assert.equal(cancel.status, 404)
+      const remove = await DELETE(new NextRequest(new URL(`http://test/api/agents/${finished.agent.id}/runs/${finished.run.id}`), { method: 'DELETE' }) as never)
+      assert.equal(remove.status, 404)
+      assert.equal((await prisma.agentExecution.findUnique({ where: { id: active.run.id } }))?.status, 'running')
+      assert.ok(await prisma.agentExecution.findUnique({ where: { id: finished.run.id } }))
+    } finally {
+      installTestAuth(seeded.auth)
+    }
   })
 }

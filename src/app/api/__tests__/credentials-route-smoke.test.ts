@@ -4,6 +4,7 @@
  */
 import { test, before, after } from 'node:test'
 import assert from 'node:assert/strict'
+import crypto from 'node:crypto'
 import { NextRequest } from 'next/server'
 
 const TEST_DB = process.env.TEST_DATABASE_URL
@@ -50,6 +51,10 @@ if (!TEST_DB) {
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify(body),
     }) as never)
+  }
+  const get = async (id: string) => {
+    const { GET } = await import('@/app/api/credentials/[id]/route')
+    return GET(new NextRequest(new URL(`http://test/api/credentials/${id}`)) as never)
   }
   const del = async (id: string) => {
     const { DELETE } = await import('@/app/api/credentials/[id]/route')
@@ -133,12 +138,38 @@ if (!TEST_DB) {
     installTestAuth(seeded.auth)
     const created = await (await post({ name: 'Just mine', type: 'bearer', token: 'p', personal: false, allowedDomains: ['example.com'] })).json()
     assert.equal(created.credential.personal, true)
-    // Same org, different user: seedTestOrg gives a fresh user, so scope must hide it.
-    const rows = await prisma.credential.findMany({
-      where: { organizationId: seeded.organizationId, userId: null },
-      select: { id: true },
+    const testAuth = await import('@/lib/server/__tests__/test-auth')
+    const otherUser = await prisma.user.create({
+      data: {
+        supabaseId: crypto.randomUUID(),
+        organizationId: seeded.organizationId,
+        isActive: true,
+        role: 'MEMBER',
+      },
     })
-    assert.equal(rows.some((row) => row.id === created.credential.id), false)
+    installTestAuth(testAuth.makeTestAuthContext({
+      organizationId: seeded.organizationId,
+      userId: otherUser.supabaseId,
+      dbUser: otherUser,
+      user: { id: otherUser.supabaseId } as never,
+      role: 'MEMBER',
+    }))
+    try {
+      const listed = await (await list()).json()
+      assert.equal(
+        listed.credentials.some((credential: { id: string }) => credential.id === created.credential.id),
+        false,
+        'same-org list leaked another user\'s credential',
+      )
+      assert.equal((await get(created.credential.id)).status, 404)
+      assert.equal((await put(created.credential.id, { name: 'hijacked' })).status, 404)
+      assert.equal((await del(created.credential.id)).status, 404)
+
+      const untouched = await prisma.credential.findUnique({ where: { id: created.credential.id } })
+      assert.equal(untouched?.name, 'Just mine')
+    } finally {
+      installTestAuth(seeded.auth)
+    }
   })
 
   test('an unknown credential type is rejected', async () => {

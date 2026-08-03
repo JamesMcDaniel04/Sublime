@@ -80,6 +80,8 @@ model Organization {
   goalWork                  GoalWork[]
   goalWorkRules             GoalWorkRule[]
   goalRunVerdicts           GoalRunVerdict[]
+  emailSends                EmailSend[]
+  feedbackSubmissions       FeedbackSubmission[]
 
   @@map("organizations")
 }
@@ -95,6 +97,9 @@ model User {
   isActive       Boolean   @default(true)
   lastSeenAt     DateTime? @db.Timestamptz(6)
   metadata       Json?
+  // Suppresses marketing email (onboarding drip, win-back, goal digest).
+  // Transactional email (trial-ending, dunning, welcome) always sends.
+  marketingEmailsOptOut Boolean @default(false)
   createdAt      DateTime  @default(now()) @db.Timestamptz(6)
   updatedAt      DateTime  @updatedAt @db.Timestamptz(6)
 
@@ -113,6 +118,58 @@ model User {
 
   @@index([organizationId])
   @@map("users")
+}
+
+// One row per first-party product email attempt. The unique key is the
+// exactly-once boundary for retried webhook and scheduled deliveries.
+model EmailSend {
+  id             String          @id @default(cuid())
+  organizationId String          @db.Uuid
+  userId         String?
+  emailKey       String
+  dedupeKey      String          @unique
+  to             String
+  subject        String
+  status         EmailSendStatus @default(PENDING)
+  attempts       Int             @default(1)
+  error          String?
+  createdAt      DateTime        @default(now()) @db.Timestamptz(6)
+  sentAt         DateTime?       @db.Timestamptz(6)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+  @@map("email_sends")
+}
+
+enum EmailSendStatus {
+  PENDING
+  SENT
+  FAILED
+}
+
+// Feedback is persisted before its best-effort email forward, so a transport
+// outage never loses the user's report.
+model FeedbackSubmission {
+  id             String           @id @default(cuid())
+  organizationId String           @db.Uuid
+  userId         String
+  category       FeedbackCategory
+  message        String           @db.Text
+  path           String?
+  createdAt      DateTime         @default(now()) @db.Timestamptz(6)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+  @@map("feedback_submissions")
+}
+
+enum FeedbackCategory {
+  COMPLAINT
+  IDEA
+  QUESTION
+  OTHER
 }
 
 // Extra Supabase auth identities resolving to one app user. The first

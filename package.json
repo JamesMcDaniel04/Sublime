@@ -65,6 +65,7 @@
     "react-dom": "19.2.0",
     "react-markdown": "^9.1.0",
     "remark-gfm": "^4.0.1",
+    "sharp": "0.35.3",
     "sonner": "^2.0.5",
     "stripe": "^22.3.2",
     "tailwind-merge": "^3.3.0",
@@ -97,6 +98,7 @@
     "typescript": "^5"
   },
   "overrides": {
-    "postcss": "$postcss"
+    "postcss": "$postcss",
+    "sharp": "0.35.3"
   }
 }

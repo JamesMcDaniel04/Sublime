@@ -68,7 +68,8 @@ export async function provisionUser(user: User, existing?: NonNullable<DbUserRow
     // systemPrisma: workspace bootstrap runs BEFORE the user has any tenant
     // context — the invitation lookup is cross-org by design (which workspace
     // invited this email?), so the tenant guard cannot apply here.
-    return await systemPrisma.$transaction(async (tx) => {
+    let freshOrganizationId: string | null = null
+    const member = await systemPrisma.$transaction(async (tx) => {
       // Serialize concurrent first requests from the same new session so one
       // identity never creates two workspaces. Transaction-scoped, auto-releases.
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${user.id}))`
@@ -117,6 +118,7 @@ export async function provisionUser(user: User, existing?: NonNullable<DbUserRow
         : await tx.organization.create({
             data: { name: orgName, slug: `org-${user.id}` },
           })
+      if (!invitation) freshOrganizationId = organization.id
       const role = invitation?.role ?? 'ADMIN'
 
       const member = current
@@ -135,6 +137,23 @@ export async function provisionUser(user: User, existing?: NonNullable<DbUserRow
       }
       return member
     })
+    if (freshOrganizationId && member.email) {
+      const organizationId = freshOrganizationId as string
+      const { afterResponse } = await import('@/lib/server/after-response')
+      afterResponse(async () => {
+        const [{ sendLoggedEmail }, { welcomeEmail }] = await Promise.all([
+          import('@/lib/email/logged'),
+          import('@/lib/lifecycle/templates'),
+        ])
+        const content = welcomeEmail({ name: member.name, appUrl: process.env.NEXT_PUBLIC_APP_URL || null })
+        await sendLoggedEmail({
+          organizationId, userId: member.id, emailKey: 'welcome',
+          dedupeKey: `welcome:${organizationId}`, to: member.email!,
+          subject: content.subject, html: content.html,
+        })
+      })
+    }
+    return member
   } catch (error) {
     // A concurrent request may have created the membership while this one was
     // waiting. Re-read that winner, but never hide a real database failure as

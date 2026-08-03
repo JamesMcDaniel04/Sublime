@@ -75,6 +75,11 @@ export async function POST(request: NextRequest) {
       await applyInvoicePaid(event.data.object)
       break
     }
+    case 'invoice.payment_failed': {
+      const { sendDunningEmails } = await import('@/lib/lifecycle/dunning')
+      await sendDunningEmails(event.data.object)
+      break
+    }
     default:
       break
   }

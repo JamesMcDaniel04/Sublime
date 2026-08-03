@@ -146,6 +146,16 @@ function HttpBody({
   const importCurl = () => {
     try {
       const imported = parseCurlCommand(curlText)
+      if (imported.auth) {
+        throw new Error('This cURL command contains Basic auth. Set up a private Basic credential, remove -u/--user, then import the request again.')
+      }
+      const importedHeaders = imported.headers ? JSON.parse(imported.headers) as Record<string, unknown> : {}
+      const sensitiveHeader = Object.keys(importedHeaders).find((name) =>
+        ['authorization', 'proxy-authorization', 'x-api-key', 'api-key', 'apikey', 'x-auth-token'].includes(name.toLowerCase()),
+      )
+      if (sensitiveHeader) {
+        throw new Error(`This cURL command contains ${sensitiveHeader}. Save that value as a private credential, remove the header, then import again.`)
+      }
       patch({
         ...imported,
         sendHeaders: Boolean(imported.headers),

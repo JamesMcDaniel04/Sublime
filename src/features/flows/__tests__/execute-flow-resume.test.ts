@@ -254,4 +254,40 @@ if (TEST_DB) {
     assert.equal(steps.length, 0, 'a settled row must not gain executed steps')
   })
 
+  test('a recursive subflow call cannot execute another same-org user\'s private flow', async () => {
+    const other = await prisma.user.create({ data: { supabaseId: crypto.randomUUID(), organizationId: ids.org } })
+    const graph = {
+      nodes: [...emptyGraph.nodes, { id: 'end', type: 'stop', data: { reason: 'private' } }],
+      edges: [{ id: 'e-end', source: 'trigger', target: 'end' }],
+    }
+    const privateFlow = await prisma.flow.create({
+      data: {
+        name: 'private-child', organizationId: ids.org, userId: other.id,
+        visibility: 'private', status: 'ACTIVE', graph, publishedGraph: graph,
+      },
+    })
+
+    await assert.rejects(
+      () => runFlowExecution({
+        flowId: privateFlow.id,
+        organizationId: ids.org,
+        userId: ids.user,
+        usePublished: true,
+        subflowDepth: 1,
+      }),
+      /Flow not found/,
+    )
+    assert.equal(await prisma.flowRun.count({ where: { flowId: privateFlow.id, organizationId: ids.org } }), 0)
+
+    await prisma.flow.update({ where: { id: privateFlow.id }, data: { visibility: 'org_viewer' } })
+    const shared = await runFlowExecution({
+      flowId: privateFlow.id,
+      organizationId: ids.org,
+      userId: ids.user,
+      usePublished: true,
+      subflowDepth: 1,
+    })
+    assert.equal(shared.status, 'stopped')
+  })
+
 }

@@ -11,6 +11,7 @@ import { countActiveConnections, meetsSuggestionGate } from '@/lib/intelligence/
 import { assertFlowCapacity } from '@/lib/billing/enforce'
 import { loadFlowToolCatalog } from '@/lib/flows/tool-catalog'
 import { contributionResourceIds, resolveGoalScope } from '@/lib/server/goal-scope'
+import { inlineLiteralSecretNodes } from '@/lib/flows/inline-auth'
 
 // Strip undefined + narrow to plain JSON so Prisma's InputJsonValue accepts the
 // zod-inferred shapes (passthrough trigger / discriminated-union graph).
@@ -44,6 +45,17 @@ const flowSchema = z.object({
   graph: flowGraphSchema.optional(),
   errorFlowId: z.string().min(1).nullable().optional(),
 })
+
+function assertNoInlineSecrets(graph: z.infer<typeof flowGraphSchema>) {
+  const unsafe = inlineLiteralSecretNodes(graph)
+  if (unsafe.length) {
+    throw new ApiError(
+      'HTTP authentication secrets must be saved as a private credential before this flow can be saved.',
+      400,
+      'INLINE_AUTH_SECRET',
+    )
+  }
+}
 
 export const GET = withAuthenticatedApi(async (request, auth) => {
   const scope = await resolveGoalScope(auth, request.nextUrl.searchParams.get('goal'))
@@ -134,6 +146,7 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
   const data = flowSchema.parse(await request.json())
   await assertFlowCapacity(auth.organizationId)
   const graph = data.graph ?? emptyGraph()
+  assertNoInlineSecrets(graph)
   const trigger = data.trigger ? normalizeFlowTrigger(data.trigger) : triggerFromGraph(graph)
   const flow = await prisma.flow.create({
     data: {
@@ -189,6 +202,7 @@ export const PUT = withAuthenticatedApi(async (request, auth) => {
     where: { id: body.id, organizationId: auth.organizationId, ...flowWriteScope(auth.dbUser.id) },
   })
   if (!existing) throw new ApiError('Flow not found', 404, 'NOT_FOUND')
+  if (body.graph) assertNoInlineSecrets(body.graph)
   if (body.errorFlowId === body.id) throw new ApiError('A flow cannot be its own error handler', 400, 'INVALID_ERROR_HANDLER')
   if (body.errorFlowId) {
     const handler = await prisma.flow.findFirst({

@@ -568,6 +568,15 @@ export async function GET(request: Request) {
       }
     }
 
+    // Daily lifecycle email sweep. Claims live in email_sends, so retried cron
+    // ticks are safe and transport failures remain retryable.
+    {
+      const lifecycle = await import('@/lib/lifecycle/emails')
+      if (globalSweepsAllowed() && lifecycle.shouldRunLifecycleSweep(now)) {
+        afterResponse(() => lifecycle.runLifecycleSweep(now))
+      }
+    }
+
     // Live knowledge sync, periodic leg: once a day (first 15-min tick after
     // 05:00 UTC), re-scan connections whose captured usage profile is stale so
     // knowledge tracks how connected tools are actually used — not just their

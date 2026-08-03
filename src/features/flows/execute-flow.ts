@@ -39,6 +39,7 @@ import { apiLogger } from '@/lib/logger'
 import { recordToolCallEvents } from '@/lib/behavior/record-event'
 import { credentialVerificationKey } from '@/lib/connections/verification'
 import { recordVerificationAsync } from '@/lib/connections/record-verification'
+import { flowReadScope } from '@/lib/server/visibility'
 
 export type FlowExecutionJob = {
   flowId: string
@@ -163,7 +164,14 @@ export async function terminalizeAbandonedChildRun(organizationId: string, child
 export async function runFlowExecution(
   job: FlowExecutionJob,
 ): Promise<{ flowRunId: string; status: string; output: unknown; error?: string; logs?: string[]; waiting?: { nodeId: string; question?: string; wakeAt?: string }; webhookResponse?: { statusCode: number; headers: Record<string, string>; bodyMode: 'json' | 'text' | 'binary' | 'none'; body?: unknown } }> {
-  const flow = await prisma.flow.findFirst({ where: { id: job.flowId, organizationId: job.organizationId } })
+  // HTTP/manual/cron entry points already resolve their target before they
+  // dispatch. The recursive boundary must repeat that check: without it, a
+  // user could put a colleague's private flow id into a subflow node (or
+  // flow-as-tool call) and make the worker execute work they cannot read.
+  const recursiveScope = (job.subflowDepth ?? 0) > 0 ? flowReadScope(job.userId) : {}
+  const flow = await prisma.flow.findFirst({
+    where: { id: job.flowId, organizationId: job.organizationId, ...recursiveScope },
+  })
   if (!flow) throw new Error('Flow not found')
   if ((job.subflowDepth ?? 0) > MAX_SUBFLOW_DEPTH) {
     throw new ApiError('Subflow nesting is too deep.', 400, 'SUBFLOW_DEPTH_EXCEEDED')

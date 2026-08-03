@@ -34,6 +34,7 @@ Dashboard → Developers → Webhooks → Add endpoint:
   - `customer.subscription.updated`
   - `customer.subscription.deleted`
   - `invoice.payment_succeeded`
+  - `invoice.payment_failed`
 
 Copy the signing secret (`whsec_…`). Without this endpoint, payments succeed
 in Stripe but the org's plan never upgrades in the app.
@@ -41,6 +42,12 @@ in Stripe but the org's plan never upgrades in the app.
 `invoice.payment_succeeded` is not optional. It is the only signal that stamps
 `firstPaidAt`, which is what separates a real customer from a trial that never
 paid when a subscription later goes `past_due` (§5).
+
+### Dunning
+
+Enable Smart Retries under Stripe Dashboard → Settings → Billing → Revenue
+recovery. Stripe then retries failed cards automatically; Sublime sends each
+workspace admin one fix-payment notice per failed invoice.
 
 ## 3. Enable the customer portal (Stripe dashboard)
 

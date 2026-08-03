@@ -81,6 +81,8 @@ const RECOMMENDED_FOR_SERVER = [
   ['STRIPE_WEBHOOK_SECRET', 'the Stripe webhook rejects every event — plan changes never reach the database'],
   ['SUPABASE_SERVICE_ROLE_KEY', 'realtime run-event broadcasts will be off (clients fall back to polling latency)'],
   ['RESEND_API_KEY', 'the contact form 503s and digest emails are silently unsent'],
+  ['CONTACT_INBOX', 'contact and in-app feedback use hello@trysublime.io by default'],
+  ['EMAIL_LINK_SECRET', 'marketing email is skipped unless this or CRON_SECRET can sign unsubscribe links'],
   ['VAPID_PUBLIC_KEY', 'push notifications will silently never send'],
   ['VAPID_PRIVATE_KEY', 'push notifications will silently never send'],
   ['NEXT_PUBLIC_APP_URL', 'invite/digest deep links will render without a host'],
