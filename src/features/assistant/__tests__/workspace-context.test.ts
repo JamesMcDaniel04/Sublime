@@ -43,7 +43,11 @@ if (TEST_DB) {
     })
     assert.ok(context.agents.some((agent: any) => agent.title === 'Context Agent'))
     assert.ok(context.flows.some((flow: any) => flow.name === 'Context flow'))
-    assert.ok('oauth' in context.connections)
+    // Connections come from the live stores (Nango / MCP) only — the legacy
+    // always-false `oauth` map was removed.
+    assert.ok('nango' in context.connections)
+    assert.ok('mcp' in context.connections)
+    assert.ok(!('oauth' in context.connections))
   })
 
   test('excludes other-org data', async () => {

@@ -76,6 +76,22 @@ test('evalClause trims resolved string operands (chip insertion leaves trailing 
   assert.equal(evalClause({ left: '{{step.s.output.stage}}', op: 'matches', right: ' ^enter ' }, c), true)
 })
 
+test('matches refuses catastrophic-backtracking patterns instead of hanging the worker', () => {
+  // The pattern side is templated, so upstream data (a webhook payload, an LLM
+  // output) can supply it — an evil regex here would hang the run's worker
+  // uninterruptibly. Refused patterns evaluate to false.
+  const c: FlowContext = {
+    trigger: { input: '(a+)+$' },
+    step: { s: { output: { text: `${'a'.repeat(40)}X` } } },
+  }
+  const started = process.hrtime.bigint()
+  assert.equal(evalClause({ left: '{{step.s.output.text}}', op: 'matches', right: '{{trigger.input}}' }, c), false)
+  const elapsedMs = Number(process.hrtime.bigint() - started) / 1e6
+  assert.ok(elapsedMs < 100, `expected immediate refusal, took ${elapsedMs}ms`)
+  // Ordinary author patterns are unaffected.
+  assert.equal(evalClause({ left: '{{step.s.output.text}}', op: 'matches', right: '^a+X$' }, c), true)
+})
+
 test('evalClause numeric comparisons still work with padded numerics', () => {
   const c: FlowContext = { trigger: { input: ' 80 ' }, step: { s: { output: { score: '91 ' } } } }
   assert.equal(evalClause({ left: '{{step.s.output.score}} ', op: 'gt', right: '{{trigger.input}}' }, c), true)

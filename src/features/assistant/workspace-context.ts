@@ -1,7 +1,6 @@
 import { prisma } from '@/lib/prisma'
 import { readAgentMetadata } from '@/lib/agents/metadata'
 import { agentReadScope, executionVisibilityScope, flowReadScope } from '@/lib/server/visibility'
-import { getIntegrationStatus } from '@/features/integrations/status'
 
 /**
  * Server-side context assembly for the Home assistant: a compact, bounded
@@ -35,8 +34,13 @@ export type WorkspaceContext = {
     headline: string | null
     error: string | null
   }>
+  // Connections are reported from the two stores that actually hold live
+  // connections: Nango (OAuth providers) and MCP servers. An earlier `oauth`
+  // map came from the legacy `Integration` table, which nothing writes — it
+  // asserted `connected: false` for every provider, telling the model a
+  // connected workspace was empty. Nango already covers the same providers
+  // truthfully, so the map was both wrong and redundant.
   connections: {
-    oauth: Record<string, { connected: boolean }>
     nango: Array<{ provider: string; status: string; error: string | null }>
     mcp: Array<{ name: string; provider: string | null; verified: boolean }>
   }
@@ -50,7 +54,7 @@ export async function buildWorkspaceContext(auth: {
   const { organizationId } = auth
   const userId = auth.dbUser.id
 
-  const [agents, runs, flows, nango, mcp, oauth] = await Promise.all([
+  const [agents, runs, flows, nango, mcp] = await Promise.all([
     prisma.agentTask.findMany({
       where: { organizationId, status: { not: 'DELETED' }, ...agentReadScope(userId) },
       orderBy: { updatedAt: 'desc' },
@@ -76,7 +80,6 @@ export async function buildWorkspaceContext(auth: {
       where: { organizationId, isActive: true, OR: [{ userId: null }, { userId }] },
       select: { name: true, provider: true, lastVerifiedAt: true },
     }),
-    getIntegrationStatus(userId, organizationId),
   ])
 
   return {
@@ -107,12 +110,6 @@ export async function buildWorkspaceContext(auth: {
       }
     }),
     connections: {
-      oauth: Object.fromEntries(
-        Object.entries(oauth as Record<string, { connected: boolean }>).map(([provider, value]) => [
-          provider,
-          { connected: Boolean(value?.connected) },
-        ]),
-      ),
       nango: nango.map((row) => ({
         provider: row.providerConfigKey,
         status: row.status,

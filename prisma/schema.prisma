@@ -576,6 +576,12 @@ model AgentTemplate {
   @@map("agent_templates")
 }
 
+// LEGACY — unused. Nothing in the app reads or writes this table; live
+// connections are stored in NangoConnection (OAuth providers) and
+// McpConnection (MCP servers). The last reader (the assistant's workspace
+// context) was removed because it only ever reported `connected: false`.
+// Kept in the schema so the existing table/columns are not dropped by a
+// migration; do not build on it — add to NangoConnection/McpConnection.
 model Integration {
   id             String    @id @default(cuid())
   userId         String

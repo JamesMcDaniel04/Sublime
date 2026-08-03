@@ -98,9 +98,23 @@ const POSTGRES_CHIP: IntegrationChip = {
   configPath: '/integrations/postgres',
 }
 
+/** Granola authenticates with a per-org API key (integration_secrets), not
+ *  OAuth, so there is no Nango provider and no Connect flow — the tile opens
+ *  its own key page, the same shape as Postgres. */
+const GRANOLA_CHIP: IntegrationChip = {
+  id: 'granola',
+  provider: 'granola',
+  name: 'Granola',
+  native: true,
+  configPath: '/integrations/granola',
+}
+
 const withNativeIntegrations = (integrations: IntegrationChip[]): IntegrationChip[] => [
-  ...withNativeGoogle(integrations),
+  // Native tiles REPLACE any Nango equivalent so there is exactly one tile per
+  // service — the same rule withNativeGoogle applies.
+  ...withNativeGoogle(integrations).filter((integration) => !integration.id.toLowerCase().includes('granola')),
   POSTGRES_CHIP,
+  GRANOLA_CHIP,
 ]
 
 /**

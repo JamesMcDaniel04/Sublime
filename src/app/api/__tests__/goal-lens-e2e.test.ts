@@ -210,7 +210,8 @@ if (TEST_DB) {
       // This is the endpoint the integrations PAGE reads (/api/nango/integrations),
       // as opposed to /api/integrations/available which feeds agent tool pickers.
       // Under test both Nango and Google OAuth are unconfigured, so the catalog
-      // is deterministically the single unconditional Postgres tile.
+      // is deterministically the two unconditional native tiles (Postgres and
+      // Granola), both of which configure on their own page.
       const seeded = await testAuth.seedTestOrg(prisma, { role: 'ADMIN' })
       testAuth.installTestAuth(seeded.auth)
       const goalData = (name: string) => ({
@@ -222,7 +223,7 @@ if (TEST_DB) {
         const { GET } = await import('../nango/integrations/route')
         const unscoped = await (await GET(req('/api/nango/integrations'))).json()
         const catalogIds = unscoped.integrations.map((entry: any) => entry.id)
-        assert.deepEqual(catalogIds, ['postgres'], 'test catalog assumption changed')
+        assert.deepEqual(catalogIds, ['postgres', 'granola'], 'test catalog assumption changed')
 
         // A goal bound to Postgres keeps the Postgres tile.
         const bound = await prisma.goal.create({ data: goalData('Postgres goal') })
@@ -234,8 +235,8 @@ if (TEST_DB) {
         })
         const scoped = await (await GET(req(`/api/nango/integrations?goal=${bound.id}`))).json()
         assert.deepEqual(scoped.integrations.map((e: any) => e.id), ['postgres'])
-        assert.equal(scoped.totalCount, 1)
-        assert.equal(scoped.unlinkedCount, 0)
+        assert.equal(scoped.totalCount, 2)
+        assert.equal(scoped.unlinkedCount, 1)
 
         // A goal bound only to manual entry binds no connectable integration,
         // so the catalog empties — and the ratio is what explains that rather
@@ -249,13 +250,13 @@ if (TEST_DB) {
         })
         const empty = await (await GET(req(`/api/nango/integrations?goal=${manual.id}`))).json()
         assert.deepEqual(empty.integrations, [])
-        assert.equal(empty.totalCount, 1)
-        assert.equal(empty.unlinkedCount, 1)
+        assert.equal(empty.totalCount, 2)
+        assert.equal(empty.unlinkedCount, 2)
 
         // The remainder must stay reachable — a lens that makes an integration
         // unreachable would strand anyone trying to connect a new source.
         const rest = await (await GET(req(`/api/nango/integrations?goal=${manual.id}&unlinked=1`))).json()
-        assert.deepEqual(rest.integrations.map((e: any) => e.id), ['postgres'])
+        assert.deepEqual(rest.integrations.map((e: any) => e.id), ['postgres', 'granola'])
       } finally {
         await seeded.cleanup()
       }

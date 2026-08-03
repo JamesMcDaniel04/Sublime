@@ -40,6 +40,53 @@ type FlowItem = {
 
 type SuggestionReadiness = { ready: boolean; totalConnections: number; connectionsNeeded: number }
 
+/**
+ * The full learning-stage breakdown from /api/intelligence/readiness. The
+ * `suggestionReadiness` bundled into /api/flows only covers the ORG gates, so
+ * a user past those but with no eligible pattern yet saw a silent wall.
+ */
+type LearningReadiness = {
+  connections: { total: number; needed: number; ready: boolean }
+  usage: { events: number; needed: number; ready: boolean }
+  personal: {
+    hasActivity: boolean
+    learningDaysLeft: number
+    inLearningPeriod: boolean
+    eligiblePatterns: number
+    openSuggestion: boolean
+  }
+  ready: boolean
+}
+type ReadinessResponse = { success?: boolean; readiness?: LearningReadiness }
+
+const plural = (count: number, word: string) => `${count} ${word}${count === 1 ? '' : 's'}`
+
+/**
+ * One sentence naming the stage that is actually blocking suggestions.
+ * Returns null for the connections gate — the banner above the grid already
+ * says that, and repeating it in the empty state reads as a bug.
+ */
+function suggestionExplainer(readiness: LearningReadiness | null | undefined): string | null {
+  if (!readiness) return null
+  if (!readiness.connections.ready) return null
+  if (!readiness.usage.ready) {
+    return `Your tools are connected. Sublime needs ${plural(readiness.usage.needed, 'more recorded action')} before it can suggest a flow.`
+  }
+  const { personal } = readiness
+  if (!personal.hasActivity) {
+    return 'Your workspace is ready, but Sublime has not seen any of your activity yet. Keep working in your connected tools and suggestions will follow.'
+  }
+  if (personal.eligiblePatterns === 0) {
+    return personal.inLearningPeriod
+      ? `Sublime is still learning how you work — about ${plural(personal.learningDaysLeft, 'day')} to go before it starts suggesting flows.`
+      : 'Sublime is watching your work but has not seen a task repeat often enough to be worth automating yet.'
+  }
+  if (personal.openSuggestion) {
+    return 'Sublime has a suggestion in progress — it will appear here once the draft is ready.'
+  }
+  return `Sublime spotted ${plural(personal.eligiblePatterns, 'repeating pattern')} in your work and is drafting suggestions from ${personal.eligiblePatterns === 1 ? 'it' : 'them'}.`
+}
+
 const STATUS_STYLE: Record<string, string> = {
   active: 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-300',
   draft: 'border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-300',
@@ -92,6 +139,15 @@ export default function FlowsPage() {
 
   const suggestedFlows = useMemo(() => flows.filter((flow) => flow.suggested && flow.status === 'draft'), [flows])
   const otherFlows = useMemo(() => flows.filter((flow) => !(flow.suggested && flow.status === 'draft')), [flows])
+
+  // Explain the empty state rather than showing a bare wall. Same
+  // fetch-only-when-asked-for pattern as `unlinkedUrl` above: a null url means
+  // useCachedJson does not fetch, so a workspace with flows never pays for it.
+  const showEmptyState = !loading && !loadError && otherFlows.length === 0 && suggestedFlows.length === 0
+  const { data: readinessData } = useCachedJson<ReadinessResponse>(
+    showEmptyState ? '/api/intelligence/readiness' : null,
+  )
+  const explainer = suggestionExplainer(readinessData?.readiness)
 
   const dismissSuggestion = async (id: string) => {
     setDismissingId(id)
@@ -264,16 +320,21 @@ export default function FlowsPage() {
         <div className="rounded-xl border border-red-200 bg-red-50 p-5 text-sm text-red-800"><p className="font-medium">Your flows could not be loaded.</p><p className="mt-1">{loadError}</p><Button className="mt-3" variant="outline" onClick={() => void refresh()}>Try again</Button></div>
       ) : otherFlows.length === 0 ? (
         suggestedFlows.length === 0 ? (
-          <EmptyState
-            icon={Workflow}
-            title="No flows yet"
-            description="Build your first agent pipeline — chain agents, branch on results, and fan out over accounts."
-            action={
-              <Button onClick={createFlow} loading={creating}>
-                <Plus className="mr-1.5 h-4 w-4" /> New flow
-              </Button>
-            }
-          />
+          <div className="space-y-3">
+            <EmptyState
+              icon={Workflow}
+              title="No flows yet"
+              description="Build your first agent pipeline — chain agents, branch on results, and fan out over accounts."
+              action={
+                <Button onClick={createFlow} loading={creating}>
+                  <Plus className="mr-1.5 h-4 w-4" /> New flow
+                </Button>
+              }
+            />
+            {explainer && (
+              <p className="px-6 text-center text-xs text-muted-foreground">{explainer}</p>
+            )}
+          </div>
         ) : null
       ) : (
         <>

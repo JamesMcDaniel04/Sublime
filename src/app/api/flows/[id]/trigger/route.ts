@@ -21,6 +21,66 @@ function requestHeaders(request: NextRequest): Record<string, string> {
   return Object.fromEntries(Array.from(request.headers.entries()).map(([key, value]) => [key, /^(authorization|x-trigger-secret)$/i.test(key) ? 'redacted' : value]))
 }
 
+/**
+ * Largest webhook body accepted. Without a cap, `request.text()` buffers
+ * whatever the caller sends into worker memory before any validation runs —
+ * a secret holder (or a misconfigured upstream) could push hundreds of
+ * megabytes per request. 1 MiB comfortably covers real webhook payloads.
+ */
+const MAX_WEBHOOK_BODY_BYTES = 1_048_576
+
+class PayloadTooLargeError extends Error {}
+
+/**
+ * Read the body, refusing anything over the cap. Content-Length is checked
+ * first (cheap rejection) but is caller-supplied and may be absent under
+ * chunked encoding, so the stream is also counted as it arrives and aborted
+ * the moment it crosses the limit.
+ */
+async function readBodyWithLimit(request: NextRequest): Promise<string> {
+  const declared = Number(request.headers.get('content-length') ?? '')
+  if (Number.isFinite(declared) && declared > MAX_WEBHOOK_BODY_BYTES) throw new PayloadTooLargeError()
+
+  const body = request.body
+  if (!body) return ''
+  const reader = body.getReader()
+  const chunks: Uint8Array[] = []
+  let total = 0
+  try {
+    for (;;) {
+      const { done, value } = await reader.read()
+      if (done) break
+      if (!value) continue
+      total += value.byteLength
+      if (total > MAX_WEBHOOK_BODY_BYTES) throw new PayloadTooLargeError()
+      chunks.push(value)
+    }
+  } finally {
+    reader.cancel().catch(() => undefined)
+  }
+  return Buffer.concat(chunks.map((chunk) => Buffer.from(chunk))).toString('utf8')
+}
+
+/**
+ * Harden a Respond-to-webhook response.
+ *
+ * The body is author-templated and routinely echoes request data, and this
+ * endpoint lives on the APP's own origin — so an author who sets
+ * `content-type: text/html` turns their webhook into a same-origin HTML sink
+ * fed by whatever the caller sent. These headers make the response inert
+ * whatever content type is chosen: `sandbox` with no allow-* tokens blocks
+ * script execution, form submission, and same-origin inheritance, and nosniff
+ * stops a mislabelled body being sniffed into HTML. Applied AFTER the author's
+ * headers so they cannot be weakened from the graph.
+ */
+function inertResponseHeaders(authorHeaders: Record<string, string>): Record<string, string> {
+  return {
+    ...authorHeaders,
+    'content-security-policy': "default-src 'none'; sandbox",
+    'x-content-type-options': 'nosniff',
+  }
+}
+
 function queryParams(request: NextRequest): Record<string, string | string[]> {
   const output: Record<string, string | string[]> = {}
   for (const key of new Set(request.nextUrl.searchParams.keys())) {
@@ -38,8 +98,16 @@ async function handle(request: NextRequest) {
     if (!limited.ok) return NextResponse.json({ success: false, error: 'Rate limit exceeded' }, { status: 429 })
 
     // systemPrisma: session-less webhook trigger (per-flow secret, no org context); flow id is globally unique.
+    // mode=test exists for the pre-publish workflow: point a real upstream at a
+    // DRAFT flow and iterate on the graph. It is NOT a general publish-gate
+    // escape — a DRAFT flow is the only status where running the draft graph
+    // bypasses nothing, because there is no published graph and no third party
+    // yet depending on reviewed behaviour. Allowing it for any status let a
+    // secret holder run unreviewed draft edits of a live flow, and resurrect a
+    // flow its owner had deliberately DISABLED. Post-publish testing belongs on
+    // the authenticated in-app paths (/execute, /test-node).
     const testMode = request.nextUrl.searchParams.get('mode') === 'test'
-    const flow = id ? await systemPrisma.flow.findFirst({ where: { id, ...(testMode ? {} : { status: 'ACTIVE' }) } }) : null
+    const flow = id ? await systemPrisma.flow.findFirst({ where: { id, ...(testMode ? { status: 'DRAFT' } : { status: 'ACTIVE' }) } }) : null
     const trigger = (flow?.trigger && typeof flow.trigger === 'object' && !Array.isArray(flow.trigger) ? flow.trigger : {}) as Record<string, unknown>
     const hash = typeof trigger.webhookSecretHash === 'string' ? trigger.webhookSecretHash : null
     const authMode = ['none', 'header', 'bearer', 'basic'].includes(String(trigger.webhookAuth)) ? String(trigger.webhookAuth) : 'header'
@@ -86,7 +154,20 @@ async function handle(request: NextRequest) {
     if (!owner) return NextResponse.json({ success: false, error: 'No active user to attribute the run to' }, { status: 409 })
 
     const contentType = request.headers.get('content-type') || ''
-    const rawBody = request.method === 'GET' || request.method === 'HEAD' ? '' : await request.text().catch(() => '')
+    let rawBody = ''
+    if (request.method !== 'GET' && request.method !== 'HEAD') {
+      try {
+        rawBody = await readBodyWithLimit(request)
+      } catch (error) {
+        if (error instanceof PayloadTooLargeError) {
+          return NextResponse.json(
+            { success: false, error: `Request body exceeds the ${MAX_WEBHOOK_BODY_BYTES / 1024}KB webhook limit.` },
+            { status: 413 },
+          )
+        }
+        rawBody = ''
+      }
+    }
     let body: unknown = rawBody
     if (contentType.toLowerCase().includes('application/json') && rawBody) {
       try { body = JSON.parse(rawBody) } catch { return NextResponse.json({ success: false, error: 'Invalid JSON body' }, { status: 400 }) }
@@ -115,10 +196,11 @@ async function handle(request: NextRequest) {
     const run = 'queued' in result ? { flowRunId: result.flowRunId, status: 'queued', output: null } : result
     if (!('queued' in result) && trigger.webhookResponse === 'respondNode' && result.webhookResponse) {
       const response = result.webhookResponse
-      if (response.bodyMode === 'none') return new NextResponse(null, { status: response.statusCode, headers: response.headers })
-      if (response.bodyMode === 'binary') return new NextResponse(Buffer.from(String(response.body ?? ''), 'base64'), { status: response.statusCode, headers: response.headers })
-      if (response.bodyMode === 'text') return new NextResponse(String(response.body ?? ''), { status: response.statusCode, headers: response.headers })
-      return NextResponse.json(response.body ?? null, { status: response.statusCode, headers: response.headers })
+      const headers = inertResponseHeaders(response.headers)
+      if (response.bodyMode === 'none') return new NextResponse(null, { status: response.statusCode, headers })
+      if (response.bodyMode === 'binary') return new NextResponse(Buffer.from(String(response.body ?? ''), 'base64'), { status: response.statusCode, headers })
+      if (response.bodyMode === 'text') return new NextResponse(String(response.body ?? ''), { status: response.statusCode, headers })
+      return NextResponse.json(response.body ?? null, { status: response.statusCode, headers })
     }
     if (!('queued' in result) && trigger.webhookResponse === 'lastNode') return NextResponse.json(result.output ?? null)
     return NextResponse.json({ success: true, run }, { status: 'queued' in result ? 202 : 200 })

@@ -788,6 +788,8 @@ export async function interpretFlow(graph: FlowGraph, input: unknown, opts: Opts
               retries: node.data.retries,
               timeoutMs: node.data.timeoutMs,
               ...(node.data.risk ? { risk: node.data.risk } : {}),
+              // Author opt-in: hold this step for a human before it fires.
+              ...(node.data.requireApproval ? { requireApproval: true } : {}),
             }
           : {
               ...(node.data.connectionId ? { connectionId: node.data.connectionId } : {}),
@@ -822,6 +824,8 @@ export async function interpretFlow(graph: FlowGraph, input: unknown, opts: Opts
               ...(node.data.maxRedirects !== undefined ? { maxRedirects: node.data.maxRedirects } : {}),
               ...(node.data.pagination ? { pagination: resolveTemplateValue(node.data.pagination, ctx) } : {}),
               ...(node.data.batch ? { batch: node.data.batch } : {}),
+              // Author opt-in: hold this request for a human before it fires.
+              ...(node.data.requireApproval ? { requireApproval: true } : {}),
             }
       const res: RunAgentResult = opts.runAction
         ? await opts.runAction({
@@ -901,7 +905,13 @@ export async function interpretFlow(graph: FlowGraph, input: unknown, opts: Opts
         const referencesUpstream = /\{\{\s*upstream\b/.test(`${node.data.input ?? ''} ${node.data.prompt ?? ''}`)
         const bundle = ctx.upstream ?? {}
         if ((node.data.includeUpstream === true || usesDefaultInput) && !referencesUpstream && Object.keys(bundle).length > 0) {
-          resolved = `${resolved}\n\nUpstream data:\n${serializeUpstream(bundle)}`
+          // Everything in this bundle is prior-step output: webhook payloads,
+          // HTTP responses, scraped pages. Fenced as data (the agent runtime
+          // fences its OWN retrieved content, but flow-supplied upstream
+          // arrives as plain user input and was unfenced), and secret-redacted
+          // so a token an upstream HTTP step happened to return does not reach
+          // the provider in the prompt.
+          resolved = `${resolved}\n\n${wrapUntrusted(`Upstream data:\n${redactSecrets(serializeUpstream(bundle))}`)}`
         }
       }
       if (structured) resolved = `${resolved}\n\n${structuredResponseInstruction(outputFields)}`

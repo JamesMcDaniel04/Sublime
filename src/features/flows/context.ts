@@ -1,4 +1,5 @@
 import type { ConditionOp } from '@/lib/flows/graph'
+import { safeRegexTest } from '@/lib/security/safe-regex'
 
 /**
  * The evaluation context threaded through a flow run: the trigger input, every
@@ -211,8 +212,13 @@ function expressionValue(source: string, ctx: FlowContext): unknown {
 
 /** Replace `{{path}}` tokens with values from the context. Objects -> JSON; missing -> ''. */
 export function resolveTemplate(template: string, ctx: FlowContext): string {
-  return template.replace(/\{\{\s*([^{}]+?)\s*\}\}/g, (_match, path: string) => {
-    const value = path.trim().startsWith('=') ? expressionValue(path.trim().slice(1), ctx) : readPath(ctx, path)
+  // Whitespace is trimmed in the callback rather than in the pattern: `\s*`
+  // around a lazy `[^{}]+?` overlaps (whitespace matches both), which makes
+  // the match super-linear on a long unclosed `{{`. Trimming in JS keeps the
+  // same tokens working and the scan linear.
+  return template.replace(/\{\{([^{}]+?)\}\}/g, (_match, raw: string) => {
+    const path = raw.trim()
+    const value = path.startsWith('=') ? expressionValue(path.slice(1), ctx) : readPath(ctx, path)
     if (value == null) return ''
     return typeof value === 'object' ? JSON.stringify(value) : String(value)
   })
@@ -221,8 +227,12 @@ export function resolveTemplate(template: string, ctx: FlowContext): string {
 /** Resolve templates inside structured values while preserving exact-token objects/arrays. */
 export function resolveTemplateValue(value: unknown, ctx: FlowContext): unknown {
   if (typeof value === 'string') {
-    const exact = value.trim().match(/^\{\{\s*([^{}]+?)\s*\}\}$/)
-    if (exact) return (exact[1].trim().startsWith('=') ? expressionValue(exact[1].trim().slice(1), ctx) : readPath(ctx, exact[1])) ?? ''
+    // Same linear-scan reasoning as resolveTemplate: trim in JS, not in the pattern.
+    const exact = /^\{\{([^{}]+?)\}\}$/.exec(value.trim())
+    if (exact) {
+      const path = exact[1].trim()
+      return (path.startsWith('=') ? expressionValue(path.slice(1), ctx) : readPath(ctx, path)) ?? ''
+    }
     return resolveTemplate(value, ctx)
   }
   if (Array.isArray(value)) return value.map((item) => resolveTemplateValue(item, ctx))
@@ -271,11 +281,11 @@ export function evalClause(clause: { left: string; op: ConditionOp; right: strin
     case 'contains':
       return leftRaw.includes(rightRaw)
     case 'matches':
-      try {
-        return new RegExp(rightRaw).test(leftRaw)
-      } catch {
-        return false
-      }
+      // The pattern is templated, so it can arrive from upstream data (webhook
+      // payload, LLM output), not just the flow author. safeRegexTest refuses
+      // catastrophic-backtracking shapes outright — a regex that hangs here
+      // hangs the worker for the life of the run, uninterruptibly.
+      return safeRegexTest(rightRaw, leftRaw)
     default: {
       const l = coerce(leftRaw)
       const r = coerce(rightRaw)

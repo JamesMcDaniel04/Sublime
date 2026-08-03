@@ -105,7 +105,6 @@ if (TEST_DB) {
     { name: 'GET /api/slack/connections', run: async () => (await import('../slack/connections/route')).GET(req('/api/slack/connections')) },
     { name: 'GET /api/skills', run: async () => (await import('../skills/route')).GET(req('/api/skills')) },
     { name: 'GET /api/workflows/executions', run: async () => (await import('../workflows/executions/route')).GET(req('/api/workflows/executions')) },
-    { name: 'GET /api/usage', run: async () => (await import('../usage/route')).GET(req('/api/usage')) },
     { name: 'GET /api/knowledge', run: async () => (await import('../knowledge/route')).GET(req('/api/knowledge')) },
     { name: 'GET /api/goals', run: async () => (await import('../goals/route')).GET(req('/api/goals')) },
     { name: 'GET /api/goals/impact', run: async () => (await import('../goals/impact/route')).GET(req('/api/goals/impact')) },

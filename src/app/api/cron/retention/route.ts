@@ -167,6 +167,34 @@ export async function GET(request: Request) {
         })).count
       : 0
 
+    // workflow_events: the per-step event stream a live run emits (hundreds of
+    // JSON-carrying rows for one long multi-turn run). They exist to drive the
+    // live run UI, which only ever reads the newest few hundred per execution
+    // (/api/workflows/executions takes 500). Cascade-deletion with the parent
+    // execution at RETENTION_DAYS is far too late for a table that grows per
+    // agent turn, so — exactly like the transcript above — terminal runs shed
+    // their event stream early, at WORKFLOW_EVENT_RETENTION_DAYS (default 30).
+    // Only terminal executions qualify: a running/queued run still needs its
+    // events for the live view.
+    const workflowEventDays = Number(process.env.WORKFLOW_EVENT_RETENTION_DAYS) || 30
+    const workflowEventCutoff = new Date(Date.now() - workflowEventDays * 24 * 60 * 60 * 1000)
+    // systemPrisma: global retention sweep — prunes across all orgs by design (CRON_SECRET-gated).
+    const staleEventExecutions = await systemPrisma.agentExecution.findMany({
+      where: {
+        completedAt: { lt: workflowEventCutoff },
+        status: { in: ['completed', 'failed', 'cancelled'] },
+        events: { some: {} },
+      },
+      select: { id: true },
+      take: CAP,
+    })
+    // systemPrisma: global retention sweep — prunes across all orgs by design (CRON_SECRET-gated).
+    const workflowEventsDeleted = staleEventExecutions.length
+      ? (await systemPrisma.workflowEvent.deleteMany({
+          where: { executionId: { in: staleEventExecutions.map((e) => e.id) } },
+        })).count
+      : 0
+
     // user_events: 180-day ledger (patterns/graph distillations persist on
     // their own). Graph-first, same reasoning as executions above.
     const behaviorDays = Number(process.env.BEHAVIOR_RETENTION_DAYS) || 180
@@ -235,8 +263,8 @@ export async function GET(request: Request) {
     // Postgres under the normal retention policy.
     const deadLettersPruned = await cleanDeadLetterQueues()
 
-    apiLogger.info('cron/retention complete', { days, executionsDeleted, knowledgePromoted, transcriptsPruned, userEventsDeleted, patternsExpired, reEmbedded, encryptionBackfill, expiredKnowledgeDeleted, deadLettersPruned })
-    return Response.json({ success: true, days, executionsDeleted, knowledgePromoted, transcriptsPruned, userEventsDeleted, patternsExpired, reEmbedded, encryptionBackfill, expiredKnowledgeDeleted, deadLettersPruned })
+    apiLogger.info('cron/retention complete', { days, executionsDeleted, knowledgePromoted, transcriptsPruned, workflowEventsDeleted, userEventsDeleted, patternsExpired, reEmbedded, encryptionBackfill, expiredKnowledgeDeleted, deadLettersPruned })
+    return Response.json({ success: true, days, executionsDeleted, knowledgePromoted, transcriptsPruned, workflowEventsDeleted, userEventsDeleted, patternsExpired, reEmbedded, encryptionBackfill, expiredKnowledgeDeleted, deadLettersPruned })
   } catch (error) {
     apiLogger.error('cron/retention failed', { error: error instanceof Error ? error.message : String(error) })
     return Response.json({ success: false, error: 'Internal server error' }, { status: 500 })

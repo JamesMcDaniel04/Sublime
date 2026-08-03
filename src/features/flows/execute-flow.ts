@@ -14,6 +14,8 @@ import { isWriteProvider } from '@/lib/connectors/registry'
 import { notify } from '@/lib/notifications/service'
 import { recordAudit } from '@/lib/audit'
 import { assertPublicUrl } from '@/lib/net/ssrf'
+import { assertEgressAllowed } from '@/lib/integrations/http'
+import { flowActionApprovalQuestion, flowActionNeedsApproval, resolveFlowActionApproval } from './action-approval'
 import { ApiError } from '@/lib/server/api-handler'
 import { assertOrganizationBillingActive } from '@/lib/billing/enforce'
 import { triggerFromGraph, triggerInputFieldsFromTrigger } from '@/lib/flows/trigger'
@@ -40,6 +42,22 @@ import { recordToolCallEvents } from '@/lib/behavior/record-event'
 import { credentialVerificationKey } from '@/lib/connections/verification'
 import { recordVerificationAsync } from '@/lib/connections/record-verification'
 import { flowReadScope } from '@/lib/server/visibility'
+
+/**
+ * Guard every URL a flow http step reaches — the initial request, each
+ * redirect hop, and each pagination follow (performHttpRequest re-invokes this
+ * per hop). Two independent checks:
+ *   - SSRF: no private/internal targets (assertPublicUrl), and
+ *   - egress policy: HTTP_TOOL_ALLOWED_DOMAINS, the same workspace allowlist
+ *     the agent http builtin honours. Without it here, a credential-less flow
+ *     http node was an unrestricted egress path to any public host — the one
+ *     hole the per-credential allowedDomains policy cannot cover, since it
+ *     only engages when a credential is attached.
+ */
+async function assertFlowHttpUrlAllowed(url: string): Promise<void> {
+  assertEgressAllowed(url)
+  await assertPublicUrl(url)
+}
 
 export type FlowExecutionJob = {
   flowId: string
@@ -695,6 +713,43 @@ export async function runFlowExecution(
         },
       })
     }
+    // Human approval gate. An author-flagged step parks the run before it
+    // fires; the reply that resumes the run either releases it or cancels it
+    // (deny-by-default). Checked before ANY side effect — including credential
+    // resolution — so a held step touches nothing while it waits.
+    if (flowActionNeedsApproval(node.config)) {
+      if (!node.resume) {
+        const question = flowActionApprovalQuestion({
+          kind: node.kind,
+          label: stepLabels[node.id],
+          config: node.kind === 'http' ? redactHttpStepInput(node.config) : node.config,
+        })
+        await prisma.flowRunStep.updateMany({
+          where: { id: step.id, status: 'running' },
+          data: {
+            status: 'waiting',
+            output: jsonValue({ waiting: { kind: 'input', question } }),
+            finishedAt: new Date(),
+          },
+        })
+        return { waiting: { status: 'waiting_for_input', question } }
+      }
+      const decision = resolveFlowActionApproval(job.reply)
+      if (!decision.approved) {
+        await finish({ status: 'failed', error: decision.error })
+        return { error: decision.error }
+      }
+      await recordAudit({
+        organizationId: job.organizationId,
+        executionId: run.id,
+        actorUserId: job.userId,
+        actorKind: 'user',
+        action: 'action.approved',
+        tool: node.kind === 'http' ? String(node.config.url ?? '') : String(node.config.toolName ?? ''),
+        resourceType: node.kind,
+        payload: { nodeId: node.id },
+      })
+    }
     try {
       if (node.kind === 'tool') {
         // Tool steps route by connection-id prefix to the right tool plane
@@ -776,7 +831,7 @@ export async function runFlowExecution(
           organizationId: job.organizationId,
           userId: job.userId,
           requestUrl: request.url,
-          assertUrlAllowed: assertPublicUrl,
+          assertUrlAllowed: assertFlowHttpUrlAllowed,
         })
         const applied = applyCredentialPlan(request.url, request.init.headers as Record<string, string>, resolvedCredential.plan)
         request.url = applied.url
@@ -815,7 +870,7 @@ export async function runFlowExecution(
             // lives in performHttpRequest so it's unit-testable; this wrapper
             // supplies the real fetch, SSRF guard, and per-attempt abort signal.
             return await performHttpRequest(request, node.config, {
-              assertUrlAllowed: assertPublicUrl,
+              assertUrlAllowed: assertFlowHttpUrlAllowed,
               signal: controller.signal,
               maxResponseChars: HTTP_MAX_RESPONSE_CHARS,
             })
@@ -844,6 +899,25 @@ export async function runFlowExecution(
         }
         throw error
       }
+      // Immutable audit trail for outbound HTTP, mirroring the tool branch
+      // above. Without this an http step — the one action plane that can post
+      // arbitrary org data to an arbitrary host — was the only side effect a
+      // flow could produce with no audit record at all. Method drives the
+      // write classification (the registry classifies the `http` provider as a
+      // whole, which would mark plain GETs as writes). recordAudit hashes the
+      // payload, and the url/headers are the already-redacted copy, so no
+      // credential reaches the audit row.
+      const httpMethod = String(node.config.method ?? 'POST').toUpperCase()
+      await recordAudit({
+        organizationId: job.organizationId,
+        executionId: run.id,
+        actorUserId: job.userId,
+        actorKind: 'agent',
+        action: httpMethod === 'GET' || httpMethod === 'HEAD' ? 'tool.call' : 'tool.write',
+        tool: `${httpMethod} ${request.url}`,
+        resourceType: 'http',
+        payload: redactHttpStepInput(node.config),
+      })
       await finish({ status: 'succeeded', output })
       return { output }
     } catch (error) {
