@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from 'react'
 import { Sparkles, Send, AlertTriangle } from 'lucide-react'
 import { toast } from 'sonner'
+import { streamCopilot } from '@/lib/client/copilot-stream'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import type { FlowGraph } from '@/lib/flows/graph'
@@ -16,6 +17,10 @@ type ChatMessage = {
   resultLine?: string
   needsAttention?: NeedsAttentionItem[]
   error?: boolean
+  /** Tool-activity labels streamed during this reply ("Reading flow run 4f2a…"). */
+  activity?: string[]
+  /** True while this reply is still streaming in. */
+  streaming?: boolean
 }
 
 const HISTORY_CAP = 20
@@ -29,6 +34,7 @@ export function CopilotPanel({
   onJump,
   onNeedsAttention,
   request,
+  flowId,
 }: {
   graph: FlowGraph
   onGraph: (graph: FlowGraph) => void
@@ -36,6 +42,8 @@ export function CopilotPanel({
   onJump: (nodeId: string) => void
   onNeedsAttention?: (issues: NeedsAttentionItem[]) => void
   request?: CopilotRequest | null
+  /** The saved flow being edited — grounds the copilot's run-inspection tools. */
+  flowId?: string
 }) {
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [input, setInput] = useState('')
@@ -104,17 +112,23 @@ export function CopilotPanel({
     // Error bubbles stay in the thread for the user, but must not replay to
     // the model as genuine assistant turns.
     const history = [...messages.filter((message) => !message.error).map(({ role, content: text }) => ({ role, content: text })), { role: 'user' as const, content }].slice(-HISTORY_CAP)
-    setMessages((prev) => [...prev, { role: 'user', content }])
+    setMessages((prev) => [...prev, { role: 'user', content }, { role: 'assistant', content: '', streaming: true, activity: [] }])
     setInput('')
     setLoading(true)
+    // Mutates the trailing streaming placeholder bubble in place.
+    const patchPending = (patch: (entry: ChatMessage) => ChatMessage) =>
+      setMessages((prev) => prev.map((entry, index) => (index === prev.length - 1 && entry.streaming ? patch(entry) : entry)))
     try {
-      const response = await fetch('/api/flows/copilot/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ messages: history, graph: graphRef.current }),
-      })
-      const data = await response.json()
-      if (response.ok && data.success) {
+      const outcome = await streamCopilot(
+        '/api/flows/copilot/chat',
+        { messages: history, graph: graphRef.current, ...(flowId ? { flowId } : {}) },
+        {
+          onText: (delta) => patchPending((entry) => ({ ...entry, content: entry.content + delta })),
+          onTool: (activity) => patchPending((entry) => ({ ...entry, activity: [...(entry.activity ?? []), activity.label] })),
+        },
+      )
+      const data = (outcome.ok ? outcome.result : {}) as Record<string, unknown> & { message?: string; ops?: unknown; needsAttention?: unknown }
+      if (outcome.ok) {
         // User-action remediations (credentials, permissions, URLs, missing
         // business values) are instruction-only. Discard any model-proposed
         // graph edits even if it ignored that boundary.
@@ -129,26 +143,28 @@ export function CopilotPanel({
         const assistantContent = !applyChanges && candidateOps.length > 0
           ? `${data.message || 'Here is what you need to do.'}\n\nNo graph changes were applied because this fix requires your input.`
           : data.message || 'Done.'
-        setMessages((prev) => [
-          ...prev,
-          {
-            role: 'assistant',
-            content: assistantContent,
-            resultLine: parts.length ? parts.join(' · ') : undefined,
-            needsAttention: needsAttention.length ? needsAttention : undefined,
-          },
-        ])
+        // The result payload is authoritative: replace the streamed
+        // approximation, keeping the activity labels it accumulated.
+        patchPending((entry) => ({
+          role: 'assistant',
+          content: assistantContent,
+          resultLine: parts.length ? parts.join(' · ') : undefined,
+          needsAttention: needsAttention.length ? needsAttention : undefined,
+          activity: entry.activity?.length ? entry.activity : undefined,
+        }))
         onNeedsAttention?.(needsAttention)
-      } else {
-        setMessages((prev) => [...prev, { role: 'assistant', content: data.error || 'Could not apply that change — try again.', error: true }])
+      } else if (!outcome.ok) {
+        patchPending(() => ({ role: 'assistant', content: outcome.error || 'Could not apply that change — try again.', error: true }))
+        // A dropped connection is a one-keystroke resend.
+        setInput(content)
       }
     } catch {
-      setMessages((prev) => [...prev, { role: 'assistant', content: 'Could not reach the copilot — check your connection and try again.', error: true }])
+      patchPending(() => ({ role: 'assistant', content: 'Could not reach the copilot — check your connection and try again.', error: true }))
     } finally {
       setLoading(false)
       requestAnimationFrame(resizeInput)
     }
-  }, [input, loading, messages, onNeedsAttention, resizeInput])
+  }, [input, loading, messages, onNeedsAttention, resizeInput, flowId])
 
   // Runtime Checker can hand a classified failed run directly to Copilot.
   // The request id makes the handoff exactly-once across graph/message renders.
@@ -199,8 +215,23 @@ export function CopilotPanel({
                     message.error ? 'border-red-200 bg-red-50 text-red-800 dark:border-red-900/40 dark:bg-red-950/40 dark:text-red-200' : 'border-border bg-background text-foreground',
                   )}
                 >
-                  {message.content}
+                  {message.streaming && !message.content && !message.activity?.length
+                    ? <span className="text-muted-foreground">Thinking…</span>
+                    : message.content}
                 </div>
+                {message.streaming && message.activity && message.activity.length > 0 && (
+                  <p className="px-1 text-[11px] text-muted-foreground">{message.activity[message.activity.length - 1]}</p>
+                )}
+                {!message.streaming && message.activity && message.activity.length > 0 && (
+                  <details className="px-1 text-[11px] text-muted-foreground">
+                    <summary className="cursor-pointer select-none">
+                      Investigated {message.activity.length} thing{message.activity.length === 1 ? '' : 's'}
+                    </summary>
+                    <ul className="mt-1 list-disc space-y-0.5 pl-4">
+                      {message.activity.map((label, labelIndex) => <li key={labelIndex}>{label}</li>)}
+                    </ul>
+                  </details>
+                )}
                 {message.resultLine && <p className="px-1 text-[11px] font-medium text-muted-foreground">{message.resultLine}</p>}
                 {message.needsAttention?.map((issue, issueIndex) =>
                   issue.nodeId ? (
@@ -224,7 +255,9 @@ export function CopilotPanel({
             </div>
           ),
         )}
-        {loading && (
+        {/* Chat turns carry their thinking state in the streaming placeholder
+            bubble; this row only covers the one-shot Generate path. */}
+        {loading && !messages.some((message) => message.streaming) && (
           <div className="flex items-center gap-2">
             <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-indigo-50">
               <Sparkles className="h-3.5 w-3.5 animate-pulse text-indigo-500" />

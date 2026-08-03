@@ -2066,6 +2066,7 @@ function FlowBuilder() {
           <ResizablePanel storageKey="flow.copilotWidth" defaultWidth={420}>
             <CopilotPanel
               graph={graph}
+              flowId={id}
               onOps={onCopilotOps}
               onJump={jumpToNode}
               onGraph={(next) => {
