@@ -167,3 +167,33 @@ export async function buildAssistantContext(agent: AgentTask, question = '', vie
     knowledge,
   }
 }
+
+/** Full detail for one specific run — the copilot get_run tool. Returns null
+ *  when the run doesn't exist or belongs to another agent/org (the caller
+ *  reports "not found" to the model; it must not learn which). */
+export async function loadRunDetail(
+  agentTaskId: string,
+  organizationId: string,
+  runId: string,
+): Promise<Record<string, unknown> | null> {
+  const execution = await prisma.agentExecution.findFirst({
+    where: { id: runId, agentTaskId, organizationId },
+    omit: { transcript: true },
+  })
+  if (!execution) return null
+  const [steps, messages] = await Promise.all([
+    prisma.workflowStep.findMany({ where: { executionId: execution.id }, orderBy: { createdAt: 'asc' } }),
+    prisma.executionMessage.findMany({ where: { executionId: execution.id }, orderBy: { createdAt: 'asc' } }),
+  ])
+  return {
+    ...summarizeRun(execution),
+    toolCalls: steps.map((step) => ({
+      tool: step.node,
+      status: step.status,
+      input: clip(step.input, 600) || null,
+      output: clip(step.output, 800) || null,
+      error: clip(step.error, 800) || null,
+    })),
+    conversation: messages.map((message) => ({ role: message.role, content: clip(message.content, 600) })),
+  }
+}
