@@ -2,7 +2,10 @@ import { z } from 'zod'
 import { ApiError, withAuthenticatedApi } from '@/lib/server/api-handler'
 import { recordUserEvent } from '@/lib/behavior/record-event'
 import { checkMonthlyTokenBudget, recordTokenUsage } from '@/lib/usage/budget'
-import { generateStructured } from '@/lib/llm/model-runner'
+import { createModelRunner } from '@/lib/llm/model-runner'
+import { runCopilotLoop, type CopilotStreamEvent } from '@/lib/llm/copilot-loop'
+import { sseResponse } from '@/lib/server/sse'
+import { buildFlowCopilotTools, EDIT_FLOW_TOOL } from '@/lib/flows/copilot-tools'
 import { flowGraphSchema, emptyGraph } from '@/lib/flows/graph'
 import { validateFlowGraph } from '@/lib/flows/validate'
 import { buildCopilotGrounding } from '@/lib/flows/copilot-grounding'
@@ -14,30 +17,13 @@ import { parseCopilotChatReply, sanitizeCopilotOps, discardNotice } from '@/lib/
 // BEFORE that deadline yields a clean, catchable error - the user saw a raw 504.
 export const maxDuration = 120
 
-// Anthropic strict structured outputs can't express free-form objects (a
-// {type:'object'} with no declared properties — see strictifySchema and the
-// sibling generate route's graphJson rationale), and the six op shapes are too
-// heterogeneous to enumerate strictly. So, same wrapper pattern as generation:
-// the model returns the ops ARRAY as a JSON STRING and we parse it ourselves.
-const OPS_JSON_SCHEMA = {
-  type: 'object',
-  properties: {
-    message: {
-      type: 'string',
-      description: 'A short, friendly explanation of what you changed or what you need, mentioning node labels.',
-    },
-    opsJson: {
-      type: 'string',
-      description: 'A JSON string containing an ARRAY of edit-op objects. Use "[]" when making no changes.',
-    },
-  },
-  required: ['message', 'opsJson'],
-  additionalProperties: false,
-}
-
+// The {message, opsJson} shape now lives on EDIT_FLOW_TOOL.inputSchema — the
+// model emits it as a terminal tool call at the end of the read-tool loop.
+// The ops-array-as-JSON-string wrapper survives for the same reason as ever:
+// strict schemas can't express the six heterogeneous op shapes.
 const OPS_CONTRACT = [
   'EDIT OPERATIONS',
-  'You are editing an existing flow conversationally. The graph shape rules above govern node/edge CONTENT (including the graph inside a replace op); your reply itself must be a single JSON object {"message": string, "opsJson": string} where opsJson is a JSON string containing an ARRAY of edit operations (use "[]" when you change nothing).',
+  'You are editing an existing flow conversationally. The graph shape rules above govern node/edge CONTENT (including the graph inside a replace op). When you decide on changes, call the edit_flow tool ONCE with {message, opsJson}; opsJson is a JSON string containing an ARRAY of edit operations (use "[]" when you change nothing).',
   'The six allowed operations:',
   '- {"op": "add", "type": "agent" | "code" | "condition" | "loop" | "parallel" | "stop" | "tool" | "http" | "transform" | "filter" | "switch" | "variable" | "data" | "humanReview", "afterId": "<existing node id>", "agentId": "<roster agent id, agent steps only>", "data": { ...node data fields... }} — insert a new step after afterId.',
   '- {"op": "update", "id": "<node id>", "data": { ...fields to merge... }} — shallow-merge data into an existing step.',
@@ -46,8 +32,9 @@ const OPS_CONTRACT = [
   '- {"op": "setTrigger", "trigger": { ...trigger config fields... }} — merge changes into the trigger configuration.',
   '- {"op": "replace", "graphJson": "<the complete flow graph as a JSON string, same shape rules as generation>"} — replace the entire flow.',
   'Prefer minimal targeted ops over replace. Use replace ONLY when building a brand-new flow or when the user explicitly asks for a full redesign.',
-  'When the request is ambiguous or impossible with these operations, return opsJson "[]" and ask ONE clarifying question in message.',
+  'When the request is ambiguous or impossible with these operations, call edit_flow with opsJson "[]" and ask ONE clarifying question in message.',
   'Always explain what you did or what you need in message, mentioning node labels.',
+  'You also have read-only lookup tools (list_flow_runs, get_flow_run, get_tool_schema, get_flow) — at most 6 lookups per turn. Use them to check run failures, exact tool argument schemas, and other flows instead of guessing.',
 ].join('\n')
 
 const requestSchema = z.object({
@@ -61,13 +48,16 @@ const requestSchema = z.object({
     .min(1)
     .max(20),
   graph: z.unknown(),
+  // The saved flow being edited, when there is one — grounds the read tools'
+  // "runs of this flow" default. Absent for a brand-new unsaved canvas.
+  flowId: z.string().optional(),
 })
 
 export const POST = withAuthenticatedApi(async (request, auth) => {
   // Copilot chat is a full LLM call — rate limiting lives in the wrapper
   // (`flow-copilot`, perUser 30); the budget check and grounding are
   // independent reads, so they run in parallel off the hot path.
-  const { messages, graph: rawGraph } = requestSchema.parse(await request.json())
+  const { messages, graph: rawGraph, flowId } = requestSchema.parse(await request.json())
   const [budget, grounding] = await Promise.all([
     checkMonthlyTokenBudget(auth.organizationId, auth.dbUser.id),
     buildCopilotGrounding(auth.organizationId, auth.dbUser.id),
@@ -94,23 +84,39 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
   const graph = parsedGraph.success ? parsedGraph.data : emptyGraph()
 
   const system = [graphRules, '', OPS_CONTRACT, '', contextBlock].join('\n')
-  const transcript = messages.map((entry) => `${entry.role === 'user' ? 'User' : 'Assistant'}: ${entry.content}`).join('\n\n')
+  const transcriptText = messages.map((entry) => `${entry.role === 'user' ? 'User' : 'Assistant'}: ${entry.content}`).join('\n\n')
   const user = [
     `Current flow graph JSON:\n${JSON.stringify(graph)}`,
     '',
-    `Conversation so far:\n${transcript}`,
+    `Conversation so far:\n${transcriptText}`,
     '',
     'Respond to the latest user message.',
   ].join('\n')
 
-  try {
-    // cacheSystem: the graph rules + ops contract + grounding block repeat
-    // verbatim across a session's turns — cache the prefix instead of
-    // re-prefilling ~10k tokens at full price and latency every message.
-    const raw = await generateStructured({ system, user, schema: OPS_JSON_SCHEMA, schemaName: 'flow_edit_ops', maxTokens: 3500, cacheSystem: true })
-    // Rough metering (~chars/4) since generateStructured returns no token usage.
-    void recordTokenUsage(auth.organizationId, Math.ceil((system.length + user.length + raw.length) / 4)).catch(() => undefined)
-    const reply = parseCopilotChatReply(raw)
+  const runTurn = async (emit: (event: CopilotStreamEvent) => void) => {
+    // The runner caches the system prefix per provider call (see model-runner's
+    // cache_control) — the graph rules + ops contract + grounding block repeat
+    // verbatim across a session's turns.
+    const runner = createModelRunner()
+    const transcript = runner.start(user)
+    const loop = await runCopilotLoop({
+      runner,
+      system,
+      transcript,
+      readTools: buildFlowCopilotTools({ organizationId: auth.organizationId, userId: auth.dbUser.id, currentFlowId: flowId ?? null }),
+      terminalTool: EDIT_FLOW_TOOL,
+      emit,
+    })
+    // Real usage summed across the loop's hops — the old chars/4 estimate is gone.
+    void recordTokenUsage(auth.organizationId, loop.usage.inputTokens + loop.usage.outputTokens).catch(() => undefined)
+
+    // Terminal call → the same sanitize/apply/validate pipeline as before. A
+    // pure-Q&A turn (no terminal call) is a no-op edit with the prose as the
+    // message.
+    const terminal = loop.terminalCall as { message?: string; opsJson?: string } | null
+    const reply = terminal
+      ? parseCopilotChatReply(JSON.stringify({ message: terminal.message ?? '', opsJson: terminal.opsJson ?? '[]' }))
+      : { message: loop.text.trim(), candidates: [] as unknown[], opsUnreadable: false }
     const { ops, discarded } = sanitizeCopilotOps(reply.candidates, { agents: roster, toolCatalog })
     const totalDiscarded = discarded + (reply.opsUnreadable ? 1 : 0)
 
@@ -139,6 +145,20 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
     const needsAttention = [...validation.errors, ...validation.warnings].map((issue) => ({ nodeId: issue.nodeId, message: issue.message }))
 
     return { success: true, message, ops, needsAttention }
+  }
+
+  // Content negotiation: SSE when the client asks for it, the legacy JSON
+  // body otherwise. The legacy path keeps its {success:false,error} contract
+  // instead of a thrown 5xx; on the SSE path a throw becomes an in-band
+  // {type:'error'} event via sseResponse.
+  if (request.headers.get('accept')?.includes('text/event-stream')) {
+    return sseResponse(async (emit) => {
+      const payload = await runTurn(emit as (event: CopilotStreamEvent) => void)
+      emit({ type: 'result', ...payload })
+    })
+  }
+  try {
+    return await runTurn(() => undefined)
   } catch (error) {
     return {
       success: false,
