@@ -118,7 +118,7 @@ export function CredentialsPanel() {
                   {TYPE_LABELS[row.type as CredentialType] ?? row.type}
                   {row.allowedDomains.length > 0
                     ? ` · ${row.allowedDomains.join(', ')}`
-                    : ' · any domain'}
+                    : ' · blocked until a domain is added'}
                   {row.lastUsedAt ? ` · last used ${new Date(row.lastUsedAt).toLocaleDateString()}` : ' · never used'}
                 </p>
                 {/* The verify endpoint has always recorded this; nothing rendered

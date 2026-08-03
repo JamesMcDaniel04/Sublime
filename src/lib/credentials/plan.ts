@@ -1,6 +1,6 @@
 /**
  * Pure: a decrypted credential → the header/query mutations to inject, and the
- * egress allow-list check that gates them.
+ * fail-closed egress allow-list check that gates them.
  *
  * A credential only ever contributes headers and query params. It never
  * rewrites the URL path, method, or body — so a mis-scoped credential cannot
@@ -42,13 +42,32 @@ export function credentialInjectionPlan(dec: DecryptedCredential): InjectionPlan
 }
 
 /**
- * True when the request host is covered by the allow-list. Empty list = any
- * host. A host matches an allowed domain when it equals it or is a subdomain
+ * Canonicalize one domain supplied by a user. Schemes, paths, ports, wildcard
+ * labels, and malformed DNS names are rejected so the stored value has exactly
+ * one interpretation at request time.
+ */
+export function normalizeAllowedDomain(raw: string): string | null {
+  const domain = raw.trim().toLowerCase().replace(/\.$/, '')
+  if (!domain || domain.length > 253 || !/^[a-z0-9.-]+$/.test(domain) || domain.includes('..')) return null
+  const labels = domain.split('.')
+  if (labels.some((label) => !label || label.length > 63 || label.startsWith('-') || label.endsWith('-'))) return null
+  return domain
+}
+
+export function normalizeAllowedDomains(raw: string[]): string[] | null {
+  const domains = raw.map(normalizeAllowedDomain)
+  if (domains.some((domain) => domain === null)) return null
+  return [...new Set(domains as string[])]
+}
+
+/**
+ * True when the request host is covered by the allow-list. Empty lists fail
+ * closed. A host matches an allowed domain when it equals it or is a subdomain
  * (`.domain`). Unparseable URLs are rejected — a credential must never be sent
  * to a target we couldn't parse well enough to check.
  */
 export function isRequestUrlAllowed(requestUrl: string, allowedDomains: string[]): boolean {
-  if (!allowedDomains.length) return true
+  if (!allowedDomains.length) return false
   let host: string
   try {
     host = new URL(requestUrl).hostname.toLowerCase()
@@ -56,7 +75,7 @@ export function isRequestUrlAllowed(requestUrl: string, allowedDomains: string[]
     return false
   }
   return allowedDomains.some((raw) => {
-    const domain = raw.trim().toLowerCase().replace(/^\.+/, '')
-    return domain.length > 0 && (host === domain || host.endsWith(`.${domain}`))
+    const domain = normalizeAllowedDomain(raw)
+    return Boolean(domain && (host === domain || host.endsWith(`.${domain}`)))
   })
 }

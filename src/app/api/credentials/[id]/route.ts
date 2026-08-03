@@ -6,6 +6,7 @@ import { mergeCredentialConfig, redactCredential } from '@/lib/credentials/confi
 import { credentialScope } from '@/lib/credentials/resolve'
 import { invalidateOAuth2Token } from '@/lib/credentials/oauth2'
 import type { CredentialType } from '@/lib/credentials/types'
+import { normalizeAllowedDomains } from '@/lib/credentials/plan'
 import { credentialInputSchema } from '../route'
 
 export const runtime = 'nodejs'
@@ -18,8 +19,7 @@ const idFrom = (pathname: string) => pathname.split('/').at(-1)
 
 const updateSchema = credentialInputSchema.partial({ type: true }).extend({
   name: z.string().min(1).optional(),
-  personal: z.boolean().optional(),
-  allowedDomains: z.array(z.string()).optional(),
+  allowedDomains: z.array(z.string()).min(1, 'Add at least one allowed domain.').optional(),
 })
 
 /** In-scope row or 404 — never confirm a cross-org id exists. */
@@ -59,6 +59,8 @@ export const PUT = withAuthenticatedApi(async (request, auth) => {
   if (!id) throw new ApiError('Credential id is required')
   const existing = await ownedCredential(id, auth.organizationId, auth.dbUser.id)
   const input = updateSchema.parse(await request.json().catch(() => ({})))
+  const allowedDomains = input.allowedDomains ? normalizeAllowedDomains(input.allowedDomains) : undefined
+  if (input.allowedDomains && !allowedDomains?.length) throw new ApiError('Allowed domains must be valid hostnames.', 400, 'INVALID_ALLOWED_DOMAINS')
 
   // A type change re-keys which fields are secret, so the config is rebuilt
   // from scratch rather than merged — merging across types would leave the old
@@ -72,9 +74,8 @@ export const PUT = withAuthenticatedApi(async (request, auth) => {
     : mergeCredentialConfig(existing.authConfig as Record<string, unknown>, { ...input, type })
 
   if (input.name && input.name !== existing.name) {
-    const userId = input.personal === undefined ? existing.userId : input.personal ? auth.dbUser.id : null
     const clash = await prisma.credential.findFirst({
-      where: { organizationId: auth.organizationId, userId, name: input.name, id: { not: id } },
+      where: { organizationId: auth.organizationId, userId: auth.dbUser.id, name: input.name, id: { not: id } },
       select: { id: true },
     })
     if (clash) throw new ApiError('A credential with that name already exists.', 409, 'DUPLICATE_NAME')
@@ -85,8 +86,7 @@ export const PUT = withAuthenticatedApi(async (request, auth) => {
     data: {
       ...(input.name ? { name: input.name } : {}),
       ...(input.type ? { type: input.type } : {}),
-      ...(input.allowedDomains ? { allowedDomains: input.allowedDomains } : {}),
-      ...(input.personal !== undefined ? { userId: input.personal ? auth.dbUser.id : null } : {}),
+      ...(allowedDomains ? { allowedDomains } : {}),
       authConfig,
     },
   })

@@ -31,7 +31,8 @@ function hostnameOf(value: string): string {
 }
 
 function domainMatches(hostname: string, allowedDomains: string[]) {
-  if (!hostname || allowedDomains.length === 0) return true
+  if (!hostname) return true
+  if (allowedDomains.length === 0) return false
   const host = hostname.toLowerCase()
   return allowedDomains.some((raw) => {
     const domain = raw.trim().toLowerCase().replace(/^\.+/, '')
@@ -114,7 +115,7 @@ export function CredentialPicker({
           options={compatibleCredentials.map((credential) => ({
             value: credential.id,
             label: credential.name,
-            hint: credential.allowedDomains.length ? credential.allowedDomains.join(', ') : 'any domain',
+            hint: credential.allowedDomains.length ? credential.allowedDomains.join(', ') : 'blocked until a domain is added',
           }))}
           onChange={(credentialId) => onChange(credentialId || undefined, type)}
         />

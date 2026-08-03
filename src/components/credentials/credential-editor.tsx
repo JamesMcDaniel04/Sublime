@@ -4,7 +4,6 @@ import { useState } from 'react'
 import { AlertTriangle, CheckCircle2, Plus, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
-import { Switch } from '@/components/ui/switch'
 import { cn } from '@/lib/utils'
 import {
   FIELD_LABELS,
@@ -289,19 +288,13 @@ export function CredentialEditor({
         <p className="text-[11px] leading-4 text-muted-foreground">
           {draft.allowedDomains.trim()
             ? 'This credential is only sent to these domains and their subdomains.'
-            : 'Empty means this credential may be sent to any domain. Naming the domains you use limits the damage if a flow is mis-wired.'}
+            : 'Required. Credentials are never sent until at least one destination domain is allowed.'}
         </p>
       </div>
 
-      <label className="flex items-center justify-between gap-3 rounded-lg border border-border p-3">
-        <span className="min-w-0">
-          <span className="block text-sm font-medium">Personal to me</span>
-          <span className="block text-[11px] leading-4 text-muted-foreground">
-            {draft.personal ? 'Only you can attach this to a step.' : 'Anyone in this workspace can attach this to a step.'}
-          </span>
-        </span>
-        <Switch checked={draft.personal} onCheckedChange={(next) => set('personal', next)} aria-label="Personal to me" />
-      </label>
+      <p className="rounded-lg border border-border bg-muted/40 p-3 text-xs text-muted-foreground">
+        This credential is private to your account. Other workspace members cannot view, attach, edit, or delete it.
+      </p>
 
       {showProblems && problems.length > 0 && (
         <ul className="list-disc rounded-lg bg-amber-50 py-2 pl-8 pr-3 text-xs text-amber-900 dark:bg-amber-950/30 dark:text-amber-300">

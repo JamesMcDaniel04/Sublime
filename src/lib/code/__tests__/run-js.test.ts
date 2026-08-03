@@ -72,6 +72,18 @@ test('host process internals are not reachable', async () => {
   }
 })
 
+test('host functions cannot be used as a constructor escape into Node', async () => {
+  const probes = [
+    "setTimeout.constructor('return typeof process')()",
+    "console.log.constructor('return typeof process')()",
+    "Object.getPrototypeOf(setTimeout).constructor('return typeof require')()",
+  ]
+  for (const probe of probes) {
+    const result = await runJavaScript({ code: `return ${probe}`, items: [] })
+    assert.equal(result.ok && result.output, 'undefined', `${probe} must stay inside QuickJS`)
+  }
+})
+
 test('mutating items inside the sandbox cannot corrupt the host copy', async () => {
   const items = [{ id: 1 }]
   await runJavaScript({ code: 'items[0].id = 999; return items', items })

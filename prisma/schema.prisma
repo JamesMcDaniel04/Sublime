@@ -679,10 +679,11 @@ model IntegrationSecret {
   @@map("integration_secrets")
 }
 
-/// Reusable, org-scoped credential for authenticating outbound requests from
+/// Reusable, user-owned credential for authenticating outbound requests from
 /// flow nodes. authConfig holds encryptSecret() blobs for secret fields plus
-/// plaintext metadata (headerName, queryParam, username). userId null =
-/// org-shared; set = personal to creator. allowedDomains empty = any host.
+/// plaintext metadata (headerName, queryParam, username). Legacy rows may have
+/// a null userId but are inactive and never selected. Empty allowedDomains fail
+/// closed at runtime.
 model Credential {
   id             String    @id @default(cuid())
   organizationId String    @db.Uuid

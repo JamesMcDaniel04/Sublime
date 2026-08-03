@@ -227,6 +227,7 @@ export function activeFields(draft: CredentialDraft): CredentialField[] {
 export function draftProblems(draft: CredentialDraft, editing: boolean): string[] {
   const problems: string[] = []
   if (!draft.name.trim()) problems.push('Give this credential a name.')
+  if (parseAllowedDomains(draft.allowedDomains).length === 0) problems.push('Add at least one allowed domain.')
   for (const field of activeFields(draft)) {
     if (field === 'entries') {
       problems.push(...entryProblems(draft, editing))
@@ -261,7 +262,6 @@ export function saveBody(draft: CredentialDraft, editing: boolean): CredentialIn
   const body: CredentialInput & Record<string, unknown> = {
     name: draft.name.trim(),
     type: draft.type,
-    personal: draft.personal,
     allowedDomains: parseAllowedDomains(draft.allowedDomains),
   }
   if (draft.caCert.trim()) body.caCert = draft.caCert

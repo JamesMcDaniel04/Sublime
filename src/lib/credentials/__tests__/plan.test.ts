@@ -62,8 +62,8 @@ test('OAuth2 access-token credentials inject bearer auth', () => {
   )
 })
 
-test('an empty allow-list permits any host', () => {
-  assert.equal(isRequestUrlAllowed('https://anything.example.com/x', []), true)
+test('an empty allow-list fails closed', () => {
+  assert.equal(isRequestUrlAllowed('https://anything.example.com/x', []), false)
 })
 
 test('allow-list matches the exact host and its subdomains', () => {
@@ -79,8 +79,8 @@ test('allow-list rejects a lookalike host', () => {
   assert.equal(isRequestUrlAllowed('https://acme.com.evil.tld/x', ['acme.com']), false)
 })
 
-test('allow-list is case-insensitive and tolerates a leading dot', () => {
-  assert.equal(isRequestUrlAllowed('https://API.Acme.COM/x', ['.ACME.com']), true)
+test('allow-list is case-insensitive', () => {
+  assert.equal(isRequestUrlAllowed('https://API.Acme.COM/x', ['ACME.com']), true)
 })
 
 test('an unparseable URL is rejected when a list is set', () => {

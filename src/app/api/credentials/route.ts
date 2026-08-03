@@ -5,6 +5,7 @@ import { recordAudit } from '@/lib/audit'
 import { buildCredentialConfig, redactCredential } from '@/lib/credentials/config'
 import { credentialScope } from '@/lib/credentials/resolve'
 import { CREDENTIAL_TYPES, type CredentialType } from '@/lib/credentials/types'
+import { normalizeAllowedDomains } from '@/lib/credentials/plan'
 import { loadVerifications } from '@/lib/connections/record-verification'
 import { credentialVerificationKey, toVerification } from '@/lib/connections/verification'
 
@@ -52,9 +53,7 @@ export const credentialInputSchema = z.object({
 
 const createSchema = credentialInputSchema.extend({
   name: z.string().min(1, 'Give this credential a name.'),
-  /** Personal to the creator when true; org-shared otherwise. */
-  personal: z.boolean().optional(),
-  allowedDomains: z.array(z.string()).optional(),
+  allowedDomains: z.array(z.string()).min(1, 'Add at least one allowed domain.'),
 })
 
 export const GET = withAuthenticatedApi(async (_request, auth) => {
@@ -85,7 +84,9 @@ export const GET = withAuthenticatedApi(async (_request, auth) => {
 
 export const POST = withAuthenticatedApi(async (request, auth) => {
   const input = createSchema.parse(await request.json().catch(() => ({})))
-  const userId = input.personal ? auth.dbUser.id : null
+  const userId = auth.dbUser.id
+  const allowedDomains = normalizeAllowedDomains(input.allowedDomains)
+  if (!allowedDomains?.length) throw new ApiError('Allowed domains must be valid hostnames.', 400, 'INVALID_ALLOWED_DOMAINS')
 
   // Postgres treats NULL as distinct in a unique key, so org-shared name
   // uniqueness has to be enforced here rather than by the index.
@@ -102,7 +103,7 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
       name: input.name,
       type: input.type,
       authConfig: buildCredentialConfig(input),
-      allowedDomains: input.allowedDomains ?? [],
+      allowedDomains,
       createdById: auth.dbUser.id,
     },
     select: { id: true, name: true, type: true, authConfig: true, allowedDomains: true, userId: true },

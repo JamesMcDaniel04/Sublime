@@ -71,7 +71,6 @@ if (!TEST_DB) {
     const response = await POST(jsonReq('/api/credentials', 'POST', {
       name: 'Acme custom',
       type: 'custom',
-      personal: false,
       allowedDomains: ['example.com'],
       headers: [{ name: 'X-Api-Key', value: 'secret-one' }, { name: 'X-Drop-Me', value: 'secret-two' }],
     }))

@@ -17,12 +17,12 @@ export const CREDENTIAL_UNAVAILABLE =
 export const CREDENTIAL_DOMAIN_BLOCKED =
   'This credential is not allowed for that request URL. Add the domain to the credential’s allowed list.'
 
-/** Org-shared rows (userId null) plus the acting user's own personal rows. */
-export function credentialScope(organizationId: string, userId?: string) {
+/** Credentials are always owned by the acting user, even inside a shared org. */
+export function credentialScope(organizationId: string, userId: string) {
   return {
     organizationId,
     isActive: true as const,
-    OR: [{ userId: null }, ...(userId ? [{ userId }] : [])],
+    userId,
   }
 }
 
@@ -49,7 +49,7 @@ export type ResolvedHttpCredential = {
 export async function resolveHttpCredential(params: {
   credentialId: string
   organizationId: string
-  userId?: string
+  userId: string
   requestUrl: string
   fetchImpl?: typeof fetch
   assertUrlAllowed?: (url: string) => Promise<void>
@@ -98,7 +98,7 @@ export async function resolveHttpCredential(params: {
 export async function resolveCredential(params: {
   credentialId: string
   organizationId: string
-  userId?: string
+  userId: string
   requestUrl: string
 }): Promise<InjectionPlan> {
   return (await resolveHttpCredential(params)).plan

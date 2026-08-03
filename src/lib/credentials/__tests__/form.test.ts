@@ -16,12 +16,12 @@ test('every credential type declares its fields', () => {
 
 test('a new bearer credential requires a name and a token', () => {
   const draft = { ...emptyDraft(), type: 'bearer' as const }
-  assert.deepEqual(draftProblems(draft, false), ['Give this credential a name.', 'Token is required.'])
-  assert.deepEqual(draftProblems({ ...draft, name: 'A', token: 't' }, false), [])
+  assert.deepEqual(draftProblems(draft, false), ['Give this credential a name.', 'Add at least one allowed domain.', 'Token is required.'])
+  assert.deepEqual(draftProblems({ ...draft, name: 'A', token: 't', allowedDomains: 'acme.com' }, false), [])
 })
 
 test('editing allows a blank secret — it means keep the stored one', () => {
-  const draft = { ...emptyDraft(), type: 'bearer' as const, name: 'A' }
+  const draft = { ...emptyDraft(), type: 'bearer' as const, name: 'A', allowedDomains: 'acme.com' }
   assert.deepEqual(draftProblems(draft, true), [])
   assert.deepEqual(draftProblems(draft, false), ['Token is required.'])
 })
@@ -58,7 +58,7 @@ test('custom entries drop nameless rows but keep valueless ones as markers', () 
 })
 
 test('custom requires at least one named entry', () => {
-  const draft = { ...emptyDraft(), type: 'custom' as const, name: 'A' }
+  const draft = { ...emptyDraft(), type: 'custom' as const, name: 'A', allowedDomains: 'acme.com' }
   assert.deepEqual(draftProblems(draft, false), ['Add at least one header or query parameter.'])
 })
 
@@ -97,9 +97,9 @@ test('seeding custom entries keeps the names and blanks the values', () => {
   assert.deepEqual(draft.query, [{ name: '', value: '' }])
 })
 
-test('the personal flag and domains always travel', () => {
+test('domains travel but ownership cannot be changed by the client', () => {
   const body = saveBody({ ...emptyDraft(), name: 'A', token: 't', personal: true, allowedDomains: 'acme.com' }, false)
-  assert.equal(body.personal, true)
+  assert.equal('personal' in body, false)
   assert.deepEqual(body.allowedDomains, ['acme.com'])
 })
 
@@ -110,6 +110,7 @@ test('a named custom entry with no value is rejected on create', () => {
     ...emptyDraft(),
     name: 'Acme',
     type: 'custom' as const,
+    allowedDomains: 'acme.com',
     headers: [{ name: 'X-Api-Key', value: '' }],
     query: [{ name: '', value: '' }],
   }
@@ -121,6 +122,7 @@ test('a stored custom entry may keep its value blank while editing', () => {
     ...emptyDraft(),
     name: 'Acme',
     type: 'custom' as const,
+    allowedDomains: 'acme.com',
     headers: [{ name: 'X-Api-Key', value: '', originalName: 'X-Api-Key' }],
     query: [{ name: '', value: '' }],
   }
@@ -132,6 +134,7 @@ test('a newly added custom entry still needs a value while editing', () => {
     ...emptyDraft(),
     name: 'Acme',
     type: 'custom' as const,
+    allowedDomains: 'acme.com',
     headers: [
       { name: 'X-Old', value: '', originalName: 'X-Old' },
       { name: 'X-New', value: '' },
