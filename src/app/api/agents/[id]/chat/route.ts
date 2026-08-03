@@ -1,10 +1,13 @@
 import type { AgentChatMessage, Prisma } from '@prisma/client'
 import { z } from 'zod'
 import { prisma } from '@/lib/prisma'
-import { generateStructured } from '@/lib/llm/model-runner'
+import { createModelRunner, DEFAULT_SUMMARY_MODEL } from '@/lib/llm/model-runner'
+import { runCopilotLoop, type CopilotStreamEvent } from '@/lib/llm/copilot-loop'
+import { sseResponse } from '@/lib/server/sse'
 import { qwenConfigured } from '@/lib/llm/qwen'
 import { ApiError, withAuthenticatedApi } from '@/lib/server/api-handler'
 import { buildAssistantContext } from '@/features/agents/assistant-context'
+import { buildAgentCopilotTools, PROPOSE_CONFIG_TOOL } from '@/features/agents/copilot-tools'
 import { checkMonthlyTokenBudget, recordTokenUsage } from '@/lib/usage/budget'
 import { saveAgentMemory } from '@/lib/memory/agent-memory'
 import { agentIdFromRequest, requireAgent, deriveTitle, LEGACY_SESSION_ID } from './shared'
@@ -22,52 +25,15 @@ export const maxDuration = 120
 
 const SYSTEM_PROMPT = [
   "You are the Sublime assistant for a single agent. You answer questions about the agent's recent runs, help debug failures, and turn natural-language requests into configuration changes.",
-  'Ground every statement in the provided context (agent config, recent runs, tool calls, errors). If the context does not contain the answer, say so plainly.',
-  'When the user asks to change the agent — its instructions/objective, schedule, skills, connected tools/integrations, model, name, or description — fill in the proposal object with only the fields that should change and set every other proposal field to null. The instructions field must contain the complete updated instructions text, not a diff. Never claim a change was applied; the user reviews and confirms it in the interface.',
-  'When the message is not a change request, set proposal to null.',
-  'When debugging, use the latest failed run: quote the relevant error and the tool calls around it.',
+  'Ground every statement in the provided context and your lookups. You have read-only tools: list_runs, get_run, get_step_output, get_tool_schema, list_workspace_agents. Use them whenever the provided context does not already contain the answer — never say the context is missing something you could look up. You have at most 6 lookups per turn; investigate the most diagnostic thing first.',
+  'When the user asks to change the agent — its instructions/objective, schedule, skills, connected tools/integrations, model, name, or description — call propose_config_change ONCE with only the fields that should change and every other field null. The instructions field must contain the complete updated instructions text, not a diff. Never claim a change was applied; the user reviews and confirms it in the interface.',
+  'When the message is not a change request, answer in plain text and do not call propose_config_change.',
+  'When debugging, find the latest failed run: quote the relevant error and the tool calls around it.',
   'Write concise markdown in sentence case. No emoji.',
 ].join('\n')
 
-const RESPONSE_SCHEMA = {
-  type: 'object',
-  additionalProperties: false,
-  properties: {
-    reply: {
-      type: 'string',
-      description: 'The answer shown to the user, in concise markdown. Sentence case, no emoji.',
-    },
-    proposal: {
-      type: ['object', 'null'],
-      additionalProperties: false,
-      description: 'A concrete configuration change for the user to confirm, or null when the message is not a change request.',
-      properties: {
-        summary: { type: 'string', description: 'One sentence describing the change.' },
-        title: { type: ['string', 'null'] },
-        description: { type: ['string', 'null'] },
-        instructions: { type: ['string', 'null'], description: 'Complete replacement instructions, not a diff.' },
-        model: { type: ['string', 'null'] },
-        integrations: { type: ['array', 'null'], items: { type: 'string' } },
-        skills: { type: ['array', 'null'], items: { type: 'string' } },
-        schedule: {
-          type: ['object', 'null'],
-          additionalProperties: false,
-          properties: {
-            type: { type: 'string', enum: ['manual', 'hourly', 'daily', 'weekly', 'cron'] },
-            time: { type: 'string', description: '24h HH:MM start time; empty string when not applicable.' },
-            cron: { type: 'string', description: 'Cron expression; empty string unless type is "cron".' },
-            timezone: { type: 'string', description: 'IANA timezone, e.g. UTC.' },
-            isActive: { type: 'boolean' },
-          },
-          required: ['type', 'time', 'cron', 'timezone', 'isActive'],
-        },
-      },
-      required: ['summary', 'title', 'description', 'instructions', 'model', 'integrations', 'skills', 'schedule'],
-    },
-  },
-  required: ['reply', 'proposal'],
-} as const
-
+// The proposal's JSON schema lives on PROPOSE_CONFIG_TOOL.inputSchema — the
+// model emits it as a terminal tool call at the end of the read-tool loop.
 const proposalSchema = z
   .object({
     summary: z.string().default(''),
@@ -214,22 +180,24 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
     .reverse()
     .map((row) => ({ role: row.role, content: row.content.slice(0, 2000) }))
 
+  const runTurn = async (emit: (event: CopilotStreamEvent) => void) => {
   let reply = ''
   let proposal: Record<string, unknown> | null = null
+  let loopUsage = 0
   try {
-    const text = await generateStructured({
-      schemaName: 'assistant_reply',
-      schema: RESPONSE_SCHEMA as unknown as Record<string, unknown>,
+    const runner = createModelRunner(DEFAULT_SUMMARY_MODEL)
+    const transcript = runner.start(JSON.stringify({ context, conversation, question: message }))
+    const loop = await runCopilotLoop({
+      runner,
       system: SYSTEM_PROMPT,
-      user: JSON.stringify({ context, conversation, question: message }),
-      // Generous headroom: a reconfigure reply returns the agent's complete
-      // instructions inline, which can be long — a tight cap truncates the JSON
-      // and turns a valid answer into a parse failure.
-      maxTokens: 8192,
+      transcript,
+      readTools: buildAgentCopilotTools({ agentId, organizationId: auth.organizationId, userId: auth.dbUser.id }),
+      terminalTool: PROPOSE_CONFIG_TOOL,
+      emit,
     })
-    const parsed = JSON.parse(text || '{}') as { reply?: unknown; proposal?: unknown }
-    reply = typeof parsed.reply === 'string' ? parsed.reply.trim() : ''
-    proposal = normalizeProposal(proposalSchema.catch(null).parse(parsed.proposal ?? null))
+    reply = loop.text.trim()
+    loopUsage = loop.usage.inputTokens + loop.usage.outputTokens
+    proposal = normalizeProposal(proposalSchema.catch(null).parse(loop.terminalCall ?? null))
   } catch (error) {
     // Preserve the real cause so the 5xx handler logs/reports it — a bare catch
     // made this failure invisible in logs and Sentry.
@@ -239,12 +207,8 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
 
   // Persist only after the model answered, so a failed call leaves no
   // half-thread behind (the client restores the input for a retry).
-  // Rough metering: generateStructured doesn't return token usage, so estimate
-  // (~chars/4) to keep the month-to-date counter aware of assistant spend.
-  void recordTokenUsage(
-    auth.organizationId,
-    Math.ceil((JSON.stringify(context).length + message.length + reply.length) / 4),
-  ).catch(() => undefined)
+  // Real usage summed across the loop's hops — the old chars/4 estimate is gone.
+  void recordTokenUsage(auth.organizationId, loopUsage).catch(() => undefined)
 
   const userMessage = await prisma.agentChatMessage.create({
     data: {
@@ -291,6 +255,17 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
     .catch(() => undefined)
 
   return { success: true, sessionId: session.id, messages: [serializeMessage(userMessage), serializeMessage(assistantMessage)] }
+  }
+
+  // Content negotiation: SSE when the client asks for it, the legacy JSON
+  // body otherwise (existing tests and non-UI callers stay on the old path).
+  if (request.headers.get('accept')?.includes('text/event-stream')) {
+    return sseResponse(async (emit) => {
+      const payload = await runTurn(emit as (event: CopilotStreamEvent) => void)
+      emit({ type: 'result', ...payload })
+    })
+  }
+  return runTurn(() => undefined)
 }, { requires: 'member', rateLimit: { feature: 'agent-chat', perUser: 30 } })
 
 // Marks a proposal message as applied after the client has confirmed the
