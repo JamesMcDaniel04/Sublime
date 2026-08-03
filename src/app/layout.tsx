@@ -1,5 +1,6 @@
 import type { Metadata } from 'next'
 import { Anonymous_Pro, Geist } from 'next/font/google'
+import { headers } from 'next/headers'
 import { Analytics } from '@vercel/analytics/next'
 import { ClientProviders } from '@/components/providers/client-providers'
 import './globals.css'
@@ -22,21 +23,40 @@ const anonymousPro = Anonymous_Pro({
   display: 'swap',
 })
 
+// Every route renders per-request, and this is NOT optional — it is what makes
+// the CSP satisfiable. The middleware stamps a fresh `script-src 'nonce-<random>'`
+// on every response, but Next can only put that nonce on its inline scripts
+// while rendering dynamically; a prerendered page was built without a request,
+// so its HTML carries no nonce at all. The two together are unsatisfiable: the
+// external chunks still load under 'self', but the inline
+// `self.__next_f.push(...)` RSC payload is blocked, React boots with nothing to
+// render, and the route serves a blank white page. That is what /auth/login,
+// /auth/signup and the 404 page were doing in production; / escaped it only
+// because it had already opted out of prerendering for its own reasons.
+// Declared at the root so the framework-generated /_not-found is covered too —
+// it has no layout or page file of its own to carry the directive.
+export const dynamic = 'force-dynamic'
+
 export const metadata: Metadata = {
   title: 'Sublime',
   description:
     'Agents that achieve your goals. Sublime deploys specialized agents against the goals that matter — quota, ARR, KPIs — and proves the ROI of every run.',
 }
 
-export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
+export default async function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
+  // Next nonces its own inline scripts from this header, but third-party
+  // providers that inline a script have to be handed the nonce explicitly.
+  const nonce = (await headers()).get('x-nonce') ?? undefined
+
   return (
     <html lang="en" suppressHydrationWarning className={`${geist.variable} ${anonymousPro.variable}`}>
       <body>
         {/* Chrome and the billing gate belong to the (app) route group; the
             (public) group renders its own bare <main>. The root layout stays
-            free of cookies()/DB access so /about, /contact, /privacy, and
-            /terms can still render statically. */}
-        <ClientProviders>{children}</ClientProviders>
+            free of cookies()/DB access — not for static rendering (the CSP
+            nonce rules that out, see `dynamic` above) but to keep marketing
+            routes off the database. */}
+        <ClientProviders nonce={nonce}>{children}</ClientProviders>
         <Analytics />
       </body>
     </html>

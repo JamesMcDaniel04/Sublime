@@ -74,8 +74,15 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
   ])
   if (budget.over) throw new ApiError('Monthly token budget reached for this workspace.', 429, 'BUDGET_EXCEEDED')
   // Behavior capture: the ask itself, by reference only (no prompt text).
-  // Fire-and-forget — analytics must never add latency to the user's turn.
-  void recordUserEvent({
+  //
+  // Awaited deliberately. This was briefly fire-and-forget for latency, but a
+  // floating promise is not durable here: the response can be returned and the
+  // request torn down before the insert lands, so prompts went unrecorded —
+  // and the capture-before-the-LLM-call contract (the ask survives even when
+  // the model call fails or times out) silently became a race. One indexed
+  // insert ahead of a multi-second model call is not the latency to optimise.
+  // Failures still never break the user's turn.
+  await recordUserEvent({
     organizationId: auth.organizationId, userId: auth.dbUser.id,
     kind: 'copilot_prompt', resourceType: 'flow', resourceId: null,
     context: { turns: messages.length },

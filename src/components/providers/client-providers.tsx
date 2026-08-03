@@ -6,7 +6,7 @@ import { ThemeProvider } from 'next-themes'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { SupabaseProvider } from './supabase-provider'
 
-export function ClientProviders({ children }: { children: React.ReactNode }) {
+export function ClientProviders({ children, nonce }: { children: React.ReactNode; nonce?: string }) {
   return (
     <MotionConfig reducedMotion="user">
       <ThemeProvider
@@ -15,6 +15,10 @@ export function ClientProviders({ children }: { children: React.ReactNode }) {
         enableSystem
         storageKey="sublime-theme"
         disableTransitionOnChange
+        // next-themes inlines a blocking anti-FOUC script; without the
+        // request's nonce the CSP kills it and every load paints the default
+        // theme until hydration swaps it.
+        nonce={nonce}
       >
       <TooltipProvider delayDuration={300}>
       <SupabaseProvider>
