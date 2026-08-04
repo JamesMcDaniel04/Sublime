@@ -20,6 +20,14 @@ import { SuggestedImprovementBanner } from '@/components/intelligence/suggested-
 import { normalizeShareValue } from '@/components/share-control'
 import { cn } from '@/lib/utils'
 import { connectedSlugSet, missingIntegrations } from '@/lib/templates/relevance'
+import {
+  cadenceOf,
+  cronToTime,
+  daysFromCron,
+  dowCron,
+  normalizeSchedule,
+  type Cadence,
+} from '@/lib/agents/schedule-form'
 
 /**
  * The agent configuration form, shared by the config dialog and the dashboard's
@@ -194,78 +202,13 @@ function ModelOption({ provider, label }: { provider: 'anthropic' | 'qwen'; labe
 // ── Schedule cadence (visual UI concept mapped onto the backend schedule) ────
 // Backend supports type manual|hourly|daily|weekly|cron|once (see due.ts). The
 // UI offers only friendly visual cadences and never exposes raw cron.
-type Cadence = 'hourly' | 'daily' | 'weekly' | 'daysofweek' | 'once' | 'custom'
 
 const DAY_LABELS = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'] as const
-
-function cadenceOf(schedule: AgentDraft['schedule']): Cadence {
-  if (schedule.type === 'once') return 'once'
-  if (schedule.type === 'hourly') return 'hourly'
-  if (schedule.type === 'daily') return 'daily'
-  if (schedule.type === 'weekly') return 'weekly'
-  if (schedule.type === 'cron') {
-    const fields = (schedule.cron || '').trim().split(/\s+/)
-    if (fields.length === 5 && /^\d+$/.test(fields[0]) && /^\d+$/.test(fields[1]) && fields[2] === '*' && fields[3] === '*' && /^(?:[0-6](?:,[0-6])*)$/.test(fields[4])) return 'daysofweek'
-    return 'custom'
-  }
-  return 'daily'
-}
-
-/** HH:MM + selected weekdays → a `mm hh * * d,d` cron. */
-function dowCron(time: string, days: number[]): string {
-  const [hh, mm] = (time || '09:00').split(':').map((n) => parseInt(n, 10))
-  const list = days.length ? [...days].sort((a, b) => a - b).join(',') : '1'
-  return `${Number.isNaN(mm) ? 0 : mm} ${Number.isNaN(hh) ? 9 : hh} * * ${list}`
-}
-
-/** Parse the selected weekdays out of a cron's 5th field, defaulting to
- *  weekdays when the field is absent or not a plain day list (e.g. a legacy
- *  arbitrary cron) so the "days of week" picker always has a sane selection. */
-function daysFromCron(cron: string | undefined): number[] {
-  const dow = (cron || '').trim().split(/\s+/)[4]
-  if (!dow) return [1, 2, 3, 4, 5]
-  const parsed = dow.split(',').map((n) => parseInt(n, 10)).filter((n) => n >= 0 && n <= 6)
-  return parsed.length ? parsed : [1, 2, 3, 4, 5]
-}
 
 /** Today as YYYY-MM-DD in local time — the earliest selectable one-time date. */
 function todayKey(): string {
   const d = new Date()
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
-}
-
-/** Pull HH:MM out of a cron's minute+hour fields for the time input. */
-function cronToTime(cron: string): string {
-  const [minF, hourF] = (cron || '').trim().split(/\s+/)
-  const mm = parseInt(minF, 10)
-  const hh = parseInt(hourF, 10)
-  if (Number.isNaN(mm) || Number.isNaN(hh)) return '09:00'
-  return `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}`
-}
-
-/**
- * Coerce a STORED schedule into the exact shape the pickers render. Rows
- * written by templates, drafts, or legacy clients carry looser values than
- * the draft union: an unknown `type` maps to cron when a cron string exists
- * (else manual), a cron schedule missing its HH:MM derives one from the cron
- * fields so the time input isn't blank, and timezone/isActive get safe
- * defaults instead of leaking undefined into controlled inputs.
- */
-function normalizeSchedule(schedule: AgentDraft['schedule']): AgentDraft['schedule'] {
-  const KNOWN_TYPES = new Set(['manual', 'hourly', 'daily', 'weekly', 'cron', 'once'])
-  const type = (KNOWN_TYPES.has(schedule.type)
-    ? schedule.type
-    : schedule.cron?.trim() ? 'cron' : 'manual') as AgentDraft['schedule']['type']
-  const time = schedule.time?.trim()
-    || (type === 'cron' && schedule.cron ? cronToTime(schedule.cron) : '')
-    || '09:00'
-  return {
-    ...schedule,
-    type,
-    time,
-    timezone: schedule.timezone?.trim() || 'UTC',
-    isActive: Boolean(schedule.isActive),
-  }
 }
 
 // Curated agent emojis — all ≤4 UTF-16 code units, so they fit the icon cap.
