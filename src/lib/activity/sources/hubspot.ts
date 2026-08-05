@@ -131,6 +131,62 @@ export function hubspotStageChangeActivities(item: HubspotDeal): NormalizedActiv
   return events
 }
 
+export type HubspotEngagement = {
+  id?: unknown
+  properties?: {
+    hs_timestamp?: unknown
+    hubspot_owner_id?: unknown
+    hs_task_status?: unknown
+    hs_task_type?: unknown
+    hs_email_subject?: unknown
+  }
+}
+
+const ENGAGEMENT_ACTIONS = {
+  email: { action: 'logged_email', entityType: 'email' },
+  call: { action: 'logged_call', entityType: 'call' },
+  task: { action: 'completed_task', entityType: 'task' },
+} as const
+
+/**
+ * Engagements are the recurring RevOps work deals alone miss. Task completion
+ * is a transition and carries previousState; emails and calls are point
+ * events. Subjects and bodies are never recorded — they carry customer PII and
+ * the baseline layer needs only counts and timing.
+ */
+export function hubspotEngagementActivity(
+  kind: 'email' | 'call' | 'task',
+  item: HubspotEngagement,
+): NormalizedActivity | null {
+  const id = typeof item.id === 'string' ? item.id : null
+  const raw = item.properties?.hs_timestamp
+  const occurredAt = typeof raw === 'string' ? new Date(raw) : null
+  if (!id || !occurredAt || Number.isNaN(occurredAt.getTime())) return null
+
+  const status = typeof item.properties?.hs_task_status === 'string' ? item.properties.hs_task_status : null
+  // Only completed tasks are observed work. An open task is work pending.
+  if (kind === 'task' && status !== 'COMPLETED') return null
+
+  const owner =
+    typeof item.properties?.hubspot_owner_id === 'string' && item.properties.hubspot_owner_id
+      ? item.properties.hubspot_owner_id
+      : 'unknown'
+  const taskType = typeof item.properties?.hs_task_type === 'string' ? item.properties.hs_task_type : null
+
+  return {
+    source: 'hubspot',
+    actorRef: owner,
+    action: ENGAGEMENT_ACTIONS[kind].action,
+    entityType: ENGAGEMENT_ACTIONS[kind].entityType,
+    entityRef: id,
+    entityName: null,
+    ...(kind === 'task' ? { previousState: { status: 'open' }, newState: { status } } : {}),
+    businessContext: taskType ? { taskType } : {},
+    occurredAt,
+    dedupeKey: `hubspot:${kind}:${id}`,
+  }
+}
+
 async function resolveConnection(ctx: SourceContext): Promise<{ connectionId: string; providerConfigKey: string } | null> {
   return prisma.nangoConnection.findFirst({
     where: { organizationId: ctx.organizationId, connectionId: ctx.connectionRef },
@@ -200,6 +256,38 @@ export async function listDealsWithHistory(
   const data = response.data as { results?: unknown[]; paging?: { next?: { after?: unknown } } }
   return {
     deals: Array.isArray(data.results) ? (data.results as HubspotDeal[]) : [],
+    after: typeof data.paging?.next?.after === 'string' ? data.paging.next.after : undefined,
+  }
+}
+
+/** Backfill walks deals, then each engagement object type in turn. The phase
+ *  travels in the cursor so a resumed run picks up where it stopped. */
+type HubspotCursor = { phase: 'deals' | 'email' | 'call' | 'task'; after?: string }
+
+const ENGAGEMENT_PHASES = ['email', 'call', 'task'] as const
+
+const ENGAGEMENT_PROPERTIES: Record<string, string> = {
+  email: 'hs_timestamp,hubspot_owner_id',
+  call: 'hs_timestamp,hubspot_owner_id',
+  task: 'hs_timestamp,hubspot_owner_id,hs_task_status,hs_task_type',
+}
+
+export async function listEngagements(
+  proxy: NangoProxy,
+  connection: { connectionId: string; providerConfigKey: string },
+  kind: 'email' | 'call' | 'task',
+  after?: string,
+): Promise<{ items: HubspotEngagement[]; after?: string }> {
+  const response = await proxy({
+    method: 'GET',
+    endpoint: `/crm/v3/objects/${kind}s`,
+    connectionId: connection.connectionId,
+    providerConfigKey: connection.providerConfigKey,
+    params: { limit: PAGE_SIZE, ...(after ? { after } : {}), properties: ENGAGEMENT_PROPERTIES[kind] },
+  })
+  const data = response.data as { results?: unknown[]; paging?: { next?: { after?: unknown } } }
+  return {
+    items: Array.isArray(data.results) ? (data.results as HubspotEngagement[]) : [],
     after: typeof data.paging?.next?.after === 'string' ? data.paging.next.after : undefined,
   }
 }

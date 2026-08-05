@@ -2,6 +2,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
   hubspotDealActivity,
+  hubspotEngagementActivity,
   hubspotStageChangeActivities,
   listDealsWithHistory,
 } from '../sources/hubspot'
@@ -138,6 +139,56 @@ test('listDealsWithHistory requests propertiesWithHistory and follows the cursor
   // backfill still uses cannot.
   assert.equal(seen[0].propertiesWithHistory, 'dealstage')
   assert.equal(seen[0].limit, 100)
+})
+
+test('logged emails and calls normalize as point events', () => {
+  const email = hubspotEngagementActivity('email', {
+    id: 'eng_1',
+    properties: { hs_timestamp: '2026-07-15T09:00:00Z', hubspot_owner_id: 'owner_7', hs_email_subject: 'Follow-up' },
+  })
+  assert.ok(email)
+  assert.equal(email.action, 'logged_email')
+  assert.equal(email.entityType, 'email')
+  assert.equal(email.actorRef, 'owner_7')
+  assert.equal(email.dedupeKey, 'hubspot:email:eng_1')
+  assert.equal(email.previousState, undefined)
+  // Subjects can carry customer PII; only the presence of one is recorded.
+  assert.equal(email.entityName, null)
+
+  const call = hubspotEngagementActivity('call', {
+    id: 'eng_2',
+    properties: { hs_timestamp: '2026-07-15T10:00:00Z', hubspot_owner_id: 'owner_7' },
+  })
+  assert.equal(call?.action, 'logged_call')
+  assert.equal(call?.dedupeKey, 'hubspot:call:eng_2')
+})
+
+test('completed tasks carry a status transition; open tasks are dropped', () => {
+  const done = hubspotEngagementActivity('task', {
+    id: 'task_9',
+    properties: {
+      hs_timestamp: '2026-07-16T08:00:00Z',
+      hubspot_owner_id: 'owner_7',
+      hs_task_status: 'COMPLETED',
+      hs_task_type: 'TODO',
+    },
+  })
+  assert.ok(done)
+  assert.equal(done.action, 'completed_task')
+  assert.deepEqual(done.previousState, { status: 'open' })
+  assert.deepEqual(done.newState, { status: 'COMPLETED' })
+  assert.deepEqual(done.businessContext, { taskType: 'TODO' })
+
+  // An open task is not work observed — it is work pending.
+  assert.equal(
+    hubspotEngagementActivity('task', {
+      id: 'task_10',
+      properties: { hs_timestamp: '2026-07-16T08:00:00Z', hubspot_owner_id: 'owner_7', hs_task_status: 'NOT_STARTED' },
+    }),
+    null,
+  )
+  // No timestamp is unusable.
+  assert.equal(hubspotEngagementActivity('email', { id: 'eng_3', properties: {} }), null)
 })
 
 test('sweep covers exactly the incremental sources with no live event path', () => {
