@@ -24,6 +24,8 @@ const PAGE_SIZE = 100
 const CALL_TIMEOUT_MS = 30_000
 const SYNC_MAX_PAGES = 2
 
+type HubspotHistoryEntry = { value?: unknown; timestamp?: unknown }
+
 type HubspotDeal = {
   id?: unknown
   properties?: {
@@ -32,6 +34,9 @@ type HubspotDeal = {
     createdate?: unknown
     hubspot_owner_id?: unknown
     amount?: unknown
+  }
+  propertiesWithHistory?: {
+    dealstage?: HubspotHistoryEntry[]
   }
 }
 
@@ -69,6 +74,61 @@ export function hubspotDealActivity(item: HubspotDeal): NormalizedActivity | nul
     occurredAt: created,
     dedupeKey: `hubspot:deal:${id}`,
   }
+}
+
+/** HubSpot history timestamps are epoch-ms strings. Null on anything else. */
+function historyTimestamp(raw: unknown): Date | null {
+  const ms = typeof raw === 'string' ? Number(raw) : typeof raw === 'number' ? raw : NaN
+  if (!Number.isFinite(ms)) return null
+  const date = new Date(ms)
+  return Number.isNaN(date.getTime()) ? null : date
+}
+
+/**
+ * One event per stage transition. HubSpot returns history newest-first, so
+ * entry i is the state entered and entry i+1 the state it replaced. The
+ * oldest entry has no predecessor — it is the initial stage, not a
+ * transition, and is dropped.
+ *
+ * This is the only HubSpot signal that carries previousState, which is what
+ * makes deal cycle time measurable at all. Inert when the caller fetched
+ * through an endpoint that omits property history: no history, no events.
+ */
+export function hubspotStageChangeActivities(item: HubspotDeal): NormalizedActivity[] {
+  const id = typeof item.id === 'string' ? item.id : null
+  const history = item.propertiesWithHistory?.dealstage
+  if (!id || !Array.isArray(history) || history.length < 2) return []
+
+  const owner =
+    typeof item.properties?.hubspot_owner_id === 'string' && item.properties.hubspot_owner_id
+      ? item.properties.hubspot_owner_id
+      : 'unknown'
+  const dealName = typeof item.properties?.dealname === 'string' ? item.properties.dealname.slice(0, 200) : null
+
+  const events: NormalizedActivity[] = []
+  for (let index = 0; index < history.length - 1; index += 1) {
+    const entered = history[index]
+    const replaced = history[index + 1]
+    const occurredAt = historyTimestamp(entered?.timestamp)
+    const toStage = typeof entered?.value === 'string' ? entered.value : null
+    const fromStage = typeof replaced?.value === 'string' ? replaced.value : null
+    if (!occurredAt || !toStage || !fromStage) continue
+
+    events.push({
+      source: 'hubspot',
+      actorRef: owner,
+      action: 'deal_stage_changed',
+      entityType: 'deal',
+      entityRef: id,
+      entityName: dealName,
+      previousState: { stage: fromStage },
+      newState: { stage: toStage },
+      businessContext: { stage: toStage },
+      occurredAt,
+      dedupeKey: `hubspot:deal:${id}:stage:${occurredAt.getTime()}`,
+    })
+  }
+  return events
 }
 
 async function resolveConnection(ctx: SourceContext): Promise<{ connectionId: string; providerConfigKey: string } | null> {
