@@ -4,6 +4,7 @@ import { Worker, type Processor } from 'bullmq'
 import { executeAgentJob } from '@/features/agents/execute-agent'
 import { executeFlowJob } from '@/features/flows/execute-flow'
 import { getRedisConnection, QUEUE_NAMES, queueConcurrency, workerConfig } from '@/lib/queue/config'
+import { writeWorkerHeartbeat, WORKER_HEARTBEAT_INTERVAL_MS } from '@/lib/queue/worker-heartbeat'
 import { deadLetterFromJob } from '@/lib/queue/dead-letter'
 import { deadLetterFromFlowJob } from '@/lib/queue/flow-dead-letter'
 import { registerAgentSchedules } from '@/lib/workers/agent-schedule-registrar'
@@ -13,6 +14,7 @@ import { executeActivityBackfillJob } from '@/lib/activity/backfill'
 class WorkerRuntime {
   private server = Fastify({ logger: true })
   private scheduleTimer?: NodeJS.Timeout
+  private heartbeatTimer?: NodeJS.Timeout
   // handler is typed as the generic BullMQ Processor so this array (mixing
   // the agent- and flow-job handler signatures) unifies to one element type —
   // each queue is still wired to its own correctly-typed handler at runtime.
@@ -79,6 +81,9 @@ class WorkerRuntime {
       if (this.shuttingDown) return
       this.shuttingDown = true
       if (this.scheduleTimer) clearInterval(this.scheduleTimer)
+      // Stop beating immediately: the key's TTL then expires it within
+      // WORKER_HEARTBEAT_TTL_S, flipping producers to fail-fast dispatch.
+      if (this.heartbeatTimer) clearInterval(this.heartbeatTimer)
       // Stop taking new jobs immediately; in-flight jobs keep running.
       await Promise.allSettled(this.workers.map((worker) => worker.pause(true)))
       await this.server.close()
@@ -123,6 +128,17 @@ class WorkerRuntime {
     this.scheduleTimer = setInterval(() => {
       registerAgentSchedules().catch((error) => this.server.log.error(error, 'Schedule reconciliation failed'))
     }, 60_000)
+    // Liveness beat on the SAME Redis the workers consume: producers gate flow
+    // dispatch on this key, so a run is failed fast instead of stranded when
+    // no worker is draining the queue (or the worker is on a different Redis).
+    // Only beat while every worker is actually running — a beat from a process
+    // whose consumers died would defeat the gate's purpose.
+    const beat = () => {
+      if (!this.workers.every((worker) => worker.isRunning())) return
+      writeWorkerHeartbeat(getRedisConnection()).catch((error) => this.server.log.error(error, 'Worker heartbeat write failed'))
+    }
+    beat()
+    this.heartbeatTimer = setInterval(beat, WORKER_HEARTBEAT_INTERVAL_MS)
     await this.server.listen({ port, host: '0.0.0.0' })
   }
 }

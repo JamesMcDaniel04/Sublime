@@ -21,7 +21,7 @@ import { dispatchFlowExecution } from '@/features/flows/execute-flow'
 import { parseFlowInput } from '@/lib/flows/input'
 import { isDue, type AgentSchedule } from '@/lib/scheduling/due'
 import { getQueue, QUEUE_NAMES, workersEnabled } from '@/lib/queue/config'
-import { EXECUTION_MODE } from '@/lib/queue/execution-mode'
+import { EXECUTION_MODE, inlineExecution } from '@/lib/queue/execution-mode'
 import { AGENT_PENDING_TIMEOUT_MS, AGENT_STUCK_TIMEOUT_MS } from '@/lib/agents/timeouts'
 import { reapStuckFlowRuns, reapOrphanedWaits } from '@/lib/flows/reap'
 import { blocksSchedule } from '@/lib/flows/schedule-blocking'
@@ -166,6 +166,19 @@ export async function GET(request: Request) {
     try {
       await reapStuckFlowRuns()
       await reapOrphanedWaits()
+      // Fast path for a dead execution backend: zero-step runs will never
+      // start while no worker heartbeat is live, so fail them at 5 minutes
+      // instead of stranding "Thinking…" until the 30-minute reaper. Gated on
+      // queue mode + dead heartbeat — under a healthy backlog a zero-step run
+      // is legitimately waiting its turn.
+      if (!inlineExecution) {
+        const { checkFlowWorkerLiveness } = await import('@/lib/queue/worker-heartbeat')
+        if (!(await checkFlowWorkerLiveness()).alive) {
+          const { reapNeverStartedFlowRuns } = await import('@/lib/flows/reap')
+          const reaped = await reapNeverStartedFlowRuns()
+          if (reaped > 0) apiLogger.error('cron/dispatch: worker offline — failed never-started flow runs', { reaped })
+        }
+      }
     } catch (error) {
       apiLogger.error('cron/dispatch: flow reaper failed', { error: capError(error) })
       captureError(error, { source: 'cron.dispatch.flowReaper' })

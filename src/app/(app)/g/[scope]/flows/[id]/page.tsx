@@ -23,6 +23,7 @@ import { defaultStepLabel, stepLabelsOf } from '@/lib/flows/token-text'
 import { missingRequiredInputFields } from '@/lib/flows/input-validation'
 import { storedRunInput, prefillTextFromRunInput } from '@/lib/flows/reuse-input'
 import { FlowCanvas, type FlowInsertSeed } from '@/components/flows/flow-canvas'
+import { QueueHealthBanner } from '@/components/flows/queue-health-banner'
 import dynamic from 'next/dynamic'
 
 // The canvas pulls in @xyflow/react + dagre (~200 kB) — by far the heaviest
@@ -1825,6 +1826,7 @@ function FlowBuilder() {
 
       {/* Body: canvas + optional drawer + optional copilot */}
       <div className="relative flex min-h-0 flex-1">
+        <QueueHealthBanner />
         {/* Jam presence + huddle float over the canvas (both modes share this
             one overlay because the wrapper is position:relative). The wrapper
             is pointer-transparent so it never blocks canvas interactions. */}

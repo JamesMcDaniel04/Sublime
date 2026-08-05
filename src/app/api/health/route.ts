@@ -2,7 +2,8 @@ import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { cachePing } from '@/lib/cache'
 import { neo4jPing } from '@/lib/rag/neo4j-store'
-import { getQueue, QUEUE_NAMES, workersEnabled } from '@/lib/queue/config'
+import { getQueue, getProducerConnection, QUEUE_NAMES, workersEnabled } from '@/lib/queue/config'
+import { checkWorkerLiveness } from '@/lib/queue/worker-heartbeat'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -71,6 +72,8 @@ async function queuePing(): Promise<{
   waiting?: number
   failed?: number
   deadLetters?: number
+  workerAlive?: boolean
+  workerHeartbeatAgeMs?: number | null
 }> {
   if (!workersEnabled || !process.env.REDIS_URL) return { ok: false, configured: false }
   try {
@@ -82,10 +85,13 @@ async function queuePing(): Promise<{
       QUEUE_NAMES.FLOW_EXECUTION,
       QUEUE_NAMES.ACTIVITY_BACKFILL,
     ]
-    const [counts, agentDlq, flowDlq] = await Promise.all([
+    const [counts, agentDlq, flowDlq, liveness] = await Promise.all([
       Promise.all(liveQueues.map((name) => getQueue(name).getJobCounts('waiting', 'failed'))),
       getQueue(QUEUE_NAMES.DEAD_LETTER).getJobCounts('wait'),
       getQueue(QUEUE_NAMES.FLOW_DEAD_LETTER).getJobCounts('wait'),
+      // A reachable queue with NO consumer is the outage that strands runs —
+      // surface it so uptime monitors (and the builder banner) can alert.
+      checkWorkerLiveness(getProducerConnection()),
     ])
     return {
       ok: true,
@@ -93,6 +99,8 @@ async function queuePing(): Promise<{
       waiting: counts.reduce((sum, c) => sum + (c.waiting ?? 0), 0),
       failed: counts.reduce((sum, c) => sum + (c.failed ?? 0), 0),
       deadLetters: (agentDlq.wait ?? 0) + (flowDlq.wait ?? 0),
+      workerAlive: liveness.alive,
+      workerHeartbeatAgeMs: liveness.ageMs,
     }
   } catch {
     return { ok: false, configured: true }
