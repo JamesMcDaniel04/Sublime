@@ -1,6 +1,11 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { hubspotDealActivity, hubspotStageChangeActivities } from '../sources/hubspot'
+import {
+  hubspotDealActivity,
+  hubspotStageChangeActivities,
+  listDealsWithHistory,
+} from '../sources/hubspot'
+import type { NormalizedActivity } from '../types'
 import { sweepSources } from '../incremental-sync'
 
 const deal = {
@@ -94,6 +99,45 @@ test('stage history edge cases: single entry, absent history, bad timestamps', (
   })
   assert.equal(partial.length, 1)
   assert.deepEqual(partial[0].newState, { stage: 'contractsent' })
+})
+
+test('one deal page maps to creation plus stage-change events', () => {
+  // The adapter resolves its Nango connection from the DB, so this drives the
+  // page-to-events mapping the generator performs, not the generator itself.
+  const events = [hubspotDealActivity(dealWithHistory), ...hubspotStageChangeActivities(dealWithHistory)].filter(
+    (event): event is NormalizedActivity => event !== null,
+  )
+
+  assert.equal(events.length, 3)
+  assert.deepEqual(events.map((event) => event.action).sort(), [
+    'created_deal',
+    'deal_stage_changed',
+    'deal_stage_changed',
+  ])
+  // Every non-creation event carries a previousState — the Phase 1 criterion.
+  for (const event of events) {
+    if (event.action !== 'created_deal') assert.ok(event.previousState)
+  }
+})
+
+test('listDealsWithHistory requests propertiesWithHistory and follows the cursor', async () => {
+  const seen: Record<string, unknown>[] = []
+  const proxy = async (args: { params?: Record<string, unknown> }) => {
+    seen.push(args.params ?? {})
+    return { data: { results: [dealWithHistory], paging: { next: { after: 'cursor_2' } } } }
+  }
+
+  const page = await listDealsWithHistory(
+    proxy as never,
+    { connectionId: 'c1', providerConfigKey: 'hubspot' },
+    undefined,
+  )
+  assert.equal(page.after, 'cursor_2')
+  assert.equal(page.deals.length, 1)
+  // Only this endpoint returns property history; the search endpoint the live
+  // backfill still uses cannot.
+  assert.equal(seen[0].propertiesWithHistory, 'dealstage')
+  assert.equal(seen[0].limit, 100)
 })
 
 test('sweep covers exactly the incremental sources with no live event path', () => {

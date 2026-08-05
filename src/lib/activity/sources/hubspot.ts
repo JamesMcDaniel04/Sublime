@@ -168,6 +168,42 @@ async function searchDeals(
   }
 }
 
+/**
+ * Deal fetch through the list endpoint — the only one that returns
+ * `propertiesWithHistory`, and therefore the only source of stage
+ * transitions. NOT yet used by the live backfill: the response shape is
+ * unverified against a real portal (no HubSpot connection exists on the
+ * configured Nango account), and this endpoint also loses the server-side
+ * `createdate` filter that `searchDeals` gets, so swapping it in unverified
+ * would trade a working fetch for a slower one with no confirmed gain.
+ *
+ * See the Verification section of
+ * docs/superpowers/specs/2026-08-03-day-one-roi-design.md for the swap.
+ */
+export async function listDealsWithHistory(
+  proxy: NangoProxy,
+  connection: { connectionId: string; providerConfigKey: string },
+  after?: string,
+): Promise<SearchPage> {
+  const response = await proxy({
+    method: 'GET',
+    endpoint: '/crm/v3/objects/deals',
+    connectionId: connection.connectionId,
+    providerConfigKey: connection.providerConfigKey,
+    params: {
+      limit: PAGE_SIZE,
+      ...(after ? { after } : {}),
+      properties: 'dealname,dealstage,createdate,hubspot_owner_id',
+      propertiesWithHistory: 'dealstage',
+    },
+  })
+  const data = response.data as { results?: unknown[]; paging?: { next?: { after?: unknown } } }
+  return {
+    deals: Array.isArray(data.results) ? (data.results as HubspotDeal[]) : [],
+    after: typeof data.paging?.next?.after === 'string' ? data.paging.next.after : undefined,
+  }
+}
+
 export function makeHubspotActivitySource(proxyOverride?: NangoProxy): ActivitySource {
   return {
     source: 'hubspot',
@@ -189,8 +225,12 @@ export function makeHubspotActivitySource(proxyOverride?: NangoProxy): ActivityS
           yield { events: [], ...(after ? { nextCursor: after } : {}) }
           return
         }
+        // Stage changes are mapped here too so the pending switch from
+        // `searchDeals` to `listDealsWithHistory` is a one-line change. Search
+        // results carry no property history, so this contributes nothing until
+        // that switch happens.
         const events = page.deals
-          .map((deal) => hubspotDealActivity(deal))
+          .flatMap((deal) => [hubspotDealActivity(deal), ...hubspotStageChangeActivities(deal)])
           .filter((event): event is NormalizedActivity => event !== null)
         after = page.after
         yield { events, ...(after ? { nextCursor: after } : {}) }
