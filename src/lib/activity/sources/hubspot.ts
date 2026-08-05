@@ -272,6 +272,26 @@ const ENGAGEMENT_PROPERTIES: Record<string, string> = {
   task: 'hs_timestamp,hubspot_owner_id,hs_task_status,hs_task_type',
 }
 
+/**
+ * Cursor format changed from a bare `after` string to a phased JSON object.
+ * A backfill checkpointed under the old format is still in flight when this
+ * ships, so a non-JSON cursor is read as a deals-phase offset rather than
+ * crashing the resumed run.
+ */
+export function parseHubspotCursor(cursor?: string): HubspotCursor {
+  if (!cursor) return { phase: 'deals' }
+  try {
+    const parsed = JSON.parse(cursor) as Partial<HubspotCursor>
+    const phase = parsed?.phase
+    if (phase === 'deals' || phase === 'email' || phase === 'call' || phase === 'task') {
+      return { phase, ...(typeof parsed.after === 'string' ? { after: parsed.after } : {}) }
+    }
+    return { phase: 'deals' }
+  } catch {
+    return { phase: 'deals', after: cursor }
+  }
+}
+
 export async function listEngagements(
   proxy: NangoProxy,
   connection: { connectionId: string; providerConfigKey: string },
@@ -301,28 +321,58 @@ export function makeHubspotActivitySource(proxyOverride?: NangoProxy): ActivityS
       if (!connection) return
       const proxy = proxyOverride ?? defaultProxy()
       const since = windowStart(window, new Date())
-      let after = cursor
-      do {
-        let page: SearchPage
+      let state = parseHubspotCursor(cursor)
+
+      while (true) {
+        let events: NormalizedActivity[] = []
+        let nextAfter: string | undefined
         try {
-          page = await searchDeals(proxy, connection, since, after)
+          if (state.phase === 'deals') {
+            const page = await searchDeals(proxy, connection, since, state.after)
+            // Stage changes are mapped here too so the pending switch from
+            // `searchDeals` to `listDealsWithHistory` is a one-line change.
+            // Search results carry no property history, so this contributes
+            // nothing until that switch happens.
+            events = page.deals
+              .flatMap((deal) => [hubspotDealActivity(deal), ...hubspotStageChangeActivities(deal)])
+              .filter((event): event is NormalizedActivity => event !== null)
+            nextAfter = page.after
+          } else {
+            const page = await listEngagements(proxy, connection, state.phase, state.after)
+            events = page.items
+              .map((item) => hubspotEngagementActivity(state.phase as 'email' | 'call' | 'task', item))
+              .filter((event): event is NormalizedActivity => event !== null)
+            nextAfter = page.after
+          }
         } catch (error) {
           apiLogger.warn('hubspot backfill: page fetch failed, stopping run', {
+            phase: state.phase,
             error: error instanceof Error ? error.message : String(error),
           })
-          yield { events: [], ...(after ? { nextCursor: after } : {}) }
+          yield { events: [], nextCursor: JSON.stringify(state) }
           return
         }
-        // Stage changes are mapped here too so the pending switch from
-        // `searchDeals` to `listDealsWithHistory` is a one-line change. Search
-        // results carry no property history, so this contributes nothing until
-        // that switch happens.
-        const events = page.deals
-          .flatMap((deal) => [hubspotDealActivity(deal), ...hubspotStageChangeActivities(deal)])
-          .filter((event): event is NormalizedActivity => event !== null)
-        after = page.after
-        yield { events, ...(after ? { nextCursor: after } : {}) }
-      } while (after)
+
+        // The engagement endpoints have no server-side date filter, so the
+        // window is enforced here. Deals are already filtered server-side;
+        // re-checking them is harmless.
+        const inWindow = events.filter((event) => !since || event.occurredAt >= since)
+
+        if (nextAfter) {
+          state = { phase: state.phase, after: nextAfter }
+          yield { events: inWindow, nextCursor: JSON.stringify(state) }
+          continue
+        }
+
+        const phaseIndex = state.phase === 'deals' ? -1 : ENGAGEMENT_PHASES.indexOf(state.phase)
+        const nextPhase = ENGAGEMENT_PHASES[phaseIndex + 1]
+        if (!nextPhase) {
+          yield { events: inWindow }
+          return
+        }
+        state = { phase: nextPhase }
+        yield { events: inWindow, nextCursor: JSON.stringify(state) }
+      }
     },
     async handleEvent() {
       return []

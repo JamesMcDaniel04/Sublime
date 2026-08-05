@@ -5,6 +5,7 @@ import {
   hubspotEngagementActivity,
   hubspotStageChangeActivities,
   listDealsWithHistory,
+  parseHubspotCursor,
 } from '../sources/hubspot'
 import type { NormalizedActivity } from '../types'
 import { sweepSources } from '../incremental-sync'
@@ -189,6 +190,17 @@ test('completed tasks carry a status transition; open tasks are dropped', () => 
   )
   // No timestamp is unusable.
   assert.equal(hubspotEngagementActivity('email', { id: 'eng_3', properties: {} }), null)
+})
+
+test('cursor parsing survives the old bare-string format', () => {
+  assert.deepEqual(parseHubspotCursor(undefined), { phase: 'deals' })
+  assert.deepEqual(parseHubspotCursor('{"phase":"task","after":"abc"}'), { phase: 'task', after: 'abc' })
+  // A backfill checkpointed before the phased cursor shipped resumes as a
+  // deals offset instead of crashing the run.
+  assert.deepEqual(parseHubspotCursor('raw_hubspot_offset'), { phase: 'deals', after: 'raw_hubspot_offset' })
+  // Valid JSON with a bogus phase falls back to the start rather than
+  // indexing ENGAGEMENT_PHASES with -1 forever.
+  assert.deepEqual(parseHubspotCursor('{"phase":"nonsense"}'), { phase: 'deals' })
 })
 
 test('sweep covers exactly the incremental sources with no live event path', () => {
