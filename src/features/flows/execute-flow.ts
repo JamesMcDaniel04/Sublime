@@ -1,6 +1,7 @@
 import type { Job } from 'bullmq'
 import { prisma } from '@/lib/prisma'
 import { getQueue, QUEUE_NAMES, workersEnabled } from '@/lib/queue/config'
+import { checkFlowWorkerLiveness } from '@/lib/queue/worker-heartbeat'
 import { broadcastRunEvent } from '@/lib/realtime/run-events'
 import { inlineExecution } from '@/lib/queue/execution-mode'
 import { flowJobOptions } from '@/lib/flows/queue-options'
@@ -1230,11 +1231,44 @@ export async function dispatchFlowExecution(
   }
   if (!workersEnabled) throw new Error('Flow worker is disabled')
 
+  // Liveness gate: enqueueing succeeds even when nothing consumes the queue
+  // (worker never deployed, worker on a different Redis), which used to strand
+  // fresh runs at `running` — "Thinking…" forever in the builder — until the
+  // 30-minute reaper. A missing/stale heartbeat fails fast and loud instead.
+  const liveness = await checkFlowWorkerLiveness()
+
   const resuming = Boolean(job.flowRunId && (job.reply !== undefined || job.resumeReason === 'time'))
   if (resuming) {
+    if (!liveness.alive) {
+      // The run stays `waiting` — the reply can be retried once a worker is back.
+      const error = new Error(
+        'Flow execution backend is offline (no worker heartbeat) — try again once it reconnects.',
+      ) as Error & { code: string }
+      error.code = 'FLOW_WORKER_OFFLINE'
+      throw error
+    }
     const queue = getQueue(QUEUE_NAMES.FLOW_EXECUTION)
     await queue.add('execute-flow', job, flowJobOptions(job.flowRunId))
     return { queued: true, flowRunId: job.flowRunId! }
+  }
+
+  if (!liveness.alive) {
+    // Record the attempt as an immediately-failed run (visible in the run
+    // panel with a real reason) rather than 500ing with no trace.
+    const message = 'Flow execution backend is offline (no worker heartbeat). The run was not started.'
+    const failed = await prisma.flowRun.create({
+      data: {
+        flowId: job.flowId,
+        status: 'failed',
+        error: message,
+        finishedAt: new Date(),
+        input: jsonValue({ prompt: job.input ?? '' }),
+        trigger: jsonValue(job.trigger ?? { type: 'manual' }),
+        organizationId: job.organizationId,
+        userId: job.userId,
+      },
+    })
+    return { flowRunId: failed.id, status: 'failed', output: null, error: message }
   }
 
   const preCreated = await prisma.flowRun.create({
