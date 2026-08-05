@@ -58,6 +58,40 @@ export function githubIssueActivity(repo: string, item: Record<string, unknown>)
   }
 }
 
+/**
+ * The close/merge half of a PR's life. `opened_pr` gives volume; this gives
+ * duration — pairing the two on entityRef is what makes review latency a
+ * measurable cycle time. Issues are excluded: they close for reasons that are
+ * not completion, so a close is not evidence the work finished.
+ */
+export function githubPullLifecycleActivity(repo: string, item: Record<string, unknown>): NormalizedActivity | null {
+  if (!item.pull_request) return null
+  const number = typeof item.number === 'number' ? item.number : null
+  const actor = (item.user as { login?: unknown } | undefined)?.login
+  if (number === null || typeof actor !== 'string') return null
+
+  const mergedAt = typeof item.merged_at === 'string' ? new Date(item.merged_at) : null
+  const closedAt = typeof item.closed_at === 'string' ? new Date(item.closed_at) : null
+  const merged = mergedAt !== null && !Number.isNaN(mergedAt.getTime())
+  const occurredAt = merged ? mergedAt : closedAt
+  if (!occurredAt || Number.isNaN(occurredAt.getTime())) return null
+
+  return {
+    source: 'github',
+    actorRef: actor,
+    action: merged ? 'merged_pr' : 'closed_pr',
+    entityType: 'pull_request',
+    entityRef: `${repo}#${number}`,
+    entityName: typeof item.title === 'string' ? item.title.slice(0, 200) : null,
+    previousState: { state: 'open' },
+    newState: { state: merged ? 'merged' : 'closed' },
+    businessContext: { repo },
+    outcome: merged ? 'merged' : 'closed',
+    occurredAt,
+    dedupeKey: `github:${repo}:pr:${number}:${merged ? 'merged' : 'closed'}`,
+  }
+}
+
 export function githubCommitActivity(repo: string, item: Record<string, unknown>): NormalizedActivity | null {
   const sha = typeof item.sha === 'string' ? item.sha : null
   const commit = item.commit as { author?: { name?: unknown; date?: unknown }; message?: unknown } | undefined
@@ -124,7 +158,11 @@ export function makeGithubActivitySource(proxyOverride?: NangoProxy): ActivitySo
           const items = Array.isArray(response.data) ? (response.data as Record<string, unknown>[]) : []
           rawCount = items.length
           events = items
-            .map((item) => (state.phase === 'issues' ? githubIssueActivity(repo, item) : githubCommitActivity(repo, item)))
+            .flatMap((item) =>
+              state.phase === 'issues'
+                ? [githubIssueActivity(repo, item), githubPullLifecycleActivity(repo, item)]
+                : [githubCommitActivity(repo, item)],
+            )
             .filter((event): event is NormalizedActivity => event !== null)
         } catch (error) {
           // Per-repo tolerance: an empty repo 409s on /commits, a lost-access
