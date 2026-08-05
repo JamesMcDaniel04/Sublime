@@ -1,0 +1,139 @@
+/**
+ * DB-backed coverage for POST /api/flows/import: the three accepted formats,
+ * secret stripping, agent materialization + ref remapping, and the rejection
+ * matrix (bad JSON, unknown shape, agent export, SSRF-blocked URL).
+ *
+ * Follows the template-flow-e2e pattern: everything sits inside the
+ * TEST_DATABASE_URL gate so the plain unit pass skips it silently.
+ */
+import { test, after } from 'node:test'
+import assert from 'node:assert/strict'
+import { NextRequest } from 'next/server'
+
+const TEST_DB = process.env.TEST_DATABASE_URL
+if (TEST_DB) {
+  process.env.DATABASE_URL = TEST_DB
+  process.env.DIRECT_URL = TEST_DB
+
+  const post = (body: unknown) =>
+    new NextRequest(new URL('http://test/api/flows/import'), {
+      method: 'POST', body: JSON.stringify(body), headers: { 'content-type': 'application/json' },
+    } as never)
+
+  test('flow import route', async (t) => {
+    const { prisma } = await import('@/lib/prisma')
+    const { seedTestOrg, installTestAuth, clearTestAuth } = await import('@/lib/server/__tests__/test-auth')
+    const { POST } = await import('../import/route')
+
+    const seeded = await seedTestOrg(prisma)
+    installTestAuth(seeded.auth)
+    after(async () => {
+      clearTestAuth()
+      await seeded.cleanup()
+      await prisma.$disconnect()
+    })
+
+    await t.test('imports a portable doc: agent materialized, refs remapped, secrets dropped', async () => {
+      const response = await POST(post({
+        document: JSON.stringify({
+          format: 'sublime.flow', version: 1, exportedAt: 'x',
+          credentials: { triggerSecret: 'FOREIGN-SECRET' },
+          flow: {
+            name: 'Imported recap', description: 'from another org',
+            trigger: { type: 'webhook', webhookSecretHash: 'h', webhookSecretEnc: 'enc' },
+            graph: {
+              nodes: [
+                { id: 'trigger', type: 'trigger', data: { trigger: { type: 'webhook', webhookSecretHash: 'h' } } },
+                { id: 'write', type: 'agent', data: { agentId: 'ref-1', input: 'go' } },
+              ],
+              edges: [{ id: 'e1', source: 'trigger', target: 'write' }],
+            },
+          },
+          agents: [{ ref: 'ref-1', title: 'Recapper', instructions: 'Write it', integrations: ['slack'] }],
+          requirements: ['Reconnect slack.'],
+        }),
+      }))
+      assert.equal(response.status, 200)
+      const body = await response.json()
+      assert.equal(body.success, true)
+      assert.equal(body.flow.status, 'draft')
+      assert.equal(body.flow.visibility, 'private')
+      assert.equal(body.report.source, 'sublime-portable')
+      assert.equal(body.report.createdAgents.length, 1)
+
+      const row = await prisma.flow.findFirstOrThrow({ where: { id: body.flow.id, organizationId: seeded.organizationId } })
+      assert.equal(JSON.stringify(row.trigger).includes('webhookSecretHash'), false)
+      assert.equal(JSON.stringify(row).includes('FOREIGN-SECRET'), false)
+      const graph = row.graph as { nodes: Array<{ type: string; data: Record<string, unknown> }> }
+      const agentStep = graph.nodes.find((node) => node.type === 'agent')
+      assert.equal(agentStep?.data.agentId, body.report.createdAgents[0].id)
+      const agentRow = await prisma.agentTask.findFirstOrThrow({ where: { id: body.report.createdAgents[0].id, organizationId: seeded.organizationId } })
+      assert.equal(agentRow.organizationId, seeded.organizationId)
+    })
+
+    await t.test('imports an n8n workflow and reports stubs', async () => {
+      const response = await POST(post({
+        document: JSON.stringify({
+          name: 'From n8n',
+          nodes: [
+            { parameters: {}, id: 'a', name: 'Manual', type: 'n8n-nodes-base.manualTrigger', typeVersion: 1, position: [0, 0] },
+            { parameters: { channel: '#x' }, id: 'b', name: 'Slack it', type: 'n8n-nodes-base.slack', typeVersion: 2, position: [200, 0] },
+          ],
+          connections: { Manual: { main: [[{ node: 'Slack it', type: 'main', index: 0 }]] } },
+        }),
+      }))
+      assert.equal(response.status, 200)
+      const body = await response.json()
+      assert.equal(body.report.source, 'n8n')
+      assert.equal(body.report.stubbedNodes.length, 1)
+    })
+
+    await t.test('imports the builder bare download shape', async () => {
+      const response = await POST(post({
+        document: JSON.stringify({
+          name: 'Plain download', description: '', version: 2, exportedAt: 'x',
+          graph: {
+            nodes: [
+              { id: 'trigger', type: 'trigger', data: { trigger: { type: 'manual' } } },
+              { id: 'wait', type: 'wait', data: { amount: 1, unit: 'minutes' } },
+            ],
+            edges: [{ id: 'e1', source: 'trigger', target: 'wait' }],
+          },
+        }),
+      }))
+      assert.equal(response.status, 200)
+      const body = await response.json()
+      assert.equal(body.report.source, 'sublime-download')
+      assert.equal(body.flow.stepCount, 1)
+    })
+
+    await t.test('400 on invalid JSON', async () => {
+      const response = await POST(post({ document: 'not json {' }))
+      assert.equal(response.status, 400)
+      assert.equal((await response.json()).code, 'INVALID_JSON')
+    })
+
+    await t.test('400 on unrecognized shape', async () => {
+      const response = await POST(post({ document: JSON.stringify({ hello: 'world' }) }))
+      assert.equal(response.status, 400)
+      assert.equal((await response.json()).code, 'UNRECOGNIZED_FORMAT')
+    })
+
+    await t.test('400 AGENT_EXPORT for a sublime.agent doc', async () => {
+      const response = await POST(post({ document: JSON.stringify({ format: 'sublime.agent', version: 1 }) }))
+      assert.equal(response.status, 400)
+      assert.equal((await response.json()).code, 'AGENT_EXPORT')
+    })
+
+    await t.test('URL mode rejects private addresses without fetching', async () => {
+      const response = await POST(post({ url: 'https://127.0.0.1/flow.json' }))
+      assert.equal(response.status, 400)
+      assert.equal((await response.json()).code, 'URL_NOT_ALLOWED')
+    })
+
+    await t.test('rejects both document and url', async () => {
+      const response = await POST(post({ document: '{}', url: 'https://example.com/f.json' }))
+      assert.equal(response.status, 400)
+    })
+  })
+}

@@ -26,6 +26,7 @@ const contracts: Contract[] = [
   { name: 'agent skill delete', verb: 'DELETE', load: () => import('../agents/[id]/skills/route') },
   { name: 'agent draft', verb: 'POST', load: () => import('../agents/draft/route') },
   { name: 'flow delete', verb: 'DELETE', load: () => import('../flows/route') },
+  { name: 'flow import', verb: 'POST', load: () => import('../flows/import/route') },
   { name: 'flow comment patch', verb: 'PATCH', load: () => import('../flows/[id]/comments/route') },
   { name: 'flow comment delete', verb: 'DELETE', load: () => import('../flows/[id]/comments/route') },
   { name: 'dismiss suggestion', verb: 'POST', load: () => import('../flows/[id]/dismiss-suggestion/route') },
