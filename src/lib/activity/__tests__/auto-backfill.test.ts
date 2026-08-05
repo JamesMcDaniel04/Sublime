@@ -57,7 +57,7 @@ if (TEST_DB) {
     // startActivityBackfill resets cursor + eventsIngested. Without a guard a
     // routine settings save would restart a 90-day pull from zero.
     await prisma.activityBackfill.update({
-      where: { id: first[0].id },
+      where: { id: first[0].id, organizationId },
       data: { status: 'running', cursor: 'page-7', eventsIngested: 400 },
     })
     await triggerSlackBackfill(organizationId, 'slack-conn-1')
