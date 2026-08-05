@@ -25,6 +25,55 @@ export function autoBackfillSource(providerConfigKey: string): string | null {
   return getActivitySource(slug)?.capabilities.backfill ? slug : null
 }
 
+/** Slack rides the same window as the Nango sources — a divergence would show
+ *  up later as inconsistent windowDays across an org's process baselines. */
+export const SLACK_BACKFILL_WINDOW: BackfillWindow = AUTO_BACKFILL_WINDOW
+
+/**
+ * Slack's connect path is its own (a token save, not Nango status polling), so
+ * it gets a trigger keyed on the workspace connection id its adapter actually
+ * resolves.
+ *
+ * Guarded against re-entry: that route UPSERTS on every token save, and
+ * startActivityBackfill resets cursor and eventsIngested, so an unguarded call
+ * would restart a 90-day pull from zero every time someone re-saved their
+ * credentials. Only the first connect starts the backfill; a genuine re-pull
+ * is a deliberate action through the backfill panel.
+ *
+ * Never throws — a failed backfill start must not fail the connect.
+ */
+export async function triggerSlackBackfill(organizationId: string, workspaceConnectionId: string): Promise<void> {
+  const adapter = getActivitySource('slack')
+  if (!adapter?.capabilities.backfill) return
+  try {
+    const { prisma } = await import('@/lib/prisma')
+    const existing = await prisma.activityBackfill.findUnique({
+      where: {
+        organizationId_source_connectionRef: {
+          organizationId,
+          source: 'slack',
+          connectionRef: workspaceConnectionId,
+        },
+      },
+      select: { id: true },
+    })
+    if (existing) return
+
+    const { backfillId, mode } = await startActivityBackfill({
+      organizationId,
+      source: 'slack',
+      connectionRef: workspaceConnectionId,
+      window: SLACK_BACKFILL_WINDOW,
+    })
+    apiLogger.info('auto-backfill: slack started on connect', { organizationId, backfillId, mode })
+  } catch (error) {
+    apiLogger.warn('auto-backfill: slack start failed', {
+      organizationId,
+      error: error instanceof Error ? error.message : String(error),
+    })
+  }
+}
+
 export async function triggerAutoBackfills(
   organizationId: string,
   entries: { connectionId: string; providerConfigKey: string }[],

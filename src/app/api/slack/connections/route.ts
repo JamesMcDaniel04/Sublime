@@ -3,6 +3,7 @@ import { Prisma } from '@prisma/client'
 import { prisma } from '@/lib/prisma'
 import { ApiError, withAuthenticatedApi } from '@/lib/server/api-handler'
 import { encryptSecretJson, serializeSlackConnection, slackAuthTest } from '@/lib/slack/connections'
+import { triggerSlackBackfill } from '@/lib/activity/auto-backfill'
 
 const createSchema = z.object({
   botToken: z.string().min(1),
@@ -41,6 +42,10 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
     create: { organizationId: auth.organizationId, teamId: identity.teamId, ...secrets },
     update: secrets,
   })
+  // Fire-and-forget: the token save must not wait on a 90-day history pull.
+  // triggerSlackBackfill is itself a no-op when this connection already has a
+  // backfill row, so re-saving credentials does not restart one.
+  void triggerSlackBackfill(auth.organizationId, connection.id).catch(() => undefined)
   return { success: true, connection: serializeSlackConnection(connection) }
 }, { requires: 'settings:workspace' })
 
