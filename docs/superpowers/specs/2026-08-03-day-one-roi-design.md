@@ -263,6 +263,40 @@ must verify availability per event type before the baseline layer is designed
 around it; where transitions are unavailable, cycle-time fields stay null and
 volume-only baselines still work.
 
+## Verification: HubSpot property history (2026-08-03)
+
+**Status: UNVERIFIED — no portal available, not a negative result.**
+
+`scripts/spikes/hubspot-history-probe.mjs` ran against the configured Nango
+account. It holds two connections, `slack` and `asana`; no HubSpot connection
+exists, so `GET /crm/v3/objects/deals?propertiesWithHistory=dealstage` was
+never exercised against a real portal.
+
+This is distinct from the failure case the plan anticipated. "History came
+back empty" would mean skipping the stage-change work; "there was nothing to
+ask" means the question stands open.
+
+Consequences taken:
+
+- The stage-change normalizer (`hubspotStageChangeActivities`) is implemented
+  and unit-tested against fixtures. It is correct with respect to HubSpot's
+  documented newest-first history shape and is inert if history never arrives —
+  an absent `propertiesWithHistory` yields zero events.
+- `listDealsWithHistory` is implemented, exported, and tested, but the backfill
+  generator's deals phase **still calls `searchDeals`**. Switching the live
+  path is deferred until a portal confirms the response shape: the list
+  endpoint also loses server-side `createdate` filtering, so swapping it in
+  unverified would trade a working fetch for a slower one with no gain.
+- Until the swap, HubSpot baselines are volume-only in practice.
+  `medianCycleTimeHours` and `reworkRate` stay null for `deal_stage_changed`
+  because no such events are ingested.
+
+To close this out: connect a HubSpot portal, run
+`node scripts/spikes/hubspot-history-probe.mjs` to list connections, re-run it
+with the connection id, and if `historyEntries >= 2` appears, change the deals
+phase in `src/lib/activity/sources/hubspot.ts` from `searchDeals` to
+`listDealsWithHistory`.
+
 ## Open questions
 
 None blocking. Handling-time sourcing is decided (curated table default,
