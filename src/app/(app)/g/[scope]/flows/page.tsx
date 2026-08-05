@@ -5,7 +5,7 @@ import { useScopedRouter } from '@/lib/client/use-scoped-router'
 import { ALL_SCOPE, useScope } from '@/lib/client/scoped-href'
 import { ScopedLink as Link } from '@/components/ui/scoped-link'
 import { toast } from 'sonner'
-import { CircleOff, Copy, MoreHorizontal, Plus, Sparkles, Trash2, Workflow, X } from 'lucide-react'
+import { CircleOff, Copy, MoreHorizontal, Plus, Sparkles, Trash2, Upload, Workflow, X } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -19,6 +19,7 @@ import { cn } from '@/lib/utils'
 import { invalidateCachedJson, useCachedJson } from '@/lib/client/use-cached-json'
 import { STARTER_TEMPLATES } from '@/lib/flows/starter-templates'
 import { TemplateCatalogueCard } from '@/components/templates/template-catalogue-card'
+import { ImportFlowDialog } from '@/components/flows/import-flow-dialog'
 
 /** Cards per page on the Flows grid. */
 const PAGE_SIZE = 9
@@ -136,6 +137,7 @@ export default function FlowsPage() {
   const [duplicatingId, setDuplicatingId] = useState<string | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<FlowItem | null>(null)
   const [disableTarget, setDisableTarget] = useState<FlowItem | null>(null)
+  const [importOpen, setImportOpen] = useState(false)
 
   const suggestedFlows = useMemo(() => flows.filter((flow) => flow.suggested && flow.status === 'draft'), [flows])
   const otherFlows = useMemo(() => flows.filter((flow) => !(flow.suggested && flow.status === 'draft')), [flows])
@@ -269,9 +271,14 @@ export default function FlowsPage() {
     <div className="mx-auto max-w-6xl space-y-6">
       <div className="flex items-start justify-between gap-4">
         <PageHeader eyebrow="Pipelines" icon={Workflow} title="Flows" description="Wire your agents into deterministic multi-step pipelines." />
-        <Button onClick={createFlow} loading={creating}>
-          <Plus className="mr-1.5 h-4 w-4" /> New flow
-        </Button>
+        <div className="flex shrink-0 items-center gap-2">
+          <Button variant="outline" onClick={() => setImportOpen(true)}>
+            <Upload className="mr-1.5 h-4 w-4" /> Import
+          </Button>
+          <Button onClick={createFlow} loading={creating}>
+            <Plus className="mr-1.5 h-4 w-4" /> New flow
+          </Button>
+        </div>
       </div>
 
       {!loading && suggestedFlows.length > 0 && (
@@ -492,6 +499,16 @@ export default function FlowsPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <ImportFlowDialog
+        open={importOpen}
+        onOpenChange={setImportOpen}
+        onImported={(flowId) => {
+          setImportOpen(false)
+          void refresh()
+          router.push(`/flows/${flowId}`)
+        }}
+      />
     </div>
   )
 }
