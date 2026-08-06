@@ -86,12 +86,12 @@ export function notifyAgentsChanged() {
 const navigation = [
   { name: 'Home', href: '/dashboard', icon: Sparkles, description: 'Your assistant across the workspace' },
   { name: 'Goals', href: '/goals', icon: Target, description: 'The numbers your workspace is accountable to' },
-  { name: 'Agents', href: '/agents', icon: Bot, description: 'Specialized agents serving your goals' },
-  { name: 'Flows', href: '/flows', icon: Workflow, description: 'Orchestrate multi-step work' },
-  { name: 'Integrations', href: '/integrations', icon: Plug, description: 'Connect the tools you already use' },
   // Workspace-level, so it deliberately carries no /g/<scope> prefix —
   // scopedNavHref leaves an unscoped path alone (see SCOPED_PREFIXES).
   { name: 'Activity', href: '/activity', icon: History, description: 'Everything your connected tools did' },
+  { name: 'Agents', href: '/agents', icon: Bot, description: 'Specialized agents serving your goals' },
+  { name: 'Flows', href: '/flows', icon: Workflow, description: 'Orchestrate multi-step work' },
+  { name: 'Integrations', href: '/integrations', icon: Plug, description: 'Connect the tools you already use' },
 ]
 
 function planLabel(plan: string) {
