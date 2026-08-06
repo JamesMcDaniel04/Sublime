@@ -587,12 +587,18 @@ export async function GET(request: Request) {
       )
     }
 
-    // Activity freshness leg: once a day (06:00 UTC window), incremental-sync
-    // sources with no live event path (github, calendar, hubspot) so the
-    // ledger — and the usage-evidence gate, persona, and patterns downstream —
-    // keeps tracking reality after the one-shot connect backfill. Bounded and
-    // fire-and-forget: never extends or fails the tick.
-    if (now.getUTCHours() === 6 && now.getUTCMinutes() < 15) {
+    // Activity freshness leg: EVERY tick, incremental-sync sources with no
+    // live event path (github, calendar, hubspot, granola) so the ledger — and
+    // the usage-evidence gate, persona, and patterns downstream — keeps
+    // tracking reality after the one-shot connect backfill. This used to fire
+    // only in the 06:00 UTC window, which made all non-Slack integration data
+    // up to a day stale by design — and a whole day staler whenever that one
+    // tick was delayed past the window or died. Per-tick is safe: `since`
+    // derives from the ledger with a 1h overlap and dedupeKey dedupes it, so
+    // each tick fetches only the delta. Bounded and fire-and-forget: never
+    // extends or fails the tick. globalSweepsAllowed: cross-org enumeration,
+    // so it must stay inert against the shared test database.
+    if (globalSweepsAllowed()) {
       afterResponse(() =>
         import('@/lib/activity/incremental-sync').then(({ sweepIncrementalSync }) => sweepIncrementalSync()),
       )

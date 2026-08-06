@@ -1,8 +1,8 @@
 /**
- * Daily incremental-sync sweep — the freshness leg of the activity ledger.
- * Backfill learns history once at connect; this keeps the ledger (and
- * everything downstream: usage-evidence gate, persona weights, patterns)
- * tracking reality afterwards for sources with no live event path.
+ * Incremental-sync sweep — the freshness leg of the activity ledger, run on
+ * every dispatch tick. Backfill learns history once at connect; this keeps the
+ * ledger (and everything downstream: usage-evidence gate, persona weights,
+ * patterns) tracking reality afterwards for sources with no live event path.
  *
  * Slack is deliberately absent: its webhook leg already ingests live events,
  * and a sync would double-route them. Only sources whose adapter declares
@@ -11,7 +11,9 @@
  *
  * `since` derives from the ledger itself (latest event per org+source, with a
  * 1h overlap; 7d floor on first run) — no new checkpoint state, and the
- * dedupeKey contract makes any overlap a no-op.
+ * dedupeKey contract makes any overlap a no-op. That idempotency is what makes
+ * a per-tick cadence safe: each tick refetches at most the overlap window and
+ * writes nothing it already has.
  */
 import { systemPrisma } from '@/lib/prisma'
 import { apiLogger } from '@/lib/logger'
@@ -29,17 +31,21 @@ export type IncrementalSyncStats = {
 }
 
 /** Adapters that participate in the sweep: incremental-capable, webhook-less. */
-export function sweepSources(): string[] {
-  return listActivitySources()
+export function sweepSources(sources = listActivitySources()): string[] {
+  return sources
     .filter((source) => source.capabilities.incrementalSync && !source.capabilities.webhooks)
     .map((source) => source.source)
 }
 
 // systemPrisma: cron-only sweep (CRON_SECRET-gated); every query stays org-scoped.
-export async function runIncrementalSync(organizationId: string, db = systemPrisma): Promise<IncrementalSyncStats> {
+export async function runIncrementalSync(
+  organizationId: string,
+  db = systemPrisma,
+  sources = listActivitySources(),
+): Promise<IncrementalSyncStats> {
   const stats: IncrementalSyncStats = { organizationId, sources: {} }
-  const bySource = new Map(listActivitySources().map((source) => [source.source, source]))
-  const wanted = new Set(sweepSources())
+  const bySource = new Map(sources.map((source) => [source.source, source]))
+  const wanted = new Set(sweepSources(sources))
 
   const syncOne = async (sourceName: string, connectionRef: string) => {
     const source = bySource.get(sourceName)
@@ -92,7 +98,7 @@ export async function runIncrementalSync(organizationId: string, db = systemPris
 }
 
 /** All orgs holding at least one sweep-eligible connection, capped. */
-export async function sweepIncrementalSync(db = systemPrisma): Promise<void> {
+export async function sweepIncrementalSync(db = systemPrisma, sources = listActivitySources()): Promise<void> {
   const [rows, granolaRows] = await Promise.all([
     db.nangoConnection.findMany({
       where: { status: 'connected' },
@@ -105,19 +111,25 @@ export async function sweepIncrementalSync(db = systemPrisma): Promise<void> {
       take: 500,
     }),
   ])
-  const wanted = new Set(sweepSources())
+  const wanted = new Set(sweepSources(sources))
   const orgs = new Set<string>()
+  let saturated = false
   for (const row of rows) {
     if (wanted.has(canonicalIntegrationSlug(row.providerConfigKey))) orgs.add(row.organizationId)
-    if (orgs.size >= MAX_ORGS_PER_SWEEP) break
+    if (orgs.size >= MAX_ORGS_PER_SWEEP) { saturated = true; break }
   }
   if (wanted.has('granola')) {
     for (const row of granolaRows) {
-      if (orgs.size >= MAX_ORGS_PER_SWEEP) break
+      if (orgs.size >= MAX_ORGS_PER_SWEEP) { saturated = true; break }
       orgs.add(row.organizationId)
     }
   }
+  if (saturated) {
+    // Never a silent cap: orgs past it stay a tick behind, not a day behind
+    // (the sweep runs every tick), but the operator should see the pressure.
+    apiLogger.warn('activity.incremental-sync: org cap saturated', { cap: MAX_ORGS_PER_SWEEP })
+  }
   for (const organizationId of orgs) {
-    await runIncrementalSync(organizationId, db)
+    await runIncrementalSync(organizationId, db, sources)
   }
 }

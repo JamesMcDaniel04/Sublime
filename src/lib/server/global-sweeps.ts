@@ -3,8 +3,9 @@
  *
  * Those sweeps rewrite state nobody owns locally: the global aggregate tables
  * (template_adoptions, platform_archetypes, goal_benchmarks,
- * template_estimate_calibrations), every organization's goal metrics, and the
- * weekly digest claims.
+ * template_estimate_calibrations), every organization's goal metrics, the
+ * weekly digest claims, and the per-tick activity incremental-sync (which
+ * enumerates every org's connections and writes into their ledgers).
  *
  * That is correct in production and actively harmful against a shared test
  * database. Two e2e suites drive the real dispatch route, and the runner
