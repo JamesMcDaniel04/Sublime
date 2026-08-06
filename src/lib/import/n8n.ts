@@ -1,16 +1,22 @@
 /**
- * n8n workflow import — the inverse of `toN8nWorkflow` (src/lib/export/n8n.ts).
+ * n8n workflow import — the inverse of `toN8nWorkflow` (src/lib/export/n8n.ts),
+ * grounded in n8n's own source (see docs/superpowers/specs/
+ * 2026-08-05-n8n-import-parity-design.md for the file:line evidence).
  *
- * Product call (2026-08-05): core control-flow primitives map 1:1; the long
- * tail of n8n integration nodes (Slack, Gmail, Sheets, …) imports as HTTP
- * request STUBS — label kept, original type + parameters preserved in the
- * step's note — because most of them are API calls anyway. Every stub is
- * reported via `stubbedNodes` so nothing disappears silently.
+ * The centerpiece is the AI-agent CLUSTER: in n8n an agent's model, tools and
+ * memory are separate nodes wired via non-`main` connection types
+ * (`ai_languageModel`, `ai_tool`, `ai_memory`, …) keyed by the SUB-NODE's name
+ * pointing into the agent. This converter absorbs the whole cluster into one
+ * materialized Sublime agent (agentsToCreate — the same machinery the portable
+ * import uses): `options.systemMessage` → instructions, the attached chat model
+ * → the agent's model (claude-* values run natively), `<node>Tool`-suffixed
+ * integration sub-nodes → integration slugs the runtime binds to live
+ * connectors.
  *
- * n8n's `connections` map is keyed by node NAME (not id); this converter
- * resolves names back to ids. Its `={{ … }}` expressions do not translate —
- * they are kept verbatim with ONE summary warning (half-translated
- * expressions would be worse than honest untranslated ones).
+ * The long tail of n8n integration nodes still imports as HTTP request STUBS —
+ * label kept, original type + parameters preserved in the step's note — and
+ * every stub is reported via `stubbedNodes` so nothing disappears silently.
+ * n8n `={{ … }}` expressions are kept verbatim with a summary warning.
  */
 import { z } from 'zod'
 import {
@@ -22,6 +28,7 @@ import {
   type FlowNode,
 } from '@/lib/flows/graph'
 import type { FlowTrigger } from '@/lib/flows/trigger'
+import type { PortableAgent } from '@/lib/export/portable'
 import { FlowImportError, type ImportedFlow, type StubbedNode } from './types'
 
 const n8nNodeSchema = z.object({
@@ -30,6 +37,13 @@ const n8nNodeSchema = z.object({
   type: z.string(),
   parameters: z.record(z.string(), z.unknown()).default({}),
   position: z.tuple([z.number(), z.number()]).optional(),
+  disabled: z.boolean().optional(),
+  notes: z.string().optional(),
+  onError: z.string().optional(),
+  retryOnFail: z.boolean().optional(),
+  maxTries: z.number().optional(),
+  waitBetweenTries: z.number().optional(),
+  credentials: z.record(z.string(), z.unknown()).optional(),
 }).passthrough()
 
 const n8nWorkflowSchema = z.object({
@@ -43,11 +57,12 @@ type N8nNode = z.infer<typeof n8nNodeSchema>
 const HTTP_METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS'] as const
 const WAIT_UNITS = ['seconds', 'minutes', 'hours', 'days'] as const
 
-/** n8n comparison operations → our ConditionOp; unknown ops don't translate. */
+/** n8n filter operations with a direct ConditionOp equivalent. */
 const OP_MAP: Record<string, ConditionOp> = {
   equals: 'eq', notEquals: 'neq',
   larger: 'gt', largerEqual: 'gte', smaller: 'lt', smallerEqual: 'lte',
   gt: 'gt', gte: 'gte', lt: 'lt', lte: 'lte',
+  after: 'gt', before: 'lt', afterOrEquals: 'gte', beforeOrEquals: 'lte',
   contains: 'contains', regex: 'matches',
 }
 
@@ -58,8 +73,16 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 const asString = (value: unknown): string =>
   value === undefined || value === null ? '' : typeof value === 'string' ? value : String(value)
 
+const escapeRegex = (value: string) => value.replace(/[.*+?^${}()|[\]\\:]/g, '\\$&')
+
+const pad2 = (value: number) => String(value).padStart(2, '0')
+
 function baseType(type: string): string {
-  return type.replace(/^n8n-nodes-base\./, '')
+  return type.split('.').pop() ?? type
+}
+
+function isLangchain(type: string): boolean {
+  return type.includes('n8n-nodes-langchain')
 }
 
 function isTriggerType(type: string): boolean {
@@ -67,14 +90,36 @@ function isTriggerType(type: string): boolean {
   return /trigger$/i.test(base) || base === 'webhook' || base === 'cron'
 }
 
-function triggerFor(node: N8nNode): FlowTrigger {
-  const base = baseType(node.type)
-  if (base === 'webhook') return { type: 'webhook' }
-  if (base === 'scheduleTrigger' || base === 'cron') return { type: 'schedule' }
-  return { type: 'manual' }
+/**
+ * n8n's newer model params serialize as a resourceLocator object
+ * ({ __rl: true, mode, value }) that collapses to `.value`
+ * (n8n node-helpers.ts:330); older versions are plain strings, and Gemini
+ * names its param `modelName` instead of `model`.
+ */
+function modelValueOf(node: N8nNode): string {
+  const p = node.parameters
+  if (isRecord(p.model) && p.model.__rl) return asString(p.model.value)
+  if (typeof p.model === 'string') return p.model
+  return asString(p.modelName)
 }
 
-/** n8n if/filter v2 conditions → our clauses. Untranslatable → flagged. */
+/** n8n filter operator → our clause op/right; null when it can't translate. */
+function mapOperator(operator: Record<string, unknown>, rightValue: string): { op: ConditionOp; right: string } | null {
+  const operation = asString(operator.operation)
+  const direct = OP_MAP[operation]
+  if (direct) return { op: direct, right: rightValue }
+  switch (operation) {
+    case 'startsWith': return { op: 'matches', right: `^${escapeRegex(rightValue)}` }
+    case 'endsWith': return { op: 'matches', right: `${escapeRegex(rightValue)}$` }
+    case 'true': return { op: 'eq', right: 'true' }
+    case 'false': return { op: 'eq', right: 'false' }
+    case 'empty': case 'notExists': return { op: 'eq', right: '' }
+    case 'notEmpty': case 'exists': return { op: 'neq', right: '' }
+    default: return null
+  }
+}
+
+/** n8n if/filter/switch-rule conditions → our clauses. Untranslatable → flagged. */
 function clausesFrom(parameters: Record<string, unknown>): { match: 'all' | 'any'; clauses: ConditionClause[]; complete: boolean } {
   const conditions = isRecord(parameters.conditions) ? parameters.conditions : undefined
   const list = conditions && Array.isArray(conditions.conditions) ? conditions.conditions : []
@@ -82,16 +127,15 @@ function clausesFrom(parameters: Record<string, unknown>): { match: 'all' | 'any
   const clauses: ConditionClause[] = []
   let complete = list.length > 0
   for (const entry of list) {
-    if (!isRecord(entry)) { complete = false; continue }
-    const operator = isRecord(entry.operator) ? asString(entry.operator.operation) : ''
-    const op = OP_MAP[operator]
-    if (!op) { complete = false; continue }
-    clauses.push({ left: asString(entry.leftValue), op, right: asString(entry.rightValue) })
+    if (!isRecord(entry) || !isRecord(entry.operator)) { complete = false; continue }
+    const mapped = mapOperator(entry.operator, asString(entry.rightValue))
+    if (!mapped) { complete = false; continue }
+    clauses.push({ left: asString(entry.leftValue), op: mapped.op, right: mapped.right })
   }
   return { match, clauses, complete }
 }
 
-/** { parameters: [{name, value}] } (n8n header/query editors) → JSON object string. */
+/** { parameters: [{name, value}] } (n8n keypair editors) → JSON object string. */
 function pairsToJson(raw: unknown): string | undefined {
   if (!isRecord(raw) || !Array.isArray(raw.parameters)) return undefined
   const out: Record<string, string> = {}
@@ -99,6 +143,148 @@ function pairsToJson(raw: unknown): string | undefined {
     if (isRecord(pair) && pair.name) out[asString(pair.name)] = asString(pair.value)
   }
   return Object.keys(out).length ? JSON.stringify(out) : undefined
+}
+
+/** googleSheets → google_sheets */
+const camelToSnake = (value: string) => value.replace(/([a-z0-9])([A-Z])/g, '$1_$2').toLowerCase()
+
+/** n8n scheduleTrigger rule → a runnable Sublime schedule trigger. */
+function scheduleTriggerFrom(node: N8nNode, warnings: string[]): FlowTrigger {
+  const rule = isRecord(node.parameters.rule) ? node.parameters.rule : {}
+  const interval = Array.isArray(rule.interval) && isRecord(rule.interval[0]) ? rule.interval[0] : {}
+  const field = asString(interval.field) || 'days'
+  const minute = Number(interval.triggerAtMinute) || 0
+  const hour = Number(interval.triggerAtHour) || 0
+  const schedule = (() => {
+    switch (field) {
+      case 'cronExpression': {
+        // n8n cron is `([Second]) Minute Hour DoM Month DoW` — drop the
+        // optional seconds field for a standard 5-field expression.
+        const parts = asString(interval.expression).trim().split(/\s+/)
+        return { type: 'cron', cron: (parts.length === 6 ? parts.slice(1) : parts).join(' ') }
+      }
+      case 'seconds':
+        warnings.push('The n8n schedule ran every few seconds — imported as every minute (the shortest Sublime cadence).')
+        return { type: 'cron', cron: '* * * * *' }
+      case 'minutes':
+        return { type: 'cron', cron: `*/${Math.max(1, Number(interval.minutesInterval) || 1)} * * * *` }
+      case 'hours':
+        return { type: 'cron', cron: `${minute} */${Math.max(1, Number(interval.hoursInterval) || 1)} * * *` }
+      case 'weeks':
+        return { type: 'weekly', time: `${pad2(hour)}:${pad2(minute)}` }
+      case 'months':
+        return { type: 'cron', cron: `${minute} ${hour} ${Math.max(1, Number(interval.triggerAtDayOfMonth) || 1)} * *` }
+      default: {
+        const every = Math.max(1, Number(interval.daysInterval) || 1)
+        if (every === 1) return { type: 'daily', time: `${pad2(hour)}:${pad2(minute)}` }
+        warnings.push(`The n8n schedule ran every ${every} days — imported as a cron schedule.`)
+        return { type: 'cron', cron: `${minute} ${hour} */${every} * *` }
+      }
+    }
+  })()
+  return { type: 'schedule', schedule }
+}
+
+function triggerFor(node: N8nNode, warnings: string[]): FlowTrigger {
+  const base = baseType(node.type)
+  if (base === 'webhook') return { type: 'webhook' }
+  if (base === 'scheduleTrigger' || base === 'cron') return scheduleTriggerFrom(node, warnings)
+  return { type: 'manual' }
+}
+
+/** The ai_* sub-nodes attached to one agent/chain node. */
+type AiAttachments = { models: N8nNode[]; tools: N8nNode[]; memory: N8nNode[] }
+
+/**
+ * Absorb an agent cluster into a materialized-agent spec + the agent step.
+ * `<node>Tool`-suffixed integration sub-nodes become integration slugs; the
+ * dedicated langchain tools each get a precise warning instead of silence.
+ */
+function agentFromCluster(
+  node: N8nNode,
+  id: string,
+  attach: AiAttachments,
+  warnings: string[],
+): { spec: PortableAgent; step: FlowNode } {
+  const p = node.parameters
+  const options = isRecord(p.options) ? p.options : {}
+  const base = baseType(node.type)
+
+  let instructions = asString(options.systemMessage)
+  if (base === 'chainLlm') {
+    const messages = isRecord(p.messages) && Array.isArray(p.messages.messageValues) ? p.messages.messageValues : []
+    const system = messages
+      .filter((entry): entry is Record<string, unknown> => isRecord(entry) && entry.type === 'system')
+      .map((entry) => asString(entry.message))
+      .filter(Boolean)
+    if (system.length) instructions = [instructions, ...system].filter(Boolean).join('\n\n')
+  }
+  if (!instructions) instructions = asString(p.toolDescription) || `Imported from the n8n workflow step "${node.name}".`
+
+  let model: string | undefined
+  const modelNode = attach.models[0]
+  if (modelNode) {
+    const requested = modelValueOf(modelNode)
+    if (requested.startsWith('claude-')) model = requested
+    else if (requested) warnings.push(`"${node.name}" used the model "${requested}", which is not available here — the workspace default model is used instead.`)
+  }
+  if (attach.models.length > 1) {
+    warnings.push(`"${node.name}" had a fallback model — Sublime handles model fallback automatically, so it was not imported.`)
+  }
+
+  const integrations: string[] = []
+  for (const tool of attach.tools) {
+    const toolBase = baseType(tool.type)
+    if (toolBase === 'mcpClientTool') {
+      const endpoint = asString(tool.parameters.endpointUrl) || asString(tool.parameters.sseEndpoint)
+      warnings.push(`"${node.name}" used an MCP server tool ("${tool.name}"${endpoint ? ` at ${endpoint}` : ''}) — connect that MCP server in Settings → Integrations, then add it to the agent.`)
+      continue
+    }
+    if (toolBase === 'httpRequestTool' || toolBase === 'toolHttpRequest') {
+      warnings.push(`"${node.name}" used a custom HTTP tool ("${tool.name}") — rebuild it as an HTTP step or an MCP tool the agent can call.`)
+      continue
+    }
+    if (toolBase === 'toolCode') {
+      warnings.push(`"${node.name}" used a custom code tool ("${tool.name}") — that logic needs a Code step or a tool the agent can call.`)
+      continue
+    }
+    if (toolBase === 'toolWorkflow') {
+      warnings.push(`"${node.name}" called another workflow as a tool ("${tool.name}") — import that workflow and use a Subflow step instead.`)
+      continue
+    }
+    if (toolBase === 'agentTool') {
+      warnings.push(`"${node.name}" delegated to a sub-agent ("${tool.name}") — re-create that agent and reference it from this one.`)
+      continue
+    }
+    if (isLangchain(tool.type)) {
+      warnings.push(`"${node.name}" used the built-in n8n tool "${tool.name}" (${toolBase}) — Sublime agents cover most built-ins natively; review whether it is still needed.`)
+      continue
+    }
+    if (toolBase.endsWith('Tool')) {
+      integrations.push(camelToSnake(toolBase.slice(0, -'Tool'.length)))
+      continue
+    }
+    warnings.push(`"${node.name}" used a tool ("${tool.name}", ${tool.type}) that has no direct equivalent — reconnect it manually.`)
+  }
+  if (attach.memory.length) {
+    warnings.push(`"${node.name}" had an attached memory (${attach.memory.map((memory) => memory.name).join(', ')}) — Sublime agents manage their own memory, so it was not imported.`)
+  }
+
+  // n8n's `promptType: 'auto'` default feeds `$json.chatInput`; Sublime agents
+  // already see upstream context via includeUpstream, so that collapses to ''.
+  const rawText = asString(p.text)
+  const input = !rawText || rawText === '={{ $json.chatInput }}' ? '' : rawText
+
+  const spec: PortableAgent = {
+    ref: id,
+    title: node.name,
+    instructions,
+    goal: null,
+    ...(model ? { model } : {}),
+    integrations: Array.from(new Set(integrations)),
+  }
+  const step: FlowNode = { id, type: 'agent', data: { agentId: id, label: node.name, input } }
+  return { spec, step }
 }
 
 type Mapped =
@@ -110,9 +296,14 @@ function mapNode(node: N8nNode, id: string, warnings: string[]): Mapped {
   const base = baseType(node.type)
   const label = node.name
 
-  if (base === 'stickyNote' || base === 'merge' || base === 'noOp') return { kind: 'drop' }
+  if (base === 'stickyNote' || base === 'merge' || base === 'noOp' || base === 'executionData') {
+    if (base === 'merge' && p.mode && p.mode !== 'append') {
+      warnings.push(`"${label}" merged branches by "${asString(p.mode)}" — branches were wired straight through; re-shape the data with a Data step if needed.`)
+    }
+    return { kind: 'drop' }
+  }
 
-  if (node.type.includes('n8n-nodes-langchain') || base === 'openAi') {
+  if (base === 'openAi' && isLangchain(node.type)) {
     warnings.push(`"${label}" was an n8n AI step — bind it to one of your agents or refine its inline prompt.`)
     return {
       kind: 'node',
@@ -126,10 +317,22 @@ function mapNode(node: N8nNode, id: string, warnings: string[]): Mapped {
         ? (asString(p.method).toUpperCase() as typeof HTTP_METHODS[number]) : 'GET'
       const headers = pairsToJson(p.headerParameters)
       const query = pairsToJson(p.queryParameters)
-      const body = asString(p.jsonBody ?? p.body)
+      let body = asString(p.jsonBody ?? p.body)
+      let bodyMode: 'json' | 'raw' | 'formUrlencoded' | undefined
+      const keypairBody = pairsToJson(p.bodyParameters)
+      if (keypairBody) {
+        body = keypairBody
+        bodyMode = p.contentType === 'form-urlencoded' ? 'formUrlencoded' : 'json'
+      } else if (p.contentType === 'raw' && body) {
+        bodyMode = 'raw'
+      }
       if (p.authentication && p.authentication !== 'none') {
         warnings.push(`"${label}" used n8n credentials — re-enter authentication for this HTTP step.`)
       }
+      const options = isRecord(p.options) ? p.options : {}
+      const redirect = isRecord(options.redirect) && isRecord(options.redirect.redirect) ? options.redirect.redirect : undefined
+      const batching = isRecord(options.batching) && isRecord(options.batching.batch) ? options.batching.batch : undefined
+      const timeout = Number(options.timeout)
       return {
         kind: 'node',
         node: {
@@ -139,6 +342,19 @@ function mapNode(node: N8nNode, id: string, warnings: string[]): Mapped {
             ...(headers ? { headers, sendHeaders: true } : {}),
             ...(query ? { query, sendQuery: true } : {}),
             ...(body ? { body, sendBody: true } : {}),
+            ...(bodyMode ? { bodyMode } : {}),
+            ...(p.contentType === 'raw' && p.rawContentType ? { bodyContentType: asString(p.rawContentType) } : {}),
+            ...(Number.isFinite(timeout) && timeout > 0 ? { timeoutMs: Math.min(120000, Math.max(1000, timeout)) } : {}),
+            ...(redirect ? {
+              followRedirects: redirect.followRedirects !== false,
+              ...(Number.isFinite(Number(redirect.maxRedirects)) ? { maxRedirects: Math.min(10, Math.max(0, Number(redirect.maxRedirects))) } : {}),
+            } : {}),
+            ...(batching && Number(batching.batchSize) > 0 ? {
+              batch: {
+                size: Math.min(1000, Math.max(1, Number(batching.batchSize))),
+                ...(Number(batching.batchInterval) > 0 ? { delayMs: Math.min(60000, Number(batching.batchInterval)) } : {}),
+              },
+            } : {}),
           },
         },
       }
@@ -176,31 +392,68 @@ function mapNode(node: N8nNode, id: string, warnings: string[]): Mapped {
           id, type: 'code',
           data: {
             label,
-            language: asString(p.language) === 'python' ? 'python' : 'javascript',
+            language: asString(p.language).startsWith('python') || asString(p.language) === 'python' ? 'python' : 'javascript',
             mode: asString(p.mode) === 'runOnceForEachItem' ? 'eachItem' : 'allItems',
             code: asString(p.jsCode ?? p.pythonCode ?? p.functionCode),
           },
         },
       }
     case 'set': {
+      if (p.mode === 'raw') {
+        return { kind: 'node', node: { id, type: 'data', data: { label, op: 'parseJson', input: asString(p.jsonOutput) } } }
+      }
+      const fields: Array<{ name: string; value: string }> = []
       const assignments = isRecord(p.assignments) && Array.isArray(p.assignments.assignments) ? p.assignments.assignments : []
-      const fields = assignments.flatMap((entry) =>
-        isRecord(entry) && entry.name ? [{ name: asString(entry.name), value: asString(entry.value) }] : [])
+      for (const entry of assignments) {
+        if (isRecord(entry) && entry.name) fields.push({ name: asString(entry.name), value: asString(entry.value) })
+      }
+      // Legacy shape (< typeVersion 3.3): values.{string,number,boolean}[].
+      if (!fields.length && isRecord(p.values)) {
+        for (const bucket of Object.values(p.values)) {
+          if (!Array.isArray(bucket)) continue
+          for (const entry of bucket) {
+            if (isRecord(entry) && entry.name) fields.push({ name: asString(entry.name), value: asString(entry.value) })
+          }
+        }
+      }
       return { kind: 'node', node: { id, type: 'transform', data: { label, fields } } }
     }
     case 'wait': {
+      if (p.resume && p.resume !== 'timeInterval') {
+        warnings.push(`"${label}" waited for a ${asString(p.resume)} — imported as a plain delay; re-model the resume trigger.`)
+      }
       const unit = WAIT_UNITS.includes(asString(p.unit) as typeof WAIT_UNITS[number])
         ? (asString(p.unit) as typeof WAIT_UNITS[number]) : 'seconds'
       const amount = Number(p.amount)
-      return { kind: 'node', node: { id, type: 'wait', data: { label, amount: Number.isFinite(amount) && amount >= 0 ? amount : 1, unit } } }
+      return { kind: 'node', node: { id, type: 'wait', data: { label, amount: Number.isFinite(amount) && amount >= 0 ? amount : 5, unit } } }
     }
     case 'splitInBatches':
       warnings.push(`"${label}": n8n loop wiring does not translate — open the step and choose what to loop over, then move the looped steps into it.`)
       return { kind: 'node', node: { id, type: 'loop', data: { label, over: '', body: [] } } }
     case 'stopAndError':
-      return { kind: 'node', node: { id, type: 'stop', data: { label, reason: asString(p.errorMessage) } } }
+      return {
+        kind: 'node',
+        node: {
+          id, type: 'stop',
+          data: { label, reason: asString(p.errorMessage) || (p.errorObject !== undefined ? asString(p.errorObject) : '') },
+        },
+      }
     case 'respondToWebhook': {
-      const code = Number(p.responseCode)
+      const options = isRecord(p.options) ? p.options : {}
+      const code = Number(options.responseCode ?? p.responseCode)
+      const respondWith = asString(p.respondWith) || 'json'
+      let bodyMode: 'json' | 'text' | 'none' = 'json'
+      let body: string | undefined
+      if (respondWith === 'text') { bodyMode = 'text'; body = asString(p.responseBody) }
+      else if (respondWith === 'json') {
+        bodyMode = 'json'
+        body = typeof p.responseBody === 'string' ? p.responseBody : p.responseBody === undefined ? undefined : JSON.stringify(p.responseBody)
+      } else if (respondWith === 'noData') bodyMode = 'none'
+      else if (respondWith === 'firstIncomingItem' || respondWith === 'allIncomingItems') bodyMode = 'json'
+      else {
+        bodyMode = 'none'
+        warnings.push(`"${label}" responded with ${respondWith} — that response type is not supported; the webhook returns an empty response.`)
+      }
       return {
         kind: 'node',
         node: {
@@ -208,8 +461,8 @@ function mapNode(node: N8nNode, id: string, warnings: string[]): Mapped {
           data: {
             label,
             statusCode: Number.isInteger(code) && code >= 100 && code <= 599 ? code : 200,
-            body: typeof p.responseBody === 'string' ? p.responseBody : p.responseBody === undefined ? undefined : JSON.stringify(p.responseBody),
-            bodyMode: 'json',
+            ...(body !== undefined ? { body } : {}),
+            bodyMode,
           },
         },
       }
@@ -229,17 +482,78 @@ function mapNode(node: N8nNode, id: string, warnings: string[]): Mapped {
   }
 }
 
+/** Node types that accept each imported node-level property. */
+const SUPPORTS_ONERROR = new Set(['agent', 'tool', 'http', 'code', 'subflow'])
+const SUPPORTS_RETRIES = new Set(['agent', 'tool', 'http', 'code'])
+const SUPPORTS_DISABLED = new Set(['agent', 'tool', 'http', 'code'])
+const SUPPORTS_NOTE = new Set([
+  'agent', 'condition', 'stop', 'tool', 'http', 'code', 'transform', 'filter', 'switch', 'variable', 'data',
+  'humanReview', 'respondWebhook', 'wait', 'repeatUntil', 'input', 'output', 'subflow', 'router', 'errorShield', 'loop', 'parallel',
+])
+
+/** Copy n8n node-level properties onto the mapped step where the schema allows. */
+function applyCommonProps(mapped: FlowNode, source: N8nNode, warnings: string[]): void {
+  const data = mapped.data as Record<string, unknown>
+  if (source.notes && SUPPORTS_NOTE.has(mapped.type) && data.note === undefined) data.note = source.notes
+  if (source.disabled && SUPPORTS_DISABLED.has(mapped.type)) data.disabled = true
+  if (source.onError && source.onError !== 'stopWorkflow' && SUPPORTS_ONERROR.has(mapped.type)) {
+    data.onError = 'continue'
+    if (source.onError === 'continueErrorOutput') {
+      warnings.push(`"${source.name}" routed errors to a separate branch — imported as continue-on-error; add an Error Shield if the error path had its own steps.`)
+    }
+  }
+  if (source.retryOnFail && SUPPORTS_RETRIES.has(mapped.type)) {
+    data.retries = Math.min(5, Math.max(0, Number(source.maxTries) || 3))
+    if (mapped.type === 'http' && Number(source.waitBetweenTries) > 0) {
+      data.retryDelayMs = Math.min(60000, Number(source.waitBetweenTries))
+    }
+  }
+}
+
+const AI_ATTACHMENT_TYPES = new Set(['ai_languageModel', 'ai_tool', 'ai_memory', 'ai_outputParser', 'ai_embedding', 'ai_vectorStore', 'ai_retriever', 'ai_reranker', 'ai_textSplitter', 'ai_document'])
+const AGENT_FAMILY = new Set(['agent', 'agentTool', 'chainLlm'])
+
 export function fromN8nWorkflow(raw: unknown): ImportedFlow {
   const parsed = n8nWorkflowSchema.safeParse(raw)
   if (!parsed.success) throw new FlowImportError('This n8n workflow file is missing its nodes.', 'INVALID_GRAPH')
   const workflow = parsed.data
   const warnings: string[] = []
   const stubbedNodes: StubbedNode[] = []
+  const agentsToCreate: PortableAgent[] = []
+
+  const byName = new Map(workflow.nodes.map((node) => [node.name, node]))
+
+  // --- AI cluster index: sub-node → agent attachments, keyed by TARGET name.
+  // In n8n's JSON the SUB-NODE is the source key (its ai_* connection points
+  // INTO the agent), so this loop walks connections from the sub-node side.
+  const attachmentsByTarget = new Map<string, AiAttachments>()
+  const absorbed = new Set<string>()
+  for (const [sourceName, value] of Object.entries(workflow.connections)) {
+    if (!isRecord(value)) continue
+    const source = byName.get(sourceName)
+    if (!source) continue
+    for (const [connType, bundles] of Object.entries(value)) {
+      if (!AI_ATTACHMENT_TYPES.has(connType) || !Array.isArray(bundles)) continue
+      for (const bundle of bundles) {
+        if (!Array.isArray(bundle)) continue
+        for (const link of bundle) {
+          if (!isRecord(link) || typeof link.node !== 'string') continue
+          const attach = attachmentsByTarget.get(link.node) ?? { models: [], tools: [], memory: [] }
+          if (connType === 'ai_languageModel') attach.models.push(source)
+          else if (connType === 'ai_tool') attach.tools.push(source)
+          else if (connType === 'ai_memory') attach.memory.push(source)
+          // Parsers/embeddings/etc. are absorbed silently — nothing to map.
+          attachmentsByTarget.set(link.node, attach)
+          absorbed.add(sourceName)
+        }
+      }
+    }
+  }
 
   // ids: prefer n8n's node id; names resolve connections. Trigger becomes 'trigger'.
   const idByName = new Map<string, string>()
   const usedIds = new Set<string>(['trigger'])
-  const triggerNodes = workflow.nodes.filter((node) => isTriggerType(node.type))
+  const triggerNodes = workflow.nodes.filter((node) => isTriggerType(node.type) && !absorbed.has(node.name))
   const primaryTrigger: N8nNode | undefined = triggerNodes[0]
   if (triggerNodes.length > 1) {
     warnings.push('The n8n workflow had multiple triggers — they were merged into one.')
@@ -250,6 +564,8 @@ export function fromN8nWorkflow(raw: unknown): ImportedFlow {
   const layout: NonNullable<FlowGraph['layout']> = {}
 
   for (const node of workflow.nodes) {
+    if (absorbed.has(node.name)) continue
+
     let id: string
     if (node === primaryTrigger) {
       id = 'trigger'
@@ -266,7 +582,7 @@ export function fromN8nWorkflow(raw: unknown): ImportedFlow {
     if (node.position) layout[id] = { x: Math.round(node.position[0]), y: Math.round(node.position[1]) }
 
     if (node === primaryTrigger) {
-      nodes.push({ id: 'trigger', type: 'trigger', data: { trigger: triggerFor(node) } })
+      nodes.push({ id: 'trigger', type: 'trigger', data: { trigger: triggerFor(node, warnings) } })
       continue
     }
     if (isTriggerType(node.type)) {
@@ -275,8 +591,18 @@ export function fromN8nWorkflow(raw: unknown): ImportedFlow {
       continue
     }
 
+    if (isLangchain(node.type) && AGENT_FAMILY.has(baseType(node.type))) {
+      const attach = attachmentsByTarget.get(node.name) ?? { models: [], tools: [], memory: [] }
+      const { spec, step } = agentFromCluster(node, id, attach, warnings)
+      applyCommonProps(step, node, warnings)
+      agentsToCreate.push(spec)
+      nodes.push(step)
+      continue
+    }
+
     const mapped = mapNode(node, id, warnings)
     if (mapped.kind === 'drop') { dropped.add(id); continue }
+    applyCommonProps(mapped.node, node, warnings)
     nodes.push(mapped.node)
     if (mapped.stub) stubbedNodes.push({ nodeId: id, label: node.name, originalType: node.type })
   }
@@ -323,7 +649,7 @@ export function fromN8nWorkflow(raw: unknown): ImportedFlow {
   }
 
   // No trigger in the workflow: prepend a manual one wired to the entry nodes.
-  const trigger: FlowTrigger = primaryTrigger ? triggerFor(primaryTrigger) : { type: 'manual' }
+  const trigger: FlowTrigger = primaryTrigger ? triggerFor(primaryTrigger, []) : { type: 'manual' }
   if (!primaryTrigger) {
     nodes.unshift({ id: 'trigger', type: 'trigger', data: { trigger: { type: 'manual' } } })
     const hasIncoming = new Set(liveEdges.map((edge) => edge.target))
@@ -342,7 +668,8 @@ export function fromN8nWorkflow(raw: unknown): ImportedFlow {
     return true
   })
 
-  const expressionHits = JSON.stringify(workflow.nodes).match(/=\{\{|\$json|\$node\b/g)
+  const liveN8nNodes = workflow.nodes.filter((node) => !absorbed.has(node.name))
+  const expressionHits = JSON.stringify(liveN8nNodes).match(/=\{\{|\$json|\$node\b/g)
   if (expressionHits?.length) {
     warnings.push(`${expressionHits.length} n8n expression reference(s) were kept as-is — rewrite them as {{step.…}} or {{input.…}} references.`)
   }
@@ -358,9 +685,9 @@ export function fromN8nWorkflow(raw: unknown): ImportedFlow {
     description: '',
     trigger,
     graph: graphParse.data,
-    agentsToCreate: [],
+    agentsToCreate,
     source: 'n8n',
-    warnings,
+    warnings: Array.from(new Set(warnings)),
     stubbedNodes,
   }
 }
