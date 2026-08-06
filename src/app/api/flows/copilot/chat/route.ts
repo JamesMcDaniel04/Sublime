@@ -10,7 +10,7 @@ import { flowGraphSchema, emptyGraph } from '@/lib/flows/graph'
 import { validateFlowGraph } from '@/lib/flows/validate'
 import { buildCopilotGrounding } from '@/lib/flows/copilot-grounding'
 import { applyCopilotOps } from '@/lib/flows/copilot-ops'
-import { parseCopilotChatReply, sanitizeCopilotOps, discardNotice } from '@/lib/flows/copilot-chat'
+import { parseCopilotChatReply, sanitizeCopilotOps, sanitizeDemoRun, discardNotice } from '@/lib/flows/copilot-chat'
 
 // Structured-output calls are bounded at ~100s (structuredCallDeadlineMs);
 // without an explicit maxDuration the platform default can kill the request
@@ -34,7 +34,15 @@ const OPS_CONTRACT = [
   'Prefer minimal targeted ops over replace. Use replace ONLY when building a brand-new flow or when the user explicitly asks for a full redesign.',
   'When the request is ambiguous or impossible with these operations, call edit_flow with opsJson "[]" and ask ONE clarifying question in message.',
   'Always explain what you did or what you need in message, mentioning node labels.',
-  'You also have read-only lookup tools (list_flow_runs, get_flow_run, get_tool_schema, get_flow) — at most 6 lookups per turn. Use them to check run failures, exact tool argument schemas, and other flows instead of guessing.',
+  'You also have read-only lookup tools (list_flow_runs, get_flow_run, get_tool_schema, get_flow, list_flow_connections) — at most 6 lookups per turn. Use them to check run failures, exact tool argument schemas, connection health, and other flows instead of guessing.',
+  '',
+  'DEMO RUNS (sample data, no credentials needed)',
+  'When connections are missing or the user wants to see end-to-end output before connecting anything, offer a DEMO RUN: pass demoMocksJson on the SAME edit_flow call — a JSON object keyed by node id with a realistic sample output per step. Rules:',
+  '- Mock EVERY step whose connection is missing/unverified AND every write step (Slack posts, emails, CRM writes, non-GET HTTP) so the demo never sends anything real. Check list_flow_connections first.',
+  '- Make sample outputs realistic and shaped like the real thing (use get_tool_schema outputSchema when available). Downstream unmocked steps (conditions, code, transforms, inline agents) will run for REAL against your samples.',
+  '- If the flow declares input fields, also pass demoInputJson with realistic trigger input values.',
+  '- Demo runs only work on a SAVED flow. In your message, tell the user what the demo will show, and afterwards which integrations to connect (name them) to make it real.',
+  'Never claim you used real or dummy credentials — a demo run uses sample data, and the message must say so plainly.',
 ].join('\n')
 
 const requestSchema = z.object({
@@ -83,7 +91,22 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
   const parsedGraph = flowGraphSchema.safeParse(rawGraph)
   const graph = parsedGraph.success ? parsedGraph.data : emptyGraph()
 
-  const system = [graphRules, '', OPS_CONTRACT, '', contextBlock].join('\n')
+  // Connection-health grounding: which of THIS graph's steps point at
+  // connections the workspace doesn't have. Costs nothing extra (the catalog
+  // is already loaded) and lets the copilot proactively offer demo runs and
+  // name exactly what to connect.
+  const catalogIds = new Set(toolCatalog.map((connection) => connection.id))
+  const missingLines = graph.nodes.flatMap((node) => {
+    if ((node.type !== 'tool' && node.type !== 'http') || !node.data.connectionId) return []
+    if (catalogIds.has(node.data.connectionId)) return []
+    const label = (node.data as { label?: string }).label?.trim() || node.type
+    return [`- Step "${label}" (${node.id}) uses ${node.data.connectionId} — NOT connected in this workspace.`]
+  })
+  const missingBlock = missingLines.length
+    ? `\n\nMissing connections in the current flow:\n${missingLines.join('\n')}`
+    : ''
+
+  const system = [graphRules, '', OPS_CONTRACT, '', contextBlock + missingBlock].join('\n')
   const transcriptText = messages.map((entry) => `${entry.role === 'user' ? 'User' : 'Assistant'}: ${entry.content}`).join('\n\n')
   const user = [
     `Current flow graph JSON:\n${JSON.stringify(graph)}`,
@@ -103,7 +126,7 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
       runner,
       system,
       transcript,
-      readTools: buildFlowCopilotTools({ organizationId: auth.organizationId, userId: auth.dbUser.id, currentFlowId: flowId ?? null }),
+      readTools: buildFlowCopilotTools({ organizationId: auth.organizationId, userId: auth.dbUser.id, currentFlowId: flowId ?? null, graph }),
       terminalTool: EDIT_FLOW_TOOL,
       emit,
     })
@@ -113,9 +136,14 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
     // Terminal call → the same sanitize/apply/validate pipeline as before. A
     // pure-Q&A turn (no terminal call) is a no-op edit with the prose as the
     // message.
-    const terminal = loop.terminalCall as { message?: string; opsJson?: string } | null
+    const terminal = loop.terminalCall as { message?: string; opsJson?: string; demoMocksJson?: string; demoInputJson?: string } | null
     const reply = terminal
-      ? parseCopilotChatReply(JSON.stringify({ message: terminal.message ?? '', opsJson: terminal.opsJson ?? '[]' }))
+      ? parseCopilotChatReply(JSON.stringify({
+          message: terminal.message ?? '',
+          opsJson: terminal.opsJson ?? '[]',
+          ...(terminal.demoMocksJson ? { demoMocksJson: terminal.demoMocksJson } : {}),
+          ...(terminal.demoInputJson ? { demoInputJson: terminal.demoInputJson } : {}),
+        }))
       : { message: loop.text.trim(), candidates: [] as unknown[], opsUnreadable: false }
     const { ops, discarded } = sanitizeCopilotOps(reply.candidates, { agents: roster, toolCatalog })
     const totalDiscarded = discarded + (reply.opsUnreadable ? 1 : 0)
@@ -144,7 +172,14 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
     })
     const needsAttention = [...validation.errors, ...validation.warnings].map((issue) => ({ nodeId: issue.nodeId, message: issue.message }))
 
-    return { success: true, message, ops, needsAttention }
+    // A copilot-authored demo run: sanitized against the POST-ops graph so
+    // mock keys always reference steps that exist. Only meaningful on a saved
+    // flow — the client needs a flowId to execute it.
+    const demoRun = flowId
+      ? sanitizeDemoRun(reply.demoMocksJson, reply.demoInputJson, applied.graph)
+      : null
+
+    return { success: true, message, ops, needsAttention, ...(demoRun ? { demoRun } : {}) }
   }
 
   // Content negotiation: SSE when the client asks for it, the legacy JSON

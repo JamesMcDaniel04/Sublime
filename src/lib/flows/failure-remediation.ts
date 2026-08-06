@@ -52,6 +52,26 @@ export function remediationForFailedRun(run: FailedRunLike | null | undefined): 
     }
   }
 
+  // Missing/unbound integrations — the runtime's exact phrasings (tool-planes
+  // resolveFlowToolExecutor): "No connected <x> account is available",
+  // "<x> is not configured for this workspace", template placeholders. These
+  // previously fell through to `diagnose`. Checked before the generic
+  // credential branch so the demo-run offer wins over plain reconnect steps.
+  if (/no connected .* account|not configured for this workspace|template placeholder|connect one in integrations/.test(lower)) {
+    return {
+      kind: 'user_action', nodeId, error,
+      title: 'Connect an integration to run this step',
+      summary: 'The step points at an app that is not connected yet. Copilot can run the flow with sample data now, and tell you exactly what to connect.',
+      actionLabel: 'Preview with sample data',
+      userSteps: [
+        'Open Settings → Integrations and connect the app this step uses.',
+        'Back in the flow, open the step and select the new connection.',
+        'Run the flow again — or ask Copilot for a demo run with sample data first.',
+      ],
+      copilotPrompt: `This run failed at ${target} with: ${error}. Do not invent credentials. First, offer a demo run: author realistic sample outputs for every step whose connection is missing (and every write step) via demoMocksJson so the user can see end-to-end output immediately. Then list exactly which integrations to connect, and which step settings to update, to make the flow run for real.`,
+    }
+  }
+
   if (/unauthori[sz]ed|forbidden|credential|authentication|access token|api key|not connected|reconnect|permission|missing scope|insufficient_scope|invalid_auth|token_expired/.test(lower)) {
     return {
       kind: 'user_action', nodeId, error,

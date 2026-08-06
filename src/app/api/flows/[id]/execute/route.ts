@@ -34,6 +34,9 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
       reply: z.string().refine((value) => value.trim().length > 0, 'Reply cannot be empty.').optional(),
       startNodeId: z.string().optional(),
       mockOutputs: z.record(z.string(), z.unknown()).optional(),
+      // Demo run: sample-data seeded (mockOutputs), marked on the run's
+      // trigger for provenance so it never reads as a real delivery.
+      demo: z.boolean().optional(),
     })
     .parse(body)
   // flowRunId only resumes a paused run when paired with the user's reply —
@@ -94,6 +97,7 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
     reply: parsed.reply,
     startNodeId: parsed.startNodeId,
     mockOutputs: parsed.mockOutputs,
+    ...(parsed.demo ? { trigger: { type: 'demo' as const } } : {}),
   }, { background: true })
   const run = 'queued' in result ? { flowRunId: result.flowRunId, status: 'queued', output: null } : result
   return { success: true, run }

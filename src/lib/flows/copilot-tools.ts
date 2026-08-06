@@ -3,6 +3,8 @@ import type { ToolDefinition } from '@/lib/llm/model-runner'
 import type { CopilotTool } from '@/lib/llm/copilot-loop'
 import { flowReadScope } from '@/lib/server/visibility'
 import { loadFlowToolCatalog } from '@/lib/flows/tool-catalog'
+import { riskForNode } from '@/lib/flows/node-test-input'
+import type { FlowGraph } from '@/lib/flows/graph'
 
 /**
  * Read-only lookups the flows copilot may make mid-turn. Executors are scoped
@@ -34,6 +36,15 @@ export const EDIT_FLOW_TOOL: ToolDefinition = {
         type: 'string',
         description: 'A JSON string containing an ARRAY of edit-op objects. Use "[]" when making no changes.',
       },
+      demoMocksJson: {
+        type: 'string',
+        description:
+          'OPTIONAL demo run: a JSON string OBJECT keyed by node id, each value a realistic sample output for that step (match the tool\'s outputSchema when known). Provide it to run the flow end-to-end with sample data — cover every step whose connection is missing AND every write step so nothing real is sent. Omit when not offering a demo run.',
+      },
+      demoInputJson: {
+        type: 'string',
+        description: 'OPTIONAL, with demoMocksJson: a JSON string OBJECT of trigger input values for the demo run (fill the flow\'s required input fields with realistic samples).',
+      },
     },
     required: ['message', 'opsJson'],
   },
@@ -43,8 +54,10 @@ export function buildFlowCopilotTools(input: {
   organizationId: string
   userId: string
   currentFlowId: string | null
+  /** The graph being edited — grounds list_flow_connections. */
+  graph?: FlowGraph
 }): CopilotTool[] {
-  const { organizationId, userId, currentFlowId } = input
+  const { organizationId, userId, currentFlowId, graph } = input
   const visibleFlow = (flowId: string) =>
     prisma.flow.findFirst({ where: { id: flowId, organizationId, ...flowReadScope(userId) }, select: { id: true } })
 
@@ -154,6 +167,44 @@ export function buildFlowCopilotTools(input: {
           inputSchema: tool.inputSchema ?? null,
           outputSchema: tool.outputSchema ?? null,
           risk: tool.risk ?? null,
+        }
+      },
+    },
+    {
+      definition: {
+        name: 'list_flow_connections',
+        description:
+          "Connection health for the flow being edited: which steps' connections are live, unverified, or missing entirely, and which steps perform writes. Use before proposing a demo run (mock every missing-connection step and every write step) and when telling the user what to connect.",
+        inputSchema: { type: 'object', additionalProperties: false, properties: {}, required: [] },
+      },
+      label: () => 'Checking this flow’s connections…',
+      execute: async () => {
+        const nodes = (graph?.nodes ?? []).filter(
+          (node): node is Extract<FlowGraph['nodes'][number], { type: 'tool' | 'http' }> =>
+            node.type === 'tool' || node.type === 'http',
+        )
+        const usedIds = Array.from(new Set(nodes.map((node) => node.data.connectionId).filter((id): id is string => Boolean(id))))
+        const catalog = usedIds.length
+          ? await loadFlowToolCatalog(organizationId, { userId, connectionIds: usedIds, takeConnections: usedIds.length }).catch(() => [])
+          : []
+        const byId = new Map(catalog.map((connection) => [connection.id, connection]))
+        const labelOf = (node: { type: string; data: { label?: string } }) => node.data.label?.trim() || node.type
+        return {
+          steps: nodes.map((node) => {
+            const connectionId = node.data.connectionId ?? null
+            const connection = connectionId ? byId.get(connectionId) : undefined
+            return {
+              nodeId: node.id,
+              label: labelOf(node),
+              connectionId,
+              connected: connectionId ? Boolean(connection) : node.type === 'http',
+              verification: connection?.verification?.state ?? null,
+              risk: riskForNode(node as FlowGraph['nodes'][number]),
+            }
+          }),
+          writeSteps: (graph?.nodes ?? [])
+            .filter((node) => riskForNode(node) !== 'read')
+            .map((node) => ({ nodeId: node.id, label: (node.data as { label?: string }).label?.trim() || node.type })),
         }
       },
     },

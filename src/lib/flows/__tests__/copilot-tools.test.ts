@@ -101,7 +101,7 @@ test('tool roster and labels', async () => {
   const tools = buildFlowCopilotTools({ organizationId: 'o1', userId: 'u1', currentFlowId: null })
   assert.deepEqual(
     tools.map((tool) => tool.definition.name).sort(),
-    ['get_flow', 'get_flow_run', 'get_tool_schema', 'list_flow_runs'],
+    ['get_flow', 'get_flow_run', 'get_tool_schema', 'list_flow_connections', 'list_flow_runs'],
   )
   const getRun = tools.find((tool) => tool.definition.name === 'get_flow_run')!
   assert.match(getRun.label({ runId: 'run_xyz98765' }), /run_xyz9/)

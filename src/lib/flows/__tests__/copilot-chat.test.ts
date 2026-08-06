@@ -100,3 +100,40 @@ test('discardNotice pluralizes correctly', () => {
   assert.equal(discardNotice(1), " (I discarded 1 change that didn't validate.)")
   assert.equal(discardNotice(3), " (I discarded 3 changes that didn't validate.)")
 })
+
+test('sanitizeDemoRun keeps only mocks for real node ids and parses input', async () => {
+  const { sanitizeDemoRun } = await import('../copilot-chat')
+  const graph = {
+    nodes: [
+      { id: 'trigger', type: 'trigger' as const, data: { trigger: { type: 'manual' as const } } },
+      { id: 'fetch', type: 'http' as const, data: { method: 'GET' as const, url: 'https://x.co' } },
+      { id: 'send', type: 'tool' as const, data: { connectionId: 'nango:slack', toolName: 'slack_post_message' } },
+    ],
+    edges: [],
+  }
+  const demo = sanitizeDemoRun(
+    JSON.stringify({ send: { ok: true, channel: '#leads' }, ghost: { nope: 1 } }),
+    JSON.stringify({ channel: '#leads' }),
+    graph,
+  )
+  assert.ok(demo)
+  assert.deepEqual(Object.keys(demo!.mockOutputs), ['send'])
+  assert.deepEqual(demo!.input, { channel: '#leads' })
+})
+
+test('sanitizeDemoRun rejects junk, oversized payloads, and empty mock sets', async () => {
+  const { sanitizeDemoRun } = await import('../copilot-chat')
+  const graph = { nodes: [{ id: 'trigger', type: 'trigger' as const, data: { trigger: { type: 'manual' as const } } }], edges: [] }
+  assert.equal(sanitizeDemoRun('not json', undefined, graph), null)
+  assert.equal(sanitizeDemoRun('[1,2,3]', undefined, graph), null)
+  assert.equal(sanitizeDemoRun(JSON.stringify({ ghost: 1 }), undefined, graph), null)
+  const huge = JSON.stringify({ trigger: 'x'.repeat(40_000) })
+  assert.equal(sanitizeDemoRun(huge, undefined, graph), null)
+})
+
+test('parseCopilotChatReply surfaces demoMocksJson and demoInputJson strings', () => {
+  const raw = JSON.stringify({ message: 'demo!', opsJson: '[]', demoMocksJson: '{"send":{"ok":true}}', demoInputJson: '{"a":1}' })
+  const reply = parseCopilotChatReply(raw)
+  assert.equal(reply.demoMocksJson, '{"send":{"ok":true}}')
+  assert.equal(reply.demoInputJson, '{"a":1}')
+})

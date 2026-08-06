@@ -30,3 +30,17 @@ test('malformed payload failures are safe-fix candidates', () => {
 test('non-failed runs have no remediation', () => {
   assert.equal(remediationForFailedRun({ status: 'succeeded', error: 'old error' }), null)
 })
+
+test('missing-connection failures route to connect-integration guidance with a demo-run offer', () => {
+  for (const message of [
+    'No connected slack account is available — connect one in Integrations.',
+    'Slack is not configured for this workspace.',
+    'This step still holds the template placeholder "slack" — it was never bound to a real connection.',
+  ]) {
+    const result = remediationForFailedRun({ status: 'failed', steps: [{ nodeId: 'send', status: 'failed', error: message }] })!
+    assert.equal(result.kind, 'user_action', message)
+    assert.match(result.title, /[Cc]onnect/)
+    assert.match(result.copilotPrompt, /demo run/i)
+    assert.match(result.userSteps.join(' '), /Integrations/)
+  }
+})
