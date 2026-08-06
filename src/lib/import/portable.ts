@@ -11,6 +11,7 @@ import { z } from 'zod'
 import { flowGraphSchema, type FlowGraph } from '@/lib/flows/graph'
 import { normalizeFlowTrigger, triggerFromGraph, type FlowTrigger } from '@/lib/flows/trigger'
 import { PORTABLE_FORMAT, PORTABLE_VERSION } from '@/lib/export/portable'
+import { agentHttpToolSchema, MAX_AGENT_HTTP_TOOLS } from '@/lib/agents/http-tools'
 import { FlowImportError, type ImportedFlow } from './types'
 
 const portableAgentSchema = z.object({
@@ -20,6 +21,7 @@ const portableAgentSchema = z.object({
   goal: z.string().nullable().optional(),
   model: z.string().optional(),
   integrations: z.array(z.string()).default([]),
+  httpTools: z.array(agentHttpToolSchema).max(MAX_AGENT_HTTP_TOOLS).optional(),
 })
 
 const portableDocSchema = z.object({

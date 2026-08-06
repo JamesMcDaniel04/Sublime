@@ -22,6 +22,7 @@
 import { redactAuthHeaders, redactHttpAuthOption } from '@/features/flows/http'
 import { REDACTED, redactDeep, redactUrl } from './redact'
 import type { FlowGraph, FlowNode } from '@/lib/flows/graph'
+import type { AgentHttpTool } from '@/lib/agents/http-tools'
 
 export const PORTABLE_FORMAT = 'sublime.flow'
 export const PORTABLE_AGENT_FORMAT = 'sublime.agent'
@@ -36,6 +37,8 @@ export type PortableAgent = {
   model?: string
   /** Connector keys the agent expects — must be reconnected on the target. */
   integrations: string[]
+  /** Configured HTTP API endpoint tools (importer-populated; credentials never travel). */
+  httpTools?: AgentHttpTool[]
 }
 
 export type PortableCredentials = {

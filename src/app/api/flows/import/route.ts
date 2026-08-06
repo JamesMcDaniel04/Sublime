@@ -133,6 +133,7 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
             integrations: agent.integrations,
             requiredIntegrations: [],
             skills: [], icon: '', allowSubagents: false, subagentIds: [], autoAnswerFromMemory: true,
+            ...(agent.httpTools?.length ? { httpTools: agent.httpTools } : {}),
           },
         },
         select: { id: true },

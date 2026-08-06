@@ -228,6 +228,66 @@ test('absorbs the AI agent cluster: model, tools, memory become one materialized
   assert.ok(imported.warnings.some((warning) => warning.toLowerCase().includes('memory')))
 })
 
+test('n8n HTTP tool sub-nodes become configured agent endpoints', () => {
+  const imported = fromN8nWorkflow({
+    nodes: [
+      { parameters: {}, id: 'n-t', name: 'Manual', type: 'n8n-nodes-base.manualTrigger', typeVersion: 1, position: [0, 0] },
+      { parameters: { options: { systemMessage: 'Enrich leads.' } }, id: 'n-agent', name: 'Enricher', type: '@n8n/n8n-nodes-langchain.agent', typeVersion: 3.1, position: [200, 0] },
+      {
+        parameters: {
+          toolDescription: 'Look up a company by domain',
+          method: 'GET',
+          url: 'https://api.enrich.example/companies/{domain}',
+          sendQuery: true,
+          specifyQuery: 'keypair',
+          parametersQuery: { values: [
+            { name: 'depth', valueProvider: 'fieldValue', value: 'full' },
+            { name: 'locale', valueProvider: 'modelRequired' },
+          ] },
+          placeholderDefinitions: { values: [{ name: 'domain', description: 'Company domain' }] },
+        },
+        id: 'n-lookup', name: 'Company lookup', type: '@n8n/n8n-nodes-langchain.toolHttpRequest', typeVersion: 1.1, position: [150, 150],
+      },
+      {
+        parameters: {
+          toolDescription: 'Post an enrichment result',
+          method: 'POST',
+          url: 'https://hooks.example.com/enriched',
+          sendBody: true, specifyBody: 'json',
+          jsonBody: '={{ JSON.stringify({ company: $fromAI("company_name", "The company name"), tier: "gold" }) }}',
+        },
+        id: 'n-post', name: 'Post result', type: 'n8n-nodes-base.httpRequestTool', typeVersion: 4.2, position: [250, 150],
+      },
+    ],
+    connections: {
+      Manual: { main: [[{ node: 'Enricher', type: 'main', index: 0 }]] },
+      'Company lookup': { ai_tool: [[{ node: 'Enricher', type: 'ai_tool', index: 0 }]] },
+      'Post result': { ai_tool: [[{ node: 'Enricher', type: 'ai_tool', index: 0 }]] },
+    },
+  })
+
+  const spec = imported.agentsToCreate[0]
+  assert.equal(spec.httpTools?.length, 2)
+
+  const lookup = spec.httpTools?.find((tool) => tool.name === 'Company lookup')
+  assert.ok(lookup)
+  assert.equal(lookup?.description, 'Look up a company by domain')
+  assert.equal(lookup?.config.method, 'GET')
+  // {placeholder} syntax → {{input.…}}; keypair query with model-provided value.
+  assert.equal(lookup?.config.url, 'https://api.enrich.example/companies/{{input.domain}}')
+  assert.equal(lookup?.config.query, JSON.stringify({ depth: 'full', locale: '{{input.locale}}' }))
+
+  const post = spec.httpTools?.find((tool) => tool.name === 'Post result')
+  assert.ok(post)
+  assert.equal(post?.config.method, 'POST')
+  // $fromAI("company_name", …) → {{input.company_name}}
+  assert.ok(post?.config.body?.includes('{{input.company_name}}'))
+  assert.equal(post?.config.body?.includes('$fromAI'), false)
+
+  // No "rebuild manually" warnings for converted HTTP tools.
+  assert.equal(imported.warnings.some((warning) => warning.includes('custom HTTP tool')), false)
+})
+
 test('non-claude models fall back with a warning; chainLlm becomes an agent too', () => {
   const imported = fromN8nWorkflow({
     nodes: [

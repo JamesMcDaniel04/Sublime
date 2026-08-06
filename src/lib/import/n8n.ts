@@ -29,6 +29,7 @@ import {
 } from '@/lib/flows/graph'
 import type { FlowTrigger } from '@/lib/flows/trigger'
 import type { PortableAgent } from '@/lib/export/portable'
+import { agentHttpToolSchema, MAX_AGENT_HTTP_TOOLS, type AgentHttpTool } from '@/lib/agents/http-tools'
 import { FlowImportError, type ImportedFlow, type StubbedNode } from './types'
 
 const n8nNodeSchema = z.object({
@@ -195,6 +196,67 @@ function triggerFor(node: N8nNode, warnings: string[]): FlowTrigger {
 /** The ai_* sub-nodes attached to one agent/chain node. */
 type AiAttachments = { models: N8nNode[]; tools: N8nNode[]; memory: N8nNode[] }
 
+// --- n8n HTTP tool sub-nodes → configured agent endpoints -------------------
+
+/** $fromAI("key", …) — the model-fillable slot inside n8n tool parameters. */
+const FROM_AI = /\$fromAI\s*\(\s*(['"`])([A-Za-z0-9_-]{1,64})\1[^)]*\)/gi
+
+/** {placeholder} (toolHttpRequest's own slot syntax), never touching {{…}}. */
+const BRACE_PLACEHOLDER = /\{(?!\{)([A-Za-z_][\w-]*)\}(?!\})/g
+
+/** Convert n8n model-fillable slots to {{input.…}} and drop the '=' prefix. */
+function toInputTemplate(value: string): string {
+  const converted = value.replace(FROM_AI, (_segment, _quote, key: string) => `{{input.${key.replace(/\W/g, '_')}}}`)
+  return converted.startsWith('=') ? converted.slice(1) : converted
+}
+
+/**
+ * Keypair editors, both dialects: the langchain tool's
+ * { values: [{ name, valueProvider, value }] } (model-provided entries become
+ * {{input.…}}) and the standard { parameters: [{ name, value }] }.
+ */
+function httpToolPairsJson(raw: unknown): string | undefined {
+  if (!isRecord(raw)) return undefined
+  const entries = Array.isArray(raw.values) ? raw.values : Array.isArray(raw.parameters) ? raw.parameters : []
+  const out: Record<string, string> = {}
+  for (const entry of entries) {
+    if (!isRecord(entry) || !entry.name) continue
+    const key = asString(entry.name)
+    const provider = asString(entry.valueProvider)
+    out[key] = provider === 'modelRequired' || provider === 'modelOptional'
+      ? `{{input.${key.replace(/\W/g, '_')}}}`
+      : toInputTemplate(asString(entry.value))
+  }
+  return Object.keys(out).length ? JSON.stringify(out) : undefined
+}
+
+/** toolHttpRequest / httpRequestTool → an AgentHttpTool; null when unusable. */
+function httpToolFromN8n(node: N8nNode): AgentHttpTool | null {
+  const p = node.parameters
+  const method = HTTP_METHODS.includes(asString(p.method).toUpperCase() as typeof HTTP_METHODS[number])
+    ? (asString(p.method).toUpperCase() as typeof HTTP_METHODS[number]) : 'GET'
+  const url = toInputTemplate(asString(p.url)).replace(BRACE_PLACEHOLDER, '{{input.$1}}')
+  const query = httpToolPairsJson(p.parametersQuery ?? p.queryParameters)
+    ?? (p.jsonQuery ? toInputTemplate(asString(p.jsonQuery)) : undefined)
+  const headers = httpToolPairsJson(p.parametersHeaders ?? p.headerParameters)
+    ?? (p.jsonHeaders ? toInputTemplate(asString(p.jsonHeaders)) : undefined)
+  const body = httpToolPairsJson(p.parametersBody ?? p.bodyParameters)
+    ?? (p.jsonBody ?? p.body ? toInputTemplate(asString(p.jsonBody ?? p.body)) : undefined)
+  const candidate = {
+    id: node.id || node.name.toLowerCase().replace(/[^a-z0-9]+/g, '-'),
+    name: node.name,
+    description: asString(p.toolDescription),
+    config: {
+      method, url,
+      ...(query ? { query, sendQuery: true } : {}),
+      ...(headers ? { headers, sendHeaders: true } : {}),
+      ...(body ? { body, sendBody: true } : {}),
+    },
+  }
+  const parsed = agentHttpToolSchema.safeParse(candidate)
+  return parsed.success ? parsed.data : null
+}
+
 /**
  * Absorb an agent cluster into a materialized-agent spec + the agent step.
  * `<node>Tool`-suffixed integration sub-nodes become integration slugs; the
@@ -233,6 +295,7 @@ function agentFromCluster(
   }
 
   const integrations: string[] = []
+  const httpTools: AgentHttpTool[] = []
   for (const tool of attach.tools) {
     const toolBase = baseType(tool.type)
     if (toolBase === 'mcpClientTool') {
@@ -241,7 +304,11 @@ function agentFromCluster(
       continue
     }
     if (toolBase === 'httpRequestTool' || toolBase === 'toolHttpRequest') {
-      warnings.push(`"${node.name}" used a custom HTTP tool ("${tool.name}") — rebuild it as an HTTP step or an MCP tool the agent can call.`)
+      // Custom HTTP tools convert into configured agent endpoints —
+      // $fromAI()/{placeholder} slots become {{input.…}} tool inputs.
+      const converted = httpTools.length < MAX_AGENT_HTTP_TOOLS ? httpToolFromN8n(tool) : null
+      if (converted) httpTools.push(converted)
+      else warnings.push(`"${node.name}" used a custom HTTP tool ("${tool.name}") that could not be converted — configure it under the agent's HTTP API endpoints.`)
       continue
     }
     if (toolBase === 'toolCode') {
@@ -282,6 +349,7 @@ function agentFromCluster(
     goal: null,
     ...(model ? { model } : {}),
     integrations: Array.from(new Set(integrations)),
+    ...(httpTools.length ? { httpTools } : {}),
   }
   const step: FlowNode = { id, type: 'agent', data: { agentId: id, label: node.name, input } }
   return { spec, step }
