@@ -148,10 +148,12 @@ const toolNode = z.object({
 // `connectionId` optionally names an MCP connection whose fresh OAuth token is
 // injected as the Authorization header at fetch time — the token itself never
 // enters the graph, run rows, or logs.
-const httpNode = z.object({
-  id: z.string(),
-  type: z.literal('http'),
-  data: z.object({
+/**
+ * The http step's data shape, exported standalone: agent HTTP API tools
+ * (lib/agents/http-tools.ts) persist this exact config so the flows HTTP
+ * editor UI and executor can be reused verbatim on the agent surface.
+ */
+export const httpStepDataSchema = z.object({
     label: z.string().optional(),
     note: z.string().optional(),
     connectionId: z.string().optional(),
@@ -230,7 +232,11 @@ const httpNode = z.object({
     batch: z.object({ size: z.number().int().min(1).max(1000), delayMs: z.number().int().min(0).max(60000).optional() }).optional(),
     disabled: z.boolean().optional(),
     mockOutput: z.any().optional(),
-  }),
+})
+const httpNode = z.object({
+  id: z.string(),
+  type: z.literal('http'),
+  data: httpStepDataSchema,
 })
 const loopNode = z.object({
   id: z.string(),

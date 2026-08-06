@@ -43,6 +43,7 @@ export function serializeAgent(agent: {
     alwaysStrategize: metadata.alwaysStrategize === true,
     maxTurns: typeof metadata.maxTurns === 'number' ? metadata.maxTurns : 16,
     outputFields: Array.isArray(metadata.outputFields) ? metadata.outputFields : [],
+    httpTools: Array.isArray(metadata.httpTools) ? metadata.httpTools : [],
     suggestedGoal: metadata.suggestedGoal || null,
     folder: agent.folder || null,
     visibility: agent.visibility || 'shared',

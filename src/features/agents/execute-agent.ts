@@ -5,6 +5,8 @@ import { getQueue, QUEUE_NAMES, workersEnabled } from '@/lib/queue/config'
 import { inlineExecution } from '@/lib/queue/execution-mode'
 import { apiLogger } from '@/lib/logger'
 import { recordAudit } from '@/lib/audit'
+import { agentHttpToolDefinition, agentHttpToolsFromMetadata } from '@/lib/agents/http-tools'
+import { AgentHttpToolClient } from '@/lib/agents/http-tools-run'
 import { retrieveContext, renderContext } from '@/lib/rag/retrieve'
 import { createContextAssembler } from '@/lib/context/assemble'
 import { retrieveKnowledge, renderKnowledge } from '@/lib/knowledge/retrieve'
@@ -690,6 +692,22 @@ export async function runAgentExecution(
       // cycles are bounded by the subflow cap instead of resetting per hop.
       depth: data.depth ?? 0,
     })
+    // User-configured HTTP API endpoints (metadata.httpTools): each becomes a
+    // real tool executed through the flow HTTP engine with vault credentials.
+    // Added after the cap so a configured endpoint is never crowded out by
+    // discovered tools — the user explicitly built it for this agent.
+    for (const httpTool of agentHttpToolsFromMetadata(agentMetadata)) {
+      const definition = agentHttpToolDefinition(httpTool)
+      if (bindings.has(definition.name)) continue
+      tools.push(definition)
+      bindings.set(definition.name, {
+        provider: 'http',
+        serverUrl: '',
+        toolName: definition.name,
+        client: new AgentHttpToolClient(httpTool, { organizationId, userId }),
+        ...(httpTool.config.requireApproval === true ? { requireApproval: true } : {}),
+      })
+    }
     // Resolve only attached skills this run owner can still see. Visibility
     // changes take effect immediately even if an old id remains attached.
     const communitySkills = skillIds.length
@@ -1249,7 +1267,10 @@ export async function runAgentExecution(
           // for human approval instead of executing (replayed calls above
           // already ran and never re-ask). Same one-suspension-per-turn
           // invariant as ask_user.
-          if (toolNeedsApproval({ requireApproval, provider: binding.provider, input: (call.input ?? null) as Record<string, unknown> | null })) {
+          if (
+            binding.requireApproval === true ||
+            toolNeedsApproval({ requireApproval, provider: binding.provider, input: (call.input ?? null) as Record<string, unknown> | null })
+          ) {
             if (pendingApprovalRequest || pendingAsk) {
               await prisma.workflowStep.update({
                 where: { id: step.id },

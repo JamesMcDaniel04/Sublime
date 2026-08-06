@@ -542,6 +542,7 @@ function AgentHQ() {
           alwaysStrategize: source.alwaysStrategize,
           maxTurns: source.maxTurns,
           outputFields: source.outputFields,
+          httpTools: (source as { httpTools?: unknown[] }).httpTools ?? [],
           schedule: agent.schedule,
         }),
       })

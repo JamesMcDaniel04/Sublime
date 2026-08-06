@@ -3,6 +3,7 @@ import { prisma } from '@/lib/prisma'
 import { DEFAULT_AGENT_MODEL } from '@/lib/llm/model-runner'
 import { ApiError, withAuthenticatedApi } from '@/lib/server/api-handler'
 import { recordUserEvent } from '@/lib/behavior/record-event'
+import { agentHttpToolSchema, MAX_AGENT_HTTP_TOOLS } from '@/lib/agents/http-tools'
 import { agentOwnerScope, agentReadScope, agentWriteScope, VISIBILITY } from '@/lib/server/visibility'
 import { readAgentMetadata } from '@/lib/agents/metadata'
 import { serializeAgent } from '@/lib/agents/serialize'
@@ -87,6 +88,9 @@ const agentSchema = z.object({
   // Structured output contract: when non-empty, runs must reply with JSON
   // carrying these properties (enforced in execute-agent).
   outputFields: z.array(z.object({ name: z.string().trim().min(1).max(60), type: z.enum(['string', 'number', 'boolean', 'object', 'array']).default('string'), description: z.string().max(300).optional() })).max(20).optional(),
+  // User-configured HTTP API endpoints the agent can call as tools; each
+  // persists the flow http step's config shape (see lib/agents/http-tools).
+  httpTools: z.array(agentHttpToolSchema).max(MAX_AGENT_HTTP_TOOLS).optional(),
   schedule: scheduleSchema.default({ type: 'manual', timezone: 'UTC', isActive: false }),
 })
 
@@ -176,6 +180,7 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
         alwaysStrategize: data.alwaysStrategize === true,
         maxTurns: data.maxTurns ?? 16,
         ...(data.outputFields?.length ? { outputFields: data.outputFields, responseFormat: 'structured' } : {}),
+        ...(data.httpTools?.length ? { httpTools: data.httpTools } : {}),
       },
     },
   })
@@ -237,6 +242,8 @@ export const PUT = withAuthenticatedApi(async (request, auth) => {
         ...(body.requireApproval !== undefined && { requireApproval: body.requireApproval }),
         ...(body.alwaysStrategize !== undefined && { alwaysStrategize: body.alwaysStrategize }),
         ...(body.maxTurns !== undefined && { maxTurns: body.maxTurns }),
+        // Explicit empty array removes every configured endpoint.
+        ...(body.httpTools !== undefined && { httpTools: body.httpTools }),
         // Non-empty fields switch the run contract to structured; an explicit
         // empty array clears it back to plain text.
         ...(body.outputFields !== undefined && {

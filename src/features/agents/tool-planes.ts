@@ -58,6 +58,8 @@ export type ToolBinding = {
   serverUrl: string
   toolName: string
   client: McpToolClient
+  /** Per-tool approval override (agent HTTP endpoints with requireApproval). */
+  requireApproval?: boolean
 }
 
 /** A tool as a plane reports it (description already defaulted per plane). */

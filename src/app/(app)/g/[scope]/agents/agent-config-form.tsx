@@ -20,6 +20,8 @@ import { SuggestedImprovementBanner } from '@/components/intelligence/suggested-
 import { normalizeShareValue } from '@/components/share-control'
 import { cn } from '@/lib/utils'
 import { connectedSlugSet, missingIntegrations } from '@/lib/templates/relevance'
+import { AgentHttpToolsDialog } from '@/components/agents/agent-http-tools-dialog'
+import { agentHttpToolSchema, type AgentHttpTool } from '@/lib/agents/http-tools'
 
 /**
  * The agent configuration form, shared by the config dialog and the dashboard's
@@ -109,6 +111,8 @@ export type AgentDraft = {
   requireApproval?: boolean
   /** Structured output contract: non-empty = runs must return JSON with these properties. */
   outputFields?: { name: string; type: 'string' | 'number' | 'boolean' | 'object' | 'array'; description?: string }[]
+  /** User-configured HTTP API endpoints exposed to the model as tools. */
+  httpTools?: AgentHttpTool[]
   /** When true, every run starts with an explicit numbered plan before any tool call. */
   alwaysStrategize?: boolean
   /** Maximum model/tool turns before a run stops. */
@@ -166,6 +170,7 @@ const emptyDraft: AgentDraft = {
   autoAnswerFromMemory: true,
   requireApproval: false,
   outputFields: [],
+  httpTools: [],
   alwaysStrategize: false,
   maxTurns: 16,
   schedule: { type: 'manual', time: '09:00', timezone: 'UTC', isActive: false },
@@ -366,6 +371,7 @@ export function AgentConfigForm({
   const [savingMemory, setSavingMemory] = useState(false)
   const [webhook, setWebhook] = useState<AgentWebhook | null>(null)
   const [webhookBusy, setWebhookBusy] = useState(false)
+  const [httpToolsOpen, setHttpToolsOpen] = useState(false)
   // Auto-open "More settings" when any advanced option is configured — an
   // active schedule, output contract, or webhook must never be hidden.
   const advancedInUse =
@@ -607,6 +613,12 @@ export function AgentConfigForm({
       autoAnswerFromMemory: source.autoAnswerFromMemory !== false,
       requireApproval: source.requireApproval === true,
       outputFields: Array.isArray(source.outputFields) ? source.outputFields : [],
+      httpTools: Array.isArray((source as { httpTools?: unknown[] }).httpTools)
+        ? ((source as { httpTools?: unknown[] }).httpTools ?? []).flatMap((entry) => {
+            const parsed = agentHttpToolSchema.safeParse(entry)
+            return parsed.success ? [parsed.data] : []
+          })
+        : [],
       alwaysStrategize: source.alwaysStrategize === true,
       maxTurns: typeof source.maxTurns === 'number' ? source.maxTurns : 16,
       schedule: normalizeSchedule({ ...emptyDraft.schedule, ...(source.schedule || {}) }),
@@ -979,11 +991,20 @@ export function AgentConfigForm({
               <div className="flex flex-wrap gap-2">
                 {availableIntegrations.tools.map((t) => {
                   const selected = draft.integrations.includes(t.key)
+                  // The HTTP API plane is CONFIGURED, not just toggled: its
+                  // endpoints are defined in a dialog (same editor as the
+                  // flows http step). Selecting it with nothing configured
+                  // opens that dialog straight away.
+                  const isHttp = t.key === 'HTTP API'
+                  const endpointCount = draft.httpTools?.length ?? 0
                   return (
                     <button
                       key={t.key}
                       type="button"
-                      onClick={() => toggleIntegration(t.key)}
+                      onClick={() => {
+                        if (isHttp && !selected && endpointCount === 0) setHttpToolsOpen(true)
+                        toggleIntegration(t.key)
+                      }}
                       className={cn(
                         'flex items-center gap-1.5 rounded-full border py-1 pl-1.5 pr-3 text-xs transition-colors duration-150',
                         selected
@@ -993,11 +1014,31 @@ export function AgentConfigForm({
                     >
                       <IntegrationLogo slug={t.slug} name={t.label} className="h-4 w-4 bg-white/70" />
                       {t.label}
-                      {!t.connected && !selected && (
+                      {isHttp && endpointCount > 0 && (
+                        <span className="text-[10px] opacity-75">{endpointCount} endpoint{endpointCount === 1 ? '' : 's'}</span>
+                      )}
+                      {!isHttp && !t.connected && !selected && (
                         <span className="text-[10px] opacity-60">not configured</span>
                       )}
-                      {t.connected && !selected && (
+                      {isHttp && endpointCount === 0 && !selected && (
+                        <span className="text-[10px] opacity-60">not configured</span>
+                      )}
+                      {!isHttp && t.connected && !selected && (
                         <span className="inline-block h-1.5 w-1.5 rounded-full bg-green-500" />
+                      )}
+                      {isHttp && selected && (
+                        <span
+                          role="button"
+                          tabIndex={0}
+                          aria-label="Configure API endpoints"
+                          onClick={(event) => { event.stopPropagation(); setHttpToolsOpen(true) }}
+                          onKeyDown={(event) => {
+                            if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); event.stopPropagation(); setHttpToolsOpen(true) }
+                          }}
+                          className="ml-0.5 rounded-full p-0.5 hover:bg-primary-foreground/20"
+                        >
+                          <Pencil className="h-3 w-3" />
+                        </span>
                       )}
                     </button>
                   )
@@ -1668,6 +1709,13 @@ export function AgentConfigForm({
           {saving ? 'Saving...' : saveLabel || (editingAgent ? 'Save agent' : 'Create agent')}
         </Button>
       </div>
+
+      <AgentHttpToolsDialog
+        open={httpToolsOpen}
+        onOpenChange={setHttpToolsOpen}
+        tools={draft.httpTools ?? []}
+        onChange={(httpTools) => setDraft({ ...draft, httpTools })}
+      />
     </div>
   )
 }

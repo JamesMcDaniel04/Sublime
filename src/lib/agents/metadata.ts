@@ -47,6 +47,9 @@ export type AgentMetadata = {
     description?: string
   }>
   responseFormat?: 'structured'
+  /** User-configured HTTP API endpoints exposed to the model as tools
+   *  (validated shape: lib/agents/http-tools.ts agentHttpToolSchema). */
+  httpTools?: unknown[]
 }
 
 /** Parse an unknown JSON value into a typed AgentMetadata (never throws). */
