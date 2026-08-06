@@ -287,6 +287,140 @@ function agentFromCluster(
   return { spec, step }
 }
 
+/**
+ * n8n's pure-data nodes (Limit, Sort, Split Out, …) import as GENERATED
+ * JavaScript code steps — deterministic and actually runnable, not stubs.
+ * The code-node guest exposes `items` (the previous step's list) and the
+ * returned value becomes the step output (lib/code/run-js.ts). Every
+ * parameter from the untrusted workflow file is embedded via JSON.stringify —
+ * values are data, never code.
+ */
+const GET_PATH_JS = "const get = (obj, path) => String(path).split('.').reduce((o, k) => (o == null ? o : o[k]), obj);"
+
+function dataNodeCode(base: string, p: Record<string, unknown>, warnings: string[], label: string): string | null {
+  switch (base) {
+    case 'limit': {
+      const max = Math.max(1, Number(p.maxItems) || 1)
+      return p.keep === 'lastItems' ? `return items.slice(-${max});` : `return items.slice(0, ${max});`
+    }
+    case 'sort': {
+      const type = asString(p.type) || 'simple'
+      if (type === 'random') return 'return [...items].sort(() => Math.random() - 0.5);'
+      if (type !== 'simple') {
+        warnings.push(`"${label}" sorted with custom code — that comparator does not translate; re-enter it in the Code step.`)
+        return null
+      }
+      const raw = isRecord(p.sortFieldsUi) && Array.isArray(p.sortFieldsUi.sortField) ? p.sortFieldsUi.sortField : []
+      const fields = raw.flatMap((entry) => isRecord(entry) && entry.fieldName
+        ? [{ name: asString(entry.fieldName), dir: entry.order === 'descending' ? -1 : 1 }] : [])
+      if (!fields.length) return 'return items;'
+      return [
+        `const fields = ${JSON.stringify(fields)};`,
+        GET_PATH_JS,
+        'return [...items].sort((a, b) => {',
+        '  for (const f of fields) {',
+        '    const av = get(a, f.name), bv = get(b, f.name);',
+        '    if (av === bv) continue;',
+        '    if (av == null) return -f.dir;',
+        '    if (bv == null) return f.dir;',
+        '    return (av < bv ? -1 : 1) * f.dir;',
+        '  }',
+        '  return 0;',
+        '});',
+      ].join('\n')
+    }
+    case 'splitOut': {
+      const fields = asString(p.fieldToSplitOut).split(',').map((field) => field.trim()).filter(Boolean)
+      if (!fields.length) return null
+      const includeOther = p.include === 'allOtherFields'
+      const dest = asString(p.destinationFieldName) || null
+      return [
+        `const fields = ${JSON.stringify(fields)};`,
+        `const includeOther = ${JSON.stringify(includeOther)};`,
+        `const dest = ${JSON.stringify(dest)};`,
+        'const out = [];',
+        'for (const item of items) {',
+        "  const obj = item && typeof item === 'object' ? item : {};",
+        '  const max = Math.max(1, ...fields.map((f) => (Array.isArray(obj[f]) ? obj[f].length : 1)));',
+        '  for (let i = 0; i < max; i += 1) {',
+        '    const row = includeOther ? { ...obj } : {};',
+        '    for (const f of fields) {',
+        '      const value = obj[f];',
+        '      row[dest ?? f] = Array.isArray(value) ? value[i] : value;',
+        '    }',
+        '    out.push(row);',
+        '  }',
+        '}',
+        'return out;',
+      ].join('\n')
+    }
+    case 'aggregate': {
+      const dest = asString(p.destinationFieldName) || 'data'
+      if (p.aggregate !== 'aggregateIndividualFields') {
+        return `return { [${JSON.stringify(dest)}]: items };`
+      }
+      const raw = isRecord(p.fieldsToAggregate) && Array.isArray(p.fieldsToAggregate.fieldToAggregate) ? p.fieldsToAggregate.fieldToAggregate : []
+      const fields = raw.flatMap((entry) => isRecord(entry) && entry.fieldToAggregate
+        ? [{ field: asString(entry.fieldToAggregate), out: asString(entry.outputFieldName) || asString(entry.fieldToAggregate) }] : [])
+      if (!fields.length) return `return { [${JSON.stringify(dest)}]: items };`
+      return [
+        `const fields = ${JSON.stringify(fields)};`,
+        GET_PATH_JS,
+        'const result = {};',
+        'for (const f of fields) result[f.out] = items.map((item) => get(item, f.field));',
+        'return result;',
+      ].join('\n')
+    }
+    case 'removeDuplicates': {
+      const operation = asString(p.operation) || 'removeDuplicateInputItems'
+      if (operation !== 'removeDuplicateInputItems') {
+        warnings.push(`"${label}" deduplicated against previous executions — that history does not travel; the step now dedupes within one run.`)
+      }
+      const compare = asString(p.compare) || 'allFields'
+      const fields = asString(p.fieldsToCompare ?? p.fieldsToExclude).split(',').map((field) => field.trim()).filter(Boolean)
+      return [
+        `const mode = ${JSON.stringify(compare)};`,
+        `const fields = ${JSON.stringify(fields)};`,
+        GET_PATH_JS,
+        'const seen = new Set();',
+        'const out = [];',
+        'for (const item of items) {',
+        "  const obj = item && typeof item === 'object' ? item : {};",
+        '  let key;',
+        "  if (mode === 'allFieldsExcept') { const clone = { ...obj }; for (const f of fields) delete clone[f]; key = JSON.stringify(clone); }",
+        "  else if (mode === 'selectedFields' && fields.length) key = JSON.stringify(fields.map((f) => get(obj, f)));",
+        '  else key = JSON.stringify(obj);',
+        '  if (seen.has(key)) continue;',
+        '  seen.add(key);',
+        '  out.push(item);',
+        '}',
+        'return out;',
+      ].join('\n')
+    }
+    case 'renameKeys': {
+      const raw = isRecord(p.keys) && Array.isArray(p.keys.key) ? p.keys.key : []
+      const renames = raw.flatMap((entry) => isRecord(entry) && entry.currentKey
+        ? [{ from: asString(entry.currentKey), to: asString(entry.newKey) }] : [])
+      if (isRecord(p.additionalOptions) && p.additionalOptions.regexReplacement) {
+        warnings.push(`"${label}" renamed keys by regex — only the exact-key renames were imported.`)
+      }
+      return [
+        `const renames = ${JSON.stringify(renames)};`,
+        'return items.map((item) => {',
+        "  if (!item || typeof item !== 'object') return item;",
+        '  const obj = { ...item };',
+        '  for (const r of renames) { if (r.from in obj) { obj[r.to] = obj[r.from]; delete obj[r.from]; } }',
+        '  return obj;',
+        '});',
+      ].join('\n')
+    }
+    default:
+      return null
+  }
+}
+
+const DATA_CODE_NODES = new Set(['limit', 'sort', 'splitOut', 'aggregate', 'removeDuplicates', 'renameKeys'])
+
 type Mapped =
   | { kind: 'node'; node: FlowNode; stub?: true }
   | { kind: 'drop' } // merge/noOp/stickyNote — rewire straight through
@@ -428,7 +562,8 @@ function mapNode(node: N8nNode, id: string, warnings: string[]): Mapped {
       return { kind: 'node', node: { id, type: 'wait', data: { label, amount: Number.isFinite(amount) && amount >= 0 ? amount : 5, unit } } }
     }
     case 'splitInBatches':
-      warnings.push(`"${label}": n8n loop wiring does not translate — open the step and choose what to loop over, then move the looped steps into it.`)
+      // Loop wiring is resolved by absorbLoopBodies after the edges exist;
+      // the warning fires there only when the cycle cannot be absorbed.
       return { kind: 'node', node: { id, type: 'loop', data: { label, over: '', body: [] } } }
     case 'stopAndError':
       return {
@@ -471,6 +606,12 @@ function mapNode(node: N8nNode, id: string, warnings: string[]): Mapped {
       warnings.push(`"${label}" ran another n8n workflow — import that workflow too, then select it in this step.`)
       return { kind: 'node', node: { id, type: 'subflow', data: { label, flowId: '' } } }
     default: {
+      if (DATA_CODE_NODES.has(base)) {
+        const code = dataNodeCode(base, p, warnings, label)
+        if (code !== null) {
+          return { kind: 'node', node: { id, type: 'code', data: { label, language: 'javascript', mode: 'allItems', code } } }
+        }
+      }
       // The integration tail: import as an honest HTTP stub. The original
       // type + parameters travel in the note so the API call can be rebuilt.
       const note = `Imported from n8n node "${node.type}". Rebuild this step as the equivalent API request.\nOriginal parameters:\n${JSON.stringify(p, null, 2)}`.slice(0, 4000)
@@ -610,6 +751,9 @@ export function fromN8nWorkflow(raw: unknown): ImportedFlow {
   // connections: { "<source name>": { main: [ [ {node,type,index} ] ] } }
   const nodeById = new Map(nodes.map((node) => [node.id, node]))
   const edges: FlowEdge[] = []
+  // splitInBatches output 1 is the LOOP branch (n8n outputNames ['done','loop']);
+  // those edges are held aside for absorbLoopBodies instead of wired directly.
+  const loopStarts: Array<{ loopId: string; target: string }> = []
   let edgeSeq = 1
   for (const [sourceName, value] of Object.entries(workflow.connections)) {
     const sourceId = idByName.get(sourceName)
@@ -622,6 +766,10 @@ export function fromN8nWorkflow(raw: unknown): ImportedFlow {
         const targetId = idByName.get(link.node)
         if (!targetId) continue
         const source = nodeById.get(sourceId)
+        if (source?.type === 'loop' && outputIndex === 1) {
+          loopStarts.push({ loopId: sourceId, target: targetId })
+          continue
+        }
         const branch =
           source?.type === 'condition' ? (outputIndex === 0 ? 'true' : 'false')
           : source?.type === 'switch' ? source.data.cases[outputIndex]?.id ?? 'default'
@@ -646,6 +794,71 @@ export function fromN8nWorkflow(raw: unknown): ImportedFlow {
     }
     liveEdges = liveEdges.filter((edge) => edge.source !== dropId && edge.target !== dropId).concat(bridged)
     delete layout[dropId]
+  }
+
+  // Loop surgery: absorb each splitInBatches cycle into the loop node's body.
+  // Walk the held-aside loop branch; a single chain that returns to the loop
+  // node becomes data.body (ids), its chain edges removed. Anything tangled
+  // falls back to a plain edge + warning.
+  for (const { loopId, target } of loopStarts) {
+    const loop = nodeById.get(loopId)
+    if (!loop || loop.type !== 'loop') continue
+    const body: string[] = []
+    const chainEdges: FlowEdge[] = []
+    let current: string | undefined = target
+    let absorbed = false
+    const visited = new Set<string>()
+    while (current && !visited.has(current) && body.length <= 100) {
+      visited.add(current)
+      body.push(current)
+      const outgoing = liveEdges.filter((edge) => edge.source === current)
+      if (outgoing.length !== 1) break
+      chainEdges.push(outgoing[0])
+      if (outgoing[0].target === loopId) { absorbed = true; break }
+      current = outgoing[0].target
+    }
+    if (absorbed && body.every((id) => nodeById.has(id))) {
+      loop.data.body = body
+      const predecessors = Array.from(new Set(liveEdges.filter((edge) => edge.target === loopId && !chainEdges.includes(edge)).map((edge) => edge.source)))
+      loop.data.over = predecessors.length === 1
+        ? (predecessors[0] === 'trigger' ? '{{trigger.input}}' : `{{step.${predecessors[0]}.output}}`)
+        : ''
+      const remove = new Set(chainEdges)
+      liveEdges = liveEdges.filter((edge) => !remove.has(edge) && !body.includes(edge.target as string))
+    } else {
+      liveEdges.push({ id: `e-${edgeSeq++}`, source: loopId, target })
+      warnings.push(`"${(loop.data as { label?: string }).label ?? loopId}": n8n loop wiring does not translate cleanly — move the looped steps into the Loop step and set what it loops over.`)
+    }
+  }
+
+  // formTrigger: surface its typed fields as a first-class input node wired
+  // directly behind the trigger, so the imported flow keeps its signature.
+  if (primaryTrigger && (baseType(primaryTrigger.type) === 'formTrigger' || baseType(primaryTrigger.type) === 'form')) {
+    const formFields = isRecord(primaryTrigger.parameters.formFields) && Array.isArray(primaryTrigger.parameters.formFields.values)
+      ? primaryTrigger.parameters.formFields.values : []
+    const params = formFields.flatMap((field) => {
+      if (!isRecord(field) || !field.fieldLabel) return []
+      const name = asString(field.fieldLabel).toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '')
+      if (!name) return []
+      const type = field.fieldType === 'number' ? 'number' : field.fieldType === 'checkbox' ? 'boolean' : 'string'
+      return [{ name, type: type as 'string' | 'number' | 'boolean', ...(field.requiredField === true ? { required: true } : {}) }]
+    })
+    if (params.length) {
+      let inputId = 'form-input'
+      for (let n = 2; usedIds.has(inputId); n += 1) inputId = `form-input-${n}`
+      usedIds.add(inputId)
+      const inputNode: FlowNode = {
+        id: inputId, type: 'input',
+        data: { label: asString(primaryTrigger.parameters.formTitle) || 'Form input', params },
+      }
+      const triggerIndex = nodes.findIndex((node) => node.id === 'trigger')
+      nodes.splice(triggerIndex + 1, 0, inputNode)
+      nodeById.set(inputId, inputNode)
+      for (const edge of liveEdges) {
+        if (edge.source === 'trigger') edge.source = inputId
+      }
+      liveEdges.push({ id: `e-${edgeSeq++}`, source: 'trigger', target: inputId })
+    }
   }
 
   // No trigger in the workflow: prepend a manual one wired to the entry nodes.

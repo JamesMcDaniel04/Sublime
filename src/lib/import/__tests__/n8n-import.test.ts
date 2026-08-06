@@ -358,6 +358,122 @@ test('httpRequest maps keypair body, timeout, redirects, and warns on credential
   assert.ok(imported.warnings.some((warning) => warning.includes('credentials')))
 })
 
+/**
+ * Run a generated code node's JS the way run-js does: async fn body with
+ * `items` in scope. Test-only: the code under test is OUR generator's output
+ * from fixtures owned by this file (production runs it inside the QuickJS
+ * sandbox); nothing user-controlled reaches this Function body.
+ */
+async function runGenerated(code: string, items: unknown[]): Promise<unknown> {
+  const fn = new Function('items', `return (async () => {\n${code}\n})()`)
+  return await fn(items)
+}
+
+test('pure data nodes become runnable generated code', async () => {
+  const imported = fromN8nWorkflow({
+    nodes: [
+      { parameters: {}, id: 'n-t', name: 'Manual', type: 'n8n-nodes-base.manualTrigger', typeVersion: 1, position: [0, 0] },
+      { parameters: { maxItems: 2, keep: 'firstItems' }, id: 'n-limit', name: 'Limit', type: 'n8n-nodes-base.limit', typeVersion: 1, position: [0, 0] },
+      { parameters: { type: 'simple', sortFieldsUi: { sortField: [{ fieldName: 'score', order: 'descending' }] } }, id: 'n-sort', name: 'Sort', type: 'n8n-nodes-base.sort', typeVersion: 1, position: [0, 0] },
+      { parameters: { fieldToSplitOut: 'emails', include: 'allOtherFields' }, id: 'n-split', name: 'Split Out', type: 'n8n-nodes-base.splitOut', typeVersion: 1, position: [0, 0] },
+      { parameters: { aggregate: 'aggregateAllItemData', destinationFieldName: 'data' }, id: 'n-agg', name: 'Aggregate', type: 'n8n-nodes-base.aggregate', typeVersion: 1, position: [0, 0] },
+      { parameters: { operation: 'removeDuplicateInputItems', compare: 'selectedFields', fieldsToCompare: 'email' }, id: 'n-dedupe', name: 'Dedupe', type: 'n8n-nodes-base.removeDuplicates', typeVersion: 2, position: [0, 0] },
+      { parameters: { keys: { key: [{ currentKey: 'fullName', newKey: 'name' }] } }, id: 'n-rename', name: 'Rename', type: 'n8n-nodes-base.renameKeys', typeVersion: 1, position: [0, 0] },
+    ],
+    connections: {},
+  })
+  const byId = new Map(imported.graph.nodes.map((node) => [node.id, node]))
+  const codeOf = (id: string) => {
+    const node = byId.get(id) as NodeOf<'code'>
+    assert.equal(node.type, 'code', `${id} should be a code node`)
+    return node.data.code
+  }
+  // None of these are stubs.
+  assert.equal(imported.stubbedNodes.length, 0)
+
+  assert.deepEqual(await runGenerated(codeOf('n-limit'), [1, 2, 3]), [1, 2])
+  assert.deepEqual(
+    await runGenerated(codeOf('n-sort'), [{ score: 1 }, { score: 9 }, { score: 4 }]),
+    [{ score: 9 }, { score: 4 }, { score: 1 }],
+  )
+  assert.deepEqual(
+    await runGenerated(codeOf('n-split'), [{ emails: ['a@x.co', 'b@x.co'], team: 'ops' }]),
+    [{ emails: 'a@x.co', team: 'ops' }, { emails: 'b@x.co', team: 'ops' }],
+  )
+  assert.deepEqual(await runGenerated(codeOf('n-agg'), [{ a: 1 }, { a: 2 }]), { data: [{ a: 1 }, { a: 2 }] })
+  assert.deepEqual(
+    await runGenerated(codeOf('n-dedupe'), [{ email: 'a@x.co', n: 1 }, { email: 'a@x.co', n: 2 }, { email: 'b@x.co', n: 3 }]),
+    [{ email: 'a@x.co', n: 1 }, { email: 'b@x.co', n: 3 }],
+  )
+  assert.deepEqual(
+    await runGenerated(codeOf('n-rename'), [{ fullName: 'Ada', role: 'eng' }]),
+    [{ name: 'Ada', role: 'eng' }],
+  )
+})
+
+test('splitInBatches loops absorb their body when the cycle is clean', () => {
+  const imported = fromN8nWorkflow({
+    nodes: [
+      { parameters: {}, id: 'n-t', name: 'Manual', type: 'n8n-nodes-base.manualTrigger', typeVersion: 1, position: [0, 0] },
+      { parameters: { batchSize: 1 }, id: 'n-loop', name: 'Loop Over Items', type: 'n8n-nodes-base.splitInBatches', typeVersion: 3, position: [100, 0] },
+      { parameters: { method: 'POST', url: 'https://api.example.com/notify' }, id: 'n-notify', name: 'Notify', type: 'n8n-nodes-base.httpRequest', typeVersion: 4.2, position: [200, 100] },
+      { parameters: { amount: 2, unit: 'seconds' }, id: 'n-pause', name: 'Pause', type: 'n8n-nodes-base.wait', typeVersion: 1.1, position: [300, 100] },
+      { parameters: { assignments: { assignments: [{ name: 'done', value: 'yes' }] } }, id: 'n-after', name: 'After', type: 'n8n-nodes-base.set', typeVersion: 3.4, position: [300, -100] },
+    ],
+    connections: {
+      Manual: { main: [[{ node: 'Loop Over Items', type: 'main', index: 0 }]] },
+      'Loop Over Items': {
+        main: [
+          [{ node: 'After', type: 'main', index: 0 }],   // output 0 = done
+          [{ node: 'Notify', type: 'main', index: 0 }],  // output 1 = loop
+        ],
+      },
+      Notify: { main: [[{ node: 'Pause', type: 'main', index: 0 }]] },
+      Pause: { main: [[{ node: 'Loop Over Items', type: 'main', index: 0 }]] },
+    },
+  })
+  const loop = imported.graph.nodes.find((node) => node.type === 'loop') as NodeOf<'loop'>
+  assert.deepEqual(loop.data.body, ['n-notify', 'n-pause'])
+  assert.equal(loop.data.over, '{{trigger.input}}')
+  // Loop-body nodes keep their node entries but lose their chain edges;
+  // the done path is the only remaining continuation.
+  assert.deepEqual(
+    imported.graph.edges.map((edge) => [edge.source, edge.target]).sort(),
+    [['n-loop', 'n-after'], ['trigger', 'n-loop']],
+  )
+  // The clean-absorb path should not emit the "does not translate" warning.
+  assert.equal(imported.warnings.some((warning) => warning.includes('does not translate')), false)
+})
+
+test('formTrigger becomes a typed input node behind the trigger', () => {
+  const imported = fromN8nWorkflow({
+    nodes: [
+      {
+        parameters: {
+          formTitle: 'Vendor intake',
+          formFields: { values: [
+            { fieldLabel: 'Company Name', fieldType: 'text', requiredField: true },
+            { fieldLabel: 'Seats', fieldType: 'number' },
+          ] },
+        },
+        id: 'n-form', name: 'On form submission', type: 'n8n-nodes-base.formTrigger', typeVersion: 2.6, position: [0, 0],
+      },
+      { parameters: { assignments: { assignments: [{ name: 'ok', value: 'yes' }] } }, id: 'n-set', name: 'Set', type: 'n8n-nodes-base.set', typeVersion: 3.4, position: [200, 0] },
+    ],
+    connections: { 'On form submission': { main: [[{ node: 'Set', type: 'main', index: 0 }]] } },
+  })
+  const input = imported.graph.nodes.find((node) => node.type === 'input') as NodeOf<'input'>
+  assert.ok(input, 'expected an input node')
+  assert.deepEqual(input.data.params, [
+    { name: 'company_name', type: 'string', required: true },
+    { name: 'seats', type: 'number' },
+  ])
+  // Wiring: trigger → input → former trigger targets.
+  const edgePairs = imported.graph.edges.map((edge) => [edge.source, edge.target])
+  assert.ok(edgePairs.some(([source, target]) => source === 'trigger' && target === input.id))
+  assert.ok(edgePairs.some(([source, target]) => source === input.id && target === 'n-set'))
+})
+
 test('round-trips our own n8n export back into a flow', async () => {
   const { toN8nWorkflow } = await import('@/lib/export/n8n')
   const { toPortableFlow } = await import('@/lib/export/portable')
