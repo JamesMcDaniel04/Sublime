@@ -9,6 +9,7 @@ import { inlineLiteralSecretNodes } from '@/lib/flows/inline-auth'
 import { loadFlowToolCatalog } from '@/lib/flows/tool-catalog'
 import { missingRequiredProviders, resolveGraphToolConnections, TEMPLATE_CONNECTION_PREFIX } from '@/lib/templates/provision-plan'
 import { DEFAULT_AGENT_MODEL } from '@/lib/llm/model-runner'
+import { syncAgentConnectors } from '@/lib/connectors/agent-connectors'
 import { SsrfError } from '@/lib/net/ssrf'
 import { detectFlowImportFormat } from '@/lib/import/detect'
 import { fromDownloadedFlow, fromPortableFlow } from '@/lib/import/portable'
@@ -112,7 +113,7 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
   // Agents + flow land atomically: a failed import leaves nothing behind.
   const { flow, createdAgents, clearedRefs } = await prisma.$transaction(async (tx) => {
     const refToId: Record<string, string> = {}
-    const createdAgents: Array<{ id: string; title: string }> = []
+    const createdAgents: Array<{ id: string; title: string; integrations: string[] }> = []
     for (const agent of imported.agentsToCreate) {
       const created = await tx.agentTask.create({
         data: {
@@ -137,7 +138,7 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
         select: { id: true },
       })
       refToId[agent.ref] = created.id
-      createdAgents.push({ id: created.id, title: agent.title })
+      createdAgents.push({ id: created.id, title: agent.title, integrations: agent.integrations })
     }
     const remapped = remapAgentRefs(graph, refToId)
     const flow = await tx.flow.create({
@@ -158,6 +159,12 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
   for (const ref of clearedRefs) {
     warnings.push(`An agent step referenced an agent (${ref}) that was not in the file — pick one of your agents.`)
   }
+
+  // Bind each materialized agent's integrations to live connector rows (same
+  // move as template provisioning) — best-effort, never fails the import.
+  await Promise.all(createdAgents.map((agent) =>
+    syncAgentConnectors(agent.id, auth.organizationId, auth.dbUser.id, agent.integrations).catch(() => undefined),
+  ))
 
   await recordUserEvent({
     organizationId: auth.organizationId, userId: auth.dbUser.id,

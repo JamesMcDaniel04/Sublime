@@ -88,6 +88,42 @@ if (TEST_DB) {
       assert.equal(body.report.stubbedNodes.length, 1)
     })
 
+    await t.test('n8n AI-agent cluster materializes an agent with model + integrations', async () => {
+      const response = await POST(post({
+        document: JSON.stringify({
+          name: 'Triage',
+          nodes: [
+            { parameters: {}, id: 'a', name: 'Manual', type: 'n8n-nodes-base.manualTrigger', typeVersion: 1, position: [0, 0] },
+            {
+              parameters: { promptType: 'auto', text: '={{ $json.chatInput }}', options: { systemMessage: 'Triage tickets.' } },
+              id: 'b', name: 'Agent', type: '@n8n/n8n-nodes-langchain.agent', typeVersion: 3.1, position: [200, 0],
+            },
+            { parameters: { model: { __rl: true, mode: 'list', value: 'claude-sonnet-4-6' } }, id: 'c', name: 'Model', type: '@n8n/n8n-nodes-langchain.lmChatAnthropic', typeVersion: 1.5, position: [100, 150] },
+            { parameters: {}, id: 'd', name: 'Gmail', type: 'n8n-nodes-base.gmailTool', typeVersion: 2.2, position: [250, 150] },
+          ],
+          connections: {
+            Manual: { main: [[{ node: 'Agent', type: 'main', index: 0 }]] },
+            Model: { ai_languageModel: [[{ node: 'Agent', type: 'ai_languageModel', index: 0 }]] },
+            Gmail: { ai_tool: [[{ node: 'Agent', type: 'ai_tool', index: 0 }]] },
+          },
+        }),
+      }))
+      assert.equal(response.status, 200)
+      const body = await response.json()
+      assert.equal(body.report.createdAgents.length, 1)
+      const agentRow = await prisma.agentTask.findFirstOrThrow({
+        where: { id: body.report.createdAgents[0].id, organizationId: seeded.organizationId },
+      })
+      assert.equal(agentRow.objective, 'Triage tickets.')
+      const metadata = agentRow.metadata as { model?: string; integrations?: string[] }
+      assert.equal(metadata.model, 'claude-sonnet-4-6')
+      assert.deepEqual(metadata.integrations, ['gmail'])
+      // The graph's agent step points at the created agent.
+      const graph = (await prisma.flow.findFirstOrThrow({ where: { id: body.flow.id, organizationId: seeded.organizationId } }))
+        .graph as { nodes: Array<{ type: string; data: Record<string, unknown> }> }
+      assert.equal(graph.nodes.find((node) => node.type === 'agent')?.data.agentId, agentRow.id)
+    })
+
     await t.test('imports the builder bare download shape', async () => {
       const response = await POST(post({
         document: JSON.stringify({

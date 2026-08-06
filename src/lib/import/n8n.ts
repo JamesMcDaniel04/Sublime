@@ -651,6 +651,86 @@ function applyCommonProps(mapped: FlowNode, source: N8nNode, warnings: string[])
   }
 }
 
+const JSON_SEGMENT = /^\s*\$json\s*((?:\.[A-Za-z_$][A-Za-z0-9_$]*|\[\d+\]|\[(?:"[^"]*"|'[^']*')\])*)\s*$/
+const NODE_SEGMENT = /^\s*\$node\[(["'])([\s\S]+?)\1\]\.json\s*((?:\.[A-Za-z_$][A-Za-z0-9_$]*|\[\d+\])*)\s*$/
+
+/**
+ * Best-effort n8n expression → Sublime template translation. All-or-nothing
+ * per string: a `=`-prefixed string converts only when EVERY `{{ … }}` segment
+ * is a plain `$json`/`$node["…"]` data reference — `$json` needs exactly one
+ * main predecessor to name the source step (the trigger predecessor becomes
+ * `trigger.input`). Function calls, `$now`, ternaries, … keep the original
+ * string verbatim; half-translated expressions would be worse than honest
+ * untranslated ones.
+ */
+function translateExpressions(
+  nodes: FlowNode[],
+  edges: FlowEdge[],
+  idByName: Map<string, string>,
+  warnings: string[],
+): void {
+  const predecessors = new Map<string, Set<string>>()
+  for (const edge of edges) {
+    const set = predecessors.get(edge.target) ?? new Set<string>()
+    set.add(edge.source)
+    predecessors.set(edge.target, set)
+  }
+  let untranslated = 0
+
+  const translateString = (value: string, nodeId: string): string => {
+    if (!value.startsWith('=') || !value.includes('{{')) return value
+    const preds = predecessors.get(nodeId)
+    const jsonBase = preds?.size === 1
+      ? (() => { const [pred] = preds; return pred === 'trigger' ? 'trigger.input' : `step.${pred}.output` })()
+      : null
+    let allTranslated = true
+    const converted = value.slice(1).replace(/\{\{([\s\S]*?)\}\}/g, (segment, inner: string) => {
+      const jsonMatch = JSON_SEGMENT.exec(inner)
+      if (jsonMatch) {
+        if (!jsonBase) { allTranslated = false; return segment }
+        return `{{${jsonBase}${jsonMatch[1] ?? ''}}}`
+      }
+      const nodeMatch = NODE_SEGMENT.exec(inner)
+      if (nodeMatch) {
+        const referencedId = idByName.get(nodeMatch[2])
+        if (!referencedId) { allTranslated = false; return segment }
+        return `{{step.${referencedId}.output${nodeMatch[3] ?? ''}}}`
+      }
+      allTranslated = false
+      return segment
+    })
+    if (!allTranslated) { untranslated += 1; return value }
+    return converted
+  }
+
+  const walk = (value: unknown, nodeId: string): unknown => {
+    if (typeof value === 'string') return translateString(value, nodeId)
+    if (Array.isArray(value)) return value.map((entry) => walk(entry, nodeId))
+    if (isRecord(value)) {
+      const out: Record<string, unknown> = {}
+      for (const [key, entry] of Object.entries(value)) out[key] = walk(entry, nodeId)
+      return out
+    }
+    return value
+  }
+
+  for (const node of nodes) {
+    if (node.type === 'trigger') continue
+    // User-authored code runs against `items`, and stub notes are a verbatim
+    // record — neither is template-bearing.
+    const skip = node.type === 'code' ? new Set(['code', 'note']) : new Set(['note'])
+    const data = node.data as Record<string, unknown>
+    for (const [key, entry] of Object.entries(data)) {
+      if (skip.has(key)) continue
+      data[key] = walk(entry, node.id)
+    }
+  }
+
+  if (untranslated > 0) {
+    warnings.push(`${untranslated} n8n expression(s) could not be translated and were kept as-is — rewrite them as {{step.…}} or {{input.…}} references.`)
+  }
+}
+
 const AI_ATTACHMENT_TYPES = new Set(['ai_languageModel', 'ai_tool', 'ai_memory', 'ai_outputParser', 'ai_embedding', 'ai_vectorStore', 'ai_retriever', 'ai_reranker', 'ai_textSplitter', 'ai_document'])
 const AGENT_FAMILY = new Set(['agent', 'agentTool', 'chainLlm'])
 
@@ -881,11 +961,7 @@ export function fromN8nWorkflow(raw: unknown): ImportedFlow {
     return true
   })
 
-  const liveN8nNodes = workflow.nodes.filter((node) => !absorbed.has(node.name))
-  const expressionHits = JSON.stringify(liveN8nNodes).match(/=\{\{|\$json|\$node\b/g)
-  if (expressionHits?.length) {
-    warnings.push(`${expressionHits.length} n8n expression reference(s) were kept as-is — rewrite them as {{step.…}} or {{input.…}} references.`)
-  }
+  translateExpressions(nodes, finalEdges, idByName, warnings)
 
   const graphParse = flowGraphSchema.safeParse({ nodes, edges: finalEdges, ...(Object.keys(layout).length ? { layout } : {}) })
   if (!graphParse.success) {

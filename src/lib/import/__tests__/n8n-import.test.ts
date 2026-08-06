@@ -54,7 +54,8 @@ test('converts the fixture: trigger, condition with branches, http, slack stub',
 
   const condition = imported.graph.nodes.find((node) => node.type === 'condition') as NodeOf<'condition'>
   assert.equal(condition.data.label, 'Qualified?')
-  assert.deepEqual(condition.data.clauses, [{ left: '={{ $json.score }}', op: 'gt', right: '50' }])
+  // Tier-3 translation: the trigger is the if node's only predecessor.
+  assert.deepEqual(condition.data.clauses, [{ left: '{{trigger.input.score}}', op: 'gt', right: '50' }])
 
   const http = imported.graph.nodes.find((node) => node.type === 'http' && node.data.url) as NodeOf<'http'>
   assert.equal(http.data.method, 'POST')
@@ -268,11 +269,12 @@ test('condition operator expansion: startsWith, boolean, empty, dateTime', () =>
     return condition.data.clauses?.[0]
   }
 
-  assert.deepEqual(clauseFor({ type: 'string', operation: 'startsWith' }, 'Re:'), { left: '={{ $json.v }}', op: 'matches', right: '^Re\\:' })
-  assert.deepEqual(clauseFor({ type: 'string', operation: 'endsWith' }, '.pdf'), { left: '={{ $json.v }}', op: 'matches', right: '\\.pdf$' })
-  assert.deepEqual(clauseFor({ type: 'boolean', operation: 'true' }, ''), { left: '={{ $json.v }}', op: 'eq', right: 'true' })
-  assert.deepEqual(clauseFor({ type: 'string', operation: 'empty' }, ''), { left: '={{ $json.v }}', op: 'eq', right: '' })
-  assert.deepEqual(clauseFor({ type: 'dateTime', operation: 'after' }, '2026-01-01'), { left: '={{ $json.v }}', op: 'gt', right: '2026-01-01' })
+  // left values also pass Tier-3 translation (trigger is the predecessor).
+  assert.deepEqual(clauseFor({ type: 'string', operation: 'startsWith' }, 'Re:'), { left: '{{trigger.input.v}}', op: 'matches', right: '^Re\\:' })
+  assert.deepEqual(clauseFor({ type: 'string', operation: 'endsWith' }, '.pdf'), { left: '{{trigger.input.v}}', op: 'matches', right: '\\.pdf$' })
+  assert.deepEqual(clauseFor({ type: 'boolean', operation: 'true' }, ''), { left: '{{trigger.input.v}}', op: 'eq', right: 'true' })
+  assert.deepEqual(clauseFor({ type: 'string', operation: 'empty' }, ''), { left: '{{trigger.input.v}}', op: 'eq', right: '' })
+  assert.deepEqual(clauseFor({ type: 'dateTime', operation: 'after' }, '2026-01-01'), { left: '{{trigger.input.v}}', op: 'gt', right: '2026-01-01' })
 })
 
 test('respondToWebhook reads options.responseCode and maps respondWith', () => {
@@ -472,6 +474,64 @@ test('formTrigger becomes a typed input node behind the trigger', () => {
   const edgePairs = imported.graph.edges.map((edge) => [edge.source, edge.target])
   assert.ok(edgePairs.some(([source, target]) => source === 'trigger' && target === input.id))
   assert.ok(edgePairs.some(([source, target]) => source === input.id && target === 'n-set'))
+})
+
+test('expressions translate when the data path is unambiguous', () => {
+  const imported = fromN8nWorkflow({
+    nodes: [
+      { parameters: {}, id: 'n-t', name: 'Manual', type: 'n8n-nodes-base.manualTrigger', typeVersion: 1, position: [0, 0] },
+      { parameters: { assignments: { assignments: [{ name: 'team', value: 'ops' }] } }, id: 'n-set', name: 'Set team', type: 'n8n-nodes-base.set', typeVersion: 3.4, position: [100, 0] },
+      {
+        parameters: {
+          method: 'POST',
+          url: '={{ $json.team }}',
+          sendBody: true,
+          jsonBody: '=Hello {{ $json.team }}, via {{ $node["Set team"].json.team }}',
+        },
+        id: 'n-http', name: 'Call', type: 'n8n-nodes-base.httpRequest', typeVersion: 4.2, position: [200, 0],
+      },
+      { parameters: { method: 'GET', url: '={{ JSON.stringify($json) }}' }, id: 'n-http2', name: 'Complex', type: 'n8n-nodes-base.httpRequest', typeVersion: 4.2, position: [300, 0] },
+    ],
+    connections: {
+      Manual: { main: [[{ node: 'Set team', type: 'main', index: 0 }]] },
+      'Set team': { main: [[{ node: 'Call', type: 'main', index: 0 }]] },
+      Call: { main: [[{ node: 'Complex', type: 'main', index: 0 }]] },
+    },
+  })
+  const byId = new Map(imported.graph.nodes.map((node) => [node.id, node]))
+  const call = byId.get('n-http') as NodeOf<'http'>
+  // $json with a single predecessor → that step's output.
+  assert.equal(call.data.url, '{{step.n-set.output.team}}')
+  // Mixed string: every segment translated, leading '=' stripped.
+  assert.equal(call.data.body, 'Hello {{step.n-set.output.team}}, via {{step.n-set.output.team}}')
+  // Function-call segments never partially translate.
+  const complex = byId.get('n-http2') as NodeOf<'http'>
+  assert.equal(complex.data.url, '={{ JSON.stringify($json) }}')
+  assert.ok(imported.warnings.some((warning) => warning.includes('expression')))
+})
+
+test('$json with the trigger as predecessor becomes trigger.input', () => {
+  const imported = fromN8nWorkflow({
+    nodes: [
+      { parameters: { path: 'lead' }, id: 'n-t', name: 'Webhook', type: 'n8n-nodes-base.webhook', typeVersion: 2.1, position: [0, 0] },
+      { parameters: { method: 'POST', url: 'https://api.example.com', sendBody: true, jsonBody: '={{ $json.email }}' }, id: 'n-http', name: 'Call', type: 'n8n-nodes-base.httpRequest', typeVersion: 4.2, position: [100, 0] },
+    ],
+    connections: { Webhook: { main: [[{ node: 'Call', type: 'main', index: 0 }]] } },
+  })
+  const call = imported.graph.nodes.find((node) => node.type === 'http') as NodeOf<'http'>
+  assert.equal(call.data.body, '{{trigger.input.email}}')
+})
+
+test('code node contents are never expression-translated', () => {
+  const imported = fromN8nWorkflow({
+    nodes: [
+      { parameters: {}, id: 'n-t', name: 'Manual', type: 'n8n-nodes-base.manualTrigger', typeVersion: 1, position: [0, 0] },
+      { parameters: { jsCode: 'const x = $json.value; return [x]' }, id: 'n-code', name: 'Code', type: 'n8n-nodes-base.code', typeVersion: 2, position: [100, 0] },
+    ],
+    connections: { Manual: { main: [[{ node: 'Code', type: 'main', index: 0 }]] } },
+  })
+  const code = imported.graph.nodes.find((node) => node.type === 'code') as NodeOf<'code'>
+  assert.equal(code.data.code, 'const x = $json.value; return [x]')
 })
 
 test('round-trips our own n8n export back into a flow', async () => {
