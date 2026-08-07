@@ -1168,6 +1168,9 @@ const AGENT_FAMILY = new Set(['agent', 'agentTool', 'chainLlm'])
 export function fromN8nWorkflow(raw: unknown): ImportedFlow {
   const parsed = n8nWorkflowSchema.safeParse(raw)
   if (!parsed.success) throw new FlowImportError('This n8n workflow file is missing its nodes.', 'INVALID_GRAPH')
+  if (parsed.data.nodes.length > 300) {
+    throw new FlowImportError(`This workflow has ${parsed.data.nodes.length} nodes — the import limit is 300. Split it in n8n and import the parts.`, 'INVALID_GRAPH')
+  }
   const workflow = parsed.data
   const warnings: string[] = []
   const stubbedNodes: StubbedNode[] = []
@@ -1257,8 +1260,11 @@ export function fromN8nWorkflow(raw: unknown): ImportedFlow {
       if (trigger === triggerNodes[0]) {
         const anyTrigger = new Set(triggerNodes.flatMap((entry) => [...reachableFrom(entry.name)]))
         for (const node of workflow.nodes) if (!anyTrigger.has(node.name)) included.add(node.name)
-        for (const extra of triggerNodes.slice(1)) included.delete(extra.name)
       }
+      // A trigger wired downstream of ANOTHER trigger would leave two
+      // triggers in the sub-workflow and recurse forever — every sub-flow
+      // keeps exactly its own trigger.
+      for (const other of triggerNodes) if (other !== trigger) included.delete(other.name)
       const connections: Record<string, unknown> = {}
       for (const [sourceName, value] of Object.entries(workflow.connections)) {
         if (!included.has(sourceName) || !isRecord(value)) continue

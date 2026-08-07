@@ -3,6 +3,15 @@ import assert from 'node:assert/strict'
 import { NextRequest } from 'next/server'
 import { startFakeLlm } from './fake-llm-sse'
 
+// DB-backed: runs only when a database is configured. TEST_DATABASE_URL is
+// the QA convention (see template-flow-e2e); plain `npm test` skips cleanly.
+const TEST_DB = process.env.TEST_DATABASE_URL
+if (TEST_DB) {
+  process.env.DATABASE_URL = process.env.DATABASE_URL ?? TEST_DB
+  process.env.DIRECT_URL = process.env.DIRECT_URL ?? TEST_DB
+}
+if (process.env.DATABASE_URL) {
+
 let prisma: typeof import('@/lib/prisma').prisma
 let seeded: Awaited<ReturnType<Awaited<typeof import('@/lib/server/__tests__/test-auth')>['seedTestOrg']>>
 let fake: Awaited<ReturnType<typeof startFakeLlm>>
@@ -92,3 +101,4 @@ test('JSON fallback returns the legacy body shape', async () => {
   assert.equal(body.success, true)
   assert.equal(body.messages.length, 2)
 })
+}

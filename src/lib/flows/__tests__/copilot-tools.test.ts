@@ -1,6 +1,15 @@
 import { test, before, after } from 'node:test'
 import assert from 'node:assert/strict'
 
+// DB-backed: runs only when a database is configured. TEST_DATABASE_URL is
+// the QA convention (see template-flow-e2e); plain `npm test` skips cleanly.
+const TEST_DB = process.env.TEST_DATABASE_URL
+if (TEST_DB) {
+  process.env.DATABASE_URL = process.env.DATABASE_URL ?? TEST_DB
+  process.env.DIRECT_URL = process.env.DIRECT_URL ?? TEST_DB
+}
+if (process.env.DATABASE_URL) {
+
 type Seeded = Awaited<ReturnType<Awaited<typeof import('@/lib/server/__tests__/test-auth')>['seedTestOrg']>>
 
 let prisma: typeof import('@/lib/prisma').prisma
@@ -106,3 +115,4 @@ test('tool roster and labels', async () => {
   const getRun = tools.find((tool) => tool.definition.name === 'get_flow_run')!
   assert.match(getRun.label({ runId: 'run_xyz98765' }), /run_xyz9/)
 })
+}

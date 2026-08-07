@@ -381,7 +381,16 @@ export async function runFlowExecution(
       input: jsonValue({ prompt: input }),
       // reusedInput marks the run as replaying the last successful input —
       // the run panel surfaces it so replayed payloads are never silent.
-      trigger: jsonValue({ ...(job.trigger ?? { type: 'manual' }), ...(reusedInput ? { reusedInput: true } : {}) }),
+      // sampleData marks runs whose steps were seeded/mocked, so a demo can
+      // never be mistaken for a real delivery in the run history or audits.
+      trigger: jsonValue({
+        ...(job.trigger ?? { type: 'manual' }),
+        ...(reusedInput ? { reusedInput: true } : {}),
+        ...((job.mockOutputs && Object.keys(job.mockOutputs).length) ||
+        graph.nodes.some((node) => (node.data as { mockOutput?: unknown }).mockOutput !== undefined)
+          ? { sampleData: true }
+          : {}),
+      }),
       graphSnapshot: jsonValue(graph),
       organizationId: job.organizationId,
       userId: job.userId,
