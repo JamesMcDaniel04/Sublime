@@ -503,10 +503,10 @@ export default function FlowsPage() {
       <ImportFlowDialog
         open={importOpen}
         onOpenChange={setImportOpen}
-        onImported={(flowId) => {
+        onImported={(flowId, options) => {
           setImportOpen(false)
           void refresh()
-          router.push(`/flows/${flowId}`)
+          router.push(`/flows/${flowId}${options?.demo ? '?copilotDemo=1' : ''}`)
         }}
       />
     </div>

@@ -38,8 +38,9 @@ type ImportReport = {
 type Props = {
   open: boolean
   onOpenChange: (open: boolean) => void
-  /** Called when the user clicks "Open flow" on the success screen. */
-  onImported: (flowId: string) => void
+  /** Called from the success screen; `demo` asks the builder to open the
+   *  Copilot and run a sample-data preview of the imported flow. */
+  onImported: (flowId: string, options?: { demo?: boolean }) => void
 }
 
 const MAX_FILE_BYTES = 2 * 1024 * 1024
@@ -55,10 +56,12 @@ export function ImportFlowDialog({ open, onOpenChange, onImported }: Props) {
   const [error, setError] = useState('')
   const [result, setResult] = useState<{ flowId: string; name: string; graph: unknown; updatedAt?: string; report: ImportReport } | null>(null)
   const [boundGroups, setBoundGroups] = useState<Record<string, string>>({})
+  /** Set when the same document was imported before — offers update vs copy. */
+  const [conflict, setConflict] = useState<{ payload: Record<string, unknown>; message: string } | null>(null)
   const fileInput = useRef<HTMLInputElement>(null)
 
   const reset = () => {
-    setFileName(''); setDocument(''); setUrl(''); setPasted(''); setError(''); setResult(null); setSubmitting(false); setBoundGroups({})
+    setFileName(''); setDocument(''); setUrl(''); setPasted(''); setError(''); setResult(null); setSubmitting(false); setBoundGroups({}); setConflict(null)
   }
 
   /**
@@ -112,14 +115,10 @@ export function ImportFlowDialog({ open, onOpenChange, onImported }: Props) {
     setDocument(await file.text())
   }
 
-  const submit = async () => {
-    const payload = tab === 'url' ? { url: url.trim() } : { document: tab === 'file' ? document : pasted }
-    if (tab === 'url' ? !url.trim() : !(tab === 'file' ? document : pasted).trim()) {
-      setError(tab === 'url' ? 'Enter a URL.' : tab === 'file' ? 'Choose a .json file.' : 'Paste the flow JSON.')
-      return
-    }
+  const submitPayload = async (payload: Record<string, unknown>) => {
     setSubmitting(true)
     setError('')
+    setConflict(null)
     try {
       const response = await fetch('/api/flows/import', {
         method: 'POST',
@@ -127,6 +126,10 @@ export function ImportFlowDialog({ open, onOpenChange, onImported }: Props) {
         body: JSON.stringify(payload),
       })
       const body = await response.json().catch(() => ({}))
+      if (response.status === 409 && body.code === 'ALREADY_IMPORTED') {
+        setConflict({ payload, message: body.error || 'This flow was already imported.' })
+        return
+      }
       if (!response.ok || !body.flow) {
         setError(body.error || 'The flow could not be imported.')
         return
@@ -137,6 +140,15 @@ export function ImportFlowDialog({ open, onOpenChange, onImported }: Props) {
     } finally {
       setSubmitting(false)
     }
+  }
+
+  const submit = async () => {
+    const payload = tab === 'url' ? { url: url.trim() } : { document: tab === 'file' ? document : pasted }
+    if (tab === 'url' ? !url.trim() : !(tab === 'file' ? document : pasted).trim()) {
+      setError(tab === 'url' ? 'Enter a URL.' : tab === 'file' ? 'Choose a .json file.' : 'Paste the flow JSON.')
+      return
+    }
+    await submitPayload(payload)
   }
 
   const report = result?.report
@@ -228,6 +240,9 @@ export function ImportFlowDialog({ open, onOpenChange, onImported }: Props) {
             )}
             <DialogFooter>
               <Button variant="outline" onClick={() => onOpenChange(false)}>Close</Button>
+              <Button variant="outline" onClick={() => onImported(result.flowId, { demo: true })}>
+                Preview with sample data
+              </Button>
               <Button onClick={() => onImported(result.flowId)}>Open flow</Button>
             </DialogFooter>
           </>
@@ -305,6 +320,19 @@ export function ImportFlowDialog({ open, onOpenChange, onImported }: Props) {
               <p className="flex items-start gap-1.5 text-sm text-red-600">
                 <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" /> {error}
               </p>
+            )}
+            {conflict && (
+              <div className="space-y-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-900/40 dark:bg-amber-950/40 dark:text-amber-100">
+                <p>{conflict.message}</p>
+                <div className="flex gap-2">
+                  <Button size="sm" onClick={() => void submitPayload({ ...conflict.payload, mode: 'update' })} loading={submitting}>
+                    Update existing flow
+                  </Button>
+                  <Button size="sm" variant="outline" onClick={() => void submitPayload({ ...conflict.payload, mode: 'new' })} disabled={submitting}>
+                    Create a copy
+                  </Button>
+                </div>
+              </div>
             )}
             <DialogFooter>
               <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>

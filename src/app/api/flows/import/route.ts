@@ -29,6 +29,12 @@ const bodySchema = z.object({
   document: z.string().min(1).max(MAX_IMPORT_BYTES).optional(),
   /** Fetch the JSON server-side (SSRF-guarded). */
   url: z.string().url().max(2048).optional(),
+  /**
+   * Re-import behavior when a flow with the same name was already imported:
+   * unset → 409 ALREADY_IMPORTED; 'update' → replace that flow's definition
+   * (agents reused via their importRef tag); 'new' → create a copy anyway.
+   */
+  mode: z.enum(['new', 'update']).optional(),
 }).refine((body) => Boolean(body.document) !== Boolean(body.url), {
   message: 'Provide exactly one of "document" or "url".',
 })
@@ -57,6 +63,17 @@ function convert(text: string): ImportedFlow {
     400,
     'UNRECOGNIZED_FORMAT',
   )
+}
+
+/** The flow a prior import of this document created, if any (owner-scoped). */
+function findPriorImport(organizationId: string, userId: string, name: string, source: string) {
+  return prisma.flow.findFirst({
+    where: {
+      organizationId, userId, name,
+      metadata: { path: ['importedFrom'], equals: source },
+    },
+    select: { id: true, name: true },
+  })
 }
 
 export const POST = withAuthenticatedApi(async (request, auth) => {
@@ -118,8 +135,25 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
     return { flow, graph: cleaned.graph }
   })
 
-  await assertFlowCapacity(auth.organizationId)
-  for (let i = 0; i < siblings.length; i += 1) await assertFlowCapacity(auth.organizationId)
+  // Idempotent re-import: the same document imported twice should not
+  // silently duplicate. Without an explicit mode, a prior import 409s so the
+  // client can offer "update it" or "create a copy".
+  const updateMode = body.mode === 'update'
+  if (!body.mode) {
+    const prior = await findPriorImport(auth.organizationId, auth.dbUser.id, imported.name, imported.source)
+    if (prior) {
+      throw new ApiError(
+        `"${imported.name}" was already imported. Choose whether to update the existing flow or create a copy.`,
+        409,
+        'ALREADY_IMPORTED',
+      )
+    }
+  }
+
+  if (!updateMode) {
+    await assertFlowCapacity(auth.organizationId)
+    for (let i = 0; i < siblings.length; i += 1) await assertFlowCapacity(auth.organizationId)
+  }
   const totalAgents = imported.agentsToCreate.length + siblings.reduce((sum, entry) => sum + entry.flow.agentsToCreate.length, 0)
   for (let i = 0; i < totalAgents; i += 1) await assertAgentCapacity(auth.organizationId)
 
@@ -130,66 +164,113 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
   // Agents + all flows land atomically: a failed import leaves nothing behind.
   const { flow, createdAgents, clearedRefs, additionalCreated } = await prisma.$transaction(async (tx) => {
     const createdAgents: Array<{ id: string; title: string; integrations: string[] }> = []
-    const materializeAgents = async (agents: typeof imported.agentsToCreate): Promise<Record<string, string>> => {
+    const materializeAgents = async (agents: typeof imported.agentsToCreate, flowName: string): Promise<Record<string, string>> => {
       const refToId: Record<string, string> = {}
       for (const agent of agents) {
-        const created = await tx.agentTask.create({
-          data: {
-            agentType: 'CUSTOM',
-            description: agent.title,
-            objective: agent.instructions,
-            goal: agent.goal ?? null,
-            schedule: { type: 'manual', time: '', cron: '', timezone: 'UTC', isActive: false },
-            status: 'ACTIVE',
-            visibility: 'private',
-            organizationId: auth.organizationId,
-            userId: auth.dbUser.id,
-            metadata: {
-              title: agent.title,
-              description: agent.title,
-              model: agent.model ?? DEFAULT_AGENT_MODEL,
-              integrations: agent.integrations,
-              requiredIntegrations: [],
-              skills: [], icon: '', allowSubagents: false, subagentIds: [], autoAnswerFromMemory: true,
-              ...(agent.httpTools?.length ? { httpTools: agent.httpTools } : {}),
-            },
-          },
-          select: { id: true },
-        })
-        refToId[agent.ref] = created.id
-        createdAgents.push({ id: created.id, title: agent.title, integrations: agent.integrations })
+        // Stable identity across re-imports: updating the same document
+        // updates the same agents instead of duplicating them.
+        const importRef = `${flowName}:${agent.ref}`
+        const metadata = {
+          title: agent.title,
+          description: agent.title,
+          model: agent.model ?? DEFAULT_AGENT_MODEL,
+          integrations: agent.integrations,
+          requiredIntegrations: [],
+          skills: [], icon: '', allowSubagents: false, subagentIds: [], autoAnswerFromMemory: true,
+          importRef,
+          ...(agent.httpTools?.length ? { httpTools: agent.httpTools } : {}),
+        }
+        const existing = updateMode
+          ? await tx.agentTask.findFirst({
+              where: { organizationId: auth.organizationId, userId: auth.dbUser.id, metadata: { path: ['importRef'], equals: importRef } },
+              select: { id: true },
+            })
+          : null
+        if (existing) {
+          // updateMany keeps the tenant guard satisfied (org in the where).
+          await tx.agentTask.updateMany({
+            where: { id: existing.id, organizationId: auth.organizationId },
+            data: { description: agent.title, objective: agent.instructions, goal: agent.goal ?? null, metadata },
+          })
+        }
+        const row = existing
+          ? existing
+          : await tx.agentTask.create({
+              data: {
+                agentType: 'CUSTOM',
+                description: agent.title,
+                objective: agent.instructions,
+                goal: agent.goal ?? null,
+                schedule: { type: 'manual', time: '', cron: '', timezone: 'UTC', isActive: false },
+                status: 'ACTIVE',
+                visibility: 'private',
+                organizationId: auth.organizationId,
+                userId: auth.dbUser.id,
+                metadata,
+              },
+              select: { id: true },
+            })
+        refToId[agent.ref] = row.id
+        createdAgents.push({ id: row.id, title: agent.title, integrations: agent.integrations })
       }
       return refToId
     }
-    const createFlowRow = (source: ImportedFlow, flowGraph: typeof graph) =>
-      tx.flow.create({
+    const createFlowRow = async (source: ImportedFlow, flowGraph: typeof graph) => {
+      const metadata = jsonValue({
+        importedFrom: source.source,
+        // Persisted so credential bulk-bind can also happen later, not
+        // only in the import dialog's success screen.
+        ...(source.credentialGroups?.length ? { importedCredentialGroups: source.credentialGroups } : {}),
+      })
+      const data = {
+        name: source.name,
+        description: source.description,
+        trigger: jsonValue(source.trigger),
+        graph: jsonValue(flowGraph),
+        metadata,
+      }
+      if (updateMode) {
+        const prior = await findPriorImport(auth.organizationId, auth.dbUser.id, source.name, source.source)
+        if (prior) {
+          await tx.flow.updateMany({
+            where: { id: prior.id, organizationId: auth.organizationId, userId: auth.dbUser.id },
+            data,
+          })
+          return tx.flow.findFirstOrThrow({ where: { id: prior.id, organizationId: auth.organizationId } })
+        }
+      }
+      const flow = await tx.flow.create({
         data: {
-          name: source.name,
-          description: source.description,
+          ...data,
           status: 'DRAFT',
           visibility: 'private',
-          trigger: jsonValue(source.trigger),
-          graph: jsonValue(flowGraph),
           organizationId: auth.organizationId,
           userId: auth.dbUser.id,
-          metadata: jsonValue({
-            importedFrom: source.source,
-            // Persisted so credential bulk-bind can also happen later, not
-            // only in the import dialog's success screen.
-            ...(source.credentialGroups?.length ? { importedCredentialGroups: source.credentialGroups } : {}),
-          }),
         },
       })
+      return flow
+    }
+    const writePins = async (flowId: string, pins: Record<string, unknown> | undefined) => {
+      if (!pins || !Object.keys(pins).length) return
+      await tx.flowNodePin.deleteMany({ where: { flowId, userId: auth.dbUser.id, organizationId: auth.organizationId } })
+      await tx.flowNodePin.createMany({
+        data: Object.entries(pins).map(([nodeId, output]) => ({
+          flowId, nodeId, userId: auth.dbUser.id, organizationId: auth.organizationId, output: jsonValue(output) as object,
+        })),
+      })
+    }
 
-    const refToId = await materializeAgents(imported.agentsToCreate)
+    const refToId = await materializeAgents(imported.agentsToCreate, imported.name)
     const remapped = remapAgentRefs(graph, refToId)
     const flow = await createFlowRow(imported, remapped.graph)
+    await writePins(flow.id, imported.pins)
 
     const additionalCreated: Array<{ id: string; name: string }> = []
     for (const sibling of siblings) {
-      const siblingRefs = await materializeAgents(sibling.flow.agentsToCreate)
+      const siblingRefs = await materializeAgents(sibling.flow.agentsToCreate, sibling.flow.name)
       const siblingRemapped = remapAgentRefs(sibling.graph, siblingRefs)
       const row = await createFlowRow(sibling.flow, siblingRemapped.graph)
+      await writePins(row.id, sibling.flow.pins)
       additionalCreated.push({ id: row.id, name: row.name })
     }
     return { flow, createdAgents, clearedRefs: remapped.clearedRefs, additionalCreated }

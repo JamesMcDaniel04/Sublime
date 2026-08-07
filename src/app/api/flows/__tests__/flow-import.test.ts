@@ -155,6 +155,45 @@ if (TEST_DB) {
       assert.equal(metadata.importedCredentialGroups?.length, 1)
     })
 
+    await t.test('re-import 409s, update mode reuses the flow and its agents, pinData lands as pins', async () => {
+      const documentOf = (instructions: string) => JSON.stringify({
+        name: 'Repeatable',
+        nodes: [
+          { parameters: {}, id: 'a', name: 'Manual', type: 'n8n-nodes-base.manualTrigger', typeVersion: 1, position: [0, 0] },
+          { parameters: { options: { systemMessage: instructions } }, id: 'b', name: 'Helper', type: '@n8n/n8n-nodes-langchain.agent', typeVersion: 3.1, position: [100, 0] },
+        ],
+        connections: { Manual: { main: [[{ node: 'Helper', type: 'main', index: 0 }]] } },
+        pinData: { Helper: [{ json: { reply: 'sample reply' } }] },
+      })
+      const first = await POST(post({ document: documentOf('v1 instructions') }))
+      assert.equal(first.status, 200)
+      const firstBody = await first.json()
+
+      // Same document again, no mode → structured conflict.
+      const dupe = await POST(post({ document: documentOf('v1 instructions') }))
+      assert.equal(dupe.status, 409)
+      assert.equal((await dupe.json()).code, 'ALREADY_IMPORTED')
+
+      // Update mode: same flow row, same agent row, new instructions.
+      const second = await POST(post({ document: documentOf('v2 instructions'), mode: 'update' }))
+      assert.equal(second.status, 200)
+      const secondBody = await second.json()
+      assert.equal(secondBody.flow.id, firstBody.flow.id)
+      assert.equal(secondBody.report.createdAgents[0].id, firstBody.report.createdAgents[0].id)
+      const agentRow = await prisma.agentTask.findFirstOrThrow({
+        where: { id: secondBody.report.createdAgents[0].id, organizationId: seeded.organizationId },
+      })
+      assert.equal(agentRow.objective, 'v2 instructions')
+
+      // pinData → FlowNodePin rows for the importing user.
+      const pins = await prisma.flowNodePin.findMany({
+        where: { flowId: firstBody.flow.id, organizationId: seeded.organizationId },
+      })
+      assert.equal(pins.length, 1)
+      assert.equal(pins[0].nodeId, 'b')
+      assert.deepEqual(pins[0].output, { reply: 'sample reply' })
+    })
+
     await t.test('imports the builder bare download shape', async () => {
       const response = await POST(post({
         document: JSON.stringify({

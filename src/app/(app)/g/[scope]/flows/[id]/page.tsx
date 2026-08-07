@@ -650,6 +650,21 @@ function FlowBuilder() {
 
   useEffect(() => () => window.clearTimeout(highlightTimer.current), [])
 
+  // Import handoff: ?copilotDemo=1 (the import dialog's "Preview with sample
+  // data") opens the Copilot and asks it to demo-run the freshly imported
+  // flow, then walk through what to connect. Exactly-once per flow id.
+  const copilotDemoRef = useRef<string | null>(null)
+  useEffect(() => {
+    if (searchParams.get('copilotDemo') !== '1' || copilotDemoRef.current === id) return
+    copilotDemoRef.current = id
+    setShowCopilot(true)
+    setCopilotRequest({
+      id: `import-demo-${id}`,
+      content: 'This flow was just imported. Check its connections (list_flow_connections), then run a demo with sample data (demoMocksJson — mock every missing-connection step and every write step) so I can see end-to-end output. Afterwards, list exactly what to connect to make it run for real.',
+      applyOps: true,
+    })
+  }, [id, searchParams])
+
   // Warn before leaving with unsaved edits.
   useEffect(() => {
     const onBeforeUnload = (e: BeforeUnloadEvent) => {

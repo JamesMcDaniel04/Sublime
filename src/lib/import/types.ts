@@ -40,6 +40,9 @@ export type ImportedFlow = {
   stubbedNodes: StubbedNode[]
   /** Source-credential groupings for one-click vault binding after import. */
   credentialGroups?: CredentialGroup[]
+  /** n8n pinData (per-node sample outputs) — lands as FlowNodePins, so token
+   *  previews work the moment the flow opens. */
+  pins?: Record<string, unknown>
   /**
    * Sibling flows created alongside this one — an n8n workflow with N
    * triggers splits into N Sublime flows (one trigger each), the shared

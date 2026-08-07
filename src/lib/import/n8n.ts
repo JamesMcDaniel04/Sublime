@@ -1601,6 +1601,20 @@ export function fromN8nWorkflow(raw: unknown): ImportedFlow {
     throw new FlowImportError(`Converted n8n workflow failed validation: ${issue.path.join('.')} — ${issue.message}`, 'INVALID_GRAPH')
   }
 
+  // n8n pinData ({ nodeName: [{json}, …] }) → per-node sample outputs. The
+  // node ids resolve through the same name table as connections.
+  const pins: Record<string, unknown> = {}
+  const pinData = (workflow as { pinData?: unknown }).pinData
+  if (isRecord(pinData)) {
+    const liveIds = new Set(graphParse.data.nodes.map((node) => node.id))
+    for (const [nodeName, rows] of Object.entries(pinData)) {
+      const nodeId = idByName.get(nodeName)
+      if (!nodeId || !liveIds.has(nodeId) || !Array.isArray(rows)) continue
+      const values = rows.map((row) => (isRecord(row) && 'json' in row ? row.json : row))
+      pins[nodeId] = values.length === 1 ? values[0] : values
+    }
+  }
+
   return {
     name: workflow.name || 'Imported n8n workflow',
     description: '',
@@ -1611,5 +1625,6 @@ export function fromN8nWorkflow(raw: unknown): ImportedFlow {
     warnings: Array.from(new Set(warnings)),
     stubbedNodes,
     ...(credentialGroups.size ? { credentialGroups: Array.from(credentialGroups.values()) } : {}),
+    ...(Object.keys(pins).length ? { pins } : {}),
   }
 }
