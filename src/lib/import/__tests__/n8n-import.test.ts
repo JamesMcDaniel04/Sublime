@@ -730,15 +730,18 @@ test('gap 1: shared credentials group steps and prefill vault auth', () => {
     ],
     connections: {},
   })
+  // API-key credentials group for vault binding; user-grant OAuth types the
+  // runtime can serve from Nango map to predefined-connection auth instead.
   const groups = imported.credentialGroups ?? []
-  assert.equal(groups.length, 2)
+  assert.equal(groups.length, 1)
   const gong = groups.find((group) => group.sourceType === 'gongApi')
   assert.deepEqual(gong?.nodeIds.sort(), ['n-a', 'n-b'])
-  assert.equal(groups.find((group) => group.sourceType === 'salesforceOAuth2Api')?.credentialType, 'oauth2')
-  // Auth prefilled for the vault picker; '=' literal marker stripped.
   const stepA = imported.graph.nodes.find((node) => node.id === 'n-a') as NodeOf<'http'>
   assert.equal(stepA.data.authMode, 'generic')
   assert.equal(stepA.data.url, 'https://api.gong.io/v2/calls')
+  const salesforce = imported.graph.nodes.find((node) => node.id === 'n-c') as NodeOf<'http'>
+  assert.equal(salesforce.data.authMode, 'predefined')
+  assert.equal(salesforce.data.connectionId, 'nango:salesforce')
 })
 
 test('round-trips our own n8n export back into a flow', async () => {

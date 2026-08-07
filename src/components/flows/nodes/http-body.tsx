@@ -129,7 +129,12 @@ function HttpBody({
 
   const patch = (data: Partial<HttpNode['data']>) => update({ ...node, data: { ...node.data, ...data } })
   const urlInvalid = Boolean(showErrors && !node.data.url)
-  const authConnections = toolCatalog.filter((entry) => parseFlowToolConnectionId(entry.id).plane === 'mcp')
+  // MCP connections carry their own tokens; nango:<capability> ids resolve a
+  // fresh Nango-held OAuth token at fetch time (Google/Salesforce grants).
+  const authConnections = toolCatalog.filter((entry) => {
+    const plane = parseFlowToolConnectionId(entry.id).plane
+    return plane === 'mcp' || plane === 'nango'
+  })
   const credentialType = (node.data.credentialType ?? 'basic') as CredentialType
   const bodyAllowed = !BODYLESS_METHODS.has(node.data.method)
   const sendQuery = node.data.sendQuery ?? Boolean(node.data.query?.trim())

@@ -108,6 +108,24 @@ export async function resolveHttpConnectionToken(params: {
   userId?: string
 }): Promise<string> {
   const { plane, ref } = parseFlowToolConnectionId(params.connectionId)
+
+  // Nango-held OAuth (nango:<capability>, e.g. Google/Salesforce user grants):
+  // resolve the workspace's connection for that capability — the acting
+  // user's own first, then org-shared, never another user's — and fetch a
+  // fresh access token from Nango. This is what lets imported n8n HTTP steps
+  // against googleapis.com/salesforce run with the workspace's existing
+  // connection instead of dead-ending on vault OAuth.
+  if (plane === 'nango') {
+    const { resolveDeliveryConnection, DELIVERY_PROVIDERS } = await import('@/lib/nango/delivery')
+    const { getNangoClient } = await import('@/lib/nango/client')
+    if (!(ref in DELIVERY_PROVIDERS)) throw new Error(HTTP_CONNECTION_UNAVAILABLE)
+    const connection = await resolveDeliveryConnection(params.organizationId, ref as keyof typeof DELIVERY_PROVIDERS, params.userId)
+    if (!connection) throw new Error(HTTP_CONNECTION_UNAVAILABLE)
+    const token = await getNangoClient().getToken(connection.providerConfigKey, connection.connectionId).catch(() => null)
+    if (typeof token !== 'string' || !token) throw new Error(HTTP_CONNECTION_UNAVAILABLE)
+    return token
+  }
+
   if (plane !== 'mcp') throw new Error(HTTP_CONNECTION_UNAVAILABLE)
 
   const conn = await prisma.mcpConnection.findFirst({

@@ -32,6 +32,24 @@ import type { PortableAgent } from '@/lib/export/portable'
 import { agentHttpToolSchema, MAX_AGENT_HTTP_TOOLS, type AgentHttpTool } from '@/lib/agents/http-tools'
 import { FlowImportError, type CredentialGroup, type ImportedFlow, type StubbedNode } from './types'
 
+/**
+ * n8n OAuth credential types whose token our runtime can supply from an
+ * existing Nango connection — these import as predefined-connection auth
+ * (runnable immediately when the workspace has the integration connected)
+ * instead of a vault credential the user cannot mint for user-grant OAuth.
+ */
+const NANGO_CREDENTIAL_MAP: Record<string, string> = {
+  salesforceoauth2api: 'nango:salesforce',
+  gmailoauth2: 'nango:gmail',
+  googlesheetsoauth2api: 'nango:sheets',
+  googledriveoauth2api: 'nango:drive',
+  googledocsoauth2api: 'nango:drive',
+  googlecalendaroauth2api: 'nango:calendar',
+  slackoauth2api: 'nango:slack',
+  githuboauth2api: 'nango:github',
+  asanaoauth2api: 'nango:asana',
+}
+
 /** Best-guess vault credential type for an n8n credential type name. */
 function vaultTypeFor(sourceType: string): CredentialGroup['credentialType'] {
   const lower = sourceType.toLowerCase()
@@ -608,15 +626,19 @@ function mapNode(node: N8nNode, id: string, warnings: string[]): Mapped {
               },
             } : {}),
             ...(perItem ? { forEachItem: true } : {}),
-            // Pre-set the vault auth mode so the step's credential picker is
-            // one click away (the credential itself never travels).
-            ...(usesCredential ? {
-              authMode: 'generic' as const,
-              credentialType: (() => {
-                const guess = vaultTypeFor(asString(p.nodeCredentialType ?? p.genericAuthType))
-                return guess === 'apiKeyHeader' ? 'apiKeyHeader' as const : guess === 'basic' ? 'basic' as const : guess === 'oauth2' ? 'oauth2' as const : 'bearer' as const
-              })(),
-            } : {}),
+            // Auth prefill: user-grant OAuth types our runtime can serve from
+            // an existing Nango connection become predefined-connection auth
+            // (runnable once the integration is connected); everything else
+            // pre-sets the vault picker (the credential itself never travels).
+            ...(usesCredential ? (() => {
+              const nangoId = NANGO_CREDENTIAL_MAP[asString(p.nodeCredentialType).toLowerCase()]
+              if (nangoId) return { authMode: 'predefined' as const, connectionId: nangoId }
+              const guess = vaultTypeFor(asString(p.nodeCredentialType ?? p.genericAuthType))
+              return {
+                authMode: 'generic' as const,
+                credentialType: guess === 'apiKeyHeader' ? 'apiKeyHeader' as const : guess === 'basic' ? 'basic' as const : guess === 'oauth2' ? 'oauth2' as const : 'bearer' as const,
+              }
+            })() : {}),
           },
         },
       }
@@ -1058,6 +1080,9 @@ export function fromN8nWorkflow(raw: unknown): ImportedFlow {
   const credentialGroups = new Map<string, CredentialGroup>()
   const collectCredentials = (source: N8nNode, nodeId: string) => {
     const record = (sourceType: string, identity: string, name: string) => {
+      // Nango-served OAuth types bind by connecting the integration (the step
+      // already carries authMode 'predefined'), not by a vault credential.
+      if (NANGO_CREDENTIAL_MAP[sourceType.toLowerCase()]) return
       const key = `${sourceType}:${identity || 'default'}`
       const group = credentialGroups.get(key) ?? {
         key,
