@@ -210,18 +210,65 @@ function expressionValue(source: string, ctx: FlowContext): unknown {
   }
 }
 
+/**
+ * A server-only JavaScript expression evaluator, injected by the runtime so
+ * `{{js: <expr>}}` tokens run in the QuickJS sandbox. Absent on the client
+ * (previews) and in the sync resolvers, where a `js:` token resolves to ''.
+ */
+export type EvalJsFn = (expression: string, ctx: FlowContext) => Promise<unknown>
+
+/** How a single `{{…}}` token body is classified. */
+const JS_TOKEN_PREFIX = 'js:'
+
+/** Resolve ONE token body synchronously. `js:` needs the async path → ''. */
+function tokenValueSync(body: string, ctx: FlowContext): unknown {
+  const path = body.trim()
+  if (path.startsWith(JS_TOKEN_PREFIX)) return ''
+  return path.startsWith('=') ? expressionValue(path.slice(1), ctx) : readPath(ctx, path)
+}
+
+/** Resolve ONE token body, awaiting the injected JS evaluator for `js:`. */
+async function tokenValueAsync(body: string, ctx: FlowContext, evalJs?: EvalJsFn): Promise<unknown> {
+  const path = body.trim()
+  if (path.startsWith(JS_TOKEN_PREFIX)) {
+    if (!evalJs) return ''
+    return evalJs(path.slice(JS_TOKEN_PREFIX.length).trim(), ctx)
+  }
+  return path.startsWith('=') ? expressionValue(path.slice(1), ctx) : readPath(ctx, path)
+}
+
+const stringifyToken = (value: unknown): string =>
+  value == null ? '' : typeof value === 'object' ? JSON.stringify(value) : String(value)
+
 /** Replace `{{path}}` tokens with values from the context. Objects -> JSON; missing -> ''. */
 export function resolveTemplate(template: string, ctx: FlowContext): string {
   // Whitespace is trimmed in the callback rather than in the pattern: `\s*`
   // around a lazy `[^{}]+?` overlaps (whitespace matches both), which makes
   // the match super-linear on a long unclosed `{{`. Trimming in JS keeps the
   // same tokens working and the scan linear.
-  return template.replace(/\{\{([^{}]+?)\}\}/g, (_match, raw: string) => {
-    const path = raw.trim()
-    const value = path.startsWith('=') ? expressionValue(path.slice(1), ctx) : readPath(ctx, path)
-    if (value == null) return ''
-    return typeof value === 'object' ? JSON.stringify(value) : String(value)
-  })
+  return template.replace(/\{\{([^{}]+?)\}\}/g, (_match, raw: string) => stringifyToken(tokenValueSync(raw, ctx)))
+}
+
+/**
+ * Async twin of resolveTemplate: identical for path / `=` mini-expression
+ * tokens, but a `{{js: <expr>}}` token is evaluated by the injected QuickJS
+ * evaluator. Used only by the flow runtime (server); the client keeps the
+ * sync resolver for previews. String.replace can't await, so this scans and
+ * reassembles by hand.
+ */
+export async function resolveTemplateAsync(template: string, ctx: FlowContext, evalJs?: EvalJsFn): Promise<string> {
+  if (!template.includes('{{')) return template
+  const pattern = /\{\{([^{}]+?)\}\}/g
+  const parts: string[] = []
+  let lastIndex = 0
+  let match: RegExpExecArray | null
+  while ((match = pattern.exec(template)) !== null) {
+    parts.push(template.slice(lastIndex, match.index))
+    parts.push(stringifyToken(await tokenValueAsync(match[1], ctx, evalJs)))
+    lastIndex = match.index + match[0].length
+  }
+  parts.push(template.slice(lastIndex))
+  return parts.join('')
 }
 
 /** Resolve templates inside structured values while preserving exact-token objects/arrays. */
@@ -229,10 +276,7 @@ export function resolveTemplateValue(value: unknown, ctx: FlowContext): unknown 
   if (typeof value === 'string') {
     // Same linear-scan reasoning as resolveTemplate: trim in JS, not in the pattern.
     const exact = /^\{\{([^{}]+?)\}\}$/.exec(value.trim())
-    if (exact) {
-      const path = exact[1].trim()
-      return (path.startsWith('=') ? expressionValue(path.slice(1), ctx) : readPath(ctx, path)) ?? ''
-    }
+    if (exact) return tokenValueSync(exact[1], ctx) ?? ''
     return resolveTemplate(value, ctx)
   }
   if (Array.isArray(value)) return value.map((item) => resolveTemplateValue(item, ctx))
@@ -240,6 +284,32 @@ export function resolveTemplateValue(value: unknown, ctx: FlowContext): unknown 
     return Object.fromEntries(
       Object.entries(value as Record<string, unknown>).map(([key, item]) => [key, resolveTemplateValue(item, ctx)]),
     )
+  }
+  return value
+}
+
+/**
+ * Async twin of resolveTemplateValue — preserves exact-token structure and
+ * evaluates `{{js: …}}` via the injected evaluator. An exact `js:` token keeps
+ * the evaluator's native return type (object/number/…), not a stringified copy.
+ */
+export async function resolveTemplateValueAsync(value: unknown, ctx: FlowContext, evalJs?: EvalJsFn): Promise<unknown> {
+  if (typeof value === 'string') {
+    const exact = /^\{\{([^{}]+?)\}\}$/.exec(value.trim())
+    if (exact) return (await tokenValueAsync(exact[1], ctx, evalJs)) ?? ''
+    return resolveTemplateAsync(value, ctx, evalJs)
+  }
+  if (Array.isArray(value)) {
+    const out: unknown[] = []
+    for (const item of value) out.push(await resolveTemplateValueAsync(item, ctx, evalJs))
+    return out
+  }
+  if (value && typeof value === 'object') {
+    const entries: [string, unknown][] = []
+    for (const [key, item] of Object.entries(value as Record<string, unknown>)) {
+      entries.push([key, await resolveTemplateValueAsync(item, ctx, evalJs)])
+    }
+    return Object.fromEntries(entries)
   }
   return value
 }
@@ -271,13 +341,9 @@ function trimOperand<T>(value: T): T {
   return typeof value === 'string' ? (value.trim() as T) : value
 }
 
-/** Evaluate a structured condition against the context. Never runs arbitrary code. */
-/** Evaluate a single comparison. Both sides are templated (RHS may be dynamic). */
-export function evalClause(clause: { left: string; op: ConditionOp; right: string }, ctx: FlowContext): boolean {
-  const leftRaw = trimOperand(resolveTemplate(clause.left, ctx))
-  const rightRaw = trimOperand(resolveTemplate(clause.right, ctx))
-  const cond = clause
-  switch (cond.op) {
+/** Compare two already-resolved string operands by op. Shared by sync + async. */
+function compareOperands(op: ConditionOp, leftRaw: string, rightRaw: string): boolean {
+  switch (op) {
     case 'contains':
       return leftRaw.includes(rightRaw)
     case 'matches':
@@ -289,23 +355,32 @@ export function evalClause(clause: { left: string; op: ConditionOp; right: strin
     default: {
       const l = coerce(leftRaw)
       const r = coerce(rightRaw)
-      switch (cond.op) {
-        case 'eq':
-          return l === r
-        case 'neq':
-          return l !== r
-        case 'gt':
-          return l > r
-        case 'gte':
-          return l >= r
-        case 'lt':
-          return l < r
-        case 'lte':
-          return l <= r
+      switch (op) {
+        case 'eq': return l === r
+        case 'neq': return l !== r
+        case 'gt': return l > r
+        case 'gte': return l >= r
+        case 'lt': return l < r
+        case 'lte': return l <= r
       }
     }
   }
   return false
+}
+
+/** Evaluate a structured condition against the context. Never runs arbitrary code. */
+/** Evaluate a single comparison. Both sides are templated (RHS may be dynamic). */
+export function evalClause(clause: { left: string; op: ConditionOp; right: string }, ctx: FlowContext): boolean {
+  return compareOperands(clause.op, trimOperand(resolveTemplate(clause.left, ctx)), trimOperand(resolveTemplate(clause.right, ctx)))
+}
+
+/** Async twin of evalClause — resolves operands (incl. `{{js:}}`) via the evaluator. */
+export async function evalClauseAsync(clause: { left: string; op: ConditionOp; right: string }, ctx: FlowContext, evalJs?: EvalJsFn): Promise<boolean> {
+  return compareOperands(
+    clause.op,
+    trimOperand(await resolveTemplateAsync(clause.left, ctx, evalJs)),
+    trimOperand(await resolveTemplateAsync(clause.right, ctx, evalJs)),
+  )
 }
 
 /**
@@ -330,4 +405,32 @@ export function evalCondition(
         : []
   if (!clauses.length) return false
   return (data.match ?? 'all') === 'any' ? clauses.some((c) => evalClause(c, ctx)) : clauses.every((c) => evalClause(c, ctx))
+}
+
+/** Async twin of evalCondition — evaluates each clause with the JS evaluator. */
+export async function evalConditionAsync(
+  data: {
+    match?: 'all' | 'any'
+    clauses?: { left: string; op: ConditionOp; right: string }[]
+    left?: string
+    op?: ConditionOp
+    right?: string
+  },
+  ctx: FlowContext,
+  evalJs?: EvalJsFn,
+): Promise<boolean> {
+  const clauses =
+    data.clauses && data.clauses.length
+      ? data.clauses
+      : data.left !== undefined && data.op && data.right !== undefined
+        ? [{ left: data.left, op: data.op, right: data.right }]
+        : []
+  if (!clauses.length) return false
+  const any = (data.match ?? 'all') === 'any'
+  for (const clause of clauses) {
+    const passed = await evalClauseAsync(clause, ctx, evalJs)
+    if (any && passed) return true
+    if (!any && !passed) return false
+  }
+  return !any
 }
