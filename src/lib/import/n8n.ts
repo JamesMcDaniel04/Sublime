@@ -489,6 +489,31 @@ function dataNodeCode(base: string, p: Record<string, unknown>, warnings: string
 
 const DATA_CODE_NODES = new Set(['limit', 'sort', 'splitOut', 'aggregate', 'removeDuplicates', 'renameKeys'])
 
+/**
+ * n8n JavaScript code runs against ITEM WRAPPERS ({json: …}) and returns
+ * [{json: …}] rows; Sublime's code runner feeds plain values and returns the
+ * value directly. This shim bridges the dialects at import time so pasted
+ * n8n code runs unchanged: inbound items are wrapped, $input/$json take the
+ * n8n shape, and a returned wrapper array unwraps back to plain values.
+ */
+function withN8nCodeShim(code: string): string {
+  return [
+    '// n8n compatibility shim (added on import): n8n code reads {json}-wrapped',
+    '// items and returns [{json}] rows; this flow feeds plain values.',
+    'return await (async (__rawItems) => {',
+    "  const items = __rawItems.map((v) => (v && typeof v === 'object' && !Array.isArray(v) && 'json' in v ? v : { json: v }))",
+    "  const __curr = typeof item === 'undefined' || item === undefined ? (items[0] ?? { json: undefined }) : (item && typeof item === 'object' && 'json' in item ? item : { json: item })",
+    '  const $input = Object.freeze({ all: () => items, first: () => items[0], last: () => items[items.length - 1], item: __curr })',
+    '  const $json = __curr.json',
+    '  const __out = await (async () => {',
+    code,
+    '  })()',
+    "  const __unwrap = (v) => (v && typeof v === 'object' && !Array.isArray(v) && 'json' in v ? v.json : v)",
+    '  return Array.isArray(__out) ? __out.map(__unwrap) : __unwrap(__out)',
+    '})(items)',
+  ].join('\n')
+}
+
 type Mapped =
   | { kind: 'node'; node: FlowNode; stub?: true }
   | { kind: 'drop' } // merge/noOp/stickyNote — rewire straight through
@@ -497,6 +522,16 @@ function mapNode(node: N8nNode, id: string, warnings: string[]): Mapped {
   const p = node.parameters
   const base = baseType(node.type)
   const label = node.name
+
+  // The integration tail: import as an honest HTTP stub. The original type +
+  // parameters travel in the note so the API call can be rebuilt.
+  const stub = (): Mapped => {
+    const note = `Imported from n8n node "${node.type}". Rebuild this step as the equivalent API request.\nOriginal parameters:\n${JSON.stringify(p, null, 2)}`.slice(0, 4000)
+    return {
+      kind: 'node', stub: true,
+      node: { id, type: 'http', data: { label, note, method: 'GET', url: '' } },
+    }
+  }
 
   if (base === 'stickyNote' || base === 'merge' || base === 'noOp' || base === 'executionData') {
     if (base === 'merge' && p.mode && p.mode !== 'append') {
@@ -587,19 +622,25 @@ function mapNode(node: N8nNode, id: string, warnings: string[]): Mapped {
       })
       return { kind: 'node', node: { id, type: 'switch', data: { label, cases } } }
     }
-    case 'code': case 'function': case 'functionItem':
+    case 'code': case 'function': case 'functionItem': {
+      const isPython = asString(p.language).startsWith('python')
+      const rawCode = asString(p.jsCode ?? p.pythonCode ?? p.functionCode)
+      if (isPython && rawCode.includes('_input')) {
+        warnings.push(`"${label}": n8n Python code uses the _input item API, which does not translate — adjust it to read the incoming items directly.`)
+      }
       return {
         kind: 'node',
         node: {
           id, type: 'code',
           data: {
             label,
-            language: asString(p.language).startsWith('python') || asString(p.language) === 'python' ? 'python' : 'javascript',
+            language: isPython ? 'python' : 'javascript',
             mode: asString(p.mode) === 'runOnceForEachItem' ? 'eachItem' : 'allItems',
-            code: asString(p.jsCode ?? p.pythonCode ?? p.functionCode),
+            code: isPython || !rawCode ? rawCode : withN8nCodeShim(rawCode),
           },
         },
       }
+    }
     case 'set': {
       if (p.mode === 'raw') {
         return { kind: 'node', node: { id, type: 'data', data: { label, op: 'parseJson', input: asString(p.jsonOutput) } } }
@@ -673,6 +714,40 @@ function mapNode(node: N8nNode, id: string, warnings: string[]): Mapped {
     case 'executeWorkflow':
       warnings.push(`"${label}" ran another n8n workflow — import that workflow too, then select it in this step.`)
       return { kind: 'node', node: { id, type: 'subflow', data: { label, flowId: '' } } }
+    // Common delivery integrations map to NATIVE tool steps (nango plane ids
+    // are portable), so a connected workspace runs them immediately and a
+    // disconnected one gets the standard missing-integration prompt — far
+    // better than an HTTP stub.
+    case 'slack': {
+      if ((asString(p.resource) || 'message') === 'message' && (asString(p.operation) || 'post') === 'post') {
+        const channel = isRecord(p.channelId) ? asString(p.channelId.value) : asString(p.channelId ?? p.channel)
+        return {
+          kind: 'node',
+          node: {
+            id, type: 'tool',
+            data: { label, connectionId: 'nango:slack', toolName: 'slack_post_message', args: JSON.stringify({ channel, text: asString(p.text) }) },
+          },
+        }
+      }
+      warnings.push(`"${label}" used a Slack action beyond posting a message — rebuild it with your Slack connection's actions.`)
+      return stub()
+    }
+    case 'gmail': {
+      if ((asString(p.resource) || 'message') === 'message' && (asString(p.operation) || 'send') === 'send') {
+        return {
+          kind: 'node',
+          node: {
+            id, type: 'tool',
+            data: {
+              label, connectionId: 'nango:gmail', toolName: 'gmail_send_email',
+              args: JSON.stringify({ to: asString(p.sendTo ?? p.to), subject: asString(p.subject), body: asString(p.message ?? p.body) }),
+            },
+          },
+        }
+      }
+      warnings.push(`"${label}" used a Gmail action beyond sending an email — rebuild it with your Gmail connection's actions.`)
+      return stub()
+    }
     default: {
       if (DATA_CODE_NODES.has(base)) {
         const code = dataNodeCode(base, p, warnings, label)
@@ -680,13 +755,7 @@ function mapNode(node: N8nNode, id: string, warnings: string[]): Mapped {
           return { kind: 'node', node: { id, type: 'code', data: { label, language: 'javascript', mode: 'allItems', code } } }
         }
       }
-      // The integration tail: import as an honest HTTP stub. The original
-      // type + parameters travel in the note so the API call can be rebuilt.
-      const note = `Imported from n8n node "${node.type}". Rebuild this step as the equivalent API request.\nOriginal parameters:\n${JSON.stringify(p, null, 2)}`.slice(0, 4000)
-      return {
-        kind: 'node', stub: true,
-        node: { id, type: 'http', data: { label, note, method: 'GET', url: '' } },
-      }
+      return stub()
     }
   }
 }
@@ -721,6 +790,10 @@ function applyCommonProps(mapped: FlowNode, source: N8nNode, warnings: string[])
 
 const JSON_SEGMENT = /^\s*\$json\s*((?:\.[A-Za-z_$][A-Za-z0-9_$]*|\[\d+\]|\[(?:"[^"]*"|'[^']*')\])*)\s*$/
 const NODE_SEGMENT = /^\s*\$node\[(["'])([\s\S]+?)\1\]\.json\s*((?:\.[A-Za-z_$][A-Za-z0-9_$]*|\[\d+\])*)\s*$/
+// Modern cross-node syntax: $('Node Name').first().json.x / .last() / .item
+const NODE_CALL_SEGMENT = /^\s*\$\(\s*(["'])([\s\S]+?)\1\s*\)\s*(?:\.(?:first|last)\(\)|\.item)?\.json\s*((?:\.[A-Za-z_$][A-Za-z0-9_$]*|\[\d+\])*)\s*$/
+// n8n instance environment variables — materialized as variable steps.
+const ENV_SEGMENT = /^\s*\$env\.([A-Za-z_]\w*)\s*$/
 
 /**
  * Best-effort n8n expression → Sublime template translation. All-or-nothing
@@ -736,7 +809,7 @@ function translateExpressions(
   edges: FlowEdge[],
   idByName: Map<string, string>,
   warnings: string[],
-): void {
+): Set<string> {
   const predecessors = new Map<string, Set<string>>()
   for (const edge of edges) {
     const set = predecessors.get(edge.target) ?? new Set<string>()
@@ -744,6 +817,7 @@ function translateExpressions(
     predecessors.set(edge.target, set)
   }
   let untranslated = 0
+  const envVars = new Set<string>()
 
   const translateString = (value: string, nodeId: string): string => {
     if (!value.startsWith('=') || !value.includes('{{')) return value
@@ -758,11 +832,20 @@ function translateExpressions(
         if (!jsonBase) { allTranslated = false; return segment }
         return `{{${jsonBase}${jsonMatch[1] ?? ''}}}`
       }
-      const nodeMatch = NODE_SEGMENT.exec(inner)
+      const nodeMatch = NODE_SEGMENT.exec(inner) ?? (() => {
+        const call = NODE_CALL_SEGMENT.exec(inner)
+        // Re-shape the $('…') match to the $node[…] group layout (name at 2, path at 3).
+        return call ? ([call[0], call[1], call[2], call[3]] as RegExpExecArray) : null
+      })()
       if (nodeMatch) {
         const referencedId = idByName.get(nodeMatch[2])
         if (!referencedId) { allTranslated = false; return segment }
         return `{{step.${referencedId}.output${nodeMatch[3] ?? ''}}}`
+      }
+      const envMatch = ENV_SEGMENT.exec(inner)
+      if (envMatch) {
+        envVars.add(envMatch[1])
+        return `{{var.${envMatch[1]}}}`
       }
       allTranslated = false
       return segment
@@ -790,6 +873,17 @@ function translateExpressions(
     const data = node.data as Record<string, unknown>
     for (const [key, entry] of Object.entries(data)) {
       if (skip.has(key)) continue
+      // Tool args are a JSON STRING whose values may carry expressions — the
+      // '='-prefix check lives per-value, so translate inside the parsed form.
+      if (node.type === 'tool' && key === 'args' && typeof entry === 'string' && entry.trim()) {
+        try {
+          const parsed = JSON.parse(entry)
+          data[key] = JSON.stringify(walk(parsed, node.id))
+        } catch {
+          data[key] = translateString(entry, node.id)
+        }
+        continue
+      }
       data[key] = walk(entry, node.id)
     }
   }
@@ -797,6 +891,7 @@ function translateExpressions(
   if (untranslated > 0) {
     warnings.push(`${untranslated} n8n expression(s) could not be translated and were kept as-is — rewrite them as {{step.…}} or {{input.…}} references.`)
   }
+  return envVars
 }
 
 const AI_ATTACHMENT_TYPES = new Set(['ai_languageModel', 'ai_tool', 'ai_memory', 'ai_outputParser', 'ai_embedding', 'ai_vectorStore', 'ai_retriever', 'ai_reranker', 'ai_textSplitter', 'ai_document'])
@@ -1029,7 +1124,29 @@ export function fromN8nWorkflow(raw: unknown): ImportedFlow {
     return true
   })
 
-  translateExpressions(nodes, finalEdges, idByName, warnings)
+  const envVars = translateExpressions(nodes, finalEdges, idByName, warnings)
+
+  // n8n $env variables become variable-init steps chained right behind the
+  // trigger — one obvious place to fill in each value instead of hunting
+  // through expressions. The steps start empty; the warning says what to set.
+  if (envVars.size > 0) {
+    let previous = 'trigger'
+    const formerTargets = finalEdges.filter((edge) => edge.source === 'trigger')
+    for (const name of envVars) {
+      let varId = `env-${name.toLowerCase()}`
+      for (let n = 2; usedIds.has(varId); n += 1) varId = `env-${name.toLowerCase()}-${n}`
+      usedIds.add(varId)
+      const triggerIndex = nodes.findIndex((node) => node.id === previous)
+      nodes.splice(triggerIndex + 1, 0, {
+        id: varId, type: 'variable',
+        data: { label: `Set ${name}`, op: 'initialize', name, varType: 'string', value: '' },
+      })
+      finalEdges.push({ id: `e-${edgeSeq++}`, source: previous, target: varId })
+      previous = varId
+      warnings.push(`Set the value of the "${name}" variable step — n8n environment variables do not travel with the export.`)
+    }
+    for (const edge of formerTargets) edge.source = previous
+  }
 
   const graphParse = flowGraphSchema.safeParse({ nodes, edges: finalEdges, ...(Object.keys(layout).length ? { layout } : {}) })
   if (!graphParse.success) {

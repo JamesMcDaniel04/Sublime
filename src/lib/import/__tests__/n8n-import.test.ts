@@ -61,20 +61,19 @@ test('converts the fixture: trigger, condition with branches, http, slack stub',
   assert.equal(http.data.method, 'POST')
   assert.equal(http.data.url, 'https://api.crm.example/leads')
 
-  // Slack is an integration node → http stub, reported.
-  assert.equal(imported.stubbedNodes.length, 1)
-  assert.equal(imported.stubbedNodes[0].originalType, 'n8n-nodes-base.slack')
-  const stub = byId.get(imported.stubbedNodes[0].nodeId) as NodeOf<'http'>
-  assert.equal(stub.type, 'http')
-  assert.equal(stub.data.label, 'Notify Slack')
-  assert.ok(stub.data.note?.includes('n8n-nodes-base.slack'))
+  // Slack message-post maps to a NATIVE tool step now (gap 4) — no stub.
+  assert.equal(imported.stubbedNodes.length, 0)
+  const slack = byId.get('n-slack') as NodeOf<'tool'>
+  assert.equal(slack.type, 'tool')
+  assert.equal(slack.data.connectionId, 'nango:slack')
+  assert.equal(slack.data.label, 'Notify Slack')
 
   // Sticky note dropped without a stub.
   assert.equal(imported.graph.nodes.length, 4)
 
   // Branch wiring: if output 0 → 'true', output 1 → 'false'.
   const trueEdge = imported.graph.edges.find((edge) => edge.source === condition.id && edge.target === http.id)
-  const falseEdge = imported.graph.edges.find((edge) => edge.source === condition.id && edge.target === stub.id)
+  const falseEdge = imported.graph.edges.find((edge) => edge.source === condition.id && edge.target === slack.id)
   assert.equal(trueEdge?.branch, 'true')
   assert.equal(falseEdge?.branch, 'false')
 
@@ -137,7 +136,9 @@ test('core mappings: code, set, switch, stopAndError, respondToWebhook, executeW
 
   const code = byId.get('n-code') as NodeOf<'code'>
   assert.equal(code.type, 'code')
-  assert.equal(code.data.code, 'return items')
+  // Imported JS is wrapped in the n8n compatibility shim; the original travels inside.
+  assert.ok(code.data.code.includes('return items'))
+  assert.ok(code.data.code.includes('n8n compatibility'))
   assert.equal(code.data.mode, 'eachItem')
 
   const set = byId.get('n-set') as NodeOf<'transform'>
@@ -591,7 +592,87 @@ test('code node contents are never expression-translated', () => {
     connections: { Manual: { main: [[{ node: 'Code', type: 'main', index: 0 }]] } },
   })
   const code = imported.graph.nodes.find((node) => node.type === 'code') as NodeOf<'code'>
-  assert.equal(code.data.code, 'const x = $json.value; return [x]')
+  // The $json reference inside user code survives untouched (only wrapped by the shim).
+  assert.ok(code.data.code.includes('const x = $json.value; return [x]'))
+})
+
+test('gap 2: n8n code dialect runs via the compatibility shim', async () => {
+  const imported = fromN8nWorkflow({
+    nodes: [
+      { parameters: {}, id: 'n-t', name: 'Manual', type: 'n8n-nodes-base.manualTrigger', typeVersion: 1, position: [0, 0] },
+      {
+        parameters: { jsCode: "const all = $input.all();\nconst raw = all[0]?.json?.body || all[0]?.json || {};\nreturn [{ json: { id: raw.opportunityId, n: all.length } }];" },
+        id: 'n-code', name: 'Parse Trigger', type: 'n8n-nodes-base.code', typeVersion: 2, position: [100, 0],
+      },
+    ],
+    connections: { Manual: { main: [[{ node: 'Parse Trigger', type: 'main', index: 0 }]] } },
+  })
+  const code = imported.graph.nodes.find((node) => node.type === 'code') as NodeOf<'code'>
+  assert.ok(code.data.code.includes('n8n compatibility'), 'expected the shim preamble')
+  // Sublime feeds RAW items (no {json} wrapper); n8n-dialect code must still work,
+  // and the returned [{json}] array must unwrap back to plain values.
+  const result = await runGenerated(code.data.code, [{ body: { opportunityId: 'OPP-9' } }])
+  assert.deepEqual(result, [{ id: 'OPP-9', n: 1 }])
+})
+
+test("gap 3: $('Node') references and $env variables translate", () => {
+  const imported = fromN8nWorkflow({
+    nodes: [
+      { parameters: { path: 'x' }, id: 'n-t', name: 'Webhook', type: 'n8n-nodes-base.webhook', typeVersion: 2, position: [0, 0] },
+      { parameters: { assignments: { assignments: [{ name: 'documentId', value: 'd-1' }] } }, id: 'n-doc', name: 'Create Doc', type: 'n8n-nodes-base.set', typeVersion: 3.4, position: [100, 0] },
+      {
+        parameters: { method: 'POST', url: "={{ $env.SF_INSTANCE_URL }}/documents/{{ $('Create Doc').first().json.documentId }}:batchUpdate" },
+        id: 'n-write', name: 'Write Doc', type: 'n8n-nodes-base.httpRequest', typeVersion: 4.2, position: [200, 0],
+      },
+    ],
+    connections: {
+      Webhook: { main: [[{ node: 'Create Doc', type: 'main', index: 0 }]] },
+      'Create Doc': { main: [[{ node: 'Write Doc', type: 'main', index: 0 }]] },
+    },
+  })
+  const write = imported.graph.nodes.find((node) => node.id === 'n-write') as NodeOf<'http'>
+  assert.equal(write.data.url, '{{var.SF_INSTANCE_URL}}/documents/{{step.n-doc.output.documentId}}:batchUpdate')
+  // A variable-init step materializes each $env reference right after the trigger.
+  const variable = imported.graph.nodes.find((node) => node.type === 'variable') as NodeOf<'variable'>
+  assert.ok(variable, 'expected a variable node for SF_INSTANCE_URL')
+  assert.equal(variable.data.op, 'initialize')
+  assert.equal(variable.data.name, 'SF_INSTANCE_URL')
+  const edgePairs = imported.graph.edges.map((edge) => [edge.source, edge.target])
+  assert.ok(edgePairs.some(([source, target]) => source === 'trigger' && target === variable.id))
+  assert.ok(imported.warnings.some((warning) => warning.includes('SF_INSTANCE_URL')))
+})
+
+test('gap 4: slack post and gmail send become native tool steps, not stubs', () => {
+  const imported = fromN8nWorkflow({
+    nodes: [
+      { parameters: {}, id: 'n-t', name: 'Manual', type: 'n8n-nodes-base.manualTrigger', typeVersion: 1, position: [0, 0] },
+      {
+        parameters: { select: 'channel', channelId: { __rl: true, value: 'C0123', mode: 'id' }, text: '={{ $json.msg }}' },
+        id: 'n-slack', name: 'Notify CS', type: 'n8n-nodes-base.slack', typeVersion: 2.3, position: [100, 0],
+      },
+      {
+        parameters: { sendTo: 'a@x.co', subject: 'Handoff', message: 'Here it is' },
+        id: 'n-gmail', name: 'Email AE', type: 'n8n-nodes-base.gmail', typeVersion: 2.1, position: [200, 0],
+      },
+      { parameters: { title: 'Doc' }, id: 'n-docs', name: 'Make Doc', type: 'n8n-nodes-base.googleDocs', typeVersion: 2, position: [300, 0] },
+    ],
+    connections: { Manual: { main: [[{ node: 'Notify CS', type: 'main', index: 0 }, { node: 'Email AE', type: 'main', index: 0 }, { node: 'Make Doc', type: 'main', index: 0 }]] } },
+  })
+  const slack = imported.graph.nodes.find((node) => node.id === 'n-slack') as NodeOf<'tool'>
+  assert.equal(slack.type, 'tool')
+  assert.equal(slack.data.connectionId, 'nango:slack')
+  assert.equal(slack.data.toolName, 'slack_post_message')
+  assert.deepEqual(JSON.parse(slack.data.args ?? '{}'), { channel: 'C0123', text: '{{trigger.input.msg}}' })
+
+  const gmail = imported.graph.nodes.find((node) => node.id === 'n-gmail') as NodeOf<'tool'>
+  assert.equal(gmail.type, 'tool')
+  assert.equal(gmail.data.connectionId, 'nango:gmail')
+  assert.equal(gmail.data.toolName, 'gmail_send_email')
+  assert.deepEqual(JSON.parse(gmail.data.args ?? '{}'), { to: 'a@x.co', subject: 'Handoff', body: 'Here it is' })
+
+  // googleDocs has no native capability — still an honest stub.
+  assert.ok(imported.stubbedNodes.some((stub) => stub.originalType === 'n8n-nodes-base.googleDocs'))
+  assert.equal(imported.stubbedNodes.some((stub) => stub.originalType.includes('slack')), false)
 })
 
 test('round-trips our own n8n export back into a flow', async () => {
