@@ -68,20 +68,24 @@ test('converts the fixture: trigger, condition with branches, http, slack stub',
   assert.equal(slack.data.connectionId, 'nango:slack')
   assert.equal(slack.data.label, 'Notify Slack')
 
-  // Sticky note dropped without a stub.
-  assert.equal(imported.graph.nodes.length, 4)
+  // Sticky note dropped; the CRM step's computed jsonBody extracted into a
+  // per-item code step (trigger, condition, code, http, slack tool = 5).
+  assert.equal(imported.graph.nodes.length, 5)
+  const extracted = imported.graph.nodes.find((node) => node.id.includes('-expr'))
+  assert.equal(extracted?.type, 'code')
 
-  // Branch wiring: if output 0 → 'true', output 1 → 'false'.
-  const trueEdge = imported.graph.edges.find((edge) => edge.source === condition.id && edge.target === http.id)
+  // Branch wiring: if output 0 → 'true' (through the extracted code step), 1 → 'false'.
+  const trueEdge = imported.graph.edges.find((edge) => edge.source === condition.id && edge.target === extracted!.id)
   const falseEdge = imported.graph.edges.find((edge) => edge.source === condition.id && edge.target === slack.id)
+  assert.ok(imported.graph.edges.some((edge) => edge.source === extracted!.id && edge.target === http.id))
   assert.equal(trueEdge?.branch, 'true')
   assert.equal(falseEdge?.branch, 'false')
 
   // Layout carried across.
   assert.deepEqual(imported.graph.layout?.[condition.id], { x: 200, y: 0 })
 
-  // Expressions were detected and warned about once.
-  assert.ok(imported.warnings.some((warning) => warning.includes('expression')))
+  // Every expression translated or extracted — nothing left to warn about.
+  assert.equal(imported.warnings.some((warning) => warning.includes('expression')), false)
 })
 
 test('a workflow without a trigger gets a manual trigger wired to entry nodes', () => {
@@ -551,7 +555,7 @@ test('expressions translate when the data path is unambiguous', () => {
         },
         id: 'n-http', name: 'Call', type: 'n8n-nodes-base.httpRequest', typeVersion: 4.2, position: [200, 0],
       },
-      { parameters: { method: 'GET', url: '={{ JSON.stringify($json) }}' }, id: 'n-http2', name: 'Complex', type: 'n8n-nodes-base.httpRequest', typeVersion: 4.2, position: [300, 0] },
+      { parameters: { method: 'GET', url: "={{ JSON.stringify($('Set team').first().json) }}" }, id: 'n-http2', name: 'Complex', type: 'n8n-nodes-base.httpRequest', typeVersion: 4.2, position: [300, 0] },
     ],
     connections: {
       Manual: { main: [[{ node: 'Set team', type: 'main', index: 0 }]] },
@@ -566,9 +570,10 @@ test('expressions translate when the data path is unambiguous', () => {
   assert.equal(call.data.forEachItem, true)
   assert.equal(call.data.url, '{{item.team}}')
   assert.equal(call.data.body, 'Hello {{item.team}}, via {{step.n-set.output.team}}')
-  // Function-call segments never partially translate.
+  // Computed segments with cross-node refs can neither translate nor extract
+  // (a code step has no cross-step access) — they stay verbatim + warned.
   const complex = byId.get('n-http2') as NodeOf<'http'>
-  assert.equal(complex.data.url, '={{ JSON.stringify($json) }}')
+  assert.equal(complex.data.url, "={{ JSON.stringify($('Set team').first().json) }}")
   assert.ok(imported.warnings.some((warning) => warning.includes('expression')))
 })
 
@@ -810,6 +815,114 @@ test('switch expression mode builds indexed cases; numeric fallback wires the de
   const caseOneEdge = imported.graph.edges.find((edge) => edge.source === 'n-sw' && edge.branch === 'case-1')
   assert.ok(defaultEdge && caseOneEdge)
   assert.equal(defaultEdge?.target, caseOneEdge?.target)
+})
+
+test('merge nodes become generated join code (append and combineByPosition)', async () => {
+  const imported = fromN8nWorkflow({
+    nodes: [
+      { parameters: {}, id: 'n-t', name: 'Manual', type: 'n8n-nodes-base.manualTrigger', typeVersion: 1, position: [0, 0] },
+      { parameters: { assignments: { assignments: [{ name: 'a', value: '1' }] } }, id: 'n-l', name: 'Left', type: 'n8n-nodes-base.set', typeVersion: 3.4, position: [100, -50] },
+      { parameters: { assignments: { assignments: [{ name: 'b', value: '2' }] } }, id: 'n-r', name: 'Right', type: 'n8n-nodes-base.set', typeVersion: 3.4, position: [100, 50] },
+      { parameters: { mode: 'combine', combineBy: 'combineByPosition' }, id: 'n-m', name: 'Join', type: 'n8n-nodes-base.merge', typeVersion: 3.2, position: [200, 0] },
+    ],
+    connections: {
+      Manual: { main: [[{ node: 'Left', type: 'main', index: 0 }, { node: 'Right', type: 'main', index: 0 }]] },
+      Left: { main: [[{ node: 'Join', type: 'main', index: 0 }]] },
+      Right: { main: [[{ node: 'Join', type: 'main', index: 1 }]] },
+    },
+  })
+  const join = imported.graph.nodes.find((node) => node.id === 'n-m') as NodeOf<'code'>
+  assert.equal(join.type, 'code', 'merge should become a code join, not be dropped')
+  // Both fan-in edges survive (the code step reads both parents' outputs).
+  assert.equal(imported.graph.edges.filter((edge) => edge.target === 'n-m').length, 2)
+  const merged = await runGenerated(join.data.code, [[{ a: 1 }, { a: 2 }], [{ b: 9 }]])
+  assert.deepEqual(merged, [{ a: 1, b: 9 }, { a: 2 }])
+})
+
+test('whole-string computed expressions extract into generated code steps', () => {
+  const imported = fromN8nWorkflow({
+    nodes: [
+      { parameters: {}, id: 'n-t', name: 'Manual', type: 'n8n-nodes-base.manualTrigger', typeVersion: 1, position: [0, 0] },
+      { parameters: { assignments: { assignments: [{ name: 'user', value: 'ada' }] } }, id: 'n-s', name: 'Set', type: 'n8n-nodes-base.set', typeVersion: 3.4, position: [100, 0] },
+      {
+        parameters: { method: 'POST', url: 'https://api.example.com/x', sendBody: true, jsonBody: '={{ JSON.stringify({ who: $json.user.toUpperCase() }) }}' },
+        id: 'n-h', name: 'Send', type: 'n8n-nodes-base.httpRequest', typeVersion: 4.2, position: [200, 0],
+      },
+    ],
+    connections: {
+      Manual: { main: [[{ node: 'Set', type: 'main', index: 0 }]] },
+      Set: { main: [[{ node: 'Send', type: 'main', index: 0 }]] },
+    },
+  })
+  const http = imported.graph.nodes.find((node) => node.id === 'n-h') as NodeOf<'http'>
+  // $json made the step item-scoped; the computed expression moved into a
+  // per-item code step and the field is the computed item itself.
+  assert.equal(http.data.forEachItem, true)
+  assert.equal(http.data.body, '{{item}}')
+  const extracted = imported.graph.nodes.find((node) => node.type === 'code' && node.id.includes('expr')) as NodeOf<'code'>
+  assert.ok(extracted, 'expected an extracted expression code step')
+  assert.ok(extracted.data.code.includes('JSON.stringify'))
+  assert.ok(extracted.data.code.includes('items.map'))
+  // Wired between predecessor and the http step.
+  const pairs = imported.graph.edges.map((edge) => [edge.source, edge.target])
+  assert.ok(pairs.some(([source, target]) => source === 'n-s' && target === extracted.id))
+  assert.ok(pairs.some(([source, target]) => source === extracted.id && target === 'n-h'))
+})
+
+test('continueErrorOutput branches absorb into an error shield', () => {
+  const imported = fromN8nWorkflow({
+    nodes: [
+      { parameters: {}, id: 'n-t', name: 'Manual', type: 'n8n-nodes-base.manualTrigger', typeVersion: 1, position: [0, 0] },
+      {
+        parameters: { method: 'GET', url: 'https://api.example.com/risky' },
+        id: 'n-risky', name: 'Risky call', type: 'n8n-nodes-base.httpRequest', typeVersion: 4.2, position: [100, 0],
+        onError: 'continueErrorOutput',
+      },
+      { parameters: { amount: 1, unit: 'seconds' }, id: 'n-next', name: 'Continue', type: 'n8n-nodes-base.wait', typeVersion: 1.1, position: [200, -50] },
+      { parameters: { errorMessage: 'it broke' }, id: 'n-alert', name: 'Alert', type: 'n8n-nodes-base.stopAndError', typeVersion: 1, position: [200, 50] },
+    ],
+    connections: {
+      Manual: { main: [[{ node: 'Risky call', type: 'main', index: 0 }]] },
+      'Risky call': {
+        main: [
+          [{ node: 'Continue', type: 'main', index: 0 }],
+          [{ node: 'Alert', type: 'main', index: 0 }],
+        ],
+      },
+    },
+  })
+  const shield = imported.graph.nodes.find((node) => node.type === 'errorShield') as NodeOf<'errorShield'>
+  assert.ok(shield, 'expected an errorShield node')
+  assert.deepEqual(shield.data.body, ['n-risky'])
+  assert.deepEqual(shield.data.fallback, ['n-alert'])
+  const pairs = imported.graph.edges.map((edge) => [edge.source, edge.target])
+  assert.ok(pairs.some(([source, target]) => source === 'trigger' && target === shield.id))
+  assert.ok(pairs.some(([source, target]) => source === shield.id && target === 'n-next'))
+})
+
+test('n8n file responses set binary responseType; python code gets the _input shim', () => {
+  const imported = fromN8nWorkflow({
+    nodes: [
+      { parameters: {}, id: 'n-t', name: 'Manual', type: 'n8n-nodes-base.manualTrigger', typeVersion: 1, position: [0, 0] },
+      {
+        parameters: { method: 'GET', url: 'https://files.example.com/report.pdf', options: { response: { response: { responseFormat: 'file' } } } },
+        id: 'n-dl', name: 'Download', type: 'n8n-nodes-base.httpRequest', typeVersion: 4.2, position: [100, 0],
+      },
+      {
+        parameters: { language: 'python', pythonCode: 'rows = _input.all()\nreturn [{"n": len(rows)}]' },
+        id: 'n-py', name: 'Py', type: 'n8n-nodes-base.code', typeVersion: 2, position: [200, 0],
+      },
+    ],
+    connections: {
+      Manual: { main: [[{ node: 'Download', type: 'main', index: 0 }]] },
+      Download: { main: [[{ node: 'Py', type: 'main', index: 0 }]] },
+    },
+  })
+  const download = imported.graph.nodes.find((node) => node.id === 'n-dl') as NodeOf<'http'>
+  assert.equal(download.data.responseType, 'binary')
+  const py = imported.graph.nodes.find((node) => node.id === 'n-py') as NodeOf<'code'>
+  assert.ok(py.data.code.includes('class _SublimeInput'), 'expected the python _input shim')
+  assert.ok(py.data.code.includes('rows = _input.all()'))
 })
 
 test('round-trips our own n8n export back into a flow', async () => {

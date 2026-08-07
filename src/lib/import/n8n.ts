@@ -565,9 +565,63 @@ function withN8nCodeShim(code: string): string {
   ].join('\n')
 }
 
+/** n8n Python's `_input` item API, recreated over the runner's `_items`. */
+const PYTHON_INPUT_SHIM = [
+  '# n8n compatibility shim (added on import)',
+  'class _SublimeItem:',
+  '    def __init__(self, json):',
+  '        self.json = json',
+  'class _SublimeInput:',
+  '    def all(self):',
+  '        return [_SublimeItem(x) for x in _items]',
+  '    def first(self):',
+  '        return _SublimeItem(_items[0]) if _items else None',
+  '    def last(self):',
+  '        return _SublimeItem(_items[-1]) if _items else None',
+  '_input = _SublimeInput()',
+  '',
+].join('\n')
+
+/**
+ * Merge → a generated JOIN over the parents' outputs. The code step's items
+ * resolve to [leftOutput, rightOutput] (multiple parents), so every n8n merge
+ * mode reduces to plain list algebra instead of being dropped.
+ */
+function mergeJoinCode(p: Record<string, unknown>): string {
+  const mode = asString(p.mode) || 'append'
+  const combineBy = asString(p.combineBy) || 'combineByFields'
+  const pairsRaw = isRecord(p.mergeByFields) && Array.isArray(p.mergeByFields.values) ? p.mergeByFields.values : []
+  let matchPairs = pairsRaw.flatMap((entry) => isRecord(entry) && entry.field1
+    ? [{ left: asString(entry.field1), right: asString(entry.field2 ?? entry.field1) }] : [])
+  if (!matchPairs.length) {
+    matchPairs = asString(p.fieldsToMatchString).split(',').map((field) => field.trim()).filter(Boolean)
+      .map((field) => ({ left: field, right: field }))
+  }
+  return [
+    `const mode = ${JSON.stringify(mode === 'combine' ? combineBy : mode)};`,
+    `const matchPairs = ${JSON.stringify(matchPairs)};`,
+    'const lists = items.map((v) => (Array.isArray(v) ? v : v == null ? [] : [v]));',
+    'const left = lists[0] ?? [];',
+    'const right = lists[1] ?? [];',
+    "if (mode === 'append') return lists.flat();",
+    "if (mode === 'chooseBranch') return left;",
+    "if (mode === 'combineByPosition') return left.map((l, i) => ({",
+    "  ...(l && typeof l === 'object' ? l : { value: l }),",
+    "  ...(right[i] && typeof right[i] === 'object' ? right[i] : right[i] === undefined ? {} : { value2: right[i] }),",
+    '}));',
+    "if (mode === 'combineAll') { const out = []; for (const l of left) for (const r of right) out.push({ ...l, ...r }); return out; }",
+    'const out = [];',
+    'for (const l of left) {',
+    '  const match = right.find((r) => matchPairs.every((pair) => l?.[pair.left] === r?.[pair.right]));',
+    '  out.push(match ? { ...l, ...match } : l);',
+    '}',
+    'return out;',
+  ].join('\n')
+}
+
 type Mapped =
   | { kind: 'node'; node: FlowNode; stub?: true }
-  | { kind: 'drop' } // merge/noOp/stickyNote — rewire straight through
+  | { kind: 'drop' } // noOp/stickyNote — rewire straight through
 
 function mapNode(node: N8nNode, id: string, warnings: string[]): Mapped {
   const p = node.parameters
@@ -584,11 +638,11 @@ function mapNode(node: N8nNode, id: string, warnings: string[]): Mapped {
     }
   }
 
-  if (base === 'stickyNote' || base === 'merge' || base === 'noOp' || base === 'executionData') {
-    if (base === 'merge' && p.mode && p.mode !== 'append') {
-      warnings.push(`"${label}" merged branches by "${asString(p.mode)}" — branches were wired straight through; re-shape the data with a Data step if needed.`)
-    }
+  if (base === 'stickyNote' || base === 'noOp' || base === 'executionData') {
     return { kind: 'drop' }
+  }
+  if (base === 'merge') {
+    return { kind: 'node', node: { id, type: 'code', data: { label, language: 'javascript', mode: 'allItems', code: mergeJoinCode(p) } } }
   }
 
   if (base === 'openAi' && isLangchain(node.type)) {
@@ -625,6 +679,7 @@ function mapNode(node: N8nNode, id: string, warnings: string[]): Mapped {
         .some((value) => typeof value === 'string' && value.includes('$json'))
       const options = isRecord(p.options) ? p.options : {}
       const redirect = isRecord(options.redirect) && isRecord(options.redirect.redirect) ? options.redirect.redirect : undefined
+      const responseFormat = isRecord(options.response) && isRecord(options.response.response) ? asString(options.response.response.responseFormat) : ''
       const batching = isRecord(options.batching) && isRecord(options.batching.batch) ? options.batching.batch : undefined
       const timeout = Number(options.timeout)
       return {
@@ -649,6 +704,8 @@ function mapNode(node: N8nNode, id: string, warnings: string[]): Mapped {
                 ...(Number(batching.batchInterval) > 0 ? { delayMs: Math.min(60000, Number(batching.batchInterval)) } : {}),
               },
             } : {}),
+            // n8n "file" responses → base64 body with size/content-type.
+            ...(responseFormat === 'file' ? { responseType: 'binary' as const } : {}),
             ...(perItem ? { forEachItem: true } : {}),
             // Auth prefill: user-grant OAuth types our runtime can serve from
             // an existing Nango connection become predefined-connection auth
@@ -706,9 +763,7 @@ function mapNode(node: N8nNode, id: string, warnings: string[]): Mapped {
     case 'code': case 'function': case 'functionItem': {
       const isPython = asString(p.language).startsWith('python')
       const rawCode = asString(p.jsCode ?? p.pythonCode ?? p.functionCode)
-      if (isPython && rawCode.includes('_input')) {
-        warnings.push(`"${label}": n8n Python code uses the _input item API, which does not translate — adjust it to read the incoming items directly.`)
-      }
+      const pythonCode = isPython && rawCode.includes('_input') ? PYTHON_INPUT_SHIM + rawCode : rawCode
       return {
         kind: 'node',
         node: {
@@ -717,7 +772,7 @@ function mapNode(node: N8nNode, id: string, warnings: string[]): Mapped {
             label,
             language: isPython ? 'python' : 'javascript',
             mode: asString(p.mode) === 'runOnceForEachItem' ? 'eachItem' : 'allItems',
-            code: isPython || !rawCode ? rawCode : withN8nCodeShim(rawCode),
+            code: isPython ? pythonCode : !rawCode ? rawCode : withN8nCodeShim(rawCode),
           },
         },
       }
@@ -1021,6 +1076,91 @@ function translateExpressions(
   return envVars
 }
 
+/** Fields whose whole-string computed expressions may extract into code steps. */
+const COMPUTED_FIELDS = new Set(['url', 'query', 'headers', 'body', 'graphqlVariables', 'cookie', 'input', 'text', 'value', 'message', 'reason'])
+
+const EXPR_PRELUDE = [
+  '// computed n8n expression (extracted on import)',
+  'const first = items[0]',
+  "const $json = first && typeof first === 'object' && 'json' in first ? first.json : first",
+  'const __dateShim = (d) => Object.assign(d, { toISO: () => d.toISOString(), format: () => d.toISOString() })',
+  'const $now = __dateShim(new Date())',
+  'const $today = __dateShim(new Date(new Date().toDateString()))',
+].join('\n')
+
+/**
+ * n8n expressions are full JavaScript; our templates are data paths. A field
+ * that is ONE computed `={{ … }}` segment (function calls, arithmetic — not a
+ * plain path) extracts into a generated code step spliced before the node,
+ * and the field becomes a reference to that step's output. Only unambiguous
+ * cases move: single main predecessor, no cross-node/$env refs, not
+ * item-scoped. Everything else keeps the verbatim-plus-warning behavior.
+ */
+function extractComputedExpressions(
+  nodes: FlowNode[],
+  edges: FlowEdge[],
+  usedIds: Set<string>,
+  nextEdgeId: () => string,
+): void {
+  const predecessors = new Map<string, string[]>()
+  for (const edge of edges) {
+    predecessors.set(edge.target, [...(predecessors.get(edge.target) ?? []), edge.source])
+  }
+  for (const node of [...nodes]) {
+    if (node.type === 'trigger' || node.type === 'code') continue
+    const parents = Array.from(new Set(predecessors.get(node.id) ?? []))
+    if (parents.length !== 1) continue
+    const itemScoped = (node.data as { forEachItem?: boolean }).forEachItem === true
+    let currentPred = parents[0]
+    let sequence = 0
+    const data = node.data as Record<string, unknown>
+    const computedKeys = Object.entries(data).filter(([key, value]) =>
+      COMPUTED_FIELDS.has(key) && typeof value === 'string' && /^=\{\{[\s\S]+\}\}$/.test((value as string).trim()))
+    for (const [key, raw] of computedKeys) {
+      const value = raw as string
+      const expression = /^=\{\{([\s\S]+)\}\}$/.exec(value.trim())![1].trim()
+      // Plain data paths translate in place; cross-node/$env refs can't move
+      // into a code step (no cross-step access there).
+      if (JSON_SEGMENT.test(expression)) continue
+      if (/\$\(|\$node|\$env|\{\{/.test(expression)) continue
+      if (itemScoped) {
+        // Per-item step: the code step computes the expression for EVERY item
+        // and the field becomes {{item}} — the whole computed value. Only
+        // sound when this is the node's single item-scoped field.
+        const otherItemRefs = Object.entries(data).some(([otherKey, otherValue]) =>
+          otherKey !== key && typeof otherValue === 'string' && (otherValue.includes('$json') || otherValue.includes('{{item')))
+        if (otherItemRefs || computedKeys.length > 1) continue
+      }
+      let codeId = `${node.id}-expr`
+      for (let n = 2; usedIds.has(codeId); n += 1) codeId = `${node.id}-expr-${n}`
+      usedIds.add(codeId)
+      const code = itemScoped
+        ? [
+            EXPR_PRELUDE,
+            'return items.map((__it) => {',
+            "  const $json = __it && typeof __it === 'object' && 'json' in __it ? __it.json : __it",
+            `  return (${expression})`,
+            '})',
+          ].join('\n')
+        : `${EXPR_PRELUDE}\nreturn (${expression})`
+      nodes.push({
+        id: codeId, type: 'code',
+        data: { label: `Compute ${key}`, language: 'javascript', mode: 'allItems', code },
+      })
+      const incoming = edges.find((edge) => edge.source === currentPred && edge.target === node.id)
+      if (incoming) edges.splice(edges.indexOf(incoming), 1)
+      // A branch label (condition true/false, switch case) rides the FIRST
+      // hop — the code step inherits the branch, the node follows it plainly.
+      edges.push({ id: nextEdgeId(), source: currentPred, target: codeId, ...(incoming?.branch ? { branch: incoming.branch } : {}) })
+      edges.push({ id: nextEdgeId(), source: codeId, target: node.id })
+      data[key] = itemScoped ? '{{item}}' : `{{step.${codeId}.output}}`
+      currentPred = codeId
+      sequence += 1
+      if (sequence >= 4) break
+    }
+  }
+}
+
 const AI_ATTACHMENT_TYPES = new Set(['ai_languageModel', 'ai_tool', 'ai_memory', 'ai_outputParser', 'ai_embedding', 'ai_vectorStore', 'ai_retriever', 'ai_reranker', 'ai_textSplitter', 'ai_document'])
 const AGENT_FAMILY = new Set(['agent', 'agentTool', 'chainLlm'])
 
@@ -1235,6 +1375,9 @@ export function fromN8nWorkflow(raw: unknown): ImportedFlow {
   // splitInBatches output 1 is the LOOP branch (n8n outputNames ['done','loop']);
   // those edges are held aside for absorbLoopBodies instead of wired directly.
   const loopStarts: Array<{ loopId: string; target: string }> = []
+  // onError continueErrorOutput adds an ERROR output at index 1 — held aside
+  // and absorbed into an errorShield container after the graph is built.
+  const errorStarts: Array<{ stepId: string; target: string }> = []
   let edgeSeq = 1
   for (const [sourceName, value] of Object.entries(workflow.connections)) {
     const sourceId = idByName.get(sourceName)
@@ -1249,6 +1392,14 @@ export function fromN8nWorkflow(raw: unknown): ImportedFlow {
         const source = nodeById.get(sourceId)
         if (source?.type === 'loop' && outputIndex === 1) {
           loopStarts.push({ loopId: sourceId, target: targetId })
+          continue
+        }
+        if (
+          outputIndex === 1 &&
+          byName.get(sourceName)?.onError === 'continueErrorOutput' &&
+          source && source.type !== 'condition' && source.type !== 'switch'
+        ) {
+          errorStarts.push({ stepId: sourceId, target: targetId })
           continue
         }
         const branch =
@@ -1310,6 +1461,49 @@ export function fromN8nWorkflow(raw: unknown): ImportedFlow {
       liveEdges.push({ id: `e-${edgeSeq++}`, source: loopId, target })
       warnings.push(`"${(loop.data as { label?: string }).label ?? loopId}": n8n loop wiring does not translate cleanly — move the looped steps into the Loop step and set what it loops over.`)
     }
+  }
+
+  // Error shields: a step whose n8n error output fed a clean single chain
+  // becomes an errorShield container — body is the step, fallback is the
+  // chain — so the error path executes as n8n wired it instead of collapsing
+  // to continue-on-error.
+  for (const { stepId, target } of errorStarts) {
+    const step = nodeById.get(stepId)
+    if (!step) continue
+    const fallback: string[] = []
+    let current: string | undefined = target
+    const visited = new Set<string>()
+    let clean = true
+    while (current && !visited.has(current)) {
+      visited.add(current)
+      if (!nodeById.has(current)) { clean = false; break }
+      fallback.push(current)
+      const outgoing = liveEdges.filter((edge) => edge.source === current)
+      if (outgoing.length === 0) break
+      if (outgoing.length !== 1) { clean = false; break }
+      current = outgoing[0].target
+    }
+    if (!clean || fallback.length === 0) {
+      liveEdges.push({ id: `e-${edgeSeq++}`, source: stepId, target })
+      continue
+    }
+    let shieldId = `${stepId}-shield`
+    for (let n = 2; usedIds.has(shieldId); n += 1) shieldId = `${stepId}-shield-${n}`
+    usedIds.add(shieldId)
+    const shield: FlowNode = {
+      id: shieldId, type: 'errorShield',
+      data: { label: `${(step.data as { label?: string }).label ?? step.type} guard`, body: [stepId], fallback },
+    }
+    nodes.push(shield)
+    nodeById.set(shieldId, shield)
+    for (const edge of liveEdges) {
+      if (edge.target === stepId) edge.target = shieldId
+      if (edge.source === stepId) edge.source = shieldId
+    }
+    const fallbackSet = new Set(fallback)
+    liveEdges = liveEdges.filter((edge) => !fallbackSet.has(edge.source) && !fallbackSet.has(edge.target))
+    // The shield handles failure now; continue-on-error would swallow it first.
+    delete (step.data as Record<string, unknown>).onError
   }
 
   // formTrigger: surface its typed fields as a first-class input node wired
@@ -1376,6 +1570,7 @@ export function fromN8nWorkflow(raw: unknown): ImportedFlow {
     return true
   })
 
+  extractComputedExpressions(nodes, finalEdges, usedIds, () => `e-${edgeSeq++}`)
   const envVars = translateExpressions(nodes, finalEdges, idByName, warnings)
 
   // n8n $env variables become variable-init steps chained right behind the
