@@ -63,6 +63,10 @@ export const BUILTIN_GROUPS: PickerGroup[] = [
       { id: 'data-slack-message', label: 'Format Slack message', description: 'Turn aggregated records into mrkdwn fallback text and Block Kit sections.', mode: 'action', stepType: 'data', seed: { dataOp: 'slackMessage' } },
       { id: 'data-filter-array', label: 'Filter array', description: 'Keep only the list items that match your conditions.', mode: 'action', stepType: 'data', seed: { dataOp: 'filterArray' } },
       { id: 'data-select', label: 'Select', description: 'Map each list item to a new shape with the fields you choose.', mode: 'action', stepType: 'data', seed: { dataOp: 'select' } },
+      { id: 'data-sort', label: 'Sort items', description: 'Order a list by one or more fields, ascending or descending.', mode: 'action', stepType: 'data', seed: { dataOp: 'sort' } },
+      { id: 'data-limit', label: 'Limit items', description: 'Keep only the first N items of a list.', mode: 'action', stepType: 'data', seed: { dataOp: 'limit' } },
+      { id: 'data-dedupe', label: 'Remove duplicates', description: 'Drop repeated items, comparing whole items or chosen fields.', mode: 'action', stepType: 'data', seed: { dataOp: 'dedupe' } },
+      { id: 'data-split-out', label: 'Split out a field', description: 'Fan a list-bearing field out into one item per element.', mode: 'action', stepType: 'data', seed: { dataOp: 'splitOut' } },
     ],
   },
   {
