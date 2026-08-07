@@ -228,6 +228,13 @@ function validateTriggerConfig(issues: FlowValidationIssue[], trigger: unknown) 
     }
     return
   }
+  if (type === 'poll') {
+    const source = isRecord(trigger.source) ? trigger.source : null
+    if (!source || !String(source.connectionId ?? '').trim() || !String(source.toolName ?? '').trim()) {
+      add(issues, 'error', 'MISSING_POLL_SOURCE', 'A polling trigger needs a source: pick the connection and read action it should poll.', 'trigger')
+    }
+    return
+  }
   if (type !== 'schedule') return
   const schedule = trigger.schedule
   if (!isRecord(schedule)) {

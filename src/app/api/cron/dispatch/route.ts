@@ -19,6 +19,9 @@ import { apiLogger } from '@/lib/logger'
 import { runAgentExecution } from '@/features/agents/execute-agent'
 import { dispatchFlowExecution } from '@/features/flows/execute-flow'
 import { parseFlowInput } from '@/lib/flows/input'
+import { diffPollResult, pollConfigFrom, pollIsDue, type PollState } from '@/lib/flows/poll-trigger'
+import { parseFlowToolConnectionId } from '@/lib/flows/tool-connection-id'
+import { resolveFlowToolExecutor } from '@/features/agents/tool-planes'
 import { isDue, type AgentSchedule } from '@/lib/scheduling/due'
 import { getQueue, QUEUE_NAMES, workersEnabled } from '@/lib/queue/config'
 import { EXECUTION_MODE } from '@/lib/queue/execution-mode'
@@ -477,6 +480,77 @@ export async function GET(request: Request) {
         continue
       }
     }
+
+    // ── Poll-triggered flows: run each due source read, diff against the
+    // seen-identity cursor (Flow.metadata.pollState), and dispatch ONE run
+    // per new item with that item as the trigger input. The first poll
+    // baselines silently; a failing source still advances lastPollAt so a
+    // broken connection can't hot-loop every tick.
+    const POLL_SCAN_CAP = 200
+    const pollFlows = await systemPrisma.flow.findMany({
+      where: { status: 'ACTIVE', triggerType: 'poll', isPublished: true },
+      orderBy: { updatedAt: 'asc' },
+      take: POLL_SCAN_CAP,
+      select: { id: true, userId: true, organizationId: true, trigger: true, metadata: true },
+    })
+    if (pollFlows.length === POLL_SCAN_CAP) {
+      apiLogger.warn('cron/dispatch: poll scan saturated its cap', { cap: POLL_SCAN_CAP })
+    }
+    const unpaidPollOrgs = await paymentRequiredOrgIds([...new Set(pollFlows.map((flow) => flow.organizationId))])
+    let polledFlows = 0
+    for (const flow of pollFlows) {
+      const metadata = flow.metadata && typeof flow.metadata === 'object' && !Array.isArray(flow.metadata)
+        ? (flow.metadata as Record<string, unknown>)
+        : {}
+      const state: PollState = metadata.pollState && typeof metadata.pollState === 'object' && !Array.isArray(metadata.pollState)
+        ? (metadata.pollState as PollState)
+        : {}
+      try {
+        if (unpaidPollOrgs.has(flow.organizationId)) continue
+        const config = pollConfigFrom(flow.trigger)
+        if (!config || !pollIsDue(state, config.intervalMinutes, now)) continue
+        const owner = flow.userId
+          ? await prisma.user.findFirst({ where: { id: flow.userId, organizationId: flow.organizationId, isActive: true } })
+          : await prisma.user.findFirst({ where: { organizationId: flow.organizationId, isActive: true }, orderBy: { createdAt: 'asc' } })
+        if (!owner) continue
+        const { plane, ref } = parseFlowToolConnectionId(config.connectionId)
+        const executor = await resolveFlowToolExecutor({
+          organizationId: flow.organizationId, userId: owner.id, plane, ref, toolName: config.toolName,
+        })
+        let args: Record<string, unknown> = {}
+        if (config.args) {
+          try { args = JSON.parse(config.args) as Record<string, unknown> } catch { args = {} }
+        }
+        const result = await executor.execute(config.toolName, args)
+        const { newItems, nextState } = diffPollResult(result, state, config, now)
+        await systemPrisma.flow.updateMany({
+          where: { id: flow.id },
+          data: { metadata: JSON.parse(JSON.stringify({ ...metadata, pollState: nextState })) },
+        })
+        for (const item of newItems) {
+          await dispatchFlowExecution({
+            flowId: flow.id,
+            organizationId: flow.organizationId,
+            userId: owner.id,
+            input: item,
+            usePublished: true,
+            trigger: { type: 'poll' },
+          })
+        }
+        polledFlows += 1
+      } catch (error) {
+        apiLogger.warn('cron/dispatch: poll check failed, advancing cursor', {
+          flowId: flow.id, organizationId: flow.organizationId, error: capError(error),
+        })
+        // Advance lastPollAt only — identities stay so nothing is skipped.
+        await systemPrisma.flow.updateMany({
+          where: { id: flow.id },
+          data: { metadata: JSON.parse(JSON.stringify({ ...metadata, pollState: { ...state, lastPollAt: now.toISOString() } })) },
+        }).catch(() => undefined)
+        continue
+      }
+    }
+    if (polledFlows > 0) apiLogger.info('cron/dispatch: polled flow sources', { polledFlows })
 
     // Weekly workflow-suggestion synthesis: only attempted in the Monday
     // 09:00 UTC hour (this cron ticks every 15 minutes, so up to 4 attempts
