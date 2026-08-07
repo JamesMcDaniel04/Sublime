@@ -41,13 +41,15 @@ export async function POST(request: NextRequest) {
     select: { id: true, userId: true },
   })
   if (!run) return NextResponse.json({ success: false, error: 'No waiting run found' }, { status: 404 })
+  const actingUserId = run.userId ?? flow.userId
+  if (!actingUserId) return NextResponse.json({ success: false, error: 'No waiting run found' }, { status: 404 })
 
   const body = await request.text().catch(() => '')
   const reply = body.trim() || '{}'
   const result = await dispatchFlowExecution({
     flowId: flow.id,
     organizationId: flow.organizationId,
-    userId: run.userId ?? flow.userId,
+    userId: actingUserId,
     flowRunId: run.id,
     reply,
   }, { background: true })
