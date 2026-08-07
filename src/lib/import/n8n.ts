@@ -213,11 +213,35 @@ function scheduleTriggerFrom(node: N8nNode, warnings: string[]): FlowTrigger {
   return { type: 'schedule', schedule }
 }
 
+/** n8n slackTrigger event values → Sublime slack trigger event kinds. */
+const SLACK_EVENT_MAP: Record<string, string[]> = {
+  app_mention: ['mention'],
+  message: ['channel_message'],
+  any_event: ['mention', 'dm', 'channel_message'],
+}
+
 function triggerFor(node: N8nNode, warnings: string[]): FlowTrigger {
   const base = baseType(node.type)
   if (base === 'webhook') return { type: 'webhook' }
   if (base === 'scheduleTrigger' || base === 'cron') return scheduleTriggerFrom(node, warnings)
+  if (base === 'slackTrigger') {
+    const requested = Array.isArray(node.parameters.trigger) ? node.parameters.trigger.map(asString) : []
+    const events = Array.from(new Set(requested.flatMap((value) => SLACK_EVENT_MAP[value] ?? [])))
+    const unmapped = requested.filter((value) => !SLACK_EVENT_MAP[value])
+    if (unmapped.length) warnings.push(`Slack trigger events without an equivalent were dropped: ${unmapped.join(', ')}.`)
+    return { type: 'slack', events: events.length ? events : ['mention'] }
+  }
   return { type: 'manual' }
+}
+
+/** Collapse an n8n resourceLocator ({__rl, value}) to its value. */
+function rlValue(raw: unknown): string {
+  return isRecord(raw) && raw.__rl ? asString(raw.value) : asString(raw)
+}
+
+/** resourceLocator display name (sheet tabs are referenced by NAME in A1 ranges). */
+function rlName(raw: unknown): string {
+  return isRecord(raw) && raw.__rl ? asString(raw.cachedResultName) || asString(raw.value) : asString(raw)
 }
 
 /** The ai_* sub-nodes attached to one agent/chain node. */
@@ -654,6 +678,16 @@ function mapNode(node: N8nNode, id: string, warnings: string[]): Mapped {
       return { kind: 'node', node: { id, type: 'filter', data: { label, match, clauses } } }
     }
     case 'switch': {
+      // Expression mode: the output expression yields a 0-based index — one
+      // case per output comparing the expression against its index.
+      if (asString(p.mode) === 'expression') {
+        const count = Math.max(1, Math.min(20, Number(p.numberOutputs) || 1))
+        const expression = asString(p.output)
+        const cases = Array.from({ length: count }, (_unused, index) => ({
+          id: `case-${index}`, left: expression, op: 'eq' as ConditionOp, right: String(index),
+        }))
+        return { kind: 'node', node: { id, type: 'switch', data: { label, cases } } }
+      }
       const rules = isRecord(p.rules) && Array.isArray(p.rules.values) ? p.rules.values : []
       const cases = rules.map((rule, index) => {
         const conditions = isRecord(rule)
@@ -793,6 +827,47 @@ function mapNode(node: N8nNode, id: string, warnings: string[]): Mapped {
         }
       }
       warnings.push(`"${label}" used a Gmail action beyond sending an email — rebuild it with your Gmail connection's actions.`)
+      return stub()
+    }
+    case 'googleSheets': {
+      const operation = asString(p.operation) || 'read'
+      const spreadsheetId = rlValue(p.documentId)
+      const range = rlName(p.sheetName) || 'Sheet1'
+      const toolName = operation === 'read' ? 'sheets_get_values'
+        : operation === 'update' ? 'sheets_update_values'
+        : operation === 'append' || operation === 'appendOrUpdate' ? 'sheets_append_rows'
+        : null
+      if (toolName && spreadsheetId) {
+        if (toolName !== 'sheets_get_values') {
+          warnings.push(`"${label}": map the row values on this Sheets step — n8n's column mapper does not translate.`)
+        }
+        return {
+          kind: 'node',
+          node: {
+            id, type: 'tool',
+            data: { label, connectionId: 'nango:sheets', toolName, args: JSON.stringify({ spreadsheet_id: spreadsheetId, range }) },
+          },
+        }
+      }
+      warnings.push(`"${label}" used a Sheets action beyond read/update/append — rebuild it with your Sheets connection's actions.`)
+      return stub()
+    }
+    case 'salesforce': {
+      if (asString(p.operation) === 'create') {
+        const resource = asString(p.resource) || 'lead'
+        warnings.push(`"${label}": map the record fields on this Salesforce step — n8n's per-field params do not translate.`)
+        return {
+          kind: 'node',
+          node: {
+            id, type: 'tool',
+            data: {
+              label, connectionId: 'nango:salesforce', toolName: 'salesforce_create_record',
+              args: JSON.stringify({ sobject: resource.charAt(0).toUpperCase() + resource.slice(1), fields: {} }),
+            },
+          },
+        }
+      }
+      warnings.push(`"${label}" used a Salesforce action beyond create — rebuild it with your Salesforce connection's actions.`)
       return stub()
     }
     default: {
@@ -1275,6 +1350,20 @@ export function fromN8nWorkflow(raw: unknown): ImportedFlow {
     for (const node of nodes) {
       if (node.id === 'trigger' || hasIncoming.has(node.id)) continue
       liveEdges.push({ id: `e-${edgeSeq++}`, source: 'trigger', target: node.id })
+    }
+  }
+
+  // Numeric fallbackOutput: n8n routes unmatched items into an EXISTING rule
+  // output; our switch follows the 'default' branch — wire default to the
+  // same target as that rule's case edge.
+  for (const node of nodes) {
+    if (node.type !== 'switch') continue
+    const source = byName.get([...idByName.entries()].find(([, mapped]) => mapped === node.id)?.[0] ?? '')
+    const fallback = source && isRecord(source.parameters.options) ? source.parameters.options.fallbackOutput : undefined
+    if (typeof fallback !== 'number') continue
+    const target = liveEdges.find((edge) => edge.source === node.id && edge.branch === `case-${fallback}`)
+    if (target && !liveEdges.some((edge) => edge.source === node.id && edge.branch === 'default')) {
+      liveEdges.push({ id: `e-${edgeSeq++}`, source: node.id, target: target.target, branch: 'default' })
     }
   }
 

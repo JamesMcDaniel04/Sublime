@@ -744,6 +744,74 @@ test('gap 1: shared credentials group steps and prefill vault auth', () => {
   assert.equal(salesforce.data.connectionId, 'nango:salesforce')
 })
 
+test('sheets and salesforce map to native tools; slackTrigger becomes a slack trigger', () => {
+  const imported = fromN8nWorkflow({
+    nodes: [
+      { parameters: { trigger: ['app_mention', 'message'] }, id: 'n-t', name: 'On Slack mention', type: 'n8n-nodes-base.slackTrigger', typeVersion: 1, position: [0, 0] },
+      {
+        parameters: {
+          operation: 'read',
+          documentId: { __rl: true, mode: 'id', value: 'sheet-123' },
+          sheetName: { __rl: true, mode: 'list', value: 'gid=0', cachedResultName: 'Leads' },
+        },
+        id: 'n-read', name: 'Read leads', type: 'n8n-nodes-base.googleSheets', typeVersion: 4.5, position: [100, 0],
+      },
+      {
+        parameters: { resource: 'lead', operation: 'create' },
+        id: 'n-sf', name: 'Create lead', type: 'n8n-nodes-base.salesforce', typeVersion: 2, position: [200, 0],
+      },
+    ],
+    connections: {
+      'On Slack mention': { main: [[{ node: 'Read leads', type: 'main', index: 0 }]] },
+      'Read leads': { main: [[{ node: 'Create lead', type: 'main', index: 0 }]] },
+    },
+  })
+  assert.deepEqual(imported.trigger, { type: 'slack', events: ['mention', 'channel_message'] })
+  const read = imported.graph.nodes.find((node) => node.id === 'n-read') as NodeOf<'tool'>
+  assert.equal(read.type, 'tool')
+  assert.equal(read.data.connectionId, 'nango:sheets')
+  assert.equal(read.data.toolName, 'sheets_get_values')
+  assert.deepEqual(JSON.parse(read.data.args ?? '{}'), { spreadsheet_id: 'sheet-123', range: 'Leads' })
+  const create = imported.graph.nodes.find((node) => node.id === 'n-sf') as NodeOf<'tool'>
+  assert.equal(create.type, 'tool')
+  assert.equal(create.data.connectionId, 'nango:salesforce')
+  assert.equal(create.data.toolName, 'salesforce_create_record')
+  assert.equal(imported.stubbedNodes.length, 0)
+})
+
+test('switch expression mode builds indexed cases; numeric fallback wires the default branch', () => {
+  const imported = fromN8nWorkflow({
+    nodes: [
+      { parameters: {}, id: 'n-t', name: 'Manual', type: 'n8n-nodes-base.manualTrigger', typeVersion: 1, position: [0, 0] },
+      {
+        parameters: { mode: 'expression', numberOutputs: 2, output: '={{ $json.route }}', options: { fallbackOutput: 1 } },
+        id: 'n-sw', name: 'Route', type: 'n8n-nodes-base.switch', typeVersion: 3.2, position: [100, 0],
+      },
+      { parameters: {}, id: 'n-a', name: 'Path A', type: 'n8n-nodes-base.noOp', typeVersion: 1, position: [200, -50] },
+      { parameters: { amount: 1, unit: 'seconds' }, id: 'n-w1', name: 'Wait A', type: 'n8n-nodes-base.wait', typeVersion: 1.1, position: [300, -50] },
+      { parameters: { amount: 2, unit: 'seconds' }, id: 'n-w2', name: 'Wait B', type: 'n8n-nodes-base.wait', typeVersion: 1.1, position: [300, 50] },
+    ],
+    connections: {
+      Manual: { main: [[{ node: 'Route', type: 'main', index: 0 }]] },
+      Route: {
+        main: [
+          [{ node: 'Path A', type: 'main', index: 0 }],
+          [{ node: 'Wait B', type: 'main', index: 0 }],
+        ],
+      },
+      'Path A': { main: [[{ node: 'Wait A', type: 'main', index: 0 }]] },
+    },
+  })
+  const route = imported.graph.nodes.find((node) => node.id === 'n-sw') as NodeOf<'switch'>
+  assert.equal(route.data.cases.length, 2)
+  assert.deepEqual(route.data.cases.map((entry) => entry.right), ['0', '1'])
+  // Numeric fallbackOutput 1 → unmatched items follow default to case-1's target.
+  const defaultEdge = imported.graph.edges.find((edge) => edge.source === 'n-sw' && edge.branch === 'default')
+  const caseOneEdge = imported.graph.edges.find((edge) => edge.source === 'n-sw' && edge.branch === 'case-1')
+  assert.ok(defaultEdge && caseOneEdge)
+  assert.equal(defaultEdge?.target, caseOneEdge?.target)
+})
+
 test('round-trips our own n8n export back into a flow', async () => {
   const { toN8nWorkflow } = await import('@/lib/export/n8n')
   const { toPortableFlow } = await import('@/lib/export/portable')
