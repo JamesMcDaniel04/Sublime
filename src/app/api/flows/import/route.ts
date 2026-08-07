@@ -103,59 +103,96 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
     }
   }
 
+  // Sibling flows (multi-trigger n8n workflows split into one flow per
+  // trigger) go through the same sanitize/secret pipeline as the primary.
+  const siblings = (imported.additionalFlows ?? []).map((flow) => {
+    const cleaned = sanitizeImportedGraph(flow.graph)
+    if (inlineLiteralSecretNodes(cleaned.graph).length) {
+      throw new ApiError(
+        'HTTP authentication secrets must be saved as a private credential before this flow can be saved.',
+        400,
+        'INLINE_AUTH_SECRET',
+      )
+    }
+    warnings.push(...cleaned.warnings.map((warning) => `[${flow.name}] ${warning}`))
+    return { flow, graph: cleaned.graph }
+  })
+
   await assertFlowCapacity(auth.organizationId)
-  for (let i = 0; i < imported.agentsToCreate.length; i += 1) await assertAgentCapacity(auth.organizationId)
+  for (let i = 0; i < siblings.length; i += 1) await assertFlowCapacity(auth.organizationId)
+  const totalAgents = imported.agentsToCreate.length + siblings.reduce((sum, entry) => sum + entry.flow.agentsToCreate.length, 0)
+  for (let i = 0; i < totalAgents; i += 1) await assertAgentCapacity(auth.organizationId)
 
   // Draft-stage validation is advisory (publish is the hard gate, same as the
   // create path) — issues land in the report, never block the import.
   warnings.push(...validateFlowGraph(graph, { requireRunnable: false }).issues.map((issue) => issue.message))
 
-  // Agents + flow land atomically: a failed import leaves nothing behind.
-  const { flow, createdAgents, clearedRefs } = await prisma.$transaction(async (tx) => {
-    const refToId: Record<string, string> = {}
+  // Agents + all flows land atomically: a failed import leaves nothing behind.
+  const { flow, createdAgents, clearedRefs, additionalCreated } = await prisma.$transaction(async (tx) => {
     const createdAgents: Array<{ id: string; title: string; integrations: string[] }> = []
-    for (const agent of imported.agentsToCreate) {
-      const created = await tx.agentTask.create({
+    const materializeAgents = async (agents: typeof imported.agentsToCreate): Promise<Record<string, string>> => {
+      const refToId: Record<string, string> = {}
+      for (const agent of agents) {
+        const created = await tx.agentTask.create({
+          data: {
+            agentType: 'CUSTOM',
+            description: agent.title,
+            objective: agent.instructions,
+            goal: agent.goal ?? null,
+            schedule: { type: 'manual', time: '', cron: '', timezone: 'UTC', isActive: false },
+            status: 'ACTIVE',
+            visibility: 'private',
+            organizationId: auth.organizationId,
+            userId: auth.dbUser.id,
+            metadata: {
+              title: agent.title,
+              description: agent.title,
+              model: agent.model ?? DEFAULT_AGENT_MODEL,
+              integrations: agent.integrations,
+              requiredIntegrations: [],
+              skills: [], icon: '', allowSubagents: false, subagentIds: [], autoAnswerFromMemory: true,
+              ...(agent.httpTools?.length ? { httpTools: agent.httpTools } : {}),
+            },
+          },
+          select: { id: true },
+        })
+        refToId[agent.ref] = created.id
+        createdAgents.push({ id: created.id, title: agent.title, integrations: agent.integrations })
+      }
+      return refToId
+    }
+    const createFlowRow = (source: ImportedFlow, flowGraph: typeof graph) =>
+      tx.flow.create({
         data: {
-          agentType: 'CUSTOM',
-          description: agent.title,
-          objective: agent.instructions,
-          goal: agent.goal ?? null,
-          schedule: { type: 'manual', time: '', cron: '', timezone: 'UTC', isActive: false },
-          status: 'ACTIVE',
+          name: source.name,
+          description: source.description,
+          status: 'DRAFT',
           visibility: 'private',
+          trigger: jsonValue(source.trigger),
+          graph: jsonValue(flowGraph),
           organizationId: auth.organizationId,
           userId: auth.dbUser.id,
-          metadata: {
-            title: agent.title,
-            description: agent.title,
-            model: agent.model ?? DEFAULT_AGENT_MODEL,
-            integrations: agent.integrations,
-            requiredIntegrations: [],
-            skills: [], icon: '', allowSubagents: false, subagentIds: [], autoAnswerFromMemory: true,
-            ...(agent.httpTools?.length ? { httpTools: agent.httpTools } : {}),
-          },
+          metadata: jsonValue({
+            importedFrom: source.source,
+            // Persisted so credential bulk-bind can also happen later, not
+            // only in the import dialog's success screen.
+            ...(source.credentialGroups?.length ? { importedCredentialGroups: source.credentialGroups } : {}),
+          }),
         },
-        select: { id: true },
       })
-      refToId[agent.ref] = created.id
-      createdAgents.push({ id: created.id, title: agent.title, integrations: agent.integrations })
-    }
+
+    const refToId = await materializeAgents(imported.agentsToCreate)
     const remapped = remapAgentRefs(graph, refToId)
-    const flow = await tx.flow.create({
-      data: {
-        name: imported.name,
-        description: imported.description,
-        status: 'DRAFT',
-        visibility: 'private',
-        trigger: jsonValue(imported.trigger),
-        graph: jsonValue(remapped.graph),
-        organizationId: auth.organizationId,
-        userId: auth.dbUser.id,
-        metadata: { importedFrom: imported.source },
-      },
-    })
-    return { flow, createdAgents, clearedRefs: remapped.clearedRefs }
+    const flow = await createFlowRow(imported, remapped.graph)
+
+    const additionalCreated: Array<{ id: string; name: string }> = []
+    for (const sibling of siblings) {
+      const siblingRefs = await materializeAgents(sibling.flow.agentsToCreate)
+      const siblingRemapped = remapAgentRefs(sibling.graph, siblingRefs)
+      const row = await createFlowRow(sibling.flow, siblingRemapped.graph)
+      additionalCreated.push({ id: row.id, name: row.name })
+    }
+    return { flow, createdAgents, clearedRefs: remapped.clearedRefs, additionalCreated }
   })
   for (const ref of clearedRefs) {
     warnings.push(`An agent step referenced an agent (${ref}) that was not in the file — pick one of your agents.`)
@@ -172,6 +209,13 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
     kind: 'flow_created', resourceType: 'flow', resourceId: flow.id,
     context: { name: flow.name, importedFrom: imported.source },
   })
+  for (const sibling of additionalCreated) {
+    await recordUserEvent({
+      organizationId: auth.organizationId, userId: auth.dbUser.id,
+      kind: 'flow_created', resourceType: 'flow', resourceId: sibling.id,
+      context: { name: sibling.name, importedFrom: imported.source },
+    }).catch(() => undefined)
+  }
 
   // Same construction-time integration warning as POST /api/flows.
   const finalGraph = flow.graph as unknown as typeof graph
@@ -201,6 +245,8 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
       stubbedNodes: imported.stubbedNodes,
       missingIntegrations,
       createdAgents,
+      additionalFlows: additionalCreated,
+      credentialGroups: imported.credentialGroups ?? [],
     },
   }
 }, { requires: 'member', rateLimit: { feature: 'flow-import', perUser: 20, windowSeconds: 60 } })

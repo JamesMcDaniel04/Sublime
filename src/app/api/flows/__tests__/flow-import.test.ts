@@ -77,9 +77,9 @@ if (TEST_DB) {
           name: 'From n8n',
           nodes: [
             { parameters: {}, id: 'a', name: 'Manual', type: 'n8n-nodes-base.manualTrigger', typeVersion: 1, position: [0, 0] },
-            { parameters: { channel: '#x' }, id: 'b', name: 'Slack it', type: 'n8n-nodes-base.slack', typeVersion: 2, position: [200, 0] },
+            { parameters: { databaseId: 'db-1' }, id: 'b', name: 'Notion page', type: 'n8n-nodes-base.notion', typeVersion: 2, position: [200, 0] },
           ],
-          connections: { Manual: { main: [[{ node: 'Slack it', type: 'main', index: 0 }]] } },
+          connections: { Manual: { main: [[{ node: 'Notion page', type: 'main', index: 0 }]] } },
         }),
       }))
       assert.equal(response.status, 200)
@@ -122,6 +122,37 @@ if (TEST_DB) {
       const graph = (await prisma.flow.findFirstOrThrow({ where: { id: body.flow.id, organizationId: seeded.organizationId } }))
         .graph as { nodes: Array<{ type: string; data: Record<string, unknown> }> }
       assert.equal(graph.nodes.find((node) => node.type === 'agent')?.data.agentId, agentRow.id)
+    })
+
+    await t.test('multi-trigger n8n workflows create sibling flows with credential groups persisted', async () => {
+      const response = await POST(post({
+        document: JSON.stringify({
+          name: 'Two Doors',
+          nodes: [
+            { parameters: { path: 'a' }, id: 'w1', name: 'Door A', type: 'n8n-nodes-base.webhook', typeVersion: 2, position: [0, 0] },
+            { parameters: { path: 'b' }, id: 'w2', name: 'Door B', type: 'n8n-nodes-base.webhook', typeVersion: 2, position: [0, 200] },
+            {
+              parameters: { method: 'GET', url: 'https://api.example.com/x', authentication: 'predefinedCredentialType', nodeCredentialType: 'gongApi' },
+              id: 'h1', name: 'Shared fetch', type: 'n8n-nodes-base.httpRequest', typeVersion: 4.2, position: [200, 100],
+            },
+          ],
+          connections: {
+            'Door A': { main: [[{ node: 'Shared fetch', type: 'main', index: 0 }]] },
+            'Door B': { main: [[{ node: 'Shared fetch', type: 'main', index: 0 }]] },
+          },
+        }),
+      }))
+      assert.equal(response.status, 200)
+      const body = await response.json()
+      assert.equal(body.report.additionalFlows.length, 1)
+      assert.match(body.report.additionalFlows[0].name, /Door B/)
+      assert.equal(body.report.credentialGroups.length, 1)
+      const sibling = await prisma.flow.findFirstOrThrow({
+        where: { id: body.report.additionalFlows[0].id, organizationId: seeded.organizationId },
+      })
+      assert.equal(sibling.status, 'DRAFT')
+      const metadata = sibling.metadata as { importedCredentialGroups?: unknown[] }
+      assert.equal(metadata.importedCredentialGroups?.length, 1)
     })
 
     await t.test('imports the builder bare download shape', async () => {

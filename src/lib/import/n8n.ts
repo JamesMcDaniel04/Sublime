@@ -30,7 +30,16 @@ import {
 import type { FlowTrigger } from '@/lib/flows/trigger'
 import type { PortableAgent } from '@/lib/export/portable'
 import { agentHttpToolSchema, MAX_AGENT_HTTP_TOOLS, type AgentHttpTool } from '@/lib/agents/http-tools'
-import { FlowImportError, type ImportedFlow, type StubbedNode } from './types'
+import { FlowImportError, type CredentialGroup, type ImportedFlow, type StubbedNode } from './types'
+
+/** Best-guess vault credential type for an n8n credential type name. */
+function vaultTypeFor(sourceType: string): CredentialGroup['credentialType'] {
+  const lower = sourceType.toLowerCase()
+  if (lower.includes('oauth2')) return 'oauth2'
+  if (lower.includes('basicauth') || lower.includes('basic_auth')) return 'basic'
+  if (lower.includes('headerauth') || lower.includes('header_auth') || lower.includes('apikey')) return 'apiKeyHeader'
+  return 'bearer'
+}
 
 const n8nNodeSchema = z.object({
   id: z.string().optional(),
@@ -563,8 +572,9 @@ function mapNode(node: N8nNode, id: string, warnings: string[]): Mapped {
       } else if (p.contentType === 'raw' && body) {
         bodyMode = 'raw'
       }
-      if (p.authentication && p.authentication !== 'none') {
-        warnings.push(`"${label}" used n8n credentials — re-enter authentication for this HTTP step.`)
+      const usesCredential = Boolean(p.authentication && p.authentication !== 'none')
+      if (usesCredential) {
+        warnings.push(`"${label}" used n8n credentials — attach a vault credential to this HTTP step.`)
       }
       const options = isRecord(p.options) ? p.options : {}
       const redirect = isRecord(options.redirect) && isRecord(options.redirect.redirect) ? options.redirect.redirect : undefined
@@ -591,6 +601,15 @@ function mapNode(node: N8nNode, id: string, warnings: string[]): Mapped {
                 size: Math.min(1000, Math.max(1, Number(batching.batchSize))),
                 ...(Number(batching.batchInterval) > 0 ? { delayMs: Math.min(60000, Number(batching.batchInterval)) } : {}),
               },
+            } : {}),
+            // Pre-set the vault auth mode so the step's credential picker is
+            // one click away (the credential itself never travels).
+            ...(usesCredential ? {
+              authMode: 'generic' as const,
+              credentialType: (() => {
+                const guess = vaultTypeFor(asString(p.nodeCredentialType ?? p.genericAuthType))
+                return guess === 'apiKeyHeader' ? 'apiKeyHeader' as const : guess === 'basic' ? 'basic' as const : guess === 'oauth2' ? 'oauth2' as const : 'bearer' as const
+              })(),
             } : {}),
           },
         },
@@ -820,6 +839,9 @@ function translateExpressions(
   const envVars = new Set<string>()
 
   const translateString = (value: string, nodeId: string): string => {
+    // '=' marks an n8n expression; one with no {{…}} segments is a plain
+    // literal that only needs the marker stripped.
+    if (value.startsWith('=') && !value.includes('{{')) return value.slice(1)
     if (!value.startsWith('=') || !value.includes('{{')) return value
     const preds = predecessors.get(nodeId)
     const jsonBase = preds?.size === 1
@@ -832,11 +854,9 @@ function translateExpressions(
         if (!jsonBase) { allTranslated = false; return segment }
         return `{{${jsonBase}${jsonMatch[1] ?? ''}}}`
       }
-      const nodeMatch = NODE_SEGMENT.exec(inner) ?? (() => {
-        const call = NODE_CALL_SEGMENT.exec(inner)
-        // Re-shape the $('…') match to the $node[…] group layout (name at 2, path at 3).
-        return call ? ([call[0], call[1], call[2], call[3]] as RegExpExecArray) : null
-      })()
+      // Cross-node refs, both dialects: $node["Name"].json.x and $('Name').first().json.x
+      // (group layout is identical: name at index 2, path at index 3).
+      const nodeMatch = NODE_SEGMENT.exec(inner) ?? NODE_CALL_SEGMENT.exec(inner)
       if (nodeMatch) {
         const referencedId = idByName.get(nodeMatch[2])
         if (!referencedId) { allTranslated = false; return segment }
@@ -938,14 +958,121 @@ export function fromN8nWorkflow(raw: unknown): ImportedFlow {
   const idByName = new Map<string, string>()
   const usedIds = new Set<string>(['trigger'])
   const triggerNodes = workflow.nodes.filter((node) => isTriggerType(node.type) && !absorbed.has(node.name))
-  const primaryTrigger: N8nNode | undefined = triggerNodes[0]
+
+  // Multiple triggers: Sublime flows have exactly one, so the workflow SPLITS
+  // into one flow per trigger — each takes its reachable chain (shared tails
+  // duplicated), which preserves every entry point's semantics instead of
+  // firing every branch on every call.
   if (triggerNodes.length > 1) {
-    warnings.push('The n8n workflow had multiple triggers — they were merged into one.')
+    const reachableFrom = (start: string): Set<string> => {
+      const seen = new Set<string>([start])
+      const queue = [start]
+      while (queue.length) {
+        const current = queue.shift()!
+        const conns = workflow.connections[current]
+        if (!isRecord(conns)) continue
+        for (const bundles of Object.values(conns)) {
+          if (!Array.isArray(bundles)) continue
+          for (const bundle of bundles) {
+            if (!Array.isArray(bundle)) continue
+            for (const link of bundle) {
+              if (isRecord(link) && typeof link.node === 'string' && !seen.has(link.node)) {
+                seen.add(link.node)
+                queue.push(link.node)
+              }
+            }
+          }
+        }
+      }
+      // Pull in ai_* sub-nodes attached to included nodes (fixpoint: a model
+      // can attach to a tool that attaches to an agent).
+      for (;;) {
+        let grew = false
+        for (const [sourceName, value] of Object.entries(workflow.connections)) {
+          if (seen.has(sourceName) || !isRecord(value)) continue
+          for (const [connType, bundles] of Object.entries(value)) {
+            if (!AI_ATTACHMENT_TYPES.has(connType) || !Array.isArray(bundles)) continue
+            const targets = bundles.flat().filter(isRecord).map((link) => link.node)
+            if (targets.some((target) => typeof target === 'string' && seen.has(target))) {
+              seen.add(sourceName)
+              grew = true
+            }
+          }
+        }
+        if (!grew) break
+      }
+      return seen
+    }
+    const subWorkflowFor = (trigger: N8nNode, name: string) => {
+      const included = reachableFrom(trigger.name)
+      // Orphans (reachable from no trigger) ride with the primary flow.
+      if (trigger === triggerNodes[0]) {
+        const anyTrigger = new Set(triggerNodes.flatMap((entry) => [...reachableFrom(entry.name)]))
+        for (const node of workflow.nodes) if (!anyTrigger.has(node.name)) included.add(node.name)
+        for (const extra of triggerNodes.slice(1)) included.delete(extra.name)
+      }
+      const connections: Record<string, unknown> = {}
+      for (const [sourceName, value] of Object.entries(workflow.connections)) {
+        if (!included.has(sourceName) || !isRecord(value)) continue
+        const filtered: Record<string, unknown> = {}
+        for (const [connType, bundles] of Object.entries(value)) {
+          if (!Array.isArray(bundles)) continue
+          filtered[connType] = bundles.map((bundle) =>
+            Array.isArray(bundle) ? bundle.filter((link) => isRecord(link) && typeof link.node === 'string' && included.has(link.node)) : bundle)
+        }
+        connections[sourceName] = filtered
+      }
+      return { ...workflow, name, nodes: workflow.nodes.filter((node) => included.has(node.name)), connections }
+    }
+    const primary = fromN8nWorkflow(subWorkflowFor(triggerNodes[0], workflow.name ?? 'Imported n8n workflow'))
+    const additionalFlows = triggerNodes.slice(1).map((trigger) =>
+      fromN8nWorkflow(subWorkflowFor(trigger, `${workflow.name ?? 'Imported n8n workflow'} — ${trigger.name}`)))
+    return {
+      ...primary,
+      warnings: Array.from(new Set([
+        `This n8n workflow had ${triggerNodes.length} triggers — it was split into ${triggerNodes.length} flows, one per trigger (shared steps are duplicated into each).`,
+        ...primary.warnings,
+        ...additionalFlows.flatMap((flow) => flow.warnings.map((warning) => `[${flow.name}] ${warning}`)),
+      ])),
+      additionalFlows,
+    }
   }
+
+  const primaryTrigger: N8nNode | undefined = triggerNodes[0]
 
   const nodes: FlowNode[] = []
   const dropped = new Set<string>()
   const layout: NonNullable<FlowGraph['layout']> = {}
+  // Steps that shared one n8n credential, grouped so a single vault
+  // credential can bind to all of them after import.
+  const credentialGroups = new Map<string, CredentialGroup>()
+  const collectCredentials = (source: N8nNode, nodeId: string) => {
+    const record = (sourceType: string, identity: string, name: string) => {
+      const key = `${sourceType}:${identity || 'default'}`
+      const group = credentialGroups.get(key) ?? {
+        key,
+        sourceType,
+        name: name || sourceType,
+        credentialType: vaultTypeFor(sourceType),
+        nodeIds: [],
+      }
+      group.nodeIds.push(nodeId)
+      credentialGroups.set(key, group)
+    }
+    if (isRecord(source.credentials)) {
+      for (const [sourceType, info] of Object.entries(source.credentials)) {
+        record(sourceType, isRecord(info) ? asString(info.id) || asString(info.name) : '', isRecord(info) ? asString(info.name) : '')
+      }
+      return
+    }
+    // Template exports often carry no credentials object — the credential
+    // TYPE on the http step (nodeCredentialType) still groups the steps.
+    const p = source.parameters
+    if (baseType(source.type) === 'httpRequest' && p.authentication && p.authentication !== 'none') {
+      const sourceType = asString(p.nodeCredentialType ?? p.genericAuthType) || 'httpCredential'
+      record(sourceType, '', sourceType)
+    }
+  }
 
   for (const node of workflow.nodes) {
     if (absorbed.has(node.name)) continue
@@ -988,6 +1115,7 @@ export function fromN8nWorkflow(raw: unknown): ImportedFlow {
     if (mapped.kind === 'drop') { dropped.add(id); continue }
     applyCommonProps(mapped.node, node, warnings)
     nodes.push(mapped.node)
+    collectCredentials(node, id)
     if (mapped.stub) stubbedNodes.push({ nodeId: id, label: node.name, originalType: node.type })
   }
 
@@ -1163,5 +1291,6 @@ export function fromN8nWorkflow(raw: unknown): ImportedFlow {
     source: 'n8n',
     warnings: Array.from(new Set(warnings)),
     stubbedNodes,
+    ...(credentialGroups.size ? { credentialGroups: Array.from(credentialGroups.values()) } : {}),
   }
 }

@@ -15,6 +15,8 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Textarea } from '@/components/ui/textarea'
+import { CredentialPicker } from '@/components/credentials/credential-picker'
+import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
 
 type ImportReport = {
@@ -23,6 +25,14 @@ type ImportReport = {
   stubbedNodes: Array<{ nodeId: string; label: string; originalType: string }>
   missingIntegrations: Array<{ nodeId: string; connectionId: string }>
   createdAgents: Array<{ id: string; title: string }>
+  additionalFlows?: Array<{ id: string; name: string }>
+  credentialGroups?: Array<{
+    key: string
+    sourceType: string
+    name: string
+    credentialType: 'basic' | 'bearer' | 'apiKeyHeader' | 'oauth2'
+    nodeIds: string[]
+  }>
 }
 
 type Props = {
@@ -43,11 +53,53 @@ export function ImportFlowDialog({ open, onOpenChange, onImported }: Props) {
   const [dragging, setDragging] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
-  const [result, setResult] = useState<{ flowId: string; name: string; report: ImportReport } | null>(null)
+  const [result, setResult] = useState<{ flowId: string; name: string; graph: unknown; updatedAt?: string; report: ImportReport } | null>(null)
+  const [boundGroups, setBoundGroups] = useState<Record<string, string>>({})
   const fileInput = useRef<HTMLInputElement>(null)
 
   const reset = () => {
-    setFileName(''); setDocument(''); setUrl(''); setPasted(''); setError(''); setResult(null); setSubmitting(false)
+    setFileName(''); setDocument(''); setUrl(''); setPasted(''); setError(''); setResult(null); setSubmitting(false); setBoundGroups({})
+  }
+
+  /**
+   * Bulk credential binding: steps that shared one credential in the source
+   * system get the chosen vault credential in a single save, instead of
+   * opening each step's auth section by hand.
+   */
+  const bindCredentialGroup = async (
+    group: NonNullable<ImportReport['credentialGroups']>[number],
+    credentialId: string,
+    credentialType: string,
+  ) => {
+    if (!result) return
+    const graph = result.graph as { nodes?: Array<{ id: string; type: string; data: Record<string, unknown> }> }
+    const members = new Set(group.nodeIds)
+    const nextGraph = {
+      ...graph,
+      nodes: (graph.nodes ?? []).map((node) =>
+        members.has(node.id) && node.type === 'http'
+          ? { ...node, data: { ...node.data, authMode: 'generic', credentialType, credentialId } }
+          : node,
+      ),
+    }
+    try {
+      const response = await fetch('/api/flows', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: result.flowId, graph: nextGraph, ...(result.updatedAt ? { baseUpdatedAt: result.updatedAt } : {}) }),
+      })
+      const body = await response.json().catch(() => ({}))
+      if (!response.ok || !body.flow) {
+        toast.error(body.error || 'Could not attach the credential to the imported steps.')
+        return
+      }
+      setResult({ ...result, graph: body.flow.graph ?? nextGraph, updatedAt: body.flow.updatedAt })
+      setBoundGroups((prev) => ({ ...prev, [group.key]: credentialId }))
+      const httpMembers = (graph.nodes ?? []).filter((node) => members.has(node.id) && node.type === 'http').length
+      toast.success(`Credential attached to ${httpMembers} step${httpMembers === 1 ? '' : 's'}.`)
+    } catch {
+      toast.error('Could not attach the credential — check your connection.')
+    }
   }
 
   const readFile = async (file: File) => {
@@ -79,7 +131,7 @@ export function ImportFlowDialog({ open, onOpenChange, onImported }: Props) {
         setError(body.error || 'The flow could not be imported.')
         return
       }
-      setResult({ flowId: body.flow.id, name: body.flow.name, report: body.report })
+      setResult({ flowId: body.flow.id, name: body.flow.name, graph: body.flow.graph, updatedAt: body.flow.updatedAt, report: body.report })
     } catch {
       setError('The flow could not be imported.')
     } finally {
@@ -101,6 +153,45 @@ export function ImportFlowDialog({ open, onOpenChange, onImported }: Props) {
                 The flow was created as a private draft{report?.createdAgents.length ? `, along with ${report.createdAgents.length} agent${report.createdAgents.length === 1 ? '' : 's'} it uses` : ''}.
               </DialogDescription>
             </DialogHeader>
+            {(report?.credentialGroups?.length ?? 0) > 0 && (
+              <div className="space-y-2 rounded-lg border p-3 text-sm">
+                <p className="font-medium">Attach credentials</p>
+                <p className="text-xs text-muted-foreground">
+                  These steps shared credentials in n8n. Pick (or create) a vault credential once per group — it applies to every step in the group.
+                </p>
+                {report!.credentialGroups!.map((group) => (
+                  <div key={group.key} className="flex items-center gap-3 rounded-md border border-border/60 px-2 py-1.5">
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-xs font-medium">{group.name}</p>
+                      <p className="text-[11px] text-muted-foreground">
+                        {group.nodeIds.length} step{group.nodeIds.length === 1 ? '' : 's'} · {group.sourceType}
+                      </p>
+                    </div>
+                    <div className="w-56 shrink-0">
+                      <CredentialPicker
+                        value={boundGroups[group.key]}
+                        type={group.credentialType}
+                        context="http"
+                        onChange={(credentialId, nextType) => {
+                          if (credentialId) void bindCredentialGroup(group, credentialId, nextType ?? group.credentialType)
+                        }}
+                      />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+            {(report?.additionalFlows?.length ?? 0) > 0 && (
+              <div className="rounded-lg border p-3 text-sm">
+                <p className="font-medium">Also created</p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  The n8n workflow had multiple triggers, so it became one flow per trigger:
+                </p>
+                <ul className="mt-1 list-disc pl-5 text-xs text-muted-foreground">
+                  {report!.additionalFlows!.map((sibling) => <li key={sibling.id}>{sibling.name}</li>)}
+                </ul>
+              </div>
+            )}
             {noteworthy && report && (
               <div className="max-h-64 space-y-3 overflow-y-auto rounded-lg border bg-muted/40 p-3 text-sm">
                 {report.stubbedNodes.length > 0 && (

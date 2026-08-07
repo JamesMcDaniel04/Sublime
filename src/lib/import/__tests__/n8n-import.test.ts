@@ -675,6 +675,69 @@ test('gap 4: slack post and gmail send become native tool steps, not stubs', () 
   assert.equal(imported.stubbedNodes.some((stub) => stub.originalType.includes('slack')), false)
 })
 
+test('gap 5: multi-trigger workflows split into one flow per trigger', () => {
+  const imported = fromN8nWorkflow({
+    name: 'Deal Handoff',
+    nodes: [
+      { parameters: { path: 'sf' }, id: 'n-sf', name: 'SF Webhook', type: 'n8n-nodes-base.webhook', typeVersion: 2, position: [0, 0] },
+      { parameters: { path: 'slash' }, id: 'n-slash', name: 'Slash Command', type: 'n8n-nodes-base.webhook', typeVersion: 2, position: [0, 200] },
+      { parameters: { respondWith: 'text', responseBody: 'ok' }, id: 'n-ack', name: 'Ack SF', type: 'n8n-nodes-base.respondToWebhook', typeVersion: 1.1, position: [100, 0] },
+      { parameters: { jsCode: 'return items' }, id: 'n-parse', name: 'Parse', type: 'n8n-nodes-base.code', typeVersion: 2, position: [200, 100] },
+      { parameters: { method: 'GET', url: 'https://api.example.com/deal' }, id: 'n-fetch', name: 'Fetch Deal', type: 'n8n-nodes-base.httpRequest', typeVersion: 4.2, position: [300, 100] },
+    ],
+    connections: {
+      'SF Webhook': { main: [[{ node: 'Ack SF', type: 'main', index: 0 }]] },
+      'Ack SF': { main: [[{ node: 'Parse', type: 'main', index: 0 }]] },
+      'Slash Command': { main: [[{ node: 'Parse', type: 'main', index: 0 }]] },
+      Parse: { main: [[{ node: 'Fetch Deal', type: 'main', index: 0 }]] },
+    },
+  })
+  // Primary flow: first trigger + its reachable chain (shared tail included).
+  assert.equal(imported.name, 'Deal Handoff')
+  assert.equal(imported.trigger.type, 'webhook')
+  const primaryTypes = imported.graph.nodes.map((node) => node.type).sort()
+  assert.deepEqual(primaryTypes, ['code', 'http', 'respondWebhook', 'trigger'])
+  // Sibling flow for the second trigger, with the shared tail DUPLICATED.
+  assert.equal(imported.additionalFlows?.length, 1)
+  const sibling = imported.additionalFlows![0]
+  assert.equal(sibling.name, 'Deal Handoff — Slash Command')
+  assert.equal(sibling.trigger.type, 'webhook')
+  assert.deepEqual(sibling.graph.nodes.map((node) => node.type).sort(), ['code', 'http', 'trigger'])
+  // The old merge warning is gone; the split is announced instead.
+  assert.equal(imported.warnings.some((warning) => warning.includes('merged into one')), false)
+  assert.ok(imported.warnings.some((warning) => warning.includes('split')))
+})
+
+test('gap 1: shared credentials group steps and prefill vault auth', () => {
+  const imported = fromN8nWorkflow({
+    nodes: [
+      { parameters: {}, id: 'n-t', name: 'Manual', type: 'n8n-nodes-base.manualTrigger', typeVersion: 1, position: [0, 0] },
+      {
+        parameters: { method: 'GET', url: '=https://api.gong.io/v2/calls', authentication: 'predefinedCredentialType', nodeCredentialType: 'gongApi' },
+        id: 'n-a', name: 'List calls', type: 'n8n-nodes-base.httpRequest', typeVersion: 4.2, position: [100, 0],
+      },
+      {
+        parameters: { method: 'GET', url: 'https://api.gong.io/v2/transcript', authentication: 'predefinedCredentialType', nodeCredentialType: 'gongApi' },
+        id: 'n-b', name: 'Get transcript', type: 'n8n-nodes-base.httpRequest', typeVersion: 4.2, position: [200, 0],
+      },
+      {
+        parameters: { method: 'GET', url: 'https://sf.example.com/opp', authentication: 'predefinedCredentialType', nodeCredentialType: 'salesforceOAuth2Api' },
+        id: 'n-c', name: 'Get opp', type: 'n8n-nodes-base.httpRequest', typeVersion: 4.2, position: [300, 0],
+      },
+    ],
+    connections: {},
+  })
+  const groups = imported.credentialGroups ?? []
+  assert.equal(groups.length, 2)
+  const gong = groups.find((group) => group.sourceType === 'gongApi')
+  assert.deepEqual(gong?.nodeIds.sort(), ['n-a', 'n-b'])
+  assert.equal(groups.find((group) => group.sourceType === 'salesforceOAuth2Api')?.credentialType, 'oauth2')
+  // Auth prefilled for the vault picker; '=' literal marker stripped.
+  const stepA = imported.graph.nodes.find((node) => node.id === 'n-a') as NodeOf<'http'>
+  assert.equal(stepA.data.authMode, 'generic')
+  assert.equal(stepA.data.url, 'https://api.gong.io/v2/calls')
+})
+
 test('round-trips our own n8n export back into a flow', async () => {
   const { toN8nWorkflow } = await import('@/lib/export/n8n')
   const { toPortableFlow } = await import('@/lib/export/portable')
