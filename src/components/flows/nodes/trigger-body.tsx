@@ -16,7 +16,7 @@ import { INPUT_TYPES, controlClass, inputTypeForField, isRecord, labelClass, uni
 import type { InputKind, NodeBodyModule, NodeBodyProps } from './types'
 
 export type TriggerData = {
-  type?: 'manual' | 'schedule' | 'webhook' | 'signal' | 'slack' | 'activity'
+  type?: 'manual' | 'schedule' | 'webhook' | 'signal' | 'slack' | 'activity' | 'poll'
   schedule?: { type?: string; time?: string; cron?: string; timezone?: string; runAt?: string; isActive?: boolean }
   input?: string
   inputFields?: TriggerInputField[]
@@ -38,6 +38,9 @@ export type TriggerData = {
   webhookResponse?: 'immediate' | 'lastNode' | 'respondNode'
   /** "Only run when…": the run is skipped unless these clauses match the trigger payload. */
   filter?: { match?: 'all' | 'any'; clauses?: ConditionClause[] }
+  /** Polling source: run a read action on an interval; each NEW item starts a run. */
+  intervalMinutes?: number
+  source?: { connectionId?: string; toolName?: string; args?: string; itemsPath?: string; idPath?: string }
 }
 
 const FREQUENCIES = [
@@ -63,10 +66,12 @@ function TriggerBody({
   node,
   update,
   flowId,
+  toolCatalog,
 }: {
   node: Extract<FlowNode, { type: 'trigger' }>
   update: (node: FlowNode) => void
   flowId?: string
+  toolCatalog: NodeBodyProps['toolCatalog']
 }) {
   const [choosingInput, setChoosingInput] = useState(false)
   const [webhook, setWebhook] = useState<{ url: string; testUrl?: string; secret: string | null } | null>(null)
@@ -226,6 +231,7 @@ function TriggerBody({
           <option value="signal">When a signal fires</option>
           <option value="slack">When a Slack message arrives</option>
           <option value="activity">When connected activity occurs</option>
+          <option value="poll">When new items appear (polling)</option>
         </select>
       </div>
 
@@ -304,6 +310,86 @@ function TriggerBody({
           </p>
         </div>
       )}
+
+      {type === 'poll' && (() => {
+        const source = trigger.source ?? {}
+        const setSource = (patch: Partial<NonNullable<TriggerData['source']>>) =>
+          setTrigger({ ...trigger, type: 'poll', source: { ...source, ...patch } })
+        const connection = toolCatalog.find((entry) => entry.id === source.connectionId)
+        return (
+          <div className="space-y-3">
+            <div className="grid gap-2">
+              <label className={labelClass}>Connection</label>
+              <select
+                className={controlClass}
+                value={source.connectionId ?? ''}
+                onChange={(event) => setSource({ connectionId: event.target.value || undefined, toolName: undefined })}
+              >
+                <option value="">Select a connection…</option>
+                {toolCatalog.map((entry) => (
+                  <option key={entry.id} value={entry.id}>{entry.name}</option>
+                ))}
+              </select>
+            </div>
+            <div className="grid gap-2">
+              <label className={labelClass}>Read action to poll</label>
+              <select
+                className={controlClass}
+                value={source.toolName ?? ''}
+                disabled={!connection}
+                onChange={(event) => setSource({ toolName: event.target.value || undefined })}
+              >
+                <option value="">{connection ? 'Select an action…' : 'Choose a connection first'}</option>
+                {(connection?.tools ?? []).map((tool) => (
+                  <option key={tool.name} value={tool.name}>{tool.name}</option>
+                ))}
+              </select>
+            </div>
+            <label className={labelClass}>
+              Action arguments (JSON, optional)
+              <textarea
+                className={cn(controlClass, 'min-h-[64px] font-mono text-[11px]')}
+                value={source.args ?? ''}
+                onChange={(event) => setSource({ args: event.target.value || undefined })}
+                placeholder='{"range": "Sheet1!A:D"}'
+              />
+            </label>
+            <div className="grid grid-cols-2 gap-2">
+              <label className={labelClass}>
+                Check every (minutes)
+                <input
+                  type="number"
+                  min={5}
+                  className={controlClass}
+                  value={trigger.intervalMinutes ?? 15}
+                  onChange={(event) => setTrigger({ ...trigger, type: 'poll', intervalMinutes: Math.max(5, Number(event.target.value) || 15) })}
+                />
+              </label>
+              <label className={labelClass}>
+                Unique id field
+                <input
+                  className={controlClass}
+                  value={source.idPath ?? ''}
+                  onChange={(event) => setSource({ idPath: event.target.value || undefined })}
+                  placeholder="id"
+                />
+              </label>
+            </div>
+            <label className={labelClass}>
+              Items path (optional)
+              <input
+                className={controlClass}
+                value={source.itemsPath ?? ''}
+                onChange={(event) => setSource({ itemsPath: event.target.value || undefined })}
+                placeholder="data.records"
+              />
+            </label>
+            <p className="text-xs text-muted-foreground">
+              The action runs on the interval (5 minute minimum). Each <strong>new</strong> item — identified by the id field, or a content hash when blank — starts one run with the item as the flow input. The first check records what already exists without running. Runs the published version.
+            </p>
+          </div>
+        )
+      })()}
 
       {type === 'activity' && <div className="space-y-3">
         <label className={labelClass}>Sources (optional)<input className={controlClass} value={(trigger.sources ?? []).join(', ')} onChange={(event) => setTrigger({ ...trigger, sources: event.target.value.split(',').map((value) => value.trim()).filter(Boolean) })} placeholder="slack, github" /></label>
@@ -556,8 +642,8 @@ function TriggerBody({
 // The trigger's shape is validated per-subtype (MISSING_SCHEDULE, MISSING_CRON,
 // MISSING_SLACK_EVENTS, ...) rather than by one data key.
 export const triggerModule: NodeBodyModule = {
-  Body: ({ node, update, flowId }: NodeBodyProps) => (
-    <TriggerBody node={node as Extract<FlowNode, { type: 'trigger' }>} update={update} flowId={flowId} />
+  Body: ({ node, update, flowId, toolCatalog }: NodeBodyProps) => (
+    <TriggerBody node={node as Extract<FlowNode, { type: 'trigger' }>} update={update} flowId={flowId} toolCatalog={toolCatalog} />
   ),
   requiredFields: ['trigger'],
 }
