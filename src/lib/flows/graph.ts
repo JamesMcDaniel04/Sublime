@@ -127,6 +127,9 @@ const toolNode = z.object({
     // Keep this node's output OUT of the `{{upstream}}` aggregate fed to
     // downstream agents (for noisy/irrelevant payloads). Default: included.
     excludeFromContext: z.boolean().optional(),
+    // n8n-parity fan-out: run once per item of the predecessor's list output
+    // ({{item.…}} refs resolve per iteration); output is the collected array.
+    forEachItem: z.boolean().optional(),
     outputFields: z.array(outputFieldSchema).optional(),
     // Snapshot the discovered MCP action contract at authoring/publish time.
     // Runtime still calls the live tool name, while these fields keep the node
@@ -206,6 +209,9 @@ export const httpStepDataSchema = z.object({
     // Keep this API response OUT of the `{{upstream}}` aggregate fed to
     // downstream agents (for noisy/irrelevant payloads). Default: included.
     excludeFromContext: z.boolean().optional(),
+    // n8n-parity fan-out: run once per item of the predecessor's list output
+    // ({{item.…}} refs resolve per iteration); output is the collected array.
+    forEachItem: z.boolean().optional(),
     outputFields: z.array(outputFieldSchema).optional(),
     retryDelayMs: z.number().int().min(0).max(60000).optional(),
     retryStatusCodes: z.array(z.number().int().min(100).max(599)).optional(),

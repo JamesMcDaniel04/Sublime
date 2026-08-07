@@ -576,6 +576,11 @@ function mapNode(node: N8nNode, id: string, warnings: string[]): Mapped {
       if (usesCredential) {
         warnings.push(`"${label}" used n8n credentials — attach a vault credential to this HTTP step.`)
       }
+      // n8n runs every node once per incoming item; a $json reference is the
+      // tell. forEachItem reproduces that fan-out (harmless on single items).
+      const perItem = [p.url, p.jsonBody, p.body, p.jsonQuery, p.jsonHeaders,
+        JSON.stringify(p.queryParameters ?? ''), JSON.stringify(p.headerParameters ?? ''), JSON.stringify(p.bodyParameters ?? '')]
+        .some((value) => typeof value === 'string' && value.includes('$json'))
       const options = isRecord(p.options) ? p.options : {}
       const redirect = isRecord(options.redirect) && isRecord(options.redirect.redirect) ? options.redirect.redirect : undefined
       const batching = isRecord(options.batching) && isRecord(options.batching.batch) ? options.batching.batch : undefined
@@ -602,6 +607,7 @@ function mapNode(node: N8nNode, id: string, warnings: string[]): Mapped {
                 ...(Number(batching.batchInterval) > 0 ? { delayMs: Math.min(60000, Number(batching.batchInterval)) } : {}),
               },
             } : {}),
+            ...(perItem ? { forEachItem: true } : {}),
             // Pre-set the vault auth mode so the step's credential picker is
             // one click away (the credential itself never travels).
             ...(usesCredential ? {
@@ -838,15 +844,18 @@ function translateExpressions(
   let untranslated = 0
   const envVars = new Set<string>()
 
-  const translateString = (value: string, nodeId: string): string => {
+  const translateString = (value: string, nodeId: string, itemScoped: boolean): string => {
     // '=' marks an n8n expression; one with no {{…}} segments is a plain
     // literal that only needs the marker stripped.
     if (value.startsWith('=') && !value.includes('{{')) return value.slice(1)
     if (!value.startsWith('=') || !value.includes('{{')) return value
     const preds = predecessors.get(nodeId)
-    const jsonBase = preds?.size === 1
-      ? (() => { const [pred] = preds; return pred === 'trigger' ? 'trigger.input' : `step.${pred}.output` })()
-      : null
+    // forEachItem steps see one item at a time — $json IS that item.
+    const jsonBase = itemScoped
+      ? 'item'
+      : preds?.size === 1
+        ? (() => { const [pred] = preds; return pred === 'trigger' ? 'trigger.input' : `step.${pred}.output` })()
+        : null
     let allTranslated = true
     const converted = value.slice(1).replace(/\{\{([\s\S]*?)\}\}/g, (segment, inner: string) => {
       const jsonMatch = JSON_SEGMENT.exec(inner)
@@ -874,12 +883,12 @@ function translateExpressions(
     return converted
   }
 
-  const walk = (value: unknown, nodeId: string): unknown => {
-    if (typeof value === 'string') return translateString(value, nodeId)
-    if (Array.isArray(value)) return value.map((entry) => walk(entry, nodeId))
+  const walk = (value: unknown, nodeId: string, itemScoped: boolean): unknown => {
+    if (typeof value === 'string') return translateString(value, nodeId, itemScoped)
+    if (Array.isArray(value)) return value.map((entry) => walk(entry, nodeId, itemScoped))
     if (isRecord(value)) {
       const out: Record<string, unknown> = {}
-      for (const [key, entry] of Object.entries(value)) out[key] = walk(entry, nodeId)
+      for (const [key, entry] of Object.entries(value)) out[key] = walk(entry, nodeId, itemScoped)
       return out
     }
     return value
@@ -887,6 +896,7 @@ function translateExpressions(
 
   for (const node of nodes) {
     if (node.type === 'trigger') continue
+    const itemScoped = (node.data as { forEachItem?: boolean }).forEachItem === true
     // User-authored code runs against `items`, and stub notes are a verbatim
     // record — neither is template-bearing.
     const skip = node.type === 'code' ? new Set(['code', 'note']) : new Set(['note'])
@@ -898,13 +908,13 @@ function translateExpressions(
       if (node.type === 'tool' && key === 'args' && typeof entry === 'string' && entry.trim()) {
         try {
           const parsed = JSON.parse(entry)
-          data[key] = JSON.stringify(walk(parsed, node.id))
+          data[key] = JSON.stringify(walk(parsed, node.id, itemScoped))
         } catch {
-          data[key] = translateString(entry, node.id)
+          data[key] = translateString(entry, node.id, itemScoped)
         }
         continue
       }
-      data[key] = walk(entry, node.id)
+      data[key] = walk(entry, node.id, itemScoped)
     }
   }
 

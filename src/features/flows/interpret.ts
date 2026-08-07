@@ -771,7 +771,11 @@ export async function interpretFlow(graph: FlowGraph, input: unknown, opts: Opts
     }
 
     if (node.type === 'tool' || node.type === 'http') {
-      // Resolve every template in the node config, then delegate to runAction.
+      // Resolve every template in the node config against the given context,
+      // then delegate to runAction. Split out so forEachItem can call it once
+      // per input item with {{item.…}} bound to that item.
+      const executeOnce = async (execCtx: FlowContext): Promise<RunAgentResult> => {
+      const ctx = execCtx
       let resolvedArgs: unknown = resolveTemplate(node.type === 'tool' ? node.data.args ?? '{}' : '{}', ctx)
       if (node.type === 'tool') {
         try {
@@ -828,7 +832,7 @@ export async function interpretFlow(graph: FlowGraph, input: unknown, opts: Opts
               // Author opt-in: hold this request for a human before it fires.
               ...(node.data.requireApproval ? { requireApproval: true } : {}),
             }
-      const res: RunAgentResult = opts.runAction
+      return opts.runAction
         ? await opts.runAction({
             id: node.id,
             kind: node.type,
@@ -837,6 +841,50 @@ export async function interpretFlow(graph: FlowGraph, input: unknown, opts: Opts
             iterationPath: ctx.iterationPath,
           })
         : { error: `${node.type} steps are not supported in this runtime.` }
+      }
+
+      // n8n-parity fan-out: run once per item of the input list. The list
+      // derives exactly like a code step's items (loop item › direct parents'
+      // outputs › trigger input); a non-array input is one item, so the flag
+      // is harmless on single-item chains. Sequential on purpose — ordered
+      // outputs, and per-item pauses/approvals stay one-at-a-time.
+      if (node.data.forEachItem === true) {
+        let itemsSource: unknown
+        if (ctx.item !== undefined) {
+          itemsSource = ctx.item
+        } else {
+          const owned = bodyOwner.get(node.id)
+          const direct = parentsOf.get(node.id) ?? []
+          const parentIds = direct.length ? direct : owned?.priorSiblings.length ? [owned.priorSiblings.at(-1)!] : []
+          const outputs = parentIds.map((id) => ctx.step[id]?.output).filter((value) => value !== undefined)
+          itemsSource = outputs.length === 0 ? ctx.trigger.input : outputs.length === 1 ? outputs[0] : outputs
+        }
+        const list = Array.isArray(itemsSource) ? itemsSource : itemsSource == null ? [] : [itemsSource]
+        const collected: unknown[] = []
+        for (let index = 0; index < list.length; index += 1) {
+          const res = await executeOnce({ ...ctx, item: list[index] })
+          if (res.waiting) {
+            emit({ nodeId: node.id, status: 'waiting' })
+            return { kind: 'pause', nodeId: node.id, question: res.waiting.question }
+          }
+          if (res.error) {
+            const error = `Item ${index + 1} of ${list.length}: ${res.error}`
+            emit({ nodeId: node.id, status: 'failed', error })
+            if ((node.data.onError ?? 'stop') === 'continue') {
+              const failure = { ok: false, error }
+              ctx.step[node.id] = { output: failure }
+              return { kind: 'ok', output: failure }
+            }
+            return { kind: 'fail', error }
+          }
+          collected.push(asStructured(res.output))
+        }
+        ctx.step[node.id] = { output: collected }
+        emit({ nodeId: node.id, status: 'succeeded', output: collected })
+        return { kind: 'ok', output: collected }
+      }
+
+      const res: RunAgentResult = await executeOnce(ctx)
       if (res.waiting) {
         emit({ nodeId: node.id, status: 'waiting' })
         return { kind: 'pause', nodeId: node.id, question: res.waiting.question }

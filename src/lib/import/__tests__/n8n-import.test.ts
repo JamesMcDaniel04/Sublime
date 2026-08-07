@@ -561,10 +561,11 @@ test('expressions translate when the data path is unambiguous', () => {
   })
   const byId = new Map(imported.graph.nodes.map((node) => [node.id, node]))
   const call = byId.get('n-http') as NodeOf<'http'>
-  // $json with a single predecessor → that step's output.
-  assert.equal(call.data.url, '{{step.n-set.output.team}}')
-  // Mixed string: every segment translated, leading '=' stripped.
-  assert.equal(call.data.body, 'Hello {{step.n-set.output.team}}, via {{step.n-set.output.team}}')
+  // $json marks an item-scoped step (n8n ran it per item): forEachItem is set
+  // and $json refs bind to {{item.…}}; $('Node') refs stay step-scoped.
+  assert.equal(call.data.forEachItem, true)
+  assert.equal(call.data.url, '{{item.team}}')
+  assert.equal(call.data.body, 'Hello {{item.team}}, via {{step.n-set.output.team}}')
   // Function-call segments never partially translate.
   const complex = byId.get('n-http2') as NodeOf<'http'>
   assert.equal(complex.data.url, '={{ JSON.stringify($json) }}')
@@ -580,7 +581,9 @@ test('$json with the trigger as predecessor becomes trigger.input', () => {
     connections: { Webhook: { main: [[{ node: 'Call', type: 'main', index: 0 }]] } },
   })
   const call = imported.graph.nodes.find((node) => node.type === 'http') as NodeOf<'http'>
-  assert.equal(call.data.body, '{{trigger.input.email}}')
+  // $json → item-scoped (forEachItem); with the trigger as sole input the
+  // single webhook payload is the one item, so behavior is identical.
+  assert.equal(call.data.body, '{{item.email}}')
 })
 
 test('code node contents are never expression-translated', () => {
