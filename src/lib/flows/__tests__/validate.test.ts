@@ -605,3 +605,17 @@ test('warns on a dead plain edge from a Switch whose cases and default are all w
   }, { agents: [{ id: 'a1', title: 'A' }] })
   assert.ok(r.warnings.some((w) => w.code === 'UNREACHABLE_PLAIN_EDGE' && w.nodeId === 'sw'))
 })
+
+test('foreign n8n-style expressions produce a targeted warning', async () => {
+  const { validateFlowGraph } = await import('../validate')
+  const result = validateFlowGraph({
+    nodes: [
+      { id: 'trigger', type: 'trigger', data: { trigger: { type: 'manual' } } },
+      { id: 'h', type: 'http', data: { method: 'GET', url: '={{ $json.leftover }}' } },
+    ],
+    edges: [{ id: 'e1', source: 'trigger', target: 'h' }],
+  }, { requireRunnable: false })
+  const foreign = result.warnings.find((issue) => issue.code === 'FOREIGN_EXPRESSION')
+  assert.ok(foreign, 'expected FOREIGN_EXPRESSION warning')
+  assert.equal(foreign?.nodeId, 'h')
+})
