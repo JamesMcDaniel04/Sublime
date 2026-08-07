@@ -163,3 +163,18 @@ test('condition splitItems routes both branches when items land on both sides', 
   assert.ok(result.steps.some((step) => step.nodeId === 'hot' && step.status === 'succeeded'))
   assert.ok(result.steps.some((step) => step.nodeId === 'cold' && step.status === 'succeeded'))
 })
+
+test('wait until webhook parks the run for an external callback', async () => {
+  const graph: FlowGraph = {
+    nodes: [
+      { id: 'trigger', type: 'trigger', data: {} },
+      { id: 'hold', type: 'wait', data: { amount: 1, unit: 'seconds', until: 'webhook' } },
+    ],
+    edges: [{ id: 'e0', source: 'trigger', target: 'hold' }],
+  }
+  const result = await interpretFlow(graph, 'go', { runAgent: async () => ({ output: 'x' }), runAction: async () => ({ output: {} }) })
+  assert.equal(result.status, 'waiting')
+  const waitingStep = result.steps.find((step) => step.nodeId === 'hold' && step.status === 'waiting')
+  assert.ok(waitingStep, 'expected the wait step to be parked')
+  assert.match(JSON.stringify(waitingStep?.output), /webhook callback/)
+})

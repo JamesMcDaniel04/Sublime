@@ -15,6 +15,10 @@ import { asStructured, evalClause, readPath, resolveTemplate, type FlowContext }
 export type DataOpConfig = {
   /** The already-resolved input value (exact tokens keep their structure). */
   input?: unknown
+  /** limit: how many items to keep (from the front). */
+  count?: number
+  /** splitOut: the list-bearing field to fan out on. */
+  field?: string
   /** join: the separator between items (default ','). */
   separator?: string
   /** parseJson: JSON Schema text — stored for the editor, not enforced in v1. */
@@ -42,6 +46,11 @@ export const DATA_OP_LABELS: Record<DataOp, string> = {
   slackMessage: 'Format Slack message',
   filterArray: 'Filter array',
   select: 'Select',
+  sort: 'Sort items',
+  limit: 'Limit items',
+  dedupe: 'Remove duplicates',
+  splitOut: 'Split out a field',
+
 }
 
 const isBlank = (value: unknown): boolean => value === undefined || value === null || (typeof value === 'string' && value.trim() === '')
@@ -169,6 +178,69 @@ export function runDataOp(op: DataOp, config: DataOpConfig): DataOpResult {
       const ctx = itemContext(item, config.ctx)
       return clauses.every((clause) => evalClause(clause, ctx))
     })
+    return { output }
+  }
+
+  if (op === 'sort') {
+    const list = asList(config.input)
+    if (!list) return { error: `${label} needs a list — the input wasn't a list.` }
+    // fields: [{name: <field path>, value: 'asc'|'desc'}]; no fields = sort by
+    // the items themselves (strings/numbers).
+    const keys = (config.fields ?? []).filter((field) => field.name.trim())
+      .map((field) => ({ path: field.name.trim(), dir: field.value.trim().toLowerCase() === 'desc' ? -1 : 1 }))
+    const valueOf = (item: unknown, path: string) =>
+      path ? readPath(itemContext(item, config.ctx), `item.${path}`) : item
+    const output = [...list].sort((a, b) => {
+      for (const key of keys.length ? keys : [{ path: '', dir: 1 }]) {
+        const left = valueOf(a, key.path)
+        const right = valueOf(b, key.path)
+        if (left === right) continue
+        if (left == null) return -key.dir
+        if (right == null) return key.dir
+        return ((left as never) < (right as never) ? -1 : 1) * key.dir
+      }
+      return 0
+    })
+    return { output }
+  }
+
+  if (op === 'limit') {
+    const list = asList(config.input)
+    if (!list) return { error: `${label} needs a list — the input wasn't a list.` }
+    const count = Math.max(1, Math.min(10000, config.count ?? 10))
+    return { output: list.slice(0, count) }
+  }
+
+  if (op === 'dedupe') {
+    const list = asList(config.input)
+    if (!list) return { error: `${label} needs a list — the input wasn't a list.` }
+    // fields name the compare keys; none = whole-item equality.
+    const keys = (config.fields ?? []).map((field) => field.name.trim()).filter(Boolean)
+    const seen = new Set<string>()
+    const output: unknown[] = []
+    for (const item of list) {
+      const identity = keys.length
+        ? JSON.stringify(keys.map((key) => readPath(itemContext(item, config.ctx), `item.${key}`)))
+        : JSON.stringify(item)
+      if (seen.has(identity)) continue
+      seen.add(identity)
+      output.push(item)
+    }
+    return { output }
+  }
+
+  if (op === 'splitOut') {
+    const list = asList(config.input)
+    if (!list) return { error: `${label} needs a list — the input wasn't a list.` }
+    const field = (config.field ?? '').trim()
+    if (!field) return { error: `${label} needs the field to split out.` }
+    const output: unknown[] = []
+    for (const item of list) {
+      const record = item && typeof item === 'object' && !Array.isArray(item) ? (item as Record<string, unknown>) : {}
+      const value = record[field]
+      const parts = Array.isArray(value) ? value : value === undefined ? [] : [value]
+      for (const part of parts) output.push({ ...record, [field]: part })
+    }
     return { output }
   }
 

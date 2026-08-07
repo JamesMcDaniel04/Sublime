@@ -206,3 +206,19 @@ test('slackMessage formats aggregated records as fallback text and Block Kit sec
   assert.equal(output.blocks.length, 2)
   assert.equal(output.blocks[0].type, 'section')
 })
+
+test('sort, limit, dedupe, splitOut ops', async () => {
+  const { runDataOp } = await import('../data-ops')
+  const items = [{ n: 3, tag: 'b' }, { n: 1, tag: 'a' }, { n: 3, tag: 'b' }, { n: 2, tag: 'c' }]
+  const sorted = runDataOp('sort', { input: items, fields: [{ name: 'n', value: 'desc' }] })
+  assert.deepEqual((sorted as { output: Array<{ n: number }> }).output.map((item) => item.n), [3, 3, 2, 1])
+  const limited = runDataOp('limit', { input: items, count: 2 })
+  assert.equal((limited as { output: unknown[] }).output.length, 2)
+  const deduped = runDataOp('dedupe', { input: items, fields: [{ name: 'tag', value: '' }] })
+  assert.deepEqual((deduped as { output: Array<{ tag: string }> }).output.map((item) => item.tag), ['b', 'a', 'c'])
+  const split = runDataOp('splitOut', { input: [{ emails: ['x@a.co', 'y@a.co'], team: 'ops' }], field: 'emails' })
+  assert.deepEqual((split as { output: unknown[] }).output, [
+    { emails: 'x@a.co', team: 'ops' },
+    { emails: 'y@a.co', team: 'ops' },
+  ])
+})

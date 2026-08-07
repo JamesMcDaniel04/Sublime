@@ -16,6 +16,10 @@ export const DATA_OP_INPUT_PLACEHOLDER: Record<DataOp, string> = {
   slackMessage: 'Aggregated records or text to format for Slack',
   filterArray: 'The list to filter',
   select: 'The list to map',
+  sort: 'The list to sort',
+  limit: 'The list to trim',
+  dedupe: 'The list to de-duplicate',
+  splitOut: 'The list whose field should fan out',
 }
 
 /** One-line helper under each data operation's fields. */
@@ -28,6 +32,10 @@ export const DATA_OP_HELPER: Record<DataOp, string> = {
   slackMessage: 'Builds Slack mrkdwn fallback text plus Block Kit sections for a downstream Slack action.',
   filterArray: 'Keeps only the items where every condition passes. Conditions check each item.',
   select: 'Maps every item to a new shape — values can reference fields of the current item.',
+  sort: 'Orders the list. Add fields as sort keys with asc or desc as the value; no fields sorts the items themselves.',
+  limit: 'Keeps only the first N items of the list.',
+  dedupe: 'Removes duplicate items. Field names (if given) choose what counts as the same item.',
+  splitOut: 'Fans a list-bearing field out into one item per element, carrying the other fields along.',
 }
 
 /** Placeholder for a variable step's value field, per operation. */

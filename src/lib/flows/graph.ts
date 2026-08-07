@@ -387,7 +387,7 @@ const variableNode = z.object({
 })
 
 /** Pure transforms a data operation step can perform (MS Data Operation parity). */
-export const DATA_OPS = ['compose', 'parseJson', 'join', 'csvTable', 'htmlTable', 'slackMessage', 'filterArray', 'select'] as const
+export const DATA_OPS = ['compose', 'parseJson', 'join', 'csvTable', 'htmlTable', 'slackMessage', 'filterArray', 'select', 'sort', 'limit', 'dedupe', 'splitOut'] as const
 export type DataOp = (typeof DATA_OPS)[number]
 // Deterministic data-shaping step between other steps: no LLM, no I/O. `input`
 // is templated (usually an exact {{step.x.output}} token so structure survives);
@@ -408,6 +408,10 @@ const dataNode = z.object({
     schema: z.string().optional(),
     clauses: z.array(conditionClauseSchema).optional(),
     fields: z.array(z.object({ name: z.string(), value: z.string() })).optional(),
+    // limit: how many items to keep (from the front).
+    count: z.number().int().min(1).max(10000).optional(),
+    // splitOut: the list-bearing field to fan out on (other fields carried).
+    field: z.string().optional(),
     // n8n-parity fan-out: run the op once PER ITEM of the input list.
     forEachItem: z.boolean().optional(),
     // Keep this node's output OUT of the `{{upstream}}` aggregate. Default: included.
@@ -456,6 +460,10 @@ const waitNode = z.object({
     note: z.string().optional(),
     amount: z.number().min(0).default(1),
     unit: z.enum(['seconds', 'minutes', 'hours', 'days']).default('seconds'),
+    // 'webhook': instead of a timed delay, park the run until an external
+    // POST hits /api/flows/<id>/runs/<runId>/resume (flow webhook secret
+    // auth); the callback body becomes this step's output.
+    until: z.enum(['delay', 'webhook']).optional(),
   }),
 })
 

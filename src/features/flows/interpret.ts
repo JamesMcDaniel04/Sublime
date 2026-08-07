@@ -656,10 +656,22 @@ export async function interpretFlow(graph: FlowGraph, input: unknown, opts: Opts
     if (node.type === 'wait') {
       const resume = resumeKey !== undefined && resumeKey === completedKey(node.id, ctx.iterationPath)
       if (resume) {
-        const output = { waited: true }
+        // Webhook waits: the external callback's body IS the step output.
+        let output: unknown = { waited: true }
+        if (node.data.until === 'webhook') {
+          output = opts.resumeReply ?? {}
+          if (typeof output === 'string') {
+            try { output = JSON.parse(output) } catch { /* keep the raw text */ }
+          }
+        }
         ctx.step[node.id] = { output }
         emit({ nodeId: node.id, status: 'succeeded', output, iterationPath: ctx.iterationPath })
         return { kind: 'ok', output }
+      }
+      if (node.data.until === 'webhook') {
+        const question = 'Waiting for an external webhook callback — POST to this run\'s resume endpoint (flow webhook secret) to continue.'
+        emit({ nodeId: node.id, status: 'waiting', output: { waiting: { kind: 'input', question } }, iterationPath: ctx.iterationPath })
+        return { kind: 'pause', nodeId: node.id, question }
       }
       const multiplier = node.data.unit === 'days' ? 86_400_000 : node.data.unit === 'hours' ? 3_600_000 : node.data.unit === 'minutes' ? 60_000 : 1000
       const wakeAt = new Date(Date.now() + node.data.amount * multiplier).toISOString()
@@ -772,6 +784,8 @@ export async function interpretFlow(graph: FlowGraph, input: unknown, opts: Opts
         schema: node.data.schema,
         clauses: node.data.clauses,
         fields: node.data.fields,
+        count: node.data.count,
+        field: node.data.field,
         ctx: opCtx,
       })
       // n8n-parity fan-out: the op runs once per input item ({{item.…}} refs).

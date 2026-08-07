@@ -33,6 +33,7 @@ const contracts: Contract[] = [
   { name: 'flow run patch', verb: 'PATCH', load: () => import('../flows/[id]/runs/[runId]/route') },
   { name: 'flow run delete', verb: 'DELETE', load: () => import('../flows/[id]/runs/[runId]/route') },
   { name: 'flow run resubmit', verb: 'POST', load: () => import('../flows/[id]/runs/[runId]/resubmit/route') },
+  { name: 'flow run webhook resume', verb: 'POST', load: () => import('../flows/[id]/runs/[runId]/resume/route') },
   { name: 'flow suggestion patch', verb: 'PATCH', load: () => import('../flows/[id]/suggestions/route') },
   { name: 'flow version patch', verb: 'PATCH', load: () => import('../flows/[id]/versions/route') },
   { name: 'flow version delete', verb: 'DELETE', load: () => import('../flows/[id]/versions/route') },

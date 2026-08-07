@@ -34,6 +34,7 @@ const DIFFERENTLY_AUTHENTICATED: ReadonlyArray<{ route: string; mechanism: strin
   { route: 'cron/dispatch', mechanism: 'cron shared secret' },
   { route: 'cron/billing-reconcile', mechanism: 'cron shared secret' },
   { route: 'flows/[id]/trigger', mechanism: 'per-flow trigger token' },
+  { route: 'flows/[id]/runs/[runId]/resume', mechanism: 'per-flow trigger token (wait-until-webhook resume)' },
   { route: 'agents/[id]/trigger', mechanism: 'per-agent trigger token' },
   { route: 'mcp-connections/oauth/callback', mechanism: 'OAuth state parameter' },
   { route: 'google/oauth/callback', mechanism: 'OAuth state parameter' },
