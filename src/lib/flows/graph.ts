@@ -102,6 +102,10 @@ const conditionNode = z.object({
     left: z.string().optional(),
     op: z.enum(CONDITION_OPS).optional(),
     right: z.string().optional(),
+    // n8n-parity item routing: evaluate clauses PER ITEM of the input list
+    // ({{item.…}} refs). Output becomes {matched, unmatched}; both branches
+    // run when both sides are non-empty.
+    splitItems: z.boolean().optional(),
   }),
 })
 // Ends the flow early with an optional message.
@@ -307,6 +311,9 @@ const transformNode = z.object({
     note: z.string().optional(),
     // `value` templates are resolved; JSON-looking results are parsed.
     fields: z.array(z.object({ name: z.string(), value: z.string() })).default([]),
+    // n8n-parity fan-out: build one object PER ITEM of the input list
+    // ({{item.…}} refs); output is the collected array.
+    forEachItem: z.boolean().optional(),
     outputFields: z.array(outputFieldSchema).optional(),
     // Keep this node's output OUT of the `{{upstream}}` aggregate. Default: included.
     excludeFromContext: z.boolean().optional(),
@@ -322,6 +329,9 @@ const filterNode = z.object({
     note: z.string().optional(),
     match: z.enum(['all', 'any']).optional(),
     clauses: z.array(conditionClauseSchema).optional(),
+    // n8n Filter parity: keep the MATCHING items of the input list (clauses
+    // see {{item.…}}) and always continue — even with zero matches.
+    splitItems: z.boolean().optional(),
   }),
 })
 // Multi-way branch: the first case whose condition matches routes to its edge
@@ -398,6 +408,8 @@ const dataNode = z.object({
     schema: z.string().optional(),
     clauses: z.array(conditionClauseSchema).optional(),
     fields: z.array(z.object({ name: z.string(), value: z.string() })).optional(),
+    // n8n-parity fan-out: run the op once PER ITEM of the input list.
+    forEachItem: z.boolean().optional(),
     // Keep this node's output OUT of the `{{upstream}}` aggregate. Default: included.
     excludeFromContext: z.boolean().optional(),
   }),

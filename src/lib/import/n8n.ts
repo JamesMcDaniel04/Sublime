@@ -732,7 +732,8 @@ function mapNode(node: N8nNode, id: string, warnings: string[]): Mapped {
     case 'filter': {
       const { match, clauses, complete } = clausesFrom(p)
       if (!complete) warnings.push(`"${label}": some conditions did not translate — re-enter them.`)
-      return { kind: 'node', node: { id, type: 'filter', data: { label, match, clauses } } }
+      // n8n Filter keeps matching ITEMS — splitItems reproduces that exactly.
+      return { kind: 'node', node: { id, type: 'filter', data: { label, match, clauses, splitItems: true } } }
     }
     case 'switch': {
       // Expression mode: the output expression yields a 0-based index — one

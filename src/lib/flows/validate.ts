@@ -385,6 +385,17 @@ export function validateFlowGraph(graph: FlowGraph, context: FlowValidationConte
   }
 
   for (const node of graph.nodes) {
+    // Foreign (n8n-style) expressions resolve as LITERAL text at runtime —
+    // silent wrong data. Imported flows keep untranslatable ones verbatim;
+    // surface them here so the checker and copilot point at the exact step.
+    if (node.type !== 'trigger' && node.type !== 'code') {
+      const foreign = Object.entries(node.data as Record<string, unknown>).some(([key, value]) =>
+        key !== 'note' && typeof value === 'string' &&
+        (/^=\{\{/.test(value.trim()) || /\{\{\s*\$json|\$node\[|\$\(\s*['"]/.test(value)))
+      if (foreign) {
+        add(issues, 'warning', 'FOREIGN_EXPRESSION', `${nodeLabel(node)} contains an n8n-style expression that will be treated as plain text — rewrite it as a {{step.…}}/{{input.…}} reference or move the computation into a Code step.`, node.id)
+      }
+    }
     if (node.type === 'agent') {
       const hasAgent = Boolean(node.data.agentId?.trim())
       const hasPrompt = Boolean(node.data.prompt?.trim())

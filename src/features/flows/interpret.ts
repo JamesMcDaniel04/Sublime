@@ -428,6 +428,24 @@ export async function interpretFlow(graph: FlowGraph, input: unknown, opts: Opts
       body.forEach((id, index) => bodyOwner.set(id, { containerId: node.id, priorSiblings: body.slice(0, index) }))
     }
   }
+  // The item list a step fans out over — shared by code steps, forEachItem
+  // fan-out, and splitItems routing: loop item › direct parents' outputs ›
+  // trigger input; a non-array is one item (n8n's items semantics).
+  const FOREACH_MAX_ITEMS = 500
+  const itemListFor = (nodeId: string, ctx: FlowContext): unknown[] => {
+    let source: unknown
+    if (ctx.item !== undefined) {
+      source = ctx.item
+    } else {
+      const owned = bodyOwner.get(nodeId)
+      const direct = parentsOf.get(nodeId) ?? []
+      const parentIds = direct.length ? direct : owned?.priorSiblings.length ? [owned.priorSiblings.at(-1)!] : []
+      const outputs = parentIds.map((id) => ctx.step[id]?.output).filter((value) => value !== undefined)
+      source = outputs.length === 0 ? ctx.trigger.input : outputs.length === 1 ? outputs[0] : outputs
+    }
+    return Array.isArray(source) ? source : source == null ? [] : [source]
+  }
+
   // Transitive ancestors of a node — the nodes actually wired into it. This is
   // what makes selective routing real: an agent sees only the sources on its own
   // paths. In a linear chain a node's ancestors ARE every prior node, so this is
@@ -708,18 +726,25 @@ export async function interpretFlow(graph: FlowGraph, input: unknown, opts: Opts
       // Build an object from templated field assignments (deterministic "Set").
       // A value that parses as JSON (number/bool/object/array) is typed; anything
       // else stays a string.
-      const output: Record<string, unknown> = {}
-      for (const field of node.data.fields) {
-        if (!field.name) continue
-        const resolved = resolveTemplate(field.value, ctx)
-        let value: unknown = resolved
-        try {
-          value = JSON.parse(resolved)
-        } catch {
-          /* not JSON — keep the string */
+      const buildOne = (fieldCtx: FlowContext): Record<string, unknown> => {
+        const output: Record<string, unknown> = {}
+        for (const field of node.data.fields) {
+          if (!field.name) continue
+          const resolved = resolveTemplate(field.value, fieldCtx)
+          let value: unknown = resolved
+          try {
+            value = JSON.parse(resolved)
+          } catch {
+            /* not JSON — keep the string */
+          }
+          output[field.name] = value
         }
-        output[field.name] = value
+        return output
       }
+      // n8n-parity fan-out: one object per input item ({{item.…}} refs).
+      const output = node.data.forEachItem === true
+        ? itemListFor(node.id, ctx).map((item) => buildOne({ ...ctx, item }))
+        : buildOne(ctx)
       ctx.step[node.id] = { output }
       emit({ nodeId: node.id, status: 'succeeded', output, iterationPath: ctx.iterationPath })
       return { kind: 'ok', output }
@@ -741,25 +766,49 @@ export async function interpretFlow(graph: FlowGraph, input: unknown, opts: Opts
       // its structure), then delegate to the side-effect-free op runner.
       // filterArray clauses / select values resolve per item inside runDataOp,
       // with this ctx riding along so step/trigger/var tokens keep working.
-      const input = node.data.input?.trim() ? resolveTemplateValue(node.data.input, ctx) : undefined
-      const res = runDataOp(node.data.op, {
-        input,
-        separator: node.data.separator === undefined ? undefined : resolveTemplate(node.data.separator, ctx),
+      const runOnce = (opCtx: FlowContext) => runDataOp(node.data.op, {
+        input: node.data.input?.trim() ? resolveTemplateValue(node.data.input, opCtx) : undefined,
+        separator: node.data.separator === undefined ? undefined : resolveTemplate(node.data.separator, opCtx),
         schema: node.data.schema,
         clauses: node.data.clauses,
         fields: node.data.fields,
-        ctx,
+        ctx: opCtx,
       })
-      if ('error' in res) {
-        emit({ nodeId: node.id, status: 'failed', error: res.error, iterationPath: ctx.iterationPath })
-        return { kind: 'fail', error: res.error }
+      // n8n-parity fan-out: the op runs once per input item ({{item.…}} refs).
+      let output: unknown
+      if (node.data.forEachItem === true) {
+        const collected: unknown[] = []
+        for (const item of itemListFor(node.id, ctx)) {
+          const res = runOnce({ ...ctx, item })
+          if ('error' in res) {
+            emit({ nodeId: node.id, status: 'failed', error: res.error, iterationPath: ctx.iterationPath })
+            return { kind: 'fail', error: res.error }
+          }
+          collected.push(res.output)
+        }
+        output = collected
+      } else {
+        const res = runOnce(ctx)
+        if ('error' in res) {
+          emit({ nodeId: node.id, status: 'failed', error: res.error, iterationPath: ctx.iterationPath })
+          return { kind: 'fail', error: res.error }
+        }
+        output = res.output
       }
-      ctx.step[node.id] = { output: res.output }
-      emit({ nodeId: node.id, status: 'succeeded', output: res.output, iterationPath: ctx.iterationPath })
-      return { kind: 'ok', output: res.output }
+      ctx.step[node.id] = { output }
+      emit({ nodeId: node.id, status: 'succeeded', output, iterationPath: ctx.iterationPath })
+      return { kind: 'ok', output }
     }
 
     if (node.type === 'filter') {
+      // n8n Filter parity: keep the MATCHING items of the input list and
+      // always continue — an empty result flows on as [] instead of dropping.
+      if (node.data.splitItems === true) {
+        const matched = itemListFor(node.id, ctx).filter((item) => evalCondition(node.data, { ...ctx, item }))
+        ctx.step[node.id] = { output: matched }
+        emit({ nodeId: node.id, status: 'succeeded', output: matched, iterationPath: ctx.iterationPath })
+        return { kind: 'ok', output: matched }
+      }
       // Gate: pass through when the condition holds; else drop (loop) / end (chain).
       const passed = evalCondition(node.data, ctx)
       if (passed) {
@@ -849,17 +898,12 @@ export async function interpretFlow(graph: FlowGraph, input: unknown, opts: Opts
       // is harmless on single-item chains. Sequential on purpose — ordered
       // outputs, and per-item pauses/approvals stay one-at-a-time.
       if (node.data.forEachItem === true) {
-        let itemsSource: unknown
-        if (ctx.item !== undefined) {
-          itemsSource = ctx.item
-        } else {
-          const owned = bodyOwner.get(node.id)
-          const direct = parentsOf.get(node.id) ?? []
-          const parentIds = direct.length ? direct : owned?.priorSiblings.length ? [owned.priorSiblings.at(-1)!] : []
-          const outputs = parentIds.map((id) => ctx.step[id]?.output).filter((value) => value !== undefined)
-          itemsSource = outputs.length === 0 ? ctx.trigger.input : outputs.length === 1 ? outputs[0] : outputs
+        const list = itemListFor(node.id, ctx)
+        if (list.length > FOREACH_MAX_ITEMS) {
+          const error = `This step would run ${list.length} times — the per-step limit is ${FOREACH_MAX_ITEMS} items. Use a Loop with batching, or narrow the list first.`
+          emit({ nodeId: node.id, status: 'failed', error })
+          return { kind: 'fail', error }
         }
-        const list = Array.isArray(itemsSource) ? itemsSource : itemsSource == null ? [] : [itemsSource]
         const collected: unknown[] = []
         for (let index = 0; index < list.length; index += 1) {
           const res = await executeOnce({ ...ctx, item: list[index] })
@@ -1397,6 +1441,20 @@ export async function interpretFlow(graph: FlowGraph, input: unknown, opts: Opts
   const runOne = async (node: FlowNode, nctx: FlowContext): Promise<Disposition> => {
     if (node.type === 'condition') {
       if (overBudget()) return { kind: 'fail', error: 'Flow exceeded the maximum number of steps.' }
+      // n8n-parity item routing: split the input list per item. Both branches
+      // light when both sides are non-empty (branch undefined = all edges);
+      // downstream steps read {{step.<id>.output.matched}} / .unmatched.
+      if (node.data.splitItems === true) {
+        const matched: unknown[] = []
+        const unmatched: unknown[] = []
+        for (const item of itemListFor(node.id, nctx)) {
+          ;(evalCondition(node.data, { ...nctx, item }) ? matched : unmatched).push(item)
+        }
+        nctx.step[node.id] = { output: { matched, unmatched } }
+        emit({ nodeId: node.id, status: 'succeeded', output: { matchedCount: matched.length, unmatchedCount: unmatched.length } })
+        if (matched.length > 0 && unmatched.length > 0) return { kind: 'settled' }
+        return { kind: 'settled', branch: matched.length > 0 ? 'true' : 'false' }
+      }
       return { kind: 'settled', branch: evalCondition(node.data, nctx) ? 'true' : 'false' }
     }
     if (node.type === 'switch') {
