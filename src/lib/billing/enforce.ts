@@ -1,3 +1,4 @@
+import { Prisma } from '@prisma/client'
 import { prisma, systemPrisma } from '@/lib/prisma'
 import { ApiError } from '@/lib/server/api-handler'
 import { formatLimit, limitsForOrg, type PlanLimits } from './limits'
@@ -91,6 +92,39 @@ export async function assertFlowCapacity(organizationId: string): Promise<void> 
   if (!Number.isFinite(limits.maxFlows)) return
   const count = await prisma.flow.count({ where: { organizationId } })
   if (count >= limits.maxFlows) throw overLimitError('flows', limits.maxFlows, limits.label)
+}
+
+/**
+ * Atomic multi-resource capacity gate for import/provision transactions.
+ * Locking one deterministic key per organization makes the read-plus-create
+ * decision serial even when two imports arrive concurrently. `requested`
+ * counts only rows the transaction has already proven it will create.
+ */
+export async function assertImportCapacity(
+  tx: Prisma.TransactionClient,
+  organizationId: string,
+  requested: { flows: number; agents: number },
+): Promise<void> {
+  await tx.$queryRaw(Prisma.sql`SELECT pg_advisory_xact_lock(hashtext(${organizationId}))`)
+  const organization = await tx.organization.findUnique({
+    where: { id: organizationId },
+    select: { plan: true, settings: true, createdAt: true, grandfatheredAt: true },
+  })
+  const limits = limitsForOrg(entitlementPlanFor(organization), organization?.settings)
+  const [flows, agents] = await Promise.all([
+    requested.flows > 0 && Number.isFinite(limits.maxFlows)
+      ? tx.flow.count({ where: { organizationId } })
+      : Promise.resolve(0),
+    requested.agents > 0 && Number.isFinite(limits.maxAgents)
+      ? tx.agentTask.count({ where: { organizationId, ...VISIBLE_AGENTS } })
+      : Promise.resolve(0),
+  ])
+  if (Number.isFinite(limits.maxFlows) && flows + requested.flows > limits.maxFlows) {
+    throw overLimitError('flows', limits.maxFlows, limits.label)
+  }
+  if (Number.isFinite(limits.maxAgents) && agents + requested.agents > limits.maxAgents) {
+    throw overLimitError('agents', limits.maxAgents, limits.label)
+  }
 }
 
 /**

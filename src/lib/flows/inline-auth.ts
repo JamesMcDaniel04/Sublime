@@ -18,6 +18,8 @@
  *   mixed     ("Bearer {{x}}")           → treated as a literal (the safe read)
  */
 
+import { isCredentialKey } from '@/lib/export/redact'
+
 /** The auth-option fields that carry a secret value. Mirrors http.ts's list. */
 export const INLINE_AUTH_SECRET_FIELDS = ['password', 'token', 'value'] as const
 const SENSITIVE_HEADER_NAMES = new Set([
@@ -79,14 +81,77 @@ export function literalSensitiveHeaders(headers: unknown): string[] {
   }
 }
 
+function literalCredentialPaths(value: unknown, path: string): string[] {
+  if (Array.isArray(value)) return value.flatMap((item, index) => literalCredentialPaths(item, `${path}[${index}]`))
+  if (value && typeof value === 'object') {
+    return Object.entries(value as Record<string, unknown>).flatMap(([key, item]) => {
+      if (
+        isCredentialKey(key)
+        && typeof item === 'string'
+        && item.trim()
+        && !isRuntimeReference(item)
+      ) return [`${path}.${key}`]
+      return literalCredentialPaths(item, `${path}.${key}`)
+    })
+  }
+  if (typeof value !== 'string' || !value.trim()) return []
+  const trimmed = value.trim()
+  if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
+    try {
+      return literalCredentialPaths(JSON.parse(trimmed), path)
+    } catch {
+      return []
+    }
+  }
+  // Query/body editors also accept form-encoded text.
+  if (trimmed.includes('=')) {
+    try {
+      return [...new URLSearchParams(trimmed).entries()].flatMap(([key, item]) =>
+        isCredentialKey(key) && item.trim() && !isRuntimeReference(item) ? [`${path}.${key}`] : [],
+      )
+    } catch {
+      return []
+    }
+  }
+  return []
+}
+
+function literalUrlCredentials(value: unknown): string[] {
+  if (typeof value !== 'string' || !value.trim()) return []
+  let parsed: URL
+  try {
+    parsed = new URL(value)
+  } catch {
+    const query = value.split('?')[1]?.split('#')[0]
+    return query ? literalCredentialPaths(query, 'url.query') : []
+  }
+  const fields: string[] = []
+  if ((parsed.username || parsed.password) && !isRuntimeReference(`${parsed.username}${parsed.password}`)) {
+    fields.push('url.userinfo')
+  }
+  for (const [key, item] of parsed.searchParams) {
+    if (isCredentialKey(key) && item.trim() && !isRuntimeReference(item)) fields.push(`url.query.${key}`)
+  }
+  return fields
+}
+
 export function inlineLiteralSecretNodes(graph: { nodes: Array<{ id: string; type: string; data?: unknown }> }) {
   return graph.nodes.flatMap((node) => {
-    if (node.type !== 'http') return []
-    const data = node.data as { auth?: unknown; headers?: unknown } | undefined
-    const fields = [
-      ...literalAuthSecrets(data?.auth),
-      ...literalSensitiveHeaders(data?.headers).map((name) => `header:${name}`),
-    ]
+    const data = node.data && typeof node.data === 'object' && !Array.isArray(node.data)
+      ? node.data as Record<string, unknown>
+      : {}
+    const fields = node.type === 'http'
+      ? [
+          ...literalAuthSecrets(data.auth),
+          ...literalSensitiveHeaders(data.headers).map((name) => `header:${name}`),
+          ...literalUrlCredentials(data.url),
+          ...literalCredentialPaths(data.query, 'query'),
+          ...literalCredentialPaths(data.body, 'body'),
+          ...literalCredentialPaths(data.cookies, 'cookies'),
+        ]
+      : node.type === 'tool'
+        ? literalCredentialPaths(data.args, 'args')
+        : []
     return fields.length ? [{ nodeId: node.id, fields }] : []
   })
 }

@@ -19,10 +19,10 @@ type GranolaState = { configured: boolean; source: 'user' | null }
  *
  * Granola authenticates with a workspace API key rather than OAuth, so it has
  * no Connect flow — the routes have existed since the notes tools shipped, but
- * nothing rendered them, which left every org without the GRANOLA_API_KEY
- * deployment fallback staring at an empty notes picker with no way to fix it.
+ * nothing rendered them, which left users staring at an empty notes picker
+ * with no way to connect their own account.
  *
- * The stored key is encrypted and never returned, so an org key is shown as a
+ * The stored key is encrypted and never returned, so a personal key is shown as a
  * state ("Connected") and replaced wholesale rather than edited — the same
  * posture as the credential vault and the Postgres connection strings.
  */

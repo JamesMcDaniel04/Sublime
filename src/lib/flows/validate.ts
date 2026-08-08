@@ -1,5 +1,5 @@
 import { FIELD_TYPES, type FlowGraph, type FlowNode } from '@/lib/flows/graph'
-import { literalAuthSecrets, literalSensitiveHeaders } from '@/lib/flows/inline-auth'
+import { inlineLiteralSecretNodes } from '@/lib/flows/inline-auth'
 import { FLOW_TRIGGER_TYPES } from '@/lib/flows/trigger'
 import { SLACK_EVENT_KINDS } from '@/lib/slack/payload'
 
@@ -471,6 +471,19 @@ export function validateFlowGraph(graph: FlowGraph, context: FlowValidationConte
       add(issues, 'error', 'MISSING_CODE', `${nodeLabel(node)} has no code to run.`, node.id)
     }
 
+    if (node.type === 'tool') {
+      const inlineSecrets = inlineLiteralSecretNodes({ nodes: [node] })[0]?.fields ?? []
+      if (inlineSecrets.length > 0) {
+        add(
+          issues,
+          'error',
+          'INLINE_AUTH_SECRET',
+          `${nodeLabel(node)} stores credential material directly in ${inlineSecrets.join(', ')}. Save it as a private credential and reference it server-side instead.`,
+          node.id,
+        )
+      }
+    }
+
     if (node.type === 'http') {
       validateHttpUrl(issues, node.data.url, node.id)
       if (node.data.connectionId && context.toolCatalog && !connectionIds.has(node.data.connectionId)) {
@@ -492,23 +505,13 @@ export function validateFlowGraph(graph: FlowGraph, context: FlowValidationConte
       // exports, copilot grounding, and the clipboard — each an independent
       // place it can escape. This is a hard error: new drafts cannot persist or
       // publish literal secrets, while pure {{runtime.references}} remain valid.
-      const inlineSecrets = literalAuthSecrets(node.data.auth)
+      const inlineSecrets = inlineLiteralSecretNodes({ nodes: [node] })[0]?.fields ?? []
       if (inlineSecrets.length > 0) {
         add(
           issues,
           'error',
           'INLINE_AUTH_SECRET',
-          `${nodeLabel(node)} stores its ${inlineSecrets.join(' and ')} directly in this flow. Save it as a credential (Integrations → Credentials) and attach it instead, so the secret stays out of the flow's definition, history, and exports.`,
-          node.id,
-        )
-      }
-      const sensitiveHeaders = literalSensitiveHeaders(node.data.headers)
-      if (sensitiveHeaders.length > 0) {
-        add(
-          issues,
-          'error',
-          'INLINE_AUTH_SECRET',
-          `${nodeLabel(node)} stores ${sensitiveHeaders.join(' and ')} directly in its headers. Save the value as a private credential and attach it instead.`,
+          `${nodeLabel(node)} stores credential material directly in ${inlineSecrets.join(', ')}. Save it as a private credential (Integrations → Credentials) and attach it instead, so the secret stays out of the flow's definition, history, and exports.`,
           node.id,
         )
       }

@@ -94,6 +94,44 @@ test('the persistence gate reports both auth fields and sensitive headers', () =
   }), [{ nodeId: 'http-1', fields: ['password', 'header:Authorization'] }])
 })
 
+test('the persistence gate covers URL, query, body, cookies, and tool args', () => {
+  assert.deepEqual(inlineLiteralSecretNodes({
+    nodes: [
+      {
+        id: 'http-1',
+        type: 'http',
+        data: {
+          url: 'https://user:pass@example.com/x?api_key=url-secret',
+          query: JSON.stringify({ access_token: 'query-secret', page: 1 }),
+          body: JSON.stringify({ nested: { client_secret: 'body-secret' } }),
+          cookies: { session_id: 'cookie-secret' },
+        },
+      },
+      { id: 'tool-1', type: 'tool', data: { args: JSON.stringify({ token: 'tool-secret' }) } },
+    ],
+  }), [
+    {
+      nodeId: 'http-1',
+      fields: ['url.userinfo', 'url.query.api_key', 'query.access_token', 'body.nested.client_secret', 'cookies.session_id'],
+    },
+    { nodeId: 'tool-1', fields: ['args.token'] },
+  ])
+})
+
+test('runtime references remain allowed in every credential-shaped location', () => {
+  assert.deepEqual(inlineLiteralSecretNodes({
+    nodes: [{
+      id: 'http-1',
+      type: 'http',
+      data: {
+        url: 'https://example.com/x?api_key={{trigger.input.key}}',
+        query: JSON.stringify({ access_token: '{{trigger.input.token}}' }),
+        body: JSON.stringify({ client_secret: '{{step.auth.output}}' }),
+      },
+    }],
+  }), [])
+})
+
 // ── Validation surfacing ──────────────────────────────────────────────────────
 
 const httpFlow = (auth: unknown, extra: Record<string, unknown> = {}): FlowGraph =>

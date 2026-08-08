@@ -1,8 +1,10 @@
+import { Prisma } from '@prisma/client'
 import { z } from 'zod'
+import { createHash } from 'node:crypto'
 import { prisma } from '@/lib/prisma'
 import { ApiError, withAuthenticatedApi } from '@/lib/server/api-handler'
 import { recordUserEvent } from '@/lib/behavior/record-event'
-import { assertAgentCapacity, assertFlowCapacity } from '@/lib/billing/enforce'
+import { assertImportCapacity } from '@/lib/billing/enforce'
 import { serializeFlow } from '@/lib/flows/serialize'
 import { validateFlowGraph } from '@/lib/flows/validate'
 import { inlineLiteralSecretNodes } from '@/lib/flows/inline-auth'
@@ -65,15 +67,50 @@ function convert(text: string): ImportedFlow {
   )
 }
 
-/** The flow a prior import of this document created, if any (owner-scoped). */
-function findPriorImport(organizationId: string, userId: string, name: string, source: string) {
-  return prisma.flow.findFirst({
+/** Stable document identity: provider id when present, otherwise a hash of
+ * node identity/topology. Unlike name-only matching, two unrelated workflows
+ * called "Lead triage" cannot overwrite one another. */
+function importIdentity(text: string, imported: ImportedFlow): string {
+  const raw = JSON.parse(text) as Record<string, unknown>
+  const externalId = typeof raw.id === 'string'
+    ? raw.id
+    : raw.flow && typeof raw.flow === 'object' && typeof (raw.flow as { id?: unknown }).id === 'string'
+      ? String((raw.flow as { id: string }).id)
+      : null
+  if (externalId) return `${imported.source}:id:${externalId}`
+  const rawNodes = Array.isArray(raw.nodes)
+    ? raw.nodes
+    : raw.graph && typeof raw.graph === 'object' && Array.isArray((raw.graph as { nodes?: unknown }).nodes)
+      ? (raw.graph as { nodes: unknown[] }).nodes
+      : raw.flow && typeof raw.flow === 'object'
+        && (raw.flow as { graph?: unknown }).graph && typeof (raw.flow as { graph: unknown }).graph === 'object'
+        && Array.isArray(((raw.flow as { graph: { nodes?: unknown } }).graph).nodes)
+          ? (raw.flow as { graph: { nodes: unknown[] } }).graph.nodes
+          : []
+  const nodes = rawNodes.map((node) => {
+    const row = node && typeof node === 'object' ? node as Record<string, unknown> : {}
+    return [row.id ?? '', row.type ?? '', row.name ?? '']
+  }).sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)))
+  const topology = raw.connections ?? raw.graph ?? (raw.flow as { graph?: unknown } | undefined)?.graph ?? null
+  const digest = createHash('sha256')
+    .update(JSON.stringify({ source: imported.source, nodes, topology: topology && typeof topology === 'object' ? Object.keys(topology as object).sort() : [] }))
+    .digest('hex')
+  return `${imported.source}:shape:${digest}`
+}
+
+function priorImportQuery(organizationId: string, userId: string, identity: string) {
+  return {
     where: {
-      organizationId, userId, name,
-      metadata: { path: ['importedFrom'], equals: source },
+      organizationId, userId,
+      metadata: { path: ['importIdentity'], equals: identity },
     },
     select: { id: true, name: true },
-  })
+  } as const
+}
+
+/** The flow a prior import of this exact external document created. */
+function findPriorImport(organizationId: string, userId: string, identity: string) {
+  return prisma.flow.findFirst(priorImportQuery(organizationId, userId, identity))
 }
 
 export const POST = withAuthenticatedApi(async (request, auth) => {
@@ -89,6 +126,7 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
   }
 
   const imported = convert(text)
+  const identity = importIdentity(text, imported)
   const warnings = [...imported.warnings]
 
   const sanitized = sanitizeImportedGraph(imported.graph)
@@ -98,7 +136,7 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
   // Imported JSON is untrusted input — same literal-secret gate as POST /api/flows.
   if (inlineLiteralSecretNodes(graph).length) {
     throw new ApiError(
-      'HTTP authentication secrets must be saved as a private credential before this flow can be saved.',
+      'Inline secrets must be saved as a private credential before this flow can be saved.',
       400,
       'INLINE_AUTH_SECRET',
     )
@@ -126,7 +164,7 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
     const cleaned = sanitizeImportedGraph(flow.graph)
     if (inlineLiteralSecretNodes(cleaned.graph).length) {
       throw new ApiError(
-        'HTTP authentication secrets must be saved as a private credential before this flow can be saved.',
+        'Inline secrets must be saved as a private credential before this flow can be saved.',
         400,
         'INLINE_AUTH_SECRET',
       )
@@ -140,7 +178,7 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
   // client can offer "update it" or "create a copy".
   const updateMode = body.mode === 'update'
   if (!body.mode) {
-    const prior = await findPriorImport(auth.organizationId, auth.dbUser.id, imported.name, imported.source)
+    const prior = await findPriorImport(auth.organizationId, auth.dbUser.id, identity)
     if (prior) {
       throw new ApiError(
         `"${imported.name}" was already imported. Choose whether to update the existing flow or create a copy.`,
@@ -150,19 +188,37 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
     }
   }
 
-  if (!updateMode) {
-    await assertFlowCapacity(auth.organizationId)
-    for (let i = 0; i < siblings.length; i += 1) await assertFlowCapacity(auth.organizationId)
-  }
-  const totalAgents = imported.agentsToCreate.length + siblings.reduce((sum, entry) => sum + entry.flow.agentsToCreate.length, 0)
-  for (let i = 0; i < totalAgents; i += 1) await assertAgentCapacity(auth.organizationId)
-
   // Draft-stage validation is advisory (publish is the hard gate, same as the
   // create path) — issues land in the report, never block the import.
   warnings.push(...validateFlowGraph(graph, { requireRunnable: false }).issues.map((issue) => issue.message))
 
   // Agents + all flows land atomically: a failed import leaves nothing behind.
   const { flow, createdAgents, clearedRefs, additionalCreated } = await prisma.$transaction(async (tx) => {
+    const sources = [imported, ...siblings.map((entry) => entry.flow)]
+    const flowExistence = updateMode
+      ? await Promise.all(sources.map((source) => tx.flow.findFirst(priorImportQuery(
+          auth.organizationId,
+          auth.dbUser.id,
+          source === imported ? identity : `${identity}:sibling:${source.name}`,
+        ))))
+      : sources.map(() => null)
+    let agentsToCreate = 0
+    for (const source of sources) {
+      for (const agent of source.agentsToCreate) {
+        const importRef = `${source.name}:${agent.ref}`
+        const existing = updateMode
+          ? await tx.agentTask.findFirst({
+              where: { organizationId: auth.organizationId, userId: auth.dbUser.id, metadata: { path: ['importRef'], equals: importRef } },
+              select: { id: true },
+            })
+          : null
+        if (!existing) agentsToCreate += 1
+      }
+    }
+    await assertImportCapacity(tx as unknown as Prisma.TransactionClient, auth.organizationId, {
+      flows: flowExistence.filter((row) => !row).length,
+      agents: agentsToCreate,
+    })
     const createdAgents: Array<{ id: string; title: string; integrations: string[] }> = []
     const materializeAgents = async (agents: typeof imported.agentsToCreate, flowName: string): Promise<Record<string, string>> => {
       const refToId: Record<string, string> = {}
@@ -215,9 +271,10 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
       }
       return refToId
     }
-    const createFlowRow = async (source: ImportedFlow, flowGraph: typeof graph) => {
+    const createFlowRow = async (source: ImportedFlow, flowGraph: typeof graph, sourceIdentity: string) => {
       const metadata = jsonValue({
         importedFrom: source.source,
+        importIdentity: sourceIdentity,
         // Persisted so credential bulk-bind can also happen later, not
         // only in the import dialog's success screen.
         ...(source.credentialGroups?.length ? { importedCredentialGroups: source.credentialGroups } : {}),
@@ -230,7 +287,7 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
         metadata,
       }
       if (updateMode) {
-        const prior = await findPriorImport(auth.organizationId, auth.dbUser.id, source.name, source.source)
+        const prior = await tx.flow.findFirst(priorImportQuery(auth.organizationId, auth.dbUser.id, sourceIdentity))
         if (prior) {
           await tx.flow.updateMany({
             where: { id: prior.id, organizationId: auth.organizationId, userId: auth.dbUser.id },
@@ -262,19 +319,19 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
 
     const refToId = await materializeAgents(imported.agentsToCreate, imported.name)
     const remapped = remapAgentRefs(graph, refToId)
-    const flow = await createFlowRow(imported, remapped.graph)
+    const flow = await createFlowRow(imported, remapped.graph, identity)
     await writePins(flow.id, imported.pins)
 
     const additionalCreated: Array<{ id: string; name: string }> = []
     for (const sibling of siblings) {
       const siblingRefs = await materializeAgents(sibling.flow.agentsToCreate, sibling.flow.name)
       const siblingRemapped = remapAgentRefs(sibling.graph, siblingRefs)
-      const row = await createFlowRow(sibling.flow, siblingRemapped.graph)
+      const row = await createFlowRow(sibling.flow, siblingRemapped.graph, `${identity}:sibling:${sibling.flow.name}`)
       await writePins(row.id, sibling.flow.pins)
       additionalCreated.push({ id: row.id, name: row.name })
     }
     return { flow, createdAgents, clearedRefs: remapped.clearedRefs, additionalCreated }
-  })
+  }, { isolationLevel: 'Serializable', maxWait: 10_000, timeout: 30_000 })
   for (const ref of clearedRefs) {
     warnings.push(`An agent step referenced an agent (${ref}) that was not in the file — pick one of your agents.`)
   }

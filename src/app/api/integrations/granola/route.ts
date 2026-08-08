@@ -21,7 +21,7 @@ export const GET = withAuthenticatedApi(async (_request, auth) => {
   return { success: true, ...(await granolaState(auth.organizationId, auth.dbUser.id)) }
 }, { requires: 'member' })
 
-// ── POST — validate and save the org's Granola API key (encrypted) ────────
+// ── POST — validate and save the user's Granola API key (encrypted) ──────
 
 export const POST = withAuthenticatedApi(async (request, auth) => {
   const { apiKey } = z
@@ -70,7 +70,7 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
   return { success: true, ...(await granolaState(auth.organizationId, auth.dbUser.id)) }
 }, { requires: 'member' })
 
-// ── DELETE — remove the org key (env fallback still applies, if set) ──────
+// ── DELETE — remove only the acting user's key ────────────────────────────
 
 export const DELETE = withAuthenticatedApi(async (_request, auth) => {
   await prisma.integrationSecret.deleteMany({
