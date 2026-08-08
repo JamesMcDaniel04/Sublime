@@ -54,6 +54,7 @@ export function CredentialPicker({
   onChange,
   verifyAgainst,
   context,
+  draftSeed,
 }: {
   value?: string
   type: CredentialType
@@ -61,6 +62,9 @@ export function CredentialPicker({
   /** URL the verify probe hits, and the domain the list is filtered by. */
   verifyAgainst?: string
   context: 'http' | 'mcp'
+  /** Prefill for the CREATE form only (import knows the integration's real
+   *  header/query names) — never applied when editing a stored credential. */
+  draftSeed?: Partial<CredentialDraft>
 }) {
   const [credentials, setCredentials] = useState<ListedCredential[]>([])
   // null = closed. `{ id }` edits that stored credential; `{}` creates one.
@@ -88,6 +92,7 @@ export function CredentialPicker({
     name: hostname ? `${hostname} ${TYPE_LABELS[type]}` : `Unnamed ${TYPE_LABELS[type]}`,
     type,
     allowedDomains: hostname,
+    ...draftSeed,
   }
 
   return (

@@ -18,6 +18,8 @@ import { Textarea } from '@/components/ui/textarea'
 import { CredentialPicker } from '@/components/credentials/credential-picker'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
+import type { CredentialGroup } from '@/lib/import/types'
+import type { CredentialDraft } from '@/lib/credentials/form'
 
 type ImportReport = {
   source: 'sublime-portable' | 'sublime-download' | 'n8n'
@@ -26,13 +28,29 @@ type ImportReport = {
   missingIntegrations: Array<{ nodeId: string; connectionId: string }>
   createdAgents: Array<{ id: string; title: string }>
   additionalFlows?: Array<{ id: string; name: string }>
-  credentialGroups?: Array<{
-    key: string
-    sourceType: string
-    name: string
-    credentialType: 'basic' | 'bearer' | 'apiKeyHeader' | 'oauth2'
-    nodeIds: string[]
-  }>
+  credentialGroups?: CredentialGroup[]
+}
+
+/**
+ * Create-form prefill from the import's credential mapping — the integration's
+ * real header/query names, never secret values. Built conditionally so an
+ * absent suggestion can't override the picker's hostname-derived defaults.
+ */
+function groupDraftSeed(group: CredentialGroup): Partial<CredentialDraft> | undefined {
+  const seed: Partial<CredentialDraft> = {}
+  if (group.sourceDisplayName) seed.name = `${group.sourceDisplayName} (imported)`
+  if (group.suggestedHeaderName) seed.headerName = group.suggestedHeaderName
+  if (group.suggestedQueryParam) seed.queryParam = group.suggestedQueryParam
+  if (group.suggestedEntries?.length) {
+    const rows = (kind: 'header' | 'query') =>
+      group.suggestedEntries!.filter((entry) => entry.kind === kind).map((entry) => ({ name: entry.name, value: '' }))
+    const headers = rows('header')
+    const query = rows('query')
+    // Keep the editor's trailing blank row so its add-row affordance survives.
+    if (headers.length) seed.headers = [...headers, { name: '', value: '' }]
+    if (query.length) seed.query = [...query, { name: '', value: '' }]
+  }
+  return Object.keys(seed).length ? seed : undefined
 }
 
 type Props = {
@@ -174,21 +192,30 @@ export function ImportFlowDialog({ open, onOpenChange, onImported }: Props) {
                 {report!.credentialGroups!.map((group) => (
                   <div key={group.key} className="flex items-center gap-3 rounded-md border border-border/60 px-2 py-1.5">
                     <div className="min-w-0 flex-1">
-                      <p className="truncate text-xs font-medium">{group.name}</p>
+                      <p className="truncate text-xs font-medium">{group.sourceDisplayName ?? group.name}</p>
                       <p className="text-[11px] text-muted-foreground">
                         {group.nodeIds.length} step{group.nodeIds.length === 1 ? '' : 's'} · {group.sourceType}
                       </p>
                     </div>
-                    <div className="w-56 shrink-0">
-                      <CredentialPicker
-                        value={boundGroups[group.key]}
-                        type={group.credentialType}
-                        context="http"
-                        onChange={(credentialId, nextType) => {
-                          if (credentialId) void bindCredentialGroup(group, credentialId, nextType ?? group.credentialType)
-                        }}
-                      />
-                    </div>
+                    {group.unsupported || !group.credentialType ? (
+                      <p className="w-56 shrink-0 text-[11px] text-muted-foreground">
+                        <AlertTriangle className="mr-1 inline h-3 w-3 text-amber-500" aria-hidden />
+                        {group.sourceDisplayName ?? group.name} can&apos;t be reproduced with a generic credential — n8n
+                        authenticates it programmatically. Connect the integration, or open the step and configure auth manually.
+                      </p>
+                    ) : (
+                      <div className="w-56 shrink-0">
+                        <CredentialPicker
+                          value={boundGroups[group.key]}
+                          type={group.credentialType}
+                          context="http"
+                          draftSeed={groupDraftSeed(group)}
+                          onChange={(credentialId, nextType) => {
+                            if (credentialId) void bindCredentialGroup(group, credentialId, nextType ?? group.credentialType ?? 'bearer')
+                          }}
+                        />
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>
