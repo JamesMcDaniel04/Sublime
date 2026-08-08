@@ -1003,6 +1003,15 @@ const NODE_CALL_SEGMENT = /^\s*\$\(\s*(["'])([\s\S]+?)\1\s*\)\s*(?:\.(?:first|la
 // n8n instance environment variables — materialized as variable steps.
 const ENV_SEGMENT = /^\s*\$env\.([A-Za-z_]\w*)\s*$/
 
+// ——— js: fallback tier ———————————————————————————————————————————————
+// n8n globals with no Sublime equivalent, and n8n string/date extension
+// methods that would throw in plain JS — segments using them stay verbatim.
+const JS_DENIED = /\$items\b|\$runIndex\b|\$itemMatching\b|\$binary\b|\$execution\b|\$workflow\b|\$prevNode\b|\$fromAI\b|\$if\b|\$min\b|\$max\b|\.toDateTime\(|\.removeTags\(|\.extractEmail\(|\.extractDomain\(|\.extractUrl\(|\.beginningOf\(|\.endOfMonth\(|\.plus\(|\.minus\(|\.format\(|\.toFormat\(/
+// Non-anchored variants of the cross-node reference forms.
+const NODE_ANY = /\$node\[(["'])([\s\S]+?)\1\]\.json/g
+const NODE_CALL_ANY = /\$\(\s*(["'])([\s\S]+?)\1\s*\)\s*(?:\.(?:first|last)\(\)|\.item)?\.json/g
+const ENV_ANY = /\$env\.([A-Za-z_]\w*)/g
+
 /**
  * Best-effort n8n expression → Sublime template translation. All-or-nothing
  * per string: a `=`-prefixed string converts only when EVERY `{{ … }}` segment
@@ -1039,6 +1048,49 @@ function translateExpressions(
       : preds?.size === 1
         ? (() => { const [pred] = preds; return pred === 'trigger' ? 'trigger.input' : `step.${pred}.output` })()
         : null
+    // Same reference in the {{js:}} scope, where step.<id> IS the output
+    // (no `.output` suffix) and ids need bracket form for JS syntax.
+    const jsJsonBase = itemScoped
+      ? 'item'
+      : preds?.size === 1
+        ? (() => { const [pred] = preds; return pred === 'trigger' ? 'trigger.input' : `step[${JSON.stringify(pred)}]` })()
+        : null
+
+    /**
+     * Computed segment → a QuickJS `{{js:}}` expression, or null to keep the
+     * string verbatim. Constraints: every n8n reference must rewrite to the
+     * runtime scope ($json/step/vars/trigger/item), no deny-listed globals or
+     * extension methods, and NO braces — the template token grammar
+     * ({{([^{}]+?)}}) cannot carry object literals or block bodies.
+     */
+    const toJs = (inner: string): string | null => {
+      if (JS_DENIED.test(inner)) return null
+      let ok = true
+      let out = inner
+      const rewriteNode = (match: string, _quote: string, name: string) => {
+        const referencedId = idByName.get(name)
+        if (!referencedId) { ok = false; return match }
+        return `step[${JSON.stringify(referencedId)}]`
+      }
+      out = out.replace(NODE_CALL_ANY, rewriteNode)
+      out = out.replace(NODE_ANY, rewriteNode)
+      out = out.replace(ENV_ANY, (_match, name: string) => { envVars.add(name); return `vars.${name}` })
+      // Luxon DateTimes: only bare interpolation and .toISO() have loss-free
+      // JS equivalents; other methods hit the deny-list or the residual check.
+      out = out.replace(/\$now\.toISO\(\)/g, 'new Date().toISOString()')
+      out = out.replace(/\$today\.toISO\(\)/g, 'new Date(new Date().toDateString()).toISOString()')
+      out = out.replace(/\$now\b(?!\s*[.(])/g, 'new Date().toISOString()')
+      out = out.replace(/\$today\b(?!\s*[.(])/g, 'new Date(new Date().toDateString()).toISOString()')
+      if (/\$json\b/.test(out)) {
+        if (!jsJsonBase) return null
+        out = out.replace(/\$json\b/g, jsJsonBase)
+      }
+      if (!ok) return null
+      if (/[{}]/.test(out)) return null
+      // Any surviving $-global means an unmapped n8n reference.
+      if (/\$[A-Za-z_(]/.test(out)) return null
+      return out.trim() || null
+    }
     let allTranslated = true
     const converted = value.slice(1).replace(/\{\{([\s\S]*?)\}\}/g, (segment, inner: string) => {
       const jsonMatch = JSON_SEGMENT.exec(inner)
@@ -1059,6 +1111,10 @@ function translateExpressions(
         envVars.add(envMatch[1])
         return `{{var.${envMatch[1]}}}`
       }
+      // Computed expression: rewrite the references and hand the rest to the
+      // QuickJS token, instead of abandoning the whole string.
+      const js = toJs(inner)
+      if (js !== null) return `{{js: ${js}}}`
       allTranslated = false
       return segment
     })

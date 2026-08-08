@@ -570,11 +570,11 @@ test('expressions translate when the data path is unambiguous', () => {
   assert.equal(call.data.forEachItem, true)
   assert.equal(call.data.url, '{{item.team}}')
   assert.equal(call.data.body, 'Hello {{item.team}}, via {{step.n-set.output.team}}')
-  // Computed segments with cross-node refs can neither translate nor extract
-  // (a code step has no cross-step access) — they stay verbatim + warned.
+  // Computed segments with cross-node refs can't extract into a code step
+  // (no cross-step access there) — the js: tier now carries them instead,
+  // rewriting the reference into the QuickJS step scope.
   const complex = byId.get('n-http2') as NodeOf<'http'>
-  assert.equal(complex.data.url, "={{ JSON.stringify($('Set team').first().json) }}")
-  assert.ok(imported.warnings.some((warning) => warning.includes('expression')))
+  assert.equal(complex.data.url, '{{js: JSON.stringify(step["n-set"])}}')
 })
 
 test('$json with the trigger as predecessor becomes trigger.input', () => {
@@ -1004,4 +1004,67 @@ test('query-param credential prefills the real param name', () => {
   const group = imported.credentialGroups?.find((g) => g.sourceType === 'calApi')
   assert.equal(group?.credentialType, 'apiKeyQuery')
   assert.equal(group?.suggestedQueryParam, 'apiKey')
+})
+
+/** webhook → http with the given http params; returns the imported http node + result. */
+const exprWorkflow = (httpParams: Record<string, unknown>, middle?: { name: string; parameters: Record<string, unknown> }) => {
+  const nodes: Record<string, unknown>[] = [
+    { parameters: { path: 'x' }, id: 'n-hook', name: 'Web', type: 'n8n-nodes-base.webhook', typeVersion: 2, position: [0, 0] },
+  ]
+  const connections: Record<string, unknown> = {}
+  if (middle) {
+    nodes.push({ parameters: middle.parameters, id: 'n-mid', name: middle.name, type: 'n8n-nodes-base.set', typeVersion: 3.4, position: [200, 0] })
+    nodes.push({ parameters: httpParams, id: 'n-call', name: 'Call', type: 'n8n-nodes-base.httpRequest', typeVersion: 4.2, position: [400, 0] })
+    connections.Web = { main: [[{ node: middle.name, type: 'main', index: 0 }]] }
+    connections[middle.name] = { main: [[{ node: 'Call', type: 'main', index: 0 }]] }
+  } else {
+    nodes.push({ parameters: httpParams, id: 'n-call', name: 'Call', type: 'n8n-nodes-base.httpRequest', typeVersion: 4.2, position: [200, 0] })
+    connections.Web = { main: [[{ node: 'Call', type: 'main', index: 0 }]] }
+  }
+  return fromN8nWorkflow({ name: 'Expr', nodes, connections, settings: {} })
+}
+
+test('computed $json becomes a {{js:}} item expression (perItem inference makes the step item-scoped)', () => {
+  const imported = exprWorkflow({ url: '=https://api.example.com/{{ $json.email.split("@")[1] }}' })
+  const http = imported.graph.nodes.find((node) => node.type === 'http') as NodeOf<'http'>
+  assert.equal(http.data.forEachItem, true)
+  assert.equal(http.data.url, 'https://api.example.com/{{js: item.email.split("@")[1]}}')
+})
+
+test('computed cross-node reference rewrites to step scope', () => {
+  const imported = exprWorkflow(
+    { url: '=https://api.example.com/{{ $(\'Prep\').item.json.id + 1 }}' },
+    { name: 'Prep', parameters: { assignments: { assignments: [{ name: 'id', value: '1' }] } } },
+  )
+  const http = imported.graph.nodes.find((node) => node.type === 'http') as NodeOf<'http'>
+  const transform = imported.graph.nodes.find((node) => node.type === 'transform')
+  assert.ok(transform)
+  assert.equal(http.data.url, `https://api.example.com/{{js: step["${transform.id}"].id + 1}}`)
+})
+
+test('bare $now interpolation becomes an ISO timestamp expression', () => {
+  const imported = exprWorkflow({ url: '=https://api.example.com/since/{{ $now }}' })
+  const http = imported.graph.nodes.find((node) => node.type === 'http') as NodeOf<'http'>
+  assert.equal(http.data.url, 'https://api.example.com/since/{{js: new Date().toISOString()}}')
+})
+
+test('$env inside a computed expression maps to vars and materializes the variable step', () => {
+  const imported = exprWorkflow({ url: '=https://api.example.com/{{ $env.REGION + "-1" }}' })
+  const http = imported.graph.nodes.find((node) => node.type === 'http') as NodeOf<'http'>
+  assert.equal(http.data.url, 'https://api.example.com/{{js: vars.REGION + "-1"}}')
+  assert.ok(imported.graph.nodes.some((node) => node.type === 'variable' && (node.data as { name?: string }).name === 'REGION'))
+})
+
+test('deny-listed n8n globals keep the expression verbatim with a warning', () => {
+  const imported = exprWorkflow({ url: '=https://api.example.com/{{ $items()[0].json.x }}' })
+  const http = imported.graph.nodes.find((node) => node.type === 'http') as NodeOf<'http'>
+  assert.equal(http.data.url, '=https://api.example.com/{{ $items()[0].json.x }}')
+  assert.ok(imported.warnings.some((w) => w.includes('could not be translated')))
+})
+
+test('expressions containing braces stay verbatim (token grammar excludes braces)', () => {
+  const imported = exprWorkflow({ url: '=https://api.example.com/{{ [1,2].map(n => ({ x: n })).length }}' })
+  const http = imported.graph.nodes.find((node) => node.type === 'http') as NodeOf<'http'>
+  assert.ok(http.data.url.startsWith('=https://api.example.com/'))
+  assert.ok(!http.data.url.includes('{{js:'))
 })
