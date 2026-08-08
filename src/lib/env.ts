@@ -77,13 +77,17 @@ function assertPooledDatabaseUrl(rawUrl: string): void {
 // of refusing to start. The 2026-08-01 audit found every one of these was
 // unasserted while production code hard-depends on it.
 const RECOMMENDED_FOR_SERVER = [
-  ['STRIPE_SECRET_KEY', 'checkout/portal/webhook will 500 — no subscription ever syncs, no top-up ever grants'],
-  ['STRIPE_WEBHOOK_SECRET', 'the Stripe webhook rejects every event — plan changes never reach the database'],
   ['SUPABASE_SERVICE_ROLE_KEY', 'realtime run-event broadcasts will be off (clients fall back to polling latency)'],
   ['RESEND_API_KEY', 'the contact form 503s and digest emails are silently unsent'],
   ['VAPID_PUBLIC_KEY', 'push notifications will silently never send'],
   ['VAPID_PRIVATE_KEY', 'push notifications will silently never send'],
   ['NEXT_PUBLIC_APP_URL', 'invite/digest deep links will render without a host'],
+] as const
+
+const REQUIRED_FOR_PRODUCT_READINESS = [
+  'STRIPE_SECRET_KEY',
+  'STRIPE_WEBHOOK_SECRET',
+  'NEXT_PUBLIC_APP_URL',
 ] as const
 
 /** True when SOME shared rate-limit backend is configured (Upstash REST pair
@@ -92,6 +96,24 @@ const RECOMMENDED_FOR_SERVER = [
 function rateLimitBackendConfigured(): boolean {
   if (process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN) return true
   return Boolean(process.env.REDIS_URL)
+}
+
+export type ProductReadiness = {
+  ok: boolean
+  missing: string[]
+}
+
+/**
+ * Configuration required for the product to accept production traffic.
+ * This is separate from startup validation so build-time Next.js workers do
+ * not need runtime secrets, while readiness probes still fail closed.
+ */
+export function getProductReadiness(): ProductReadiness {
+  if (process.env.NODE_ENV !== 'production') return { ok: true, missing: [] }
+
+  const missing = REQUIRED_FOR_PRODUCT_READINESS.filter((name) => !process.env[name]) as string[]
+  if (!rateLimitBackendConfigured()) missing.push('shared rate-limit backend')
+  return { ok: missing.length === 0, missing }
 }
 
 export function assertServerEnv(logger: { warn: (message: string) => void } = console): void {
@@ -110,10 +132,11 @@ export function assertServerEnv(logger: { warn: (message: string) => void } = co
   if (!process.env.EMAIL_LINK_SECRET && !process.env.CRON_SECRET) {
     logger.warn('env: EMAIL_LINK_SECRET and CRON_SECRET are not set — marketing email is skipped because unsubscribe links cannot be signed')
   }
-  if (!rateLimitBackendConfigured()) {
+  const readiness = getProductReadiness()
+  if (!readiness.ok) {
     logger.warn(
-      'env: no shared rate-limit backend (UPSTASH_REDIS_REST_URL+TOKEN or REDIS_URL) — ' +
-        'limits degrade to per-instance in-memory counters and multiply by the instance count.',
+      `env: deployment is not ready to accept traffic; missing ${readiness.missing.join(', ')}. ` +
+        'The health probe will fail closed until these are configured.',
     )
   }
 }

@@ -22,6 +22,10 @@ const FULL_PROD_ENV = {
   ENCRYPTION_KEY: 'k',
   CRON_SECRET: 'cron-secret',
   ANTHROPIC_API_KEY: 'sk-ant-x',
+  STRIPE_SECRET_KEY: 'sk_test_x',
+  STRIPE_WEBHOOK_SECRET: 'whsec_x',
+  NEXT_PUBLIC_APP_URL: 'https://app.example.com',
+  REDIS_URL: 'rediss://redis.example.com:6379',
 }
 
 beforeEach(() => {
@@ -34,7 +38,7 @@ test('production with everything set: does not throw', async () => {
   assert.doesNotThrow(() => assertServerEnv())
 })
 
-test('server env: warns (never throws) on missing recommended vars, naming the consequence', async () => {
+test('server env: reports missing readiness vars while optional integrations remain warnings', async () => {
   Object.assign(process.env, FULL_PROD_ENV)
   for (const name of [
     'STRIPE_SECRET_KEY', 'STRIPE_WEBHOOK_SECRET', 'SUPABASE_SERVICE_ROLE_KEY',
@@ -43,6 +47,7 @@ test('server env: warns (never throws) on missing recommended vars, naming the c
   ]) delete process.env[name]
   const warnings: string[] = []
   const { assertServerEnv } = await freshEnv()
+  const { getProductReadiness } = await freshEnv()
   assert.doesNotThrow(() => assertServerEnv({ warn: (message: string) => warnings.push(message) }))
   const joined = warnings.join('\n')
   for (const name of ['STRIPE_SECRET_KEY', 'STRIPE_WEBHOOK_SECRET', 'SUPABASE_SERVICE_ROLE_KEY', 'RESEND_API_KEY', 'VAPID_PUBLIC_KEY', 'NEXT_PUBLIC_APP_URL']) {
@@ -50,7 +55,18 @@ test('server env: warns (never throws) on missing recommended vars, naming the c
   }
   // No Upstash pair and no REDIS_URL: the rate limiter silently becomes
   // per-instance memory — every limit multiplies by the instance count.
-  assert.ok(/per-instance|in-memory/i.test(joined), 'expected a rate-limit backend warning')
+  assert.ok(/health probe will fail closed/i.test(joined), 'expected a readiness warning')
+  const readiness = getProductReadiness()
+  assert.equal(readiness.ok, false)
+  assert.deepEqual(readiness.missing.sort(), [
+    'NEXT_PUBLIC_APP_URL', 'STRIPE_SECRET_KEY', 'STRIPE_WEBHOOK_SECRET', 'shared rate-limit backend',
+  ].sort())
+})
+
+test('server env: complete billing, app URL, and shared rate limiting are production-ready', async () => {
+  Object.assign(process.env, FULL_PROD_ENV)
+  const { getProductReadiness } = await freshEnv()
+  assert.deepEqual(getProductReadiness(), { ok: true, missing: [] })
 })
 
 test('server env: a configured Redis backend silences the rate-limit warning', async () => {

@@ -2,6 +2,7 @@ import { prisma } from '@/lib/prisma'
 import { cachePing } from '@/lib/cache'
 import { neo4jPing } from '@/lib/rag/neo4j-store'
 import { getQueue, QUEUE_NAMES, workersEnabled } from '@/lib/queue/config'
+import { getProductReadiness } from '@/lib/env'
 
 export type HealthDetails = {
   status: 'ok' | 'unhealthy'
@@ -10,6 +11,7 @@ export type HealthDetails = {
 }
 
 export async function collectHealthDetails(): Promise<HealthDetails> {
+  const configuration = getProductReadiness()
   const [db, cache, neo4j, queue] = await Promise.all([
     probe(async () => { await prisma.$queryRaw`SELECT 1` }),
     cachePing().then((c) => ({ ok: c.ok, configured: c.configured })).catch(() => ({ ok: false, configured: false })),
@@ -17,9 +19,9 @@ export async function collectHealthDetails(): Promise<HealthDetails> {
     queuePing(),
   ])
   return {
-    status: db.ok ? 'ok' : 'unhealthy',
+    status: db.ok && configuration.ok ? 'ok' : 'unhealthy',
     timestamp: new Date().toISOString(),
-    checks: { db, cache, neo4j, queue },
+    checks: { db, configuration, cache, neo4j, queue },
   }
 }
 
