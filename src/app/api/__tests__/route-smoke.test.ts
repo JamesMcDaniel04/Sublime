@@ -153,6 +153,7 @@ if (TEST_DB) {
     { name: 'GET /api/skills/[id]', run: async () => (await import('../skills/[id]/route')).GET(req('/api/skills/no-such-id')) },
     // Plain authenticated GETs with no seeding requirements.
     { name: 'GET /api/activity', run: async () => (await import('../activity/route')).GET(req('/api/activity')) },
+    { name: 'GET /api/flows/credentials', run: async () => (await import('../flows/credentials/route')).GET(req('/api/flows/credentials')) },
     { name: 'GET /api/activity/backfill', run: async () => (await import('../activity/backfill/route')).GET(req('/api/activity/backfill')) },
     { name: 'GET /api/intelligence/user-suggestions', run: async () => (await import('../intelligence/user-suggestions/route')).GET(req('/api/intelligence/user-suggestions')) },
     { name: 'GET /api/rtc/ice', run: async () => (await import('../rtc/ice/route')).GET(req('/api/rtc/ice')) },
