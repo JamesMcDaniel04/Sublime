@@ -105,7 +105,7 @@ export async function assertImportCapacity(
   organizationId: string,
   requested: { flows: number; agents: number },
 ): Promise<void> {
-  await tx.$queryRaw(Prisma.sql`SELECT pg_advisory_xact_lock(hashtext(${organizationId}))`)
+  await tx.$queryRaw(Prisma.sql`SELECT 1 AS locked FROM pg_advisory_xact_lock(hashtext(${organizationId}))`)
   const organization = await tx.organization.findUnique({
     where: { id: organizationId },
     select: { plan: true, settings: true, createdAt: true, grandfatheredAt: true },

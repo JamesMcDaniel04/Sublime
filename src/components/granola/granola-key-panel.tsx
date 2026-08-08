@@ -1,5 +1,6 @@
 'use client'
 
+import React from 'react'
 import { useCallback, useEffect, useState } from 'react'
 import { CheckCircle2, KeyRound, Plug } from 'lucide-react'
 import { toast } from 'sonner'

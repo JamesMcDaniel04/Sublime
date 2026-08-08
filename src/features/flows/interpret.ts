@@ -1,5 +1,5 @@
 import type { FlowGraph, FlowNode, FlowEdge, VariableType } from '@/lib/flows/graph'
-import { resolveTemplate, resolveTemplateValue, resolveTemplateAsync, resolveTemplateValueAsync, asStructured, evalCondition, evalClause, evalConditionAsync, evalClauseAsync, serializeUpstream, type EvalJsFn, type FlowContext } from './context'
+import { resolveTemplateAsync, resolveTemplateValueAsync, asStructured, evalCondition, evalConditionAsync, evalClauseAsync, serializeUpstream, type EvalJsFn, type FlowContext } from './context'
 import { stepLabelsOf } from '@/lib/flows/token-text'
 import { shouldRetryAfterTimeout } from './action-reliability'
 import { structuredResponseInstruction, parseStructuredAgentOutput } from './agent-response'
