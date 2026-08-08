@@ -49,6 +49,9 @@ const NANGO_CREDENTIAL_MAP: Record<string, string> = {
   slackoauth2api: 'nango:slack',
   githuboauth2api: 'nango:github',
   asanaoauth2api: 'nango:asana',
+  clickupoauth2api: 'nango:clickup',
+  mondaycomoauth2api: 'nango:monday',
+  intercomoauth2api: 'nango:intercom',
 }
 
 /** Name-sniffing fallback for credential types newer than the generated table. */
