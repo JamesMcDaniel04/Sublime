@@ -8,7 +8,7 @@
   "scripts": {
     "dev": "next dev",
     "dev:all": "concurrently \"npm run dev\" \"npm run worker:dev\"",
-    "build": "prisma generate && node scripts/vercel-migrate.mjs && next build",
+    "build": "prisma generate && node scripts/vercel-migrate.mjs && next build && npm run bundle:check",
     "start": "next start",
     "worker:dev": "tsx watch src/lib/workers/runtime.ts",
     "worker:start": "tsx src/lib/workers/runtime.ts",
@@ -16,6 +16,7 @@
     "lint": "eslint .",
     "check": "npm run typecheck && npm run lint && npm run audit:prod && npm run build",
     "audit:prod": "npm audit --omit=dev --audit-level=moderate",
+    "bundle:check": "node scripts/check-bundle-budget.mjs",
     "db:generate": "prisma generate",
     "db:push": "prisma db push",
     "db:migrate": "prisma migrate dev",

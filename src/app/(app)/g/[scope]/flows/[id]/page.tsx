@@ -41,15 +41,12 @@ import { cn } from '@/lib/utils'
 import { startCanvasPan } from '@/components/flows/canvas-pan'
 import { CanvasRail } from '@/components/flows/canvas-rail'
 import type { ToolCatalog } from '@/components/flows/tool-catalog-type'
-import { CopilotPanel, type CopilotRequest } from '@/components/flows/copilot-panel'
-import { RunPanel, type FlowRunDetail } from '@/components/flows/run-panel'
-import { CheckerPanel } from '@/components/flows/checker-panel'
+import type { CopilotRequest } from '@/components/flows/copilot-panel'
+import type { FlowRunDetail } from '@/components/flows/run-panel'
 import { NodeDetailView, type NodeTestState } from '@/components/flows/ndv/node-detail-view'
 import { downstreamWriteActions, resolveNodeTestInput, topoSortByGraph } from '@/lib/flows/node-test-input'
 import { buildPreviewContext } from '@/lib/flows/preview-context'
 import { ResizablePanel } from '@/components/flows/resizable-panel'
-import { TestPanel } from '@/components/flows/test-panel'
-import { VersionsPanel } from '@/components/flows/versions-panel'
 import { useFlowJam, type HuddleSignal, type JamPeer } from '@/components/flows/use-flow-jam'
 import { CanvasErrorBoundary } from '@/components/flows/canvas-error-boundary'
 import { useJamHuddle } from '@/components/flows/use-jam-huddle'
@@ -61,6 +58,14 @@ import type { StepStatus } from '@/components/flows/step-card'
 import { SuggestedImprovementBanner } from '@/components/intelligence/suggested-improvement-banner'
 import { getCachedJson, invalidateCachedJson } from '@/lib/client/use-cached-json'
 import { useRunEvents } from '@/lib/client/use-run-events'
+
+// Side panels are substantial, mutually optional surfaces. Keep them out of
+// the builder's initial bundle and load each only when the user opens it.
+const CopilotPanel = dynamic(() => import('@/components/flows/copilot-panel').then((m) => m.CopilotPanel), { ssr: false })
+const RunPanel = dynamic(() => import('@/components/flows/run-panel').then((m) => m.RunPanel), { ssr: false })
+const CheckerPanel = dynamic(() => import('@/components/flows/checker-panel').then((m) => m.CheckerPanel), { ssr: false })
+const TestPanel = dynamic(() => import('@/components/flows/test-panel').then((m) => m.TestPanel), { ssr: false })
+const VersionsPanel = dynamic(() => import('@/components/flows/versions-panel').then((m) => m.VersionsPanel), { ssr: false })
 
 type Agent = { id: string; title: string }
 
