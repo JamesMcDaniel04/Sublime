@@ -1845,7 +1845,7 @@ function FlowBuilder() {
         {/* Jam presence + huddle float over the canvas (both modes share this
             one overlay because the wrapper is position:relative). The wrapper
             is pointer-transparent so it never blocks canvas interactions. */}
-        <div className="pointer-events-none absolute right-4 top-3 z-30">
+        <div className="pointer-events-none absolute left-1/2 top-3 z-30 -translate-x-1/2">
           <div className="pointer-events-auto rounded-full border border-border bg-card/95 px-2 py-1 shadow-sm backdrop-blur">
             <JamButton
               flowId={id}

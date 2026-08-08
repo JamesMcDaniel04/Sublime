@@ -147,7 +147,7 @@ function HuddleControl({ peers, huddle }: { peers: JamPeer[]; huddle: JamHuddleC
               <ChevronDown className="h-3 w-3" />
             </button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-64 rounded-xl border-border bg-card p-1 shadow-xl">
+          <DropdownMenuContent align="center" className="w-64 rounded-xl border-border bg-card p-1 shadow-xl">
             {huddle.mics.map((mic) => (
               <button
                 key={mic.deviceId}
@@ -326,7 +326,7 @@ export function JamButton({
             <UserPlus className="h-4 w-4" /> Jam
           </Button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" className="w-80 rounded-xl border-border bg-card p-3 shadow-xl">
+        <DropdownMenuContent align="center" className="w-80 rounded-xl border-border bg-card p-3 shadow-xl">
             <p className="text-sm font-semibold text-foreground">Start a Flow Jam</p>
             <p className="mt-0.5 text-xs text-muted-foreground">
               Invited teammates get a live prompt that drops them straight into this flow.
