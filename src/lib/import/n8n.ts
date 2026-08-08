@@ -956,6 +956,25 @@ function mapNode(node: N8nNode, id: string, warnings: string[]): Mapped {
       warnings.push(`"${label}" used a Salesforce action beyond create — rebuild it with your Salesforce connection's actions.`)
       return stub()
     }
+    // Legacy Item Lists node (split into Limit/Sort/Split Out/… in n8n 1.x):
+    // its operations route onto the modern generators — the param names are
+    // identical because those nodes were extracted from this one.
+    case 'itemLists': {
+      const operation = asString(p.operation) || 'splitOutItems'
+      const modernBase = {
+        splitOutItems: 'splitOut', limit: 'limit', sort: 'sort',
+        removeDuplicates: 'removeDuplicates', aggregateItems: 'aggregate', concatenateItems: 'aggregate',
+      }[operation]
+      if (!modernBase) {
+        warnings.push(`"${label}" used Item Lists "${operation}" (summarize-style) — no direct equivalent; rebuild it as a Code step.`)
+        return stub()
+      }
+      const code = dataNodeCode(modernBase, p, warnings, label)
+      if (code !== null) {
+        return { kind: 'node', node: { id, type: 'code', data: { label, language: 'javascript', mode: 'allItems', code } } }
+      }
+      return stub()
+    }
     default: {
       if (DATA_CODE_NODES.has(base)) {
         const code = dataNodeCode(base, p, warnings, label)

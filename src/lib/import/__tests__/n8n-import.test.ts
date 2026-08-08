@@ -1068,3 +1068,42 @@ test('expressions containing braces stay verbatim (token grammar excludes braces
   assert.ok(http.data.url.startsWith('=https://api.example.com/'))
   assert.ok(!http.data.url.includes('{{js:'))
 })
+
+/** webhook → single node workflow for node-arm tests. */
+const singleNode = (type: string, parameters: Record<string, unknown>, typeVersion = 1) =>
+  fromN8nWorkflow({
+    name: 'Single',
+    nodes: [
+      { parameters: { path: 'x' }, id: 'n-hook', name: 'Web', type: 'n8n-nodes-base.webhook', typeVersion: 2, position: [0, 0] },
+      { parameters, id: 'n-one', name: 'Op', type: `n8n-nodes-base.${type}`, typeVersion, position: [200, 0] },
+    ],
+    connections: { Web: { main: [[{ node: 'Op', type: 'main', index: 0 }]] } },
+    settings: {},
+  })
+
+test('itemLists splitOutItems becomes generated split-out code, not a stub', () => {
+  const imported = singleNode('itemLists', { operation: 'splitOutItems', fieldToSplitOut: 'rows' }, 3)
+  const code = imported.graph.nodes.find((node) => node.type === 'code') as NodeOf<'code'>
+  assert.ok(code, 'expected a code step')
+  assert.ok(code.data.code?.includes('rows'))
+  assert.equal(imported.stubbedNodes.length, 0)
+})
+
+test('itemLists limit and sort route onto the modern generators', () => {
+  const limited = singleNode('itemLists', { operation: 'limit', maxItems: 3, keep: 'lastItems' }, 3)
+  const limitCode = limited.graph.nodes.find((node) => node.type === 'code') as NodeOf<'code'>
+  assert.ok(limitCode.data.code?.includes('slice(-3)'))
+
+  const sorted = singleNode('itemLists', {
+    operation: 'sort', type: 'simple',
+    sortFieldsUi: { sortField: [{ fieldName: 'score', order: 'descending' }] },
+  }, 3)
+  const sortCode = sorted.graph.nodes.find((node) => node.type === 'code') as NodeOf<'code'>
+  assert.ok(sortCode.data.code?.includes('score'))
+})
+
+test('itemLists summarize stubs with a specific warning', () => {
+  const imported = singleNode('itemLists', { operation: 'summarize' }, 3)
+  assert.equal(imported.stubbedNodes.length, 1)
+  assert.ok(imported.warnings.some((w) => w.toLowerCase().includes('summarize')))
+})
