@@ -75,6 +75,7 @@ if (TEST_DB) {
     { name: 'GET /api/bootstrap', run: async () => (await import('../bootstrap/route')).GET(req('/api/bootstrap')) },
     { name: 'GET /api/snapshot', run: async () => (await import('../snapshot/route')).GET(req('/api/snapshot')) },
     { name: 'GET /api/system/capabilities', run: async () => (await import('../system/capabilities/route')).GET(req('/api/system/capabilities')) },
+    { name: 'GET /api/system/health', run: async () => (await import('../system/health/route')).GET(req('/api/system/health')) },
     { name: 'GET /api/flows', run: async () => (await import('../flows/route')).GET(req('/api/flows')) },
     { name: 'GET /api/agents', run: async () => (await import('../agents/route')).GET(req('/api/agents')) },
     { name: 'GET /api/agents/activity', run: async () => (await import('../agents/activity/route')).GET(req(`/api/agents/activity?agentId=${agentId}`)) },

@@ -1593,9 +1593,9 @@ export async function runAgentExecution(
       agentTaskId: agent.id,
       executionId: execution.id,
     })
-    // Cross-tool ledger flush: which integrations this run touched, one event
-    // per provider. Fire-and-forget — never blocks completion.
-    void recordToolCallEvents({
+    // Cross-tool ledger flush: await the durable write before advertising
+    // completion, while keeping capture failure non-fatal to the agent run.
+    await recordToolCallEvents({
       organizationId,
       userId,
       executionId: execution.id,
@@ -1735,7 +1735,7 @@ export async function runAgentExecution(
     // Cross-tool ledger flush on the FAILURE path too. Without this, the
     // ledger only ever sees integrations from runs that worked, and any
     // aggregate built on it is survivorship-biased by construction.
-    void recordToolCallEvents({
+    await recordToolCallEvents({
       organizationId,
       userId,
       executionId: execution.id,

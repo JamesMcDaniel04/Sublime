@@ -54,6 +54,9 @@ export interface McpClientConfig {
     refresh_token?: string
     expires_in?: number
   }) => Promise<void>
+  /** Injectable transport for deterministic tests. Production callers omit
+   * this so fetchPublicUrl uses its DNS-pinned Undici dispatcher. */
+  fetchImpl?: typeof fetch
 }
 
 // ---------------------------------------------------------------------------
@@ -129,7 +132,7 @@ export class McpClient {
       const discoveryResp = await fetchPublicUrl(discoveryUrl, {
         redirect: 'error', // don't let a 3xx bounce us to an internal host
         signal: AbortSignal.timeout(10_000),
-      })
+      }, this.config.fetchImpl)
       if (!discoveryResp.ok) {
         throw new Error(
           `MCP connection oauth2: token endpoint not configured and auto-discovery failed (status ${discoveryResp.status})`,
@@ -167,7 +170,7 @@ export class McpClient {
       body: body.toString(),
       redirect: 'error', // don't follow a 3xx to an internal host
       signal: AbortSignal.timeout(15_000),
-    })
+    }, this.config.fetchImpl)
 
     if (!response.ok) {
       // Never echo the raw response body — it may carry sensitive detail
@@ -355,7 +358,7 @@ export class McpClient {
       }),
       redirect: 'error', // a 3xx to an internal host would bypass the SSRF guard
       signal: AbortSignal.timeout(30_000),
-    })
+    }, this.config.fetchImpl)
 
     if (!response.ok) {
       throw new Error(`MCP server returned ${response.status} for method ${method}`)

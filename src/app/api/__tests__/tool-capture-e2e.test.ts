@@ -179,11 +179,10 @@ if (TEST_DB) {
         trigger: { type: 'manual' }, graph: parentGraph, publishedGraph: parentGraph,
       },
     })
-    const { dispatchFlowExecution } = await import('@/features/flows/execute-flow')
-    const result = await dispatchFlowExecution({
+    const { runFlowExecution } = await import('@/features/flows/execute-flow')
+    const result = await runFlowExecution({
       flowId: parent.id, organizationId, userId, input: {}, usePublished: true, trigger: { type: 'manual' },
-    } as never)
-    assert.ok(!('queued' in result), 'expected inline execution')
+    } as never, { publicFetch: globalThis.fetch })
     assert.equal((result as any).status, 'succeeded', `run failed: ${JSON.stringify(result)}`)
 
     const runId = (result as any).flowRunId

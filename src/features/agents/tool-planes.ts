@@ -639,8 +639,10 @@ export async function resolveFlowToolExecutor(params: {
   /** The calling flow run's subflowDepth — threaded into a flow-plane child so
    *  flow->flow chains through tool steps share the recursion counter. */
   subflowDepth?: number
+  /** Test-only transport seam; production omits it and remains DNS-pinned. */
+  publicFetch?: typeof fetch
 }): Promise<FlowToolExecutor> {
-  const { organizationId, userId, plane, ref, resource, subflowDepth } = params
+  const { organizationId, userId, plane, ref, resource, subflowDepth, publicFetch } = params
 
   if (plane === 'mcp') {
     // `template:` is a provisioning placeholder, not a plane — the parser
@@ -663,6 +665,7 @@ export async function resolveFlowToolExecutor(params: {
     const client = new McpClient({
       ...mcpConfigFromConnection(fresh),
       credentialPlan: await mcpCredentialPlan(fresh, { organizationId, userId }),
+      fetchImpl: publicFetch,
     })
     return {
       provider: mcpConnectionSlug(fresh.name),

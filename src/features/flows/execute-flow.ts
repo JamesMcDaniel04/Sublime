@@ -107,6 +107,12 @@ export type FlowExecutionJob = {
   slackContinueExecutionId?: string
 }
 
+export type FlowExecutionDeps = {
+  /** Deterministic network seam for tests. Runtime callers must omit it so
+   * outbound MCP requests use the DNS-pinned public URL transport. */
+  publicFetch?: typeof fetch
+}
+
 // Bound HTTP responses so downstream prompts/logs stay manageable.
 const HTTP_MAX_RESPONSE_CHARS = 50_000
 // Synchronous subflow nesting: a flow calling a flow calling a flow... is
@@ -196,6 +202,7 @@ export async function terminalizeAbandonedChildRun(organizationId: string, child
  */
 export async function runFlowExecution(
   job: FlowExecutionJob,
+  deps: FlowExecutionDeps = {},
 ): Promise<{ flowRunId: string; status: string; output: unknown; error?: string; logs?: string[]; waiting?: { nodeId: string; question?: string; wakeAt?: string }; webhookResponse?: { statusCode: number; headers: Record<string, string>; bodyMode: 'json' | 'text' | 'binary' | 'none'; body?: unknown } }> {
   // HTTP/manual/cron entry points already resolve their target before they
   // dispatch. The recursive boundary must repeat that check: without it, a
@@ -836,6 +843,7 @@ export async function runFlowExecution(
           resource: { type: 'flow', id: job.flowId },
           // Flow-plane children inherit this run's recursion depth.
           subflowDepth: job.subflowDepth ?? 0,
+          publicFetch: deps.publicFetch,
         })
 
         const retries = flowActionRetries(node.config.retries)
@@ -1078,8 +1086,10 @@ export async function runFlowExecution(
       }))
   }
   // Cross-tool ledger flush: which integrations this segment's tool steps
-  // touched, one event per provider. Fire-and-forget — never blocks the run.
-  void recordToolCallEvents({
+  // touched, one event per provider. Await it so a completed run cannot race
+  // its durable audit/learning event (or lose it on serverless shutdown), but
+  // keep capture failure non-fatal to the run itself.
+  await recordToolCallEvents({
     organizationId: job.organizationId,
     userId: job.userId,
     executionId: run.id,

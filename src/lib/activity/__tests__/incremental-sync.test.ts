@@ -32,7 +32,7 @@ function fakeDb(overrides: {
         overrides.latestEventAt ? { occurredAt: overrides.latestEventAt } : null,
     },
     integrationSecret: {
-      findMany: async () => (overrides.granolaSecret ? [{ organizationId: 'org1' }] : []),
+      findMany: async () => (overrides.granolaSecret ? [{ id: 'sec1', organizationId: 'org1', userId: 'user1' }] : []),
       findFirst: async () => (overrides.granolaSecret ? { id: 'sec1' } : null),
     },
   }
@@ -88,12 +88,12 @@ test('connections for non-sweep sources are skipped', async () => {
   assert.deepEqual(calls.map((call) => call.source), ['github'])
 })
 
-test('granola participates via IntegrationSecret with its constant ref', async () => {
+test('granola participates via its user-owned IntegrationSecret id', async () => {
   const calls: Array<{ source: string; connectionRef: string; since: Date }> = []
   const db = fakeDb({ granolaSecret: true })
   await runIncrementalSync('org1', db as never, [fakeSource('granola', calls)])
   assert.equal(calls.length, 1)
-  assert.equal(calls[0].connectionRef, 'granola')
+  assert.equal(calls[0].connectionRef, 'sec1')
 })
 
 test('sweep enumerates orgs holding eligible connections and syncs each once', async () => {

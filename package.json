@@ -22,7 +22,7 @@
     "db:migrate": "prisma migrate dev",
     "db:deploy": "prisma migrate deploy",
     "db:studio": "prisma studio",
-    "test": "TSX_TSCONFIG_PATH=tsconfig.test.json tsx --test $(find src -type f \\( -name '*.test.ts' -o -name '*.test.tsx' \\) -path '*__tests__*')",
+    "test": "TSX_TSCONFIG_PATH=tsconfig.test.json tsx --test --test-concurrency=4 $(find src -type f \\( -name '*.test.ts' -o -name '*.test.tsx' \\) -path '*__tests__*')",
     "test:e2e": "playwright test",
     "eval": "tsx --test $(find src/lib/eval -type f -name '*.test.ts' -path '*__tests__*')"
   },

@@ -113,7 +113,7 @@ if (TEST_DB) {
     const { encryptSecretJson } = await import('@/lib/slack/connections')
     await prisma.slackWorkspaceConnection.create({
       data: {
-        organizationId, teamId: 'T0QA111', teamName: 'QA', botUserId: 'U0QABOT',
+        organizationId, userId, teamId: 'T0QA111', teamName: 'QA', botUserId: 'U0QABOT',
         botToken: encryptSecretJson('xoxb-qa'), signingSecret: encryptSecretJson('qa-signing'),
       },
     })
