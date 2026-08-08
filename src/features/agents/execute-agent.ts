@@ -282,6 +282,7 @@ async function loadTools(
   for (const group of await loadNativePlaneGroups(organizationId, {
     providers,
     resource: flowOptions?.resource,
+    userId: ownerUserId,
   })) pushGroup(group)
 
   // ---- Nango delivery (outbound writes as the acting user) -----------------

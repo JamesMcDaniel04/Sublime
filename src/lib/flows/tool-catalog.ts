@@ -60,7 +60,7 @@ export async function loadFlowToolCatalog(
         }).catch(() => [] as ToolPlaneGroup[])
       : [],
     wantPlane('native')
-      ? loadNativePlaneGroups(organizationId, { resource: options.resource }).catch(
+      ? loadNativePlaneGroups(organizationId, { resource: options.resource, userId: options.userId }).catch(
           () => [] as ToolPlaneGroup[],
         )
       : [],

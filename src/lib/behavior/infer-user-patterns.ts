@@ -167,7 +167,7 @@ export async function loadCapabilityCatalog(organizationId: string, userId: stri
     const planes = await import('@/features/agents/tool-planes')
     const [mcp, native, nango] = await Promise.all([
       planes.loadMcpConnectionPlaneGroups(organizationId, userId).catch(() => []),
-      planes.loadNativePlaneGroups(organizationId).catch(() => []),
+      planes.loadNativePlaneGroups(organizationId, { userId }).catch(() => []),
       planes.loadNangoPlaneGroups(organizationId, userId).catch(() => []),
     ])
     const byProvider = new Map<string, string[]>()

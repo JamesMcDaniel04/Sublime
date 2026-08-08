@@ -17,7 +17,6 @@
  * Dynamic planes (per-org MCP connections) are discovered from DB rows
  * rather than declared here.
  */
-import { slackConfigured } from '@/lib/integrations/slack'
 import { emailConfigured } from '@/lib/integrations/email'
 
 export type ConnectorKind = 'builtin' | 'nango' | 'postgres'
@@ -68,7 +67,7 @@ export const BUILTIN_CONNECTORS: ConnectorDescriptor[] = [
     isWrite: true,
     providerId: 'slack',
     matches: has('slack'),
-    available: () => slackConfigured(),
+    available: () => true, // personal connection availability is checked at the authenticated call site
   },
   {
     key: 'Email',
@@ -324,4 +323,3 @@ export function fromNangoProviderKey(providerConfigKey: string): { key: string; 
   if (k.includes('clickup')) return { key: 'clickup', label: 'ClickUp', slug: 'clickup' }
   return { key: k, label: titleCase(k), slug: k }
 }
-

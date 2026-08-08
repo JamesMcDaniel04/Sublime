@@ -3,7 +3,7 @@ import { embeddingsConfigured } from '@/lib/rag/embeddings'
 import { graphRagPersistent } from '@/lib/rag/get-store'
 import { pushEnabled } from '@/lib/notifications/push'
 import { nangoConfigured } from '@/lib/nango/client'
-import { slackConfigured } from '@/lib/integrations/slack'
+import { prisma } from '@/lib/prisma'
 import { emailConfigured } from '@/lib/integrations/email'
 import { granolaConfigured } from '@/lib/integrations/granola'
 import { qwenConfigured } from '@/lib/llm/qwen'
@@ -18,7 +18,13 @@ import { EXECUTION_MODE } from '@/lib/queue/execution-mode'
  * inert. Booleans only — never key material or key fragments.
  */
 export const GET = withAuthenticatedApi(async (_request, auth) => {
-  const granola = await granolaConfigured(auth.organizationId).catch(() => false)
+  const [granola, slack] = await Promise.all([
+    granolaConfigured(auth.organizationId, auth.dbUser.id).catch(() => false),
+    prisma.slackWorkspaceConnection.findFirst({
+      where: { organizationId: auth.organizationId, userId: auth.dbUser.id, status: 'active' },
+      select: { id: true },
+    }).then(Boolean).catch(() => false),
+  ])
   const capabilities = [
     {
       key: 'model.anthropic',
@@ -59,8 +65,8 @@ export const GET = withAuthenticatedApi(async (_request, auth) => {
     {
       key: 'integrations.slack',
       label: 'Slack (platform bot)',
-      configured: slackConfigured(),
-      detail: 'Workspace-level Slack tools for agents.',
+      configured: slack,
+      detail: 'Your Slack workspace tools for agents.',
     },
     {
       key: 'integrations.email',

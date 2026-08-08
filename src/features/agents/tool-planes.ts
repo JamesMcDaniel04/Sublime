@@ -218,7 +218,7 @@ export async function loadMcpConnectionPlaneGroups(
  */
 export async function loadNativePlaneGroups(
   organizationId: string,
-  options: { providers?: string[]; resource?: GoalResource } = {},
+  options: { providers?: string[]; resource?: GoalResource; userId?: string | null } = {},
 ): Promise<ToolPlaneGroup[]> {
   const selected = (descriptor: ConnectorDescriptor) =>
     options.providers ? isSelected(descriptor, options.providers) : true
@@ -239,11 +239,11 @@ export async function loadNativePlaneGroups(
     tools: defs.map((def) => ({ name: def.name, description: def.description, inputSchema: def.inputSchema })),
   })
 
-  // Granola REST API — gated on a per-org key (saved key, then env fallback).
+  // Granola REST API — gated on the acting user's saved key.
   const granolaConn = BUILTIN_CONNECTORS.find((c) => c.providerId === 'granola')!
   if (selected(granolaConn)) {
     try {
-      const granolaKey = await getGranolaApiKey(organizationId)
+      const granolaKey = options.userId ? await getGranolaApiKey(organizationId, options.userId) : null
       if (granolaKey) {
         groups.push(group(granolaConn, 'https://public-api.granola.ai/v1', new GranolaToolClient(granolaKey.apiKey), granolaTools()))
       }
@@ -256,13 +256,12 @@ export async function loadNativePlaneGroups(
     }
   }
 
-  // Slack REST API — prefer the org's verified Slack bot connection. The env
-  // token remains a backwards-compatible fallback for older deployments.
+  // Slack REST API — only the acting user's verified workspace connection.
   const slackConn = BUILTIN_CONNECTORS.find((c) => c.kind === 'builtin' && c.providerId === 'slack')!
   if (selected(slackConn)) {
     try {
       const binding = await prisma.slackWorkspaceConnection.findFirst({
-        where: { organizationId, status: 'active' },
+        where: { organizationId, userId: options.userId ?? '__no_user__', status: 'active' },
         orderBy: { createdAt: 'asc' },
       })
       if (binding) {
@@ -274,8 +273,6 @@ export async function loadNativePlaneGroups(
         )
         slackGroup.name = `Slack — ${binding.teamName ?? binding.teamId}`
         groups.push(slackGroup)
-      } else if (slackConn.available()) {
-        groups.push(group(slackConn, 'https://slack.com/api', new SlackToolClient(), slackTools()))
       }
     } catch (error) {
       apiLogger.warn('loadTools: Slack tool setup failed, skipping provider', {
@@ -676,24 +673,21 @@ export async function resolveFlowToolExecutor(params: {
 
   if (plane === 'native') {
     if (ref === 'granola') {
-      const granolaKey = await getGranolaApiKey(organizationId)
+      const granolaKey = await getGranolaApiKey(organizationId, userId)
       if (!granolaKey) throw new Error('Granola is not configured for this workspace.')
       const client = new GranolaToolClient(granolaKey.apiKey)
       return { provider: 'granola', isWrite: false, execute: (name, args) => client.executeTool('', name, args) }
     }
     if (ref === 'slack') {
       const binding = await prisma.slackWorkspaceConnection.findFirst({
-        where: { organizationId, status: 'active' },
+        where: { organizationId, userId, status: 'active' },
         orderBy: { createdAt: 'asc' },
       })
       if (binding) {
         const client = new SlackToolClient(decryptSecretJson(binding.botToken))
         return { provider: 'slack', isWrite: true, execute: (name, args) => client.executeTool('', name, args) }
       }
-      const descriptor = BUILTIN_CONNECTORS.find((c) => c.kind === 'builtin' && c.providerId === ref)!
-      if (!descriptor.available()) throw new Error('Slack is not configured for this workspace.')
-      const client = new SlackToolClient()
-      return { provider: 'slack', isWrite: descriptor.isWrite, execute: (name, args) => client.executeTool('', name, args) }
+      throw new Error('Slack is not connected for your account.')
     }
     if (ref === 'email' || ref === 'http') {
       const descriptor = BUILTIN_CONNECTORS.find((c) => c.kind === 'builtin' && c.providerId === ref)!
