@@ -116,6 +116,8 @@ const WAIT_UNITS = ['seconds', 'minutes', 'hours', 'days'] as const
 /** n8n filter operations with a direct ConditionOp equivalent. */
 const OP_MAP: Record<string, ConditionOp> = {
   equals: 'eq', notEquals: 'neq',
+  // v1 If/Filter/Switch naming
+  equal: 'eq', notEqual: 'neq',
   larger: 'gt', largerEqual: 'gte', smaller: 'lt', smallerEqual: 'lte',
   gt: 'gt', gte: 'gte', lt: 'lt', lte: 'lte',
   after: 'gt', before: 'lt', afterOrEquals: 'gte', beforeOrEquals: 'lte',
@@ -169,18 +171,43 @@ function mapOperator(operator: Record<string, unknown>, rightValue: string): { o
     case 'endsWith': return { op: 'matches', right: `${escapeRegex(rightValue)}$` }
     case 'true': return { op: 'eq', right: 'true' }
     case 'false': return { op: 'eq', right: 'false' }
-    case 'empty': case 'notExists': return { op: 'eq', right: '' }
-    case 'notEmpty': case 'exists': return { op: 'neq', right: '' }
+    case 'empty': case 'notExists': case 'isEmpty': return { op: 'eq', right: '' }
+    case 'notEmpty': case 'exists': case 'isNotEmpty': return { op: 'neq', right: '' }
+    // v1 dateTime comparisons — ordering ops over ISO strings.
+    case 'after': return { op: 'gt', right: rightValue }
+    case 'before': return { op: 'lt', right: rightValue }
     default: return null
   }
 }
 
 /** n8n if/filter/switch-rule conditions → our clauses. Untranslatable → flagged. */
+const V1_CONDITION_BUCKETS = ['boolean', 'dateTime', 'number', 'string'] as const
+
 function clausesFrom(parameters: Record<string, unknown>): { match: 'all' | 'any'; clauses: ConditionClause[]; complete: boolean } {
   const conditions = isRecord(parameters.conditions) ? parameters.conditions : undefined
   const list = conditions && Array.isArray(conditions.conditions) ? conditions.conditions : []
-  const match = conditions?.combinator === 'or' ? 'any' : 'all'
   const clauses: ConditionClause[] = []
+  if (!list.length && conditions) {
+    // If/Filter v1 (typeVersion 1): conditions.{boolean,dateTime,number,string}[]
+    // buckets of {value1, operation, value2}; combineOperation at the top level.
+    const match = parameters.combineOperation === 'any' ? 'any' as const : 'all' as const
+    let sawAny = false
+    let complete = true
+    for (const bucket of V1_CONDITION_BUCKETS) {
+      const entries = Array.isArray(conditions[bucket]) ? conditions[bucket] as unknown[] : []
+      for (const entry of entries) {
+        if (!isRecord(entry)) { complete = false; continue }
+        sawAny = true
+        // Boolean rows have no operation field — they compare value1 to value2.
+        const operation = asString(entry.operation) || 'equal'
+        const mapped = mapOperator({ operation }, asString(entry.value2))
+        if (!mapped) { complete = false; continue }
+        clauses.push({ left: asString(entry.value1), op: mapped.op, right: mapped.right })
+      }
+    }
+    if (sawAny) return { match, clauses, complete }
+  }
+  const match = conditions?.combinator === 'or' ? 'any' : 'all'
   let complete = list.length > 0
   for (const entry of list) {
     if (!isRecord(entry) || !isRecord(entry.operator)) { complete = false; continue }
@@ -774,6 +801,19 @@ function mapNode(node: N8nNode, id: string, warnings: string[]): Mapped {
         const cases = Array.from({ length: count }, (_unused, index) => ({
           id: `case-${index}`, left: expression, op: 'eq' as ConditionOp, right: String(index),
         }))
+        return { kind: 'node', node: { id, type: 'switch', data: { label, cases } } }
+      }
+      // v1/v2 shape: node-level value1 + dataType, rules.rules[{operation, value2}]
+      // — one case per rule in output-index order, same left side throughout.
+      const legacyRules = isRecord(p.rules) && !Array.isArray(p.rules.values) && Array.isArray(p.rules.rules) ? p.rules.rules : []
+      if (legacyRules.length) {
+        const left = asString(p.value1)
+        const cases = legacyRules.map((rule, index) => {
+          const operation = isRecord(rule) ? asString(rule.operation) || 'equal' : 'equal'
+          const mapped = mapOperator({ operation }, isRecord(rule) ? asString(rule.value2) : '')
+          if (!mapped) warnings.push(`"${label}" case ${index + 1}: the rule did not translate — re-enter it.`)
+          return { id: `case-${index}`, left, op: mapped?.op ?? ('eq' as ConditionOp), right: mapped?.right ?? '' }
+        })
         return { kind: 'node', node: { id, type: 'switch', data: { label, cases } } }
       }
       const rules = isRecord(p.rules) && Array.isArray(p.rules.values) ? p.rules.values : []

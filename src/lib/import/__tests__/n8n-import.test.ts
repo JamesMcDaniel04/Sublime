@@ -1107,3 +1107,52 @@ test('itemLists summarize stubs with a specific warning', () => {
   assert.equal(imported.stubbedNodes.length, 1)
   assert.ok(imported.warnings.some((w) => w.toLowerCase().includes('summarize')))
 })
+
+test('If v1 bucket conditions translate instead of importing empty', () => {
+  const imported = singleNode('if', {
+    conditions: {
+      string: [{ value1: '={{ $json.status }}', operation: 'contains', value2: 'active' }],
+      number: [{ value1: '={{ $json.score }}', operation: 'larger', value2: 10 }],
+    },
+    combineOperation: 'any',
+  }, 1)
+  const condition = imported.graph.nodes.find((node) => node.type === 'condition') as NodeOf<'condition'>
+  assert.equal(condition.data.match, 'any')
+  // Buckets translate in fixed order (boolean, dateTime, number, string).
+  assert.deepEqual(condition.data.clauses, [
+    { left: '{{trigger.input.score}}', op: 'gt', right: '10' },
+    { left: '{{trigger.input.status}}', op: 'contains', right: 'active' },
+  ])
+  assert.ok(!imported.warnings.some((w) => w.includes('did not translate')))
+})
+
+test('Switch v1 rules translate with dataType/value1', () => {
+  const imported = fromN8nWorkflow({
+    name: 'SwitchV1',
+    nodes: [
+      { parameters: { path: 'x' }, id: 'n-hook', name: 'Web', type: 'n8n-nodes-base.webhook', typeVersion: 2, position: [0, 0] },
+      {
+        parameters: {
+          dataType: 'string', value1: '={{ $json.tier }}',
+          rules: { rules: [{ operation: 'equal', value2: 'gold' }, { operation: 'equal', value2: 'silver' }] },
+        },
+        id: 'n-sw', name: 'Tier', type: 'n8n-nodes-base.switch', typeVersion: 1, position: [200, 0],
+      },
+      { parameters: { url: 'https://a.example.com' }, id: 'n-a', name: 'Gold', type: 'n8n-nodes-base.httpRequest', typeVersion: 4, position: [400, -100] },
+      { parameters: { url: 'https://b.example.com' }, id: 'n-b', name: 'Silver', type: 'n8n-nodes-base.httpRequest', typeVersion: 4, position: [400, 100] },
+    ],
+    connections: {
+      Web: { main: [[{ node: 'Tier', type: 'main', index: 0 }]] },
+      Tier: { main: [[{ node: 'Gold', type: 'main', index: 0 }], [{ node: 'Silver', type: 'main', index: 0 }]] },
+    },
+    settings: {},
+  })
+  const sw = imported.graph.nodes.find((node) => node.type === 'switch') as NodeOf<'switch'>
+  assert.equal(sw.data.cases.length, 2)
+  assert.deepEqual(sw.data.cases.map((c) => ({ left: c.left, op: c.op, right: c.right })), [
+    { left: '{{trigger.input.tier}}', op: 'eq', right: 'gold' },
+    { left: '{{trigger.input.tier}}', op: 'eq', right: 'silver' },
+  ])
+  const edges = imported.graph.edges.filter((e) => e.source === 'n-sw')
+  assert.deepEqual(new Set(edges.map((e) => e.branch)), new Set([sw.data.cases[0].id, sw.data.cases[1].id]))
+})
