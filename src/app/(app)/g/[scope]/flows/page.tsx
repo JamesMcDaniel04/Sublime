@@ -1,11 +1,12 @@
 'use client'
 
-import { useCallback, useMemo, useState } from 'react'
+import { Suspense, useCallback, useMemo, useState } from 'react'
+import { useSearchParams } from 'next/navigation'
 import { useScopedRouter } from '@/lib/client/use-scoped-router'
 import { ALL_SCOPE, useScope } from '@/lib/client/scoped-href'
 import { ScopedLink as Link } from '@/components/ui/scoped-link'
 import { toast } from 'sonner'
-import { CircleOff, Copy, MoreHorizontal, Plus, Sparkles, Trash2, Upload, Workflow, X } from 'lucide-react'
+import { CircleOff, Copy, KeyRound, MoreHorizontal, Plus, Sparkles, Trash2, Upload, Workflow, X } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -18,8 +19,10 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { cn } from '@/lib/utils'
 import { invalidateCachedJson, useCachedJson } from '@/lib/client/use-cached-json'
 import { STARTER_TEMPLATES } from '@/lib/flows/starter-templates'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { TemplateCatalogueCard } from '@/components/templates/template-catalogue-card'
 import { ImportFlowDialog } from '@/components/flows/import-flow-dialog'
+import { FlowCredentialsPanel } from '@/components/flows/flow-credentials-panel'
 
 /** Cards per page on the Flows grid. */
 const PAGE_SIZE = 9
@@ -96,7 +99,12 @@ const STATUS_STYLE: Record<string, string> = {
 
 type FlowsResponse = { success?: boolean; error?: string; flows?: FlowItem[]; suggestionReadiness?: SuggestionReadiness | null; unlinkedCount?: number }
 
-export default function FlowsPage() {
+/**
+ * The flows inventory — grid, suggestions, templates, and the flow lifecycle
+ * dialogs. Rendered as the "Flows" tab; the sibling tab is the credentials
+ * audit (FlowCredentialsPanel).
+ */
+function FlowsList() {
   const router = useScopedRouter()
   // Stale-while-revalidate: paint instantly from the client cache (warmed at
   // sign-in by the sidebar) and refresh in the background — the previous
@@ -268,17 +276,14 @@ export default function FlowsPage() {
   const { pageItems, pageCount, page: current } = paginate(otherFlows, page, PAGE_SIZE)
 
   return (
-    <div className="mx-auto max-w-6xl space-y-6">
-      <div className="flex items-start justify-between gap-4">
-        <PageHeader eyebrow="Pipelines" icon={Workflow} title="Flows" description="Wire your agents into deterministic multi-step pipelines." />
-        <div className="flex shrink-0 items-center gap-2">
-          <Button variant="outline" onClick={() => setImportOpen(true)}>
-            <Upload className="mr-1.5 h-4 w-4" /> Import
-          </Button>
-          <Button onClick={createFlow} loading={creating}>
-            <Plus className="mr-1.5 h-4 w-4" /> New flow
-          </Button>
-        </div>
+    <div className="space-y-6">
+      <div className="flex items-center justify-end gap-2">
+        <Button variant="outline" onClick={() => setImportOpen(true)}>
+          <Upload className="mr-1.5 h-4 w-4" /> Import
+        </Button>
+        <Button onClick={createFlow} loading={creating}>
+          <Plus className="mr-1.5 h-4 w-4" /> New flow
+        </Button>
       </div>
 
       {!loading && suggestedFlows.length > 0 && (
@@ -509,6 +514,43 @@ export default function FlowsPage() {
           router.push(`/flows/${flowId}${options?.demo ? '?copilotDemo=1' : ''}`)
         }}
       />
+    </div>
+  )
+}
+
+/**
+ * Tab shell: the flows inventory plus the credentials audit, deep-linkable via
+ * ?tab=credentials (same pattern as the Integrations page). useSearchParams
+ * requires the Suspense boundary in the default export.
+ */
+function FlowsTabs() {
+  const router = useScopedRouter()
+  const searchParams = useSearchParams()
+  const activeTab = searchParams.get('tab') === 'credentials' ? 'credentials' : 'flows'
+
+  const handleTabChange = (value: string) => {
+    router.replace(value === 'flows' ? '/flows' : `/flows?tab=${value}`, { scroll: false })
+  }
+
+  return (
+    <Tabs value={activeTab} onValueChange={handleTabChange}>
+      <TabsList>
+        <TabsTrigger value="flows"><Workflow className="mr-2 h-4 w-4" />Flows</TabsTrigger>
+        <TabsTrigger value="credentials"><KeyRound className="mr-2 h-4 w-4" />Credentials</TabsTrigger>
+      </TabsList>
+      <TabsContent value="flows" className="mt-4"><FlowsList /></TabsContent>
+      <TabsContent value="credentials" className="mt-4"><FlowCredentialsPanel /></TabsContent>
+    </Tabs>
+  )
+}
+
+export default function FlowsPage() {
+  return (
+    <div className="mx-auto max-w-6xl space-y-6">
+      <PageHeader eyebrow="Pipelines" icon={Workflow} title="Flows" description="Wire your agents into deterministic multi-step pipelines." />
+      <Suspense fallback={null}>
+        <FlowsTabs />
+      </Suspense>
     </div>
   )
 }
