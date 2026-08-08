@@ -114,6 +114,8 @@ model User {
   flowComments       FlowComment[]      @relation("FlowCommentAuthor")
   identities         UserIdentity[]
   credentials        Credential[]
+  integrationSecrets IntegrationSecret[]
+  slackConnections   SlackWorkspaceConnection[]
   goals              Goal[]
 
   @@index([organizationId])
@@ -728,6 +730,9 @@ model PostgresConnection {
 model IntegrationSecret {
   id             String   @id @default(cuid())
   organizationId String   @db.Uuid
+  /// Owner of the secret inside the workspace. Legacy null rows are inactive
+  /// quarantine records and are never selected for execution.
+  userId         String?
   provider       String
   authType       String   @default("api_key") // 'none' | 'api_key' | 'oauth2'
   authConfig     Json     @default("{}") // encrypted secret blob + non-secret fields
@@ -736,9 +741,10 @@ model IntegrationSecret {
   updatedAt      DateTime @updatedAt
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user         User?        @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  @@unique([organizationId, provider])
-  @@index([organizationId, isActive])
+  @@unique([organizationId, userId, provider])
+  @@index([organizationId, userId, isActive])
   @@map("integration_secrets")
 }
 
@@ -978,6 +984,9 @@ model FlowNodePin {
 model SlackWorkspaceConnection {
   id             String   @id @default(cuid())
   organizationId String   @db.Uuid
+  /// Authenticated user who supplied this workspace credential. Legacy null
+  /// rows are revoked by migration and never selected for user execution.
+  userId         String?
   teamId         String // Slack workspace id (T…), captured from auth.test
   teamName       String?
   botUserId      String // U… — the bot's own user id, for echo-guarding
@@ -988,8 +997,10 @@ model SlackWorkspaceConnection {
   updatedAt      DateTime @updatedAt
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user         User?        @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  @@unique([organizationId, teamId])
+  @@unique([organizationId, userId, teamId])
+  @@index([organizationId, userId, status])
   @@map("slack_workspace_connections")
 }
 

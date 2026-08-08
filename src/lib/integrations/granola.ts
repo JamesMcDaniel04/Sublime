@@ -4,10 +4,9 @@
  * Exposes two agent tools — list_notes and get_note — that let agents
  * read the user's Granola meeting notes during a run.
  *
- * Key resolution (per organization):
- *  1. The org's saved key from integration_secrets (provider 'granola'),
- *     stored encrypted via the shared secrets helpers.
- *  2. GRANOLA_API_KEY from the environment, as a global fallback.
+ * Key resolution is per authenticated user inside an organization. There is
+ * deliberately no environment or organization-owner fallback: a workspace
+ * member must never execute against somebody else's Granola account.
  * All env vars are read at call time (never at module load) so that the
  * Next.js build succeeds even when they are not set.
  */
@@ -22,18 +21,18 @@ export const GRANOLA_BASE_URL = 'https://public-api.granola.ai/v1'
 // Per-org key resolution
 // ---------------------------------------------------------------------------
 
-export type GranolaKeySource = 'org' | 'env'
+export type GranolaKeySource = 'user'
 
 export type ResolvedGranolaKey = { apiKey: string; source: GranolaKeySource }
 
 /**
- * Resolves the Granola API key for an organization: the org's saved key
- * first, then the GRANOLA_API_KEY env fallback. Returns null when neither
- * is available.
+ * Resolves the current user's Granola API key. Legacy ownerless rows and
+ * undecryptable payloads fail closed rather than falling through to a global
+ * operator credential.
  */
-export async function getGranolaApiKey(organizationId: string): Promise<ResolvedGranolaKey | null> {
+export async function getGranolaApiKey(organizationId: string, userId: string): Promise<ResolvedGranolaKey | null> {
   const secret = await prisma.integrationSecret.findUnique({
-    where: { organizationId_provider: { organizationId, provider: 'granola' } },
+    where: { organizationId_userId_provider: { organizationId, userId, provider: 'granola' } },
   })
 
   if (secret?.isActive) {
@@ -43,20 +42,35 @@ export async function getGranolaApiKey(organizationId: string): Promise<Resolved
         : {}
     if (typeof config.apiKey === 'string' && config.apiKey) {
       try {
-        return { apiKey: decryptSecret(config.apiKey), source: 'org' }
+        return { apiKey: decryptSecret(config.apiKey), source: 'user' }
       } catch {
-        // Undecryptable payload (e.g. rotated ENCRYPTION_KEY) — fall through
-        // to the env fallback rather than failing the caller.
+        return null
       }
     }
   }
-
-  const envKey = process.env.GRANOLA_API_KEY
-  return envKey ? { apiKey: envKey, source: 'env' } : null
+  return null
 }
 
-export async function granolaConfigured(organizationId: string): Promise<boolean> {
-  return Boolean(await getGranolaApiKey(organizationId))
+/** Background activity jobs carry the exact personal secret id as their
+ * connectionRef. The org predicate prevents a forged cross-tenant lookup. */
+export async function getGranolaApiKeyById(organizationId: string, secretId: string): Promise<ResolvedGranolaKey | null> {
+  const secret = await prisma.integrationSecret.findFirst({
+    where: { id: secretId, organizationId, provider: 'granola', isActive: true, userId: { not: null } },
+  })
+  if (!secret) return null
+  const config = secret.authConfig && typeof secret.authConfig === 'object' && !Array.isArray(secret.authConfig)
+    ? (secret.authConfig as Record<string, unknown>)
+    : {}
+  if (typeof config.apiKey !== 'string' || !config.apiKey) return null
+  try {
+    return { apiKey: decryptSecret(config.apiKey), source: 'user' }
+  } catch {
+    return null
+  }
+}
+
+export async function granolaConfigured(organizationId: string, userId: string): Promise<boolean> {
+  return Boolean(await getGranolaApiKey(organizationId, userId))
 }
 
 /**

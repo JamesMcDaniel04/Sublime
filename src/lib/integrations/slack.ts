@@ -3,9 +3,8 @@
  *
  * Exposes Slack message actions backed by the selected workspace connection.
  *
- * Requires: SLACK_BOT_TOKEN in the environment.
- * All env vars are read at call time (never at module load) so that the
- * Next.js build succeeds even when they are not set.
+ * The caller must inject the authenticated user's decrypted workspace token.
+ * There is deliberately no global environment fallback.
  */
 
 import type { ToolDefinition } from '@/lib/llm/model-runner'
@@ -14,14 +13,6 @@ const SLACK_API_URL = 'https://slack.com/api/chat.postMessage'
 
 // ---------------------------------------------------------------------------
 // Configuration check
-// ---------------------------------------------------------------------------
-
-export function slackConfigured(): boolean {
-  return Boolean(process.env.SLACK_BOT_TOKEN)
-}
-
-// ---------------------------------------------------------------------------
-// Tool definitions
 // ---------------------------------------------------------------------------
 
 export function slackTools(): ToolDefinition[] {
@@ -54,7 +45,7 @@ export function slackTools(): ToolDefinition[] {
 
 export class SlackToolClient {
   constructor(
-    private readonly botToken?: string,
+    private readonly botToken: string,
     private readonly fetchImpl: typeof fetch = fetch,
   ) {}
 
@@ -68,7 +59,7 @@ export class SlackToolClient {
     name: string,
     args: Record<string, unknown>,
   ): Promise<unknown> {
-    const token = this.botToken || process.env.SLACK_BOT_TOKEN
+    const token = this.botToken
     if (!token) throw new Error('Slack bot token is not configured')
 
     if (name === 'post_message') {

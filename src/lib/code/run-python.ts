@@ -71,31 +71,33 @@ void (async () => {
   let run
   let globals
   let value
+  const lines = []
+  let dropped = 0
+  const pushLog = (line) => {
+    if (lines.length >= workerData.maxLogLines) {
+      dropped += 1
+      return
+    }
+    const text = String(line)
+    lines.push(text.length > workerData.maxLogLineChars
+      ? text.slice(0, workerData.maxLogLineChars) + '… (truncated)'
+      : text)
+  }
+  const logs = () => dropped > 0
+    ? [...lines, '… ' + dropped + ' more line' + (dropped === 1 ? '' : 's') + ' not shown']
+    : lines
   try {
-    const { loadPyodide } = await import(pathToFileURL(workerData.pyodideEntry).href)
+    const loaded = await import(pathToFileURL(workerData.pyodideEntry).href)
+    const loadPyodide = loaded.loadPyodide || (loaded.default && loaded.default.loadPyodide) || loaded.default
+    if (typeof loadPyodide !== 'function') throw new Error('Pyodide loader is unavailable')
     const pyodide = await loadPyodide({
       // The default is globalThis, which exposes process.env and fetch. An
-      // empty null-prototype bridge makes `import js` harmless by design.
+      // empty null-prototype bridge makes the Python js module harmless.
       jsglobals: Object.freeze(Object.create(null)),
       env: { HOME: '/home/pyodide', LANG: 'C.UTF-8' },
       stdout: () => undefined,
       stderr: () => undefined,
     })
-    const lines = []
-    let dropped = 0
-    const pushLog = (line) => {
-      if (lines.length >= workerData.maxLogLines) {
-        dropped += 1
-        return
-      }
-      const text = String(line)
-      lines.push(text.length > workerData.maxLogLineChars
-        ? text.slice(0, workerData.maxLogLineChars) + '… (truncated)'
-        : text)
-    }
-    const logs = () => dropped > 0
-      ? [...lines, '… ' + dropped + ' more line' + (dropped === 1 ? '' : 's') + ' not shown']
-      : lines
     pyodide.setStdout({ batched: pushLog })
     pyodide.setStderr({ batched: pushLog })
     pyodide.runPython(workerData.helpers)
@@ -104,6 +106,7 @@ void (async () => {
       ...(workerData.hasItem ? { _item: workerData.item } : {}),
     })
     run = pyodide.globals.get('_sublime_run')
+    send({ type: 'ready' })
     value = run(workerData.code, globals)
     const dumps = pyodide.globals.get('_sublime_dumps')
     let text
@@ -125,7 +128,7 @@ void (async () => {
       result: {
         ok: false,
         error: unserializable ? jsonError('unserializable') : pythonErrorSummary(message),
-        logs: [],
+        logs: logs(),
       },
     })
   } finally {
@@ -191,16 +194,20 @@ export async function runPython(params: {
       resolve(result)
     }
 
-    // Pyodide initialization happens before user code. Start the user deadline
-    // on the first worker message; current workers return only a final result,
-    // so the startup ceiling remains the conservative outer bound as well.
-    executionTimer = setTimeout(() => finish({
-      ok: false,
-      error: `Code timed out after ${timeoutMs}ms.`,
-      logs: [],
-    }), timeoutMs + PYTHON_STARTUP_TIMEOUT_MS)
-
     worker.once('message', (message: { type?: string; result?: CodeRunResult }) => {
+      if (message?.type === 'ready') {
+        clearTimeout(startupTimer)
+        executionTimer = setTimeout(() => finish({
+          ok: false,
+          error: `Code timed out after ${timeoutMs}ms.`,
+          logs: [],
+        }), timeoutMs)
+        worker.once('message', (resultMessage: { type?: string; result?: CodeRunResult }) => {
+          if (resultMessage?.type === 'result' && resultMessage.result) finish(resultMessage.result)
+          else finish({ ok: false, error: 'Python runtime returned an invalid response.', logs: [] })
+        })
+        return
+      }
       if (message?.type === 'result' && message.result) finish(message.result)
       else finish({ ok: false, error: 'Python runtime returned an invalid response.', logs: [] })
     })

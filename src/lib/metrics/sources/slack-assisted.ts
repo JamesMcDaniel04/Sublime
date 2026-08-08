@@ -4,10 +4,10 @@
  * stated value with the cheap summary model. Readings persist with origin
  * 'assisted' and wear the AI-read badge — never presented as exact.
  *
- * Uses the built-in Slack integration (global SLACK_BOT_TOKEN — the existing
- * single-tenant limitation); the source is only offered when configured.
+ * Resolves only the acting user's encrypted Slack workspace connection.
  */
-import { slackConfigured } from '@/lib/integrations/slack'
+import { prisma } from '@/lib/prisma'
+import { decryptSecretJson } from '@/lib/slack/connections'
 import { listSlackChannels } from '@/lib/slack/api'
 import { extractMetricReading } from '../assisted-extraction'
 import type { generateStructured } from '@/lib/llm/model-runner'
@@ -30,6 +30,7 @@ export function makeSlackAssistedMetricSource(deps?: {
   fetchImpl?: typeof fetch
   listChannels?: typeof listSlackChannels
   generate?: typeof generateStructured
+  tokenFor?: (organizationId: string, userId: string) => Promise<string | null>
 }): MetricSource {
   const fetchImpl = deps?.fetchImpl ?? fetch
   const listChannels = deps?.listChannels ?? listSlackChannels
@@ -38,8 +39,11 @@ export function makeSlackAssistedMetricSource(deps?: {
     availableMetrics: () => METRICS,
     async fetchValue(ctx: MetricSourceContext, metricKey): Promise<MetricReading> {
       if (metricKey !== 'assisted.value') throw new Error(`Unknown metric '${metricKey}'`)
-      if (!slackConfigured()) throw new Error('Slack is not connected for this workspace.')
-      const token = process.env.SLACK_BOT_TOKEN as string
+      if (!ctx.userId) throw new Error('Slack metrics require the user who owns the connection.')
+      const token = deps?.tokenFor
+        ? await deps.tokenFor(ctx.organizationId, ctx.userId)
+        : await personalSlackToken(ctx.organizationId, ctx.userId)
+      if (!token) throw new Error('Slack is not connected for your account.')
       const rawChannel = typeof ctx.config.channel === 'string' ? ctx.config.channel.trim() : ''
       if (!rawChannel) throw new Error('Pick the Slack channel that reports this number.')
 
@@ -83,6 +87,19 @@ export function makeSlackAssistedMetricSource(deps?: {
       })
       return { value: reading.value, asOf: new Date() }
     },
+  }
+}
+
+async function personalSlackToken(organizationId: string, userId: string): Promise<string | null> {
+  const binding = await prisma.slackWorkspaceConnection.findFirst({
+    where: { organizationId, userId, status: 'active' },
+    orderBy: { createdAt: 'asc' },
+  })
+  if (!binding) return null
+  try {
+    return decryptSecretJson(binding.botToken)
+  } catch {
+    return null
   }
 }
 
