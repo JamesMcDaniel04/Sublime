@@ -1156,3 +1156,102 @@ test('Switch v1 rules translate with dataType/value1', () => {
   const edges = imported.graph.edges.filter((e) => e.source === 'n-sw')
   assert.deepEqual(new Set(edges.map((e) => e.branch)), new Set([sw.data.cases[0].id, sw.data.cases[1].id]))
 })
+
+const toolNode = (imported: ReturnType<typeof fromN8nWorkflow>) =>
+  imported.graph.nodes.find((node) => node.type === 'tool') as NodeOf<'tool'>
+
+test('github issue create becomes a native github tool step', () => {
+  const imported = singleNode('github', {
+    resource: 'issue', operation: 'create',
+    owner: { __rl: true, value: 'acme', mode: 'name' }, repository: { __rl: true, value: 'app', mode: 'name' },
+    title: 'Bug', body: 'Details',
+  })
+  const tool = toolNode(imported)
+  assert.equal(tool.data.connectionId, 'nango:github')
+  assert.equal(tool.data.toolName, 'github_create_issue')
+  assert.deepEqual(JSON.parse(tool.data.args!), { owner: 'acme', repo: 'app', title: 'Bug', body: 'Details' })
+  assert.equal(imported.stubbedNodes.length, 0)
+})
+
+test('calendar event create and list become native calendar tool steps', () => {
+  const created = singleNode('googleCalendar', {
+    resource: 'event', operation: 'create',
+    calendar: { __rl: true, value: 'primary', mode: 'id' }, start: '2026-01-01T10:00:00Z', end: '2026-01-01T11:00:00Z',
+    additionalFields: { summary: 'Standup', location: 'Zoom' },
+  })
+  const createTool = toolNode(created)
+  assert.equal(createTool.data.toolName, 'calendar_create_event')
+  assert.deepEqual(JSON.parse(createTool.data.args!), {
+    calendar_id: 'primary', summary: 'Standup', location: 'Zoom', start: '2026-01-01T10:00:00Z', end: '2026-01-01T11:00:00Z',
+  })
+
+  const listed = singleNode('googleCalendar', {
+    resource: 'event', operation: 'getAll',
+    calendar: { __rl: true, value: 'primary', mode: 'id' }, timeMin: '2026-01-01', timeMax: '2026-02-01', limit: 20,
+  })
+  const listTool = toolNode(listed)
+  assert.equal(listTool.data.toolName, 'calendar_list_events')
+  assert.deepEqual(JSON.parse(listTool.data.args!), {
+    calendar_id: 'primary', time_min: '2026-01-01', time_max: '2026-02-01', max_results: 20,
+  })
+})
+
+test('drive createFromText, download, and search become native drive tool steps', () => {
+  const uploaded = singleNode('googleDrive', {
+    resource: 'file', operation: 'createFromText',
+    name: 'notes.txt', content: 'hello', folderId: { __rl: true, value: 'f1', mode: 'id' },
+  })
+  assert.equal(toolNode(uploaded).data.toolName, 'drive_upload_file')
+  assert.deepEqual(JSON.parse(toolNode(uploaded).data.args!), { name: 'notes.txt', content: 'hello', folder_id: 'f1' })
+
+  const downloaded = singleNode('googleDrive', {
+    resource: 'file', operation: 'download', fileId: { __rl: true, value: 'abc123', mode: 'id' },
+  })
+  assert.equal(toolNode(downloaded).data.toolName, 'drive_download_file')
+  assert.deepEqual(JSON.parse(toolNode(downloaded).data.args!), { file_id: 'abc123' })
+
+  const searched = singleNode('googleDrive', {
+    resource: 'fileFolder', operation: 'search', queryString: 'report',
+  })
+  assert.equal(toolNode(searched).data.toolName, 'drive_list_files')
+  assert.deepEqual(JSON.parse(toolNode(searched).data.args!), { query: 'report' })
+})
+
+test('binary drive upload stubs with a warning instead of a broken tool call', () => {
+  const imported = singleNode('googleDrive', { resource: 'file', operation: 'upload', inputDataFieldName: 'data' })
+  assert.equal(imported.stubbedNodes.length, 1)
+  assert.ok(imported.warnings.some((w) => w.toLowerCase().includes('binary')))
+})
+
+test('asana, clickup, monday, intercom, perplexity map to native tool steps', () => {
+  const asana = singleNode('asana', {
+    resource: 'task', operation: 'create', name: 'Ship it', workspace: 'w1',
+    otherProperties: { notes: 'Deadline Friday', projects: ['p1'] },
+  })
+  assert.equal(toolNode(asana).data.toolName, 'asana_create_task')
+  assert.deepEqual(JSON.parse(toolNode(asana).data.args!), { project_gid: 'p1', name: 'Ship it', notes: 'Deadline Friday' })
+
+  const clickup = singleNode('clickUp', {
+    resource: 'task', operation: 'create', list: 'l9', name: 'Task', additionalFields: { content: 'Body' },
+  })
+  assert.equal(toolNode(clickup).data.toolName, 'clickup_create_task')
+  assert.deepEqual(JSON.parse(toolNode(clickup).data.args!), { list_id: 'l9', name: 'Task', description: 'Body' })
+
+  const monday = singleNode('mondayCom', { resource: 'boardItem', operation: 'create', boardId: 'b1', name: 'Item' })
+  assert.equal(toolNode(monday).data.toolName, 'monday_create_item')
+  assert.deepEqual(JSON.parse(toolNode(monday).data.args!), { board_id: 'b1', item_name: 'Item' })
+
+  const intercom = singleNode('intercom', { resource: 'user', operation: 'get', selectBy: 'email', value: 'a@b.co' })
+  assert.equal(toolNode(intercom).data.toolName, 'intercom_search_contacts')
+  assert.deepEqual(JSON.parse(toolNode(intercom).data.args!), { email: 'a@b.co' })
+
+  const perplexity = singleNode('perplexity', { resource: 'search', operation: 'search', query: 'latest n8n release' })
+  assert.equal(toolNode(perplexity).data.toolName, 'perplexity_search')
+  assert.deepEqual(JSON.parse(toolNode(perplexity).data.args!), { query: 'latest n8n release' })
+})
+
+test('unmapped operations on newly wired integrations still stub with specific warnings', () => {
+  const imported = singleNode('github', { resource: 'repository', operation: 'get' })
+  assert.equal(imported.stubbedNodes.length, 1)
+  assert.ok(imported.warnings.some((w) => w.includes('GitHub')))
+})

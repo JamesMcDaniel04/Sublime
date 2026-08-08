@@ -996,6 +996,189 @@ function mapNode(node: N8nNode, id: string, warnings: string[]): Mapped {
       warnings.push(`"${label}" used a Salesforce action beyond create — rebuild it with your Salesforce connection's actions.`)
       return stub()
     }
+    case 'github': {
+      if (asString(p.resource) === 'issue' && (asString(p.operation) || 'create') === 'create') {
+        return {
+          kind: 'node',
+          node: {
+            id, type: 'tool',
+            data: {
+              label, connectionId: 'nango:github', toolName: 'github_create_issue',
+              args: JSON.stringify({ owner: rlValue(p.owner), repo: rlValue(p.repository), title: asString(p.title), body: asString(p.body) }),
+            },
+          },
+        }
+      }
+      warnings.push(`"${label}" used a GitHub action beyond issue create — rebuild it with your GitHub connection's actions.`)
+      return stub()
+    }
+    case 'googleCalendar': {
+      const additional = isRecord(p.additionalFields) ? p.additionalFields : {}
+      if (asString(p.resource) === 'event' && asString(p.operation) === 'create') {
+        return {
+          kind: 'node',
+          node: {
+            id, type: 'tool',
+            data: {
+              label, connectionId: 'nango:calendar', toolName: 'calendar_create_event',
+              args: JSON.stringify({
+                calendar_id: rlValue(p.calendar),
+                summary: asString(additional.summary),
+                ...(additional.description ? { description: asString(additional.description) } : {}),
+                ...(additional.location ? { location: asString(additional.location) } : {}),
+                start: asString(p.start), end: asString(p.end),
+              }),
+            },
+          },
+        }
+      }
+      if (asString(p.resource) === 'event' && asString(p.operation) === 'getAll') {
+        return {
+          kind: 'node',
+          node: {
+            id, type: 'tool',
+            data: {
+              label, connectionId: 'nango:calendar', toolName: 'calendar_list_events',
+              args: JSON.stringify({
+                calendar_id: rlValue(p.calendar),
+                ...(p.timeMin ? { time_min: asString(p.timeMin) } : {}),
+                ...(p.timeMax ? { time_max: asString(p.timeMax) } : {}),
+                ...(Number(p.limit) > 0 ? { max_results: Number(p.limit) } : {}),
+              }),
+            },
+          },
+        }
+      }
+      warnings.push(`"${label}" used a Calendar action beyond event create/list — rebuild it with your Calendar connection's actions.`)
+      return stub()
+    }
+    case 'googleDrive': {
+      const resource = asString(p.resource) || 'file'
+      const operation = asString(p.operation)
+      if (resource === 'file' && operation === 'createFromText') {
+        const folderId = rlValue(p.folderId)
+        return {
+          kind: 'node',
+          node: {
+            id, type: 'tool',
+            data: {
+              label, connectionId: 'nango:drive', toolName: 'drive_upload_file',
+              args: JSON.stringify({ name: asString(p.name), content: asString(p.content), ...(folderId ? { folder_id: folderId } : {}) }),
+            },
+          },
+        }
+      }
+      if (resource === 'file' && operation === 'download') {
+        return {
+          kind: 'node',
+          node: {
+            id, type: 'tool',
+            data: { label, connectionId: 'nango:drive', toolName: 'drive_download_file', args: JSON.stringify({ file_id: rlValue(p.fileId) }) },
+          },
+        }
+      }
+      if (resource === 'fileFolder' && operation === 'search') {
+        return {
+          kind: 'node',
+          node: {
+            id, type: 'tool',
+            data: { label, connectionId: 'nango:drive', toolName: 'drive_list_files', args: JSON.stringify({ query: asString(p.queryString) }) },
+          },
+        }
+      }
+      if (resource === 'file' && operation === 'upload') {
+        warnings.push(`"${label}" uploaded binary data from a previous step — binary passthrough is not supported; rebuild this step (text uploads work via Create From Text).`)
+        return stub()
+      }
+      warnings.push(`"${label}" used a Drive action beyond upload/download/search — rebuild it with your Drive connection's actions.`)
+      return stub()
+    }
+    case 'asana': {
+      const other = isRecord(p.otherProperties) ? p.otherProperties : {}
+      if (asString(p.resource) === 'task' && asString(p.operation) === 'create') {
+        const projects = Array.isArray(other.projects) ? other.projects : []
+        return {
+          kind: 'node',
+          node: {
+            id, type: 'tool',
+            data: {
+              label, connectionId: 'nango:asana', toolName: 'asana_create_task',
+              args: JSON.stringify({
+                project_gid: asString(projects[0] ?? ''),
+                name: asString(p.name),
+                ...(other.notes ? { notes: asString(other.notes) } : {}),
+              }),
+            },
+          },
+        }
+      }
+      warnings.push(`"${label}" used an Asana action beyond task create — rebuild it with your Asana connection's actions.`)
+      return stub()
+    }
+    case 'clickUp': {
+      const additional = isRecord(p.additionalFields) ? p.additionalFields : {}
+      if (asString(p.resource) === 'task' && asString(p.operation) === 'create') {
+        return {
+          kind: 'node',
+          node: {
+            id, type: 'tool',
+            data: {
+              label, connectionId: 'nango:clickup', toolName: 'clickup_create_task',
+              args: JSON.stringify({
+                list_id: rlValue(p.list),
+                name: asString(p.name),
+                ...(additional.content ? { description: asString(additional.content) } : {}),
+              }),
+            },
+          },
+        }
+      }
+      warnings.push(`"${label}" used a ClickUp action beyond task create — rebuild it with your ClickUp connection's actions.`)
+      return stub()
+    }
+    case 'mondayCom': {
+      if (asString(p.resource) === 'boardItem' && asString(p.operation) === 'create') {
+        return {
+          kind: 'node',
+          node: {
+            id, type: 'tool',
+            data: {
+              label, connectionId: 'nango:monday', toolName: 'monday_create_item',
+              args: JSON.stringify({ board_id: rlValue(p.boardId), item_name: asString(p.name) }),
+            },
+          },
+        }
+      }
+      warnings.push(`"${label}" used a Monday action beyond item create — rebuild it with your Monday connection's actions.`)
+      return stub()
+    }
+    case 'intercom': {
+      const byEmail = asString(p.selectBy) === 'email' ? asString(p.value) : asString(p.email)
+      if ((asString(p.resource) === 'user' || asString(p.resource) === 'lead') && byEmail) {
+        return {
+          kind: 'node',
+          node: {
+            id, type: 'tool',
+            data: { label, connectionId: 'nango:intercom', toolName: 'intercom_search_contacts', args: JSON.stringify({ email: byEmail }) },
+          },
+        }
+      }
+      warnings.push(`"${label}" used an Intercom action beyond contact lookup by email — rebuild it with your Intercom connection's actions.`)
+      return stub()
+    }
+    case 'perplexity': {
+      if (asString(p.resource) === 'search' || asString(p.operation) === 'search') {
+        return {
+          kind: 'node',
+          node: {
+            id, type: 'tool',
+            data: { label, connectionId: 'nango:perplexity', toolName: 'perplexity_search', args: JSON.stringify({ query: asString(p.query) }) },
+          },
+        }
+      }
+      warnings.push(`"${label}" used a Perplexity chat action — rebuild it as an agent step or with your Perplexity connection's actions.`)
+      return stub()
+    }
     // Legacy Item Lists node (split into Limit/Sort/Split Out/… in n8n 1.x):
     // its operations route onto the modern generators — the param names are
     // identical because those nodes were extracted from this one.
