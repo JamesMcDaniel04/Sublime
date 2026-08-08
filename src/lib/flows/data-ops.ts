@@ -1,5 +1,5 @@
 import type { ConditionClause, DataOp } from '@/lib/flows/graph'
-import { asStructured, evalClause, readPath, resolveTemplate, type FlowContext } from '@/features/flows/context'
+import { asStructured, evalClause, readPath, resolveTemplate, type FlowContext, evalClauseAsync, resolveTemplateAsync, type EvalJsFn } from '@/features/flows/context'
 
 /**
  * Pure data-operation transforms for the `data` node family (MS Data Operation
@@ -19,6 +19,8 @@ export type DataOpConfig = {
   count?: number
   /** splitOut: the list-bearing field to fan out on. */
   field?: string
+  /** Server-only QuickJS evaluator for {{js: …}} tokens inside op values. */
+  evalJs?: EvalJsFn
   /** join: the separator between items (default ','). */
   separator?: string
   /** parseJson: JSON Schema text — stored for the editor, not enforced in v1. */
@@ -106,7 +108,7 @@ const cellText = (row: Record<string, unknown>, header: string): string => itemT
 // ── The op runner ────────────────────────────────────────────────────────────
 
 /** Run one pure data operation over an already-resolved config. */
-export function runDataOp(op: DataOp, config: DataOpConfig): DataOpResult {
+export async function runDataOp(op: DataOp, config: DataOpConfig): Promise<DataOpResult> {
   const label = DATA_OP_LABELS[op]
   if (isBlank(config.input)) return { error: `${label} needs data to work with — the input came back empty.` }
 
@@ -174,10 +176,13 @@ export function runDataOp(op: DataOp, config: DataOpConfig): DataOpResult {
     if (!clauses.length) return { error: `${label} needs at least one condition.` }
     const list = asList(config.input)
     if (!list) return { error: `${label} needs a list to filter — the input wasn't a list.` }
-    const output = list.filter((item) => {
+    const output: unknown[] = []
+    for (const item of list) {
       const ctx = itemContext(item, config.ctx)
-      return clauses.every((clause) => evalClause(clause, ctx))
-    })
+      let keep = true
+      for (const clause of clauses) { if (!(await evalClauseAsync(clause, ctx, config.evalJs))) { keep = false; break } }
+      if (keep) output.push(item)
+    }
     return { output }
   }
 
@@ -249,16 +254,16 @@ export function runDataOp(op: DataOp, config: DataOpConfig): DataOpResult {
   if (!fields.length) return { error: `${label} needs at least one field to map.` }
   const list = asList(config.input)
   if (!list) return { error: `${label} needs a list to map — the input wasn't a list.` }
-  const output = list.map((item) => {
+  const output = await Promise.all(list.map(async (item) => {
     const ctx = itemContext(item, config.ctx)
     const record: Record<string, unknown> = {}
     for (const field of fields) {
       const exact = field.value.trim().match(/^\{\{\s*([^{}]+?)\s*\}\}$/)
       // An exact token keeps the source value's structure; a missing source
       // field maps to null (never a crash). Mixed text resolves as a string.
-      record[field.name.trim()] = exact ? readPath(ctx, exact[1]) ?? null : resolveTemplate(field.value, ctx)
+      record[field.name.trim()] = exact ? readPath(ctx, exact[1]) ?? null : await resolveTemplateAsync(field.value, ctx, config.evalJs)
     }
     return record
-  })
+  }))
   return { output }
 }

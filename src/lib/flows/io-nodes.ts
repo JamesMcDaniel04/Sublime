@@ -94,15 +94,15 @@ export function resolveInputParams(
  * evaluates a field's template against the flow context (the interpreter passes
  * `(t) => resolveTemplateValue(t, ctx)`); each result is coerced to `type`.
  */
-export function bindOutputFields(
+export async function bindOutputFields(
   fields: OutputBindingSpec[],
-  resolve: (template: string) => unknown,
-): { output: Record<string, unknown> } | { error: string } {
+  resolve: (template: string) => unknown | Promise<unknown>,
+): Promise<{ output: Record<string, unknown> } | { error: string }> {
   const output: Record<string, unknown> = {}
   for (const field of fields) {
     const name = field.name.trim()
     if (!name) continue
-    const coerced = coerceFieldValue(field.type ?? 'any', resolve(field.value))
+    const coerced = coerceFieldValue(field.type ?? 'any', await resolve(field.value))
     if ('error' in coerced) return { error: `Output "${name}": ${coerced.error}` }
     output[name] = coerced.value
   }

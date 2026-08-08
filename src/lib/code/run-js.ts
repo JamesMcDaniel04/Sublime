@@ -251,6 +251,29 @@ export async function runJavaScript(params: {
   }
 }
 
+/**
+ * Evaluate a single JavaScript EXPRESSION in the same sandbox, for inline
+ * `{{js: …}}` template tokens. `scope` keys become in-scope bindings
+ * ($json, step, input, trigger, vars, item, loop, …). Thin wrapper over
+ * runJavaScript — no duplicated runtime lifetime management. Expressions run
+ * on a short leash (default 2s) since they gate every field they appear in.
+ */
+export const EXPRESSION_DEFAULT_TIMEOUT_MS = 2_000
+
+export async function runExpression(
+  expression: string,
+  scope: Record<string, unknown>,
+  timeoutMs = EXPRESSION_DEFAULT_TIMEOUT_MS,
+): Promise<CodeRunResult> {
+  const names = Object.keys(scope)
+  // Bind each scope key to a local const from the single injected item, then
+  // return the expression's value. `use strict` keeps assignment typos from
+  // leaking globals inside the guest.
+  const binders = names.map((name) => `const ${name} = __scope[${JSON.stringify(name)}];`).join('\n')
+  const code = `'use strict';\nconst __scope = $input.first() || {};\n${binders}\nreturn (${expression});`
+  return runJavaScript({ code, items: [scope], timeoutMs })
+}
+
 function describeQuickJSError(error: unknown, timeoutMs: number, timedOut: boolean): string {
   if (timedOut) return `Code timed out after ${timeoutMs}ms.`
   if (error && typeof error === 'object') {

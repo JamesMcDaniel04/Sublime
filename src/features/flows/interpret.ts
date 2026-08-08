@@ -1,5 +1,5 @@
 import type { FlowGraph, FlowNode, FlowEdge, VariableType } from '@/lib/flows/graph'
-import { resolveTemplate, resolveTemplateValue, asStructured, evalCondition, evalClause, serializeUpstream, type FlowContext } from './context'
+import { resolveTemplate, resolveTemplateValue, resolveTemplateAsync, resolveTemplateValueAsync, asStructured, evalCondition, evalClause, evalConditionAsync, evalClauseAsync, serializeUpstream, type EvalJsFn, type FlowContext } from './context'
 import { stepLabelsOf } from '@/lib/flows/token-text'
 import { shouldRetryAfterTimeout } from './action-reliability'
 import { structuredResponseInstruction, parseStructuredAgentOutput } from './agent-response'
@@ -64,6 +64,8 @@ type Opts = {
   runAgent: RunAgentFn
   runAction?: RunActionFn
   runCode?: RunCodeFn
+  /** Server-only QuickJS evaluator for inline {{js: …}} expression tokens. */
+  evalJs?: EvalJsFn
   runFlow?: RunFlowFn
   routeAi?: RouteAiFn
   maxSteps?: number
@@ -267,16 +269,17 @@ function coerceVariableValue(name: string, varType: VariableType, resolved: unkn
  * array/string shape. Returns the variable's new value — the step's output —
  * or a plain-english error.
  */
-function applyVariableOp(
+async function applyVariableOp(
   node: Extract<FlowNode, { type: 'variable' }>,
   ctx: FlowContext,
   declaredTypes: ReadonlyMap<string, VariableType>,
-): { output: unknown } | { error: string } {
+  evalJs?: EvalJsFn,
+): Promise<{ output: unknown } | { error: string }> {
   const variables = (ctx.variables ??= {})
   const name = node.data.name.trim()
   if (!name) return { error: 'This variable step needs a name.' }
   if (node.data.op === 'initialize') {
-    const resolved = node.data.value?.trim() ? resolveTemplateValue(node.data.value, ctx) : undefined
+    const resolved = node.data.value?.trim() ? await resolveTemplateValueAsync(node.data.value, ctx, evalJs) : undefined
     const coerced = coerceVariableValue(name, node.data.varType ?? 'string', resolved)
     if ('error' in coerced) return coerced
     variables[name] = coerced.value
@@ -289,7 +292,7 @@ function applyVariableOp(
   const declared = declaredTypes.get(name) ?? runtimeTypeOf(current)
   if (node.data.op === 'set') {
     const raw = node.data.value ?? ''
-    const resolved = resolveTemplateValue(raw, ctx)
+    const resolved = await resolveTemplateValueAsync(raw, ctx, evalJs)
     // A configured value (e.g. a token) that resolves to nothing is a broken
     // reference — fail instead of silently resetting to the type default. A
     // raw-empty field stays a legitimate "set to the default" (empty string,
@@ -306,7 +309,7 @@ function applyVariableOp(
     if (typeof current !== 'number') return { error: `Variable "${name}" isn't a number, so it can't be ${verb}.` }
     let amount = 1
     if (node.data.value?.trim()) {
-      const resolvedAmount = resolveTemplate(node.data.value, ctx).trim()
+      const resolvedAmount = (await resolveTemplateAsync(node.data.value, ctx, evalJs)).trim()
       // Number('') is 0 — a broken token amount must fail, not silently no-op.
       if (!resolvedAmount) return { error: `Variable "${name}" needs a number for the amount — the value came back empty.` }
       amount = Number(resolvedAmount)
@@ -321,23 +324,23 @@ function applyVariableOp(
   }
   if (node.data.op === 'appendArray') {
     if (!Array.isArray(current)) return { error: `Variable "${name}" isn't an array, so nothing can be appended.` }
-    const next = [...current, resolveTemplateValue(node.data.value ?? '', ctx)]
+    const next = [...current, await resolveTemplateValueAsync(node.data.value ?? '', ctx, evalJs)]
     variables[name] = next
     return { output: next }
   }
   // appendString
   if (typeof current !== 'string') return { error: `Variable "${name}" isn't text, so nothing can be appended.` }
-  const next = current + resolveTemplate(node.data.value ?? '', ctx)
+  const next = current + await resolveTemplateAsync(node.data.value ?? '', ctx, evalJs)
   variables[name] = next
   return { output: next }
 }
 
-function resolveConfigValue(value: string | undefined, ctx: FlowContext): unknown {
+async function resolveConfigValue(value: string | undefined, ctx: FlowContext, evalJs?: EvalJsFn): Promise<unknown> {
   if (!value?.trim()) return undefined
   try {
-    return resolveTemplateValue(JSON.parse(value), ctx)
+    return await resolveTemplateValueAsync(JSON.parse(value), ctx, evalJs)
   } catch {
-    return resolveTemplateValue(value, ctx)
+    return await resolveTemplateValueAsync(value, ctx, evalJs)
   }
 }
 
@@ -350,7 +353,7 @@ const DEFAULT_AGENT_INPUTS = new Set(['{{trigger.input}}', 'Use this flow input:
  * to the agent. Explicit node input always wins, and non-Slack flow inputs keep
  * the existing template-resolution behavior.
  */
-function agentInput(nodeInput: string | undefined, ctx: FlowContext): string {
+async function agentInput(nodeInput: string | undefined, ctx: FlowContext, evalJs?: EvalJsFn): Promise<string> {
   const template = nodeInput?.trim() || '{{trigger.input}}'
   const triggerInput = ctx.trigger.input
   if (
@@ -373,7 +376,7 @@ function agentInput(nodeInput: string | undefined, ctx: FlowContext): string {
       return text.replace(/^<@[A-Z0-9]+>\s*/i, '').trim()
     }
   }
-  return resolveTemplate(nodeInput ?? '{{trigger.input}}', ctx)
+  return resolveTemplateAsync(nodeInput ?? '{{trigger.input}}', ctx, evalJs)
 }
 
 // Node types whose output is meaningful context for a downstream agent. Control
@@ -568,7 +571,7 @@ export async function interpretFlow(graph: FlowGraph, input: unknown, opts: Opts
       return { kind: 'ok', output: node.data.mockOutput }
     }
     if ((node.type === 'agent' || node.type === 'tool' || node.type === 'http' || node.type === 'code') && node.data.mockOutput !== undefined) {
-      const output = resolveTemplateValue(node.data.mockOutput, ctx)
+      const output = await resolveTemplateValueAsync(node.data.mockOutput, ctx, opts.evalJs)
       ctx.step[node.id] = { output }
       emit({ nodeId: node.id, status: 'succeeded', output, iterationPath: ctx.iterationPath })
       return { kind: 'ok', output }
@@ -621,7 +624,7 @@ export async function interpretFlow(graph: FlowGraph, input: unknown, opts: Opts
       // the same `{ waiting: { kind: 'input', question } }` shape the agent
       // adapter persists, so execute-flow's onStep path can store it verbatim
       // and the existing reply machinery renders/answers it unchanged.
-      const question = resolveTemplate(node.data.message, ctx)
+      const question = await resolveTemplateAsync(node.data.message, ctx, opts.evalJs)
       emit({ nodeId: node.id, status: 'waiting', output: { waiting: { kind: 'input', question } }, iterationPath: ctx.iterationPath })
       return { kind: 'pause', nodeId: node.id, question }
     }
@@ -630,7 +633,7 @@ export async function interpretFlow(graph: FlowGraph, input: unknown, opts: Opts
       let headers: Record<string, string> = {}
       if (node.data.headers?.trim()) {
         try {
-          const parsed = resolveTemplateValue(JSON.parse(node.data.headers), ctx)
+          const parsed = await resolveTemplateValueAsync(JSON.parse(node.data.headers), ctx, opts.evalJs)
           if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('Headers must be a JSON object.')
           headers = Object.fromEntries(Object.entries(parsed as Record<string, unknown>).map(([key, value]) => [key, String(value)]))
         } catch (error) {
@@ -639,7 +642,7 @@ export async function interpretFlow(graph: FlowGraph, input: unknown, opts: Opts
           return { kind: 'fail', error: message }
         }
       }
-      let body = node.data.bodyMode === 'none' ? undefined : resolveTemplateValue(node.data.body ?? '', ctx)
+      let body = node.data.bodyMode === 'none' ? undefined : await resolveTemplateValueAsync(node.data.body ?? '', ctx, opts.evalJs)
       if (node.data.bodyMode === 'json' && typeof body === 'string' && body.trim()) {
         try { body = JSON.parse(body) } catch {
           const error = 'Webhook response body is not valid JSON after template substitution.'
@@ -692,7 +695,7 @@ export async function interpretFlow(graph: FlowGraph, input: unknown, opts: Opts
       // the item list; a single value is one item — n8n's items semantics.
       let itemsSource: unknown
       if (typeof node.data.input === 'string' && node.data.input.trim()) {
-        itemsSource = resolveTemplateValue(node.data.input, ctx)
+        itemsSource = await resolveTemplateValueAsync(node.data.input, ctx, opts.evalJs)
       } else if (ctx.item !== undefined) {
         itemsSource = ctx.item
       } else {
@@ -738,11 +741,11 @@ export async function interpretFlow(graph: FlowGraph, input: unknown, opts: Opts
       // Build an object from templated field assignments (deterministic "Set").
       // A value that parses as JSON (number/bool/object/array) is typed; anything
       // else stays a string.
-      const buildOne = (fieldCtx: FlowContext): Record<string, unknown> => {
+      const buildOne = async (fieldCtx: FlowContext): Promise<Record<string, unknown>> => {
         const output: Record<string, unknown> = {}
         for (const field of node.data.fields) {
           if (!field.name) continue
-          const resolved = resolveTemplate(field.value, fieldCtx)
+          const resolved = await resolveTemplateAsync(field.value, fieldCtx, opts.evalJs)
           let value: unknown = resolved
           try {
             value = JSON.parse(resolved)
@@ -755,15 +758,15 @@ export async function interpretFlow(graph: FlowGraph, input: unknown, opts: Opts
       }
       // n8n-parity fan-out: one object per input item ({{item.…}} refs).
       const output = node.data.forEachItem === true
-        ? itemListFor(node.id, ctx).map((item) => buildOne({ ...ctx, item }))
-        : buildOne(ctx)
+        ? await Promise.all(itemListFor(node.id, ctx).map((item) => buildOne({ ...ctx, item })))
+        : await buildOne(ctx)
       ctx.step[node.id] = { output }
       emit({ nodeId: node.id, status: 'succeeded', output, iterationPath: ctx.iterationPath })
       return { kind: 'ok', output }
     }
 
     if (node.type === 'variable') {
-      const res = applyVariableOp(node, ctx, declaredTypes)
+      const res = await applyVariableOp(node, ctx, declaredTypes, opts.evalJs)
       if ('error' in res) {
         emit({ nodeId: node.id, status: 'failed', error: res.error, iterationPath: ctx.iterationPath })
         return { kind: 'fail', error: res.error }
@@ -778,22 +781,23 @@ export async function interpretFlow(graph: FlowGraph, input: unknown, opts: Opts
       // its structure), then delegate to the side-effect-free op runner.
       // filterArray clauses / select values resolve per item inside runDataOp,
       // with this ctx riding along so step/trigger/var tokens keep working.
-      const runOnce = (opCtx: FlowContext) => runDataOp(node.data.op, {
-        input: node.data.input?.trim() ? resolveTemplateValue(node.data.input, opCtx) : undefined,
-        separator: node.data.separator === undefined ? undefined : resolveTemplate(node.data.separator, opCtx),
+      const runOnce = async (opCtx: FlowContext) => runDataOp(node.data.op, {
+        input: node.data.input?.trim() ? await resolveTemplateValueAsync(node.data.input, opCtx, opts.evalJs) : undefined,
+        separator: node.data.separator === undefined ? undefined : await resolveTemplateAsync(node.data.separator, opCtx, opts.evalJs),
         schema: node.data.schema,
         clauses: node.data.clauses,
         fields: node.data.fields,
         count: node.data.count,
         field: node.data.field,
         ctx: opCtx,
+        evalJs: opts.evalJs,
       })
       // n8n-parity fan-out: the op runs once per input item ({{item.…}} refs).
       let output: unknown
       if (node.data.forEachItem === true) {
         const collected: unknown[] = []
         for (const item of itemListFor(node.id, ctx)) {
-          const res = runOnce({ ...ctx, item })
+          const res = await runOnce({ ...ctx, item })
           if ('error' in res) {
             emit({ nodeId: node.id, status: 'failed', error: res.error, iterationPath: ctx.iterationPath })
             return { kind: 'fail', error: res.error }
@@ -802,7 +806,7 @@ export async function interpretFlow(graph: FlowGraph, input: unknown, opts: Opts
         }
         output = collected
       } else {
-        const res = runOnce(ctx)
+        const res = await runOnce(ctx)
         if ('error' in res) {
           emit({ nodeId: node.id, status: 'failed', error: res.error, iterationPath: ctx.iterationPath })
           return { kind: 'fail', error: res.error }
@@ -818,13 +822,14 @@ export async function interpretFlow(graph: FlowGraph, input: unknown, opts: Opts
       // n8n Filter parity: keep the MATCHING items of the input list and
       // always continue — an empty result flows on as [] instead of dropping.
       if (node.data.splitItems === true) {
-        const matched = itemListFor(node.id, ctx).filter((item) => evalCondition(node.data, { ...ctx, item }))
+        const matched: unknown[] = []
+        for (const item of itemListFor(node.id, ctx)) if (await evalConditionAsync(node.data, { ...ctx, item }, opts.evalJs)) matched.push(item)
         ctx.step[node.id] = { output: matched }
         emit({ nodeId: node.id, status: 'succeeded', output: matched, iterationPath: ctx.iterationPath })
         return { kind: 'ok', output: matched }
       }
       // Gate: pass through when the condition holds; else drop (loop) / end (chain).
-      const passed = evalCondition(node.data, ctx)
+      const passed = await evalConditionAsync(node.data, ctx, opts.evalJs)
       if (passed) {
         emit({ nodeId: node.id, status: 'succeeded', output: true, iterationPath: ctx.iterationPath })
         return { kind: 'ok', output: undefined }
@@ -839,12 +844,12 @@ export async function interpretFlow(graph: FlowGraph, input: unknown, opts: Opts
       // per input item with {{item.…}} bound to that item.
       const executeOnce = async (execCtx: FlowContext): Promise<RunAgentResult> => {
       const ctx = execCtx
-      let resolvedArgs: unknown = resolveTemplate(node.type === 'tool' ? node.data.args ?? '{}' : '{}', ctx)
+      let resolvedArgs: unknown = await resolveTemplateAsync(node.type === 'tool' ? node.data.args ?? '{}' : '{}', ctx, opts.evalJs)
       if (node.type === 'tool') {
         try {
-          resolvedArgs = resolveTemplateValue(JSON.parse(node.data.args ?? '{}'), ctx)
+          resolvedArgs = await resolveTemplateValueAsync(JSON.parse(node.data.args ?? '{}'), ctx, opts.evalJs)
         } catch {
-          resolvedArgs = resolveTemplate(node.data.args ?? '{}', ctx)
+          resolvedArgs = await resolveTemplateAsync(node.data.args ?? '{}', ctx, opts.evalJs)
         }
       }
       const config: Record<string, unknown> =
@@ -865,22 +870,22 @@ export async function interpretFlow(graph: FlowGraph, input: unknown, opts: Opts
               // at fetch time. Never a secret, so nothing to resolve here.
               ...(node.data.credentialId ? { credentialId: node.data.credentialId } : {}),
               ...(node.data.authMode ? { authMode: node.data.authMode } : {}),
-              ...(node.data.auth ? { auth: resolveTemplateValue(node.data.auth, ctx) } : {}),
+              ...(node.data.auth ? { auth: await resolveTemplateValueAsync(node.data.auth, ctx, opts.evalJs) } : {}),
               method: node.data.method,
-              url: resolveTemplate(node.data.url, ctx),
+              url: await resolveTemplateAsync(node.data.url, ctx, opts.evalJs),
               // Raw template preserved so connection/credential auth can verify
               // the ORIGIN was author-written, not steered by upstream data.
               urlTemplate: node.data.url,
-              query: resolveConfigValue(node.data.query, ctx),
+              query: await resolveConfigValue(node.data.query, ctx, opts.evalJs),
               ...(node.data.sendQuery !== undefined ? { sendQuery: node.data.sendQuery } : {}),
               ...(node.data.queryArrayFormat ? { queryArrayFormat: node.data.queryArrayFormat } : {}),
-              headers: resolveConfigValue(node.data.headers, ctx),
+              headers: await resolveConfigValue(node.data.headers, ctx, opts.evalJs),
               ...(node.data.sendHeaders !== undefined ? { sendHeaders: node.data.sendHeaders } : {}),
-              body: resolveConfigValue(node.data.body, ctx),
+              body: await resolveConfigValue(node.data.body, ctx, opts.evalJs),
               ...(node.data.sendBody !== undefined ? { sendBody: node.data.sendBody } : {}),
-              ...(node.data.bodyContentType !== undefined ? { bodyContentType: resolveTemplate(node.data.bodyContentType, ctx) } : {}),
-              ...(node.data.graphqlVariables !== undefined ? { graphqlVariables: resolveConfigValue(node.data.graphqlVariables, ctx) } : {}),
-              ...(node.data.cookie !== undefined ? { cookie: resolveTemplate(node.data.cookie, ctx) } : {}),
+              ...(node.data.bodyContentType !== undefined ? { bodyContentType: await resolveTemplateAsync(node.data.bodyContentType, ctx, opts.evalJs) } : {}),
+              ...(node.data.graphqlVariables !== undefined ? { graphqlVariables: await resolveConfigValue(node.data.graphqlVariables, ctx, opts.evalJs) } : {}),
+              ...(node.data.cookie !== undefined ? { cookie: await resolveTemplateAsync(node.data.cookie, ctx, opts.evalJs) } : {}),
               bodyMode: node.data.bodyMode,
               responseType: node.data.responseType,
               failOnHttpError: node.data.failOnHttpError,
@@ -890,7 +895,7 @@ export async function interpretFlow(graph: FlowGraph, input: unknown, opts: Opts
               ...(node.data.retryStatusCodes ? { retryStatusCodes: node.data.retryStatusCodes } : {}),
               ...(node.data.followRedirects !== undefined ? { followRedirects: node.data.followRedirects } : {}),
               ...(node.data.maxRedirects !== undefined ? { maxRedirects: node.data.maxRedirects } : {}),
-              ...(node.data.pagination ? { pagination: resolveTemplateValue(node.data.pagination, ctx) } : {}),
+              ...(node.data.pagination ? { pagination: await resolveTemplateValueAsync(node.data.pagination, ctx, opts.evalJs) } : {}),
               ...(node.data.batch ? { batch: node.data.batch } : {}),
               // Author opt-in: hold this request for a human before it fires.
               ...(node.data.requireApproval ? { requireApproval: true } : {}),
@@ -965,7 +970,7 @@ export async function interpretFlow(graph: FlowGraph, input: unknown, opts: Opts
     }
 
     if (node.type === 'output') {
-      const bound = bindOutputFields(node.data.fields, (template) => resolveTemplateValue(template, ctx))
+      const bound = await bindOutputFields(node.data.fields, (template) => resolveTemplateValueAsync(template, ctx, opts.evalJs))
       if ('error' in bound) {
         emit({ nodeId: node.id, status: 'failed', error: bound.error })
         return { kind: 'fail', error: bound.error }
@@ -998,7 +1003,7 @@ export async function interpretFlow(graph: FlowGraph, input: unknown, opts: Opts
     if (node.type === 'agent') {
       const outputFields = node.data.outputFields ?? []
       const structured = node.data.responseFormat === 'structured' && outputFields.some((field) => field.name.trim())
-      let resolved = agentInput(node.data.input, ctx)
+      let resolved = await agentInput(node.data.input, ctx, opts.evalJs)
       // Auto-aggregation: feed the agent every prior data-bearing node's captured
       // output so it works from the whole flow's context. This fires for a node
       // using its DEFAULT input (the common "saved agent after some API steps"
@@ -1023,7 +1028,7 @@ export async function interpretFlow(graph: FlowGraph, input: unknown, opts: Opts
       }
       if (structured) resolved = `${resolved}\n\n${structuredResponseInstruction(outputFields)}`
       const inline = !node.data.agentId?.trim()
-      const prompt = inline ? resolveTemplate(node.data.prompt ?? '', ctx) : undefined
+      const prompt = inline ? await resolveTemplateAsync(node.data.prompt ?? '', ctx, opts.evalJs) : undefined
       const res = await runAgentWithReliability(node, resolved, { prompt, thread: ctx.thread, iterationPath: ctx.iterationPath, withinThreadedLoop: ctx.withinThreadedLoop === true })
       if (res.waiting) {
         if (node.data.humanAssistance === false) {
@@ -1063,9 +1068,9 @@ export async function interpretFlow(graph: FlowGraph, input: unknown, opts: Opts
       let childInput: unknown = ctx.item ?? {}
       if (node.data.input?.trim()) {
         try {
-          childInput = resolveTemplateValue(JSON.parse(node.data.input), ctx)
+          childInput = await resolveTemplateValueAsync(JSON.parse(node.data.input), ctx, opts.evalJs)
         } catch {
-          childInput = resolveTemplateValue(node.data.input, ctx)
+          childInput = await resolveTemplateValueAsync(node.data.input, ctx, opts.evalJs)
         }
       }
       const res: RunFlowResult = opts.runFlow
@@ -1096,7 +1101,7 @@ export async function interpretFlow(graph: FlowGraph, input: unknown, opts: Opts
     }
 
     if (node.type === 'loop') {
-      const items = loopItems(resolveTemplate(node.data.over, ctx)).slice(0, maxLoop)
+      const items = loopItems(await resolveTemplateAsync(node.data.over, ctx, opts.evalJs)).slice(0, maxLoop)
       const threaded = node.data.threadAgent === true
       // Threading ONE conversation across iterations requires sequential
       // execution — you cannot append turns to one conversation concurrently.
@@ -1154,7 +1159,7 @@ export async function interpretFlow(graph: FlowGraph, input: unknown, opts: Opts
         }
         output = result.output
         ctx.step = { ...ctx.step, ...iterationCtx.step }
-        if (evalCondition(node.data, iterationCtx)) {
+        if (await evalConditionAsync(node.data, iterationCtx, opts.evalJs)) {
           ctx.step[node.id] = { output }
           emit({ nodeId: node.id, status: 'succeeded', output, iterationPath: ctx.iterationPath })
           return { kind: 'ok', output }
@@ -1228,14 +1233,14 @@ export async function interpretFlow(graph: FlowGraph, input: unknown, opts: Opts
       if (!node) continue
       if (node.type === 'condition' || node.type === 'switch' || node.type === 'router') {
         let branch = 'default'
-        if (node.type === 'condition') branch = evalCondition(node.data, ctx) ? 'true' : 'false'
-        else if (node.type === 'switch') branch = node.data.cases.find((candidate) => evalClause({ left: candidate.left, op: candidate.op, right: candidate.right }, ctx))?.id ?? 'default'
+        if (node.type === 'condition') branch = (await evalConditionAsync(node.data, ctx, opts.evalJs)) ? 'true' : 'false'
+        else if (node.type === 'switch') { let matched = 'default'; for (const candidate of node.data.cases) { if (await evalClauseAsync({ left: candidate.left, op: candidate.op, right: candidate.right }, ctx, opts.evalJs)) { matched = candidate.id; break } } branch = matched }
         else {
           const prior = opts.completed?.[completedKey(node.id, ctx.iterationPath)]
           if (typeof prior === 'string' && prior) branch = prior
           else if (!opts.routeAi) return { output: last, control: { kind: 'fail', error: 'Router steps need an AI runtime.' } }
           else {
-            const routed = await opts.routeAi({ id: node.id, branches: node.data.branches, instructions: node.data.instructions, input: resolveTemplate(node.data.input ?? '{{trigger.input}}', ctx) })
+            const routed = await opts.routeAi({ id: node.id, branches: node.data.branches, instructions: node.data.instructions, input: await resolveTemplateAsync(node.data.input ?? '{{trigger.input}}', ctx, opts.evalJs) })
             if ('error' in routed) return { output: last, control: { kind: 'fail', error: routed.error } }
             branch = routed.branch
           }
@@ -1322,7 +1327,7 @@ export async function interpretFlow(graph: FlowGraph, input: unknown, opts: Opts
     triggerNode?.type === 'trigger'
       ? ((triggerNode.data.trigger as { filter?: Parameters<typeof evalCondition>[0] } | undefined)?.filter ?? undefined)
       : undefined
-  if (triggerFilter?.clauses?.length && !evalCondition(triggerFilter, ctx)) {
+  if (triggerFilter?.clauses?.length && !(await evalConditionAsync(triggerFilter, ctx, opts.evalJs))) {
     const output = 'Trigger filter did not match — run skipped.'
     emit({ nodeId: triggerNode!.id, status: 'skipped', output })
     return { status: 'succeeded', steps, output }
@@ -1462,19 +1467,20 @@ export async function interpretFlow(graph: FlowGraph, input: unknown, opts: Opts
         const matched: unknown[] = []
         const unmatched: unknown[] = []
         for (const item of itemListFor(node.id, nctx)) {
-          ;(evalCondition(node.data, { ...nctx, item }) ? matched : unmatched).push(item)
+          ;((await evalConditionAsync(node.data, { ...nctx, item }, opts.evalJs)) ? matched : unmatched).push(item)
         }
         nctx.step[node.id] = { output: { matched, unmatched } }
         emit({ nodeId: node.id, status: 'succeeded', output: { matchedCount: matched.length, unmatchedCount: unmatched.length } })
         if (matched.length > 0 && unmatched.length > 0) return { kind: 'settled' }
         return { kind: 'settled', branch: matched.length > 0 ? 'true' : 'false' }
       }
-      return { kind: 'settled', branch: evalCondition(node.data, nctx) ? 'true' : 'false' }
+      return { kind: 'settled', branch: (await evalConditionAsync(node.data, nctx, opts.evalJs)) ? 'true' : 'false' }
     }
     if (node.type === 'switch') {
       if (overBudget()) return { kind: 'fail', error: 'Flow exceeded the maximum number of steps.' }
       // First matching case wins; otherwise the 'default' edge.
-      const hit = node.data.cases.find((c) => evalClause({ left: c.left, op: c.op, right: c.right }, nctx))
+      let hit: (typeof node.data.cases)[number] | undefined
+      for (const c of node.data.cases) { if (await evalClauseAsync({ left: c.left, op: c.op, right: c.right }, nctx, opts.evalJs)) { hit = c; break } }
       emit({ nodeId: node.id, status: 'succeeded', output: hit?.id ?? 'default' })
       return { kind: 'settled', branch: hit ? hit.id : 'default' }
     }
@@ -1492,7 +1498,7 @@ export async function interpretFlow(graph: FlowGraph, input: unknown, opts: Opts
         emit({ nodeId: node.id, status: 'failed', error })
         return { kind: 'fail', error }
       }
-      const routerInput = resolveTemplate(node.data.input ?? '{{trigger.input}}', nctx)
+      const routerInput = await resolveTemplateAsync(node.data.input ?? '{{trigger.input}}', nctx, opts.evalJs)
       const res = await opts.routeAi({ id: node.id, branches: node.data.branches, instructions: node.data.instructions, input: routerInput })
       if ('error' in res) {
         emit({ nodeId: node.id, status: 'failed', error: res.error })
