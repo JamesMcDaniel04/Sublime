@@ -278,6 +278,40 @@ const SLACK_EVENT_MAP: Record<string, string[]> = {
   any_event: ['mention', 'dm', 'channel_message'],
 }
 
+// n8n pollTimes modes → poll-trigger cadence. everyMinute maps to the
+// 5-minute floor (POLL_MIN_INTERVAL_MINUTES); absent/custom → runtime default.
+const POLL_INTERVAL_MINUTES: Record<string, number> = { everyMinute: 5, everyHour: 60, everyDay: 1440, everyWeek: 10080 }
+
+/**
+ * n8n polling triggers whose data source exists as a Sublime READ tool become
+ * real poll triggers — the dispatcher diffs the tool result and fires one run
+ * per new item, which is exactly n8n's polling semantics.
+ */
+function pollTriggerFrom(node: N8nNode): FlowTrigger | null {
+  const base = baseType(node.type)
+  const p = node.parameters
+  const item = isRecord(p.pollTimes) && Array.isArray(p.pollTimes.item) && isRecord(p.pollTimes.item[0]) ? p.pollTimes.item[0] : undefined
+  const intervalMinutes = item ? POLL_INTERVAL_MINUTES[asString(item.mode)] : undefined
+  const poll = (source: { connectionId: string; toolName: string; args?: string }): FlowTrigger =>
+    ({ type: 'poll', source, ...(intervalMinutes ? { intervalMinutes } : {}) })
+  if (base === 'googleSheetsTrigger') {
+    return poll({
+      connectionId: 'nango:sheets', toolName: 'sheets_get_values',
+      args: JSON.stringify({ spreadsheet_id: rlValue(p.documentId), range: rlName(p.sheetName) }),
+    })
+  }
+  if (base === 'googleCalendarTrigger') {
+    return poll({ connectionId: 'nango:calendar', toolName: 'calendar_list_events', args: JSON.stringify({ calendar_id: rlValue(p.calendarId) }) })
+  }
+  if (base === 'googleDriveTrigger') {
+    return poll({ connectionId: 'nango:drive', toolName: 'drive_list_files', args: JSON.stringify({}) })
+  }
+  return null
+}
+
+/** Trigger types that intentionally fall through to manual without a warning. */
+const SILENT_MANUAL_TRIGGERS = new Set(['manualTrigger', 'formTrigger', 'form', 'executeWorkflowTrigger'])
+
 function triggerFor(node: N8nNode, warnings: string[]): FlowTrigger {
   const base = baseType(node.type)
   if (base === 'webhook') return { type: 'webhook' }
@@ -288,6 +322,11 @@ function triggerFor(node: N8nNode, warnings: string[]): FlowTrigger {
     const unmapped = requested.filter((value) => !SLACK_EVENT_MAP[value])
     if (unmapped.length) warnings.push(`Slack trigger events without an equivalent were dropped: ${unmapped.join(', ')}.`)
     return { type: 'slack', events: events.length ? events : ['mention'] }
+  }
+  const poll = pollTriggerFrom(node)
+  if (poll) return poll
+  if (!SILENT_MANUAL_TRIGGERS.has(base)) {
+    warnings.push(`n8n trigger "${base}" has no equivalent — imported with a manual trigger; switch it to a webhook, schedule, or poll trigger as needed.`)
   }
   return { type: 'manual' }
 }

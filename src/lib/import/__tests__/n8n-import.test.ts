@@ -1255,3 +1255,54 @@ test('unmapped operations on newly wired integrations still stub with specific w
   assert.equal(imported.stubbedNodes.length, 1)
   assert.ok(imported.warnings.some((w) => w.includes('GitHub')))
 })
+
+test('googleSheetsTrigger becomes a poll trigger on the sheets read tool', () => {
+  const imported = fromN8nWorkflow({
+    name: 'PollSheets',
+    nodes: [
+      {
+        parameters: {
+          documentId: { __rl: true, value: 'doc1', mode: 'id' },
+          sheetName: { __rl: true, value: 'gid=0', mode: 'list', cachedResultName: 'Leads' },
+          pollTimes: { item: [{ mode: 'everyHour' }] },
+        },
+        id: 'n-t', name: 'Rows', type: 'n8n-nodes-base.googleSheetsTrigger', typeVersion: 1, position: [0, 0],
+      },
+      { parameters: { url: 'https://api.example.com' }, id: 'n-http', name: 'Call', type: 'n8n-nodes-base.httpRequest', typeVersion: 4, position: [200, 0] },
+    ],
+    connections: { Rows: { main: [[{ node: 'Call', type: 'main', index: 0 }]] } },
+    settings: {},
+  })
+  assert.equal(imported.trigger.type, 'poll')
+  assert.equal(imported.trigger.intervalMinutes, 60)
+  const source = imported.trigger.source as { connectionId: string; toolName: string; args?: string }
+  assert.equal(source.connectionId, 'nango:sheets')
+  assert.equal(source.toolName, 'sheets_get_values')
+  assert.deepEqual(JSON.parse(source.args!), { spreadsheet_id: 'doc1', range: 'Leads' })
+})
+
+test('calendar and drive triggers poll their list tools; unknown pollers stay manual with a warning', () => {
+  const calendar = fromN8nWorkflow({
+    name: 'PollCal',
+    nodes: [
+      { parameters: { calendarId: { __rl: true, value: 'primary', mode: 'id' }, triggerOn: 'eventCreated' }, id: 'n-t', name: 'Events', type: 'n8n-nodes-base.googleCalendarTrigger', typeVersion: 1, position: [0, 0] },
+      { parameters: { url: 'https://api.example.com' }, id: 'n-http', name: 'Call', type: 'n8n-nodes-base.httpRequest', typeVersion: 4, position: [200, 0] },
+    ],
+    connections: { Events: { main: [[{ node: 'Call', type: 'main', index: 0 }]] } },
+    settings: {},
+  })
+  assert.equal(calendar.trigger.type, 'poll')
+  assert.equal((calendar.trigger.source as { toolName: string }).toolName, 'calendar_list_events')
+
+  const airtable = fromN8nWorkflow({
+    name: 'PollAir',
+    nodes: [
+      { parameters: {}, id: 'n-t', name: 'Rows', type: 'n8n-nodes-base.airtableTrigger', typeVersion: 1, position: [0, 0] },
+      { parameters: { url: 'https://api.example.com' }, id: 'n-http', name: 'Call', type: 'n8n-nodes-base.httpRequest', typeVersion: 4, position: [200, 0] },
+    ],
+    connections: { Rows: { main: [[{ node: 'Call', type: 'main', index: 0 }]] } },
+    settings: {},
+  })
+  assert.equal(airtable.trigger.type, 'manual')
+  assert.ok(airtable.warnings.some((w) => w.includes('airtableTrigger')))
+})
