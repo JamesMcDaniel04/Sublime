@@ -1354,3 +1354,19 @@ test('sheets clear and salesforce update/get/query map to the new tools', () => 
   assert.equal(toolNode(queried).data.toolName, 'salesforce_query')
   assert.deepEqual(JSON.parse(toolNode(queried).data.args!), { soql: 'SELECT Id FROM Lead' })
 })
+
+test('$itemMatching pairs by index in imported code (n8n default pairing for linear chains)', async () => {
+  const imported = fromN8nWorkflow({
+    nodes: [
+      { parameters: {}, id: 'n-t', name: 'Manual', type: 'n8n-nodes-base.manualTrigger', typeVersion: 1, position: [0, 0] },
+      {
+        parameters: { jsCode: 'return $input.all().map((entry, i) => ({ json: { paired: $itemMatching(i).json.v } }));' },
+        id: 'n-code', name: 'Pair', type: 'n8n-nodes-base.code', typeVersion: 2, position: [100, 0],
+      },
+    ],
+    connections: { Manual: { main: [[{ node: 'Pair', type: 'main', index: 0 }]] } },
+  })
+  const code = imported.graph.nodes.find((node) => node.type === 'code') as NodeOf<'code'>
+  const result = await runGenerated(code.data.code, [{ v: 1 }, { v: 2 }])
+  assert.deepEqual(result, [{ paired: 1 }, { paired: 2 }])
+})
