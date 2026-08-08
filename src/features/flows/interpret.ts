@@ -1529,7 +1529,17 @@ export async function interpretFlow(graph: FlowGraph, input: unknown, opts: Opts
     // writes stay globally visible; `input` is the one field a node reassigns
     // outright, so it is merged back below.
     const nctx: FlowContext = { ...ctx, upstream: buildUpstream(ctx, id) }
-    const disposition = await runOne(node, nctx)
+    // A thrown error during resolution (e.g. a failing inline {{js:}} expression
+    // or malformed template) becomes a clean step failure instead of crashing
+    // the whole run — the failing node is named for the run panel and copilot.
+    let disposition: Disposition
+    try {
+      disposition = await runOne(node, nctx)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      emit({ nodeId: id, status: 'failed', error: message })
+      disposition = { kind: 'fail', error: message }
+    }
     if (nctx.input !== ctx.input) ctx.input = { ...(ctx.input ?? {}), ...(nctx.input ?? {}) }
 
     if (disposition.kind === 'fail') {

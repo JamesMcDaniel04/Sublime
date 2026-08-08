@@ -23,7 +23,8 @@ import { stepLabelsOf } from '@/lib/flows/token-text'
 import { missingRequiredInputFields } from '@/lib/flows/input-validation'
 import { shouldReuseInput, storedRunInput } from '@/lib/flows/reuse-input'
 import { interpretFlow, type RunAgentFn, type RunActionFn, type RunCodeFn, type RunFlowFn, type RouteAiFn } from './interpret'
-import { runJavaScript } from '@/lib/code/run-js'
+import { runJavaScript, runExpression } from '@/lib/code/run-js'
+import type { EvalJsFn, FlowContext } from './context'
 import { resolveResumeState } from './resume-scan'
 import { buildRouterPrompt, routerBranchSchema, parseRouterChoice } from '@/lib/flows/router'
 import { generateStructured, generateText } from '@/lib/llm/model-runner'
@@ -725,6 +726,29 @@ export async function runFlowExecution(
     return runJavaScript(params)
   }
 
+  // Inline `{{js: <expr>}}` expression tokens: evaluated in the SAME QuickJS
+  // sandbox as code steps, with the flow context exposed as bindings ($json,
+  // step, input, trigger, vars, item, loop). Bounded per run so a graph can't
+  // spend unbounded sandbox time in template resolution; a failed expression
+  // throws so the field's step surfaces the error instead of silent bad data.
+  let expressionBudget = 500
+  const evalJs: EvalJsFn = async (expression: string, ctx: FlowContext) => {
+    if (expressionBudget <= 0) throw new Error('This flow evaluated too many inline expressions (limit 500).')
+    expressionBudget -= 1
+    const scope: Record<string, unknown> = {
+      $json: ctx.item !== undefined ? ctx.item : ctx.trigger.input,
+      item: ctx.item ?? null,
+      step: Object.fromEntries(Object.entries(ctx.step).map(([id, entry]) => [id, entry.output])),
+      input: ctx.input ?? {},
+      trigger: { input: ctx.trigger.input },
+      vars: ctx.variables ?? {},
+      loop: ctx.loop ?? null,
+    }
+    const result = await runExpression(expression, scope)
+    if (!result.ok) throw new Error(`Inline expression failed: ${result.error}`)
+    return result.output
+  }
+
   // Deterministic steps: MCP tool calls and HTTP requests. Same FlowRunStep
   // bookkeeping as agent steps so the run panel shows their input/output.
   const runAction: RunActionFn = async (node) => {
@@ -1005,6 +1029,7 @@ export async function runFlowExecution(
     runAgent,
     runAction,
     runCode,
+    evalJs,
     runFlow,
     routeAi,
     onStep,

@@ -35,9 +35,9 @@ test('resolveInputParams coerces to declared type and errors on required-missing
   assert.deepEqual(resolveInputParams([{ name: 'y', type: 'string' as const }], { user: {} }), { values: {} })
 })
 
-test('bindOutputFields binds and coerces from a resolver', () => {
+test('bindOutputFields binds and coerces from a resolver', async () => {
   const resolve = (t: string) => ({ '{{step.n.output.score}}': '91', '{{step.n.output.tags}}': '["a"]' } as Record<string, unknown>)[t]
-  const res = bindOutputFields(
+  const res = await bindOutputFields(
     [{ name: 'score', type: 'number', value: '{{step.n.output.score}}' }, { name: 'tags', type: 'array', value: '{{step.n.output.tags}}' }],
     resolve,
   )

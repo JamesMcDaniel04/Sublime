@@ -64,8 +64,10 @@ function unresolvedPaths(template: string, ctx: FlowContext): string[] {
   for (const match of template.matchAll(tokenPattern())) {
     const path = match[1].trim()
     // Expressions carry their own fallbacks (coalesce, if, …) — a function
-    // legitimately returning '' is not an unresolved reference.
-    if (path.startsWith('=')) continue
+    // legitimately returning '' is not an unresolved reference. Inline
+    // {{js: …}} runs server-side in QuickJS, so the client preview can't
+    // evaluate it — it is not "unresolved", just deferred to runtime.
+    if (path.startsWith('=') || path.startsWith('js:')) continue
     if (resolveTemplate(`{{${path}}}`, ctx) === '') missing.push(path)
   }
   return missing
