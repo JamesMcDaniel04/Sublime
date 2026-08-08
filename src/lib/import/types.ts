@@ -23,8 +23,16 @@ export type CredentialGroup = {
   sourceType: string
   /** Display name from the source system. */
   name: string
-  /** Best-guess Sublime vault credential type for the picker. */
-  credentialType: 'basic' | 'bearer' | 'apiKeyHeader' | 'oauth2'
+  /** Vault credential type the picker should pre-select. Absent when unsupported. */
+  credentialType?: 'basic' | 'bearer' | 'oauth1' | 'oauth2' | 'apiKeyHeader' | 'apiKeyQuery' | 'custom'
+  /** Prefill for the credential-create form — names only, secrets never travel. */
+  suggestedHeaderName?: string
+  suggestedQueryParam?: string
+  suggestedEntries?: { kind: 'header' | 'query'; name: string }[]
+  /** n8n's human label for the credential type (e.g. "Shopify Access Token API"). */
+  sourceDisplayName?: string
+  /** Set when generic injection cannot reproduce this credential's auth. */
+  unsupported?: { reason: string }
   nodeIds: string[]
 }
 

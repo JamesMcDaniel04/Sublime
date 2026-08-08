@@ -947,3 +947,61 @@ test('round-trips our own n8n export back into a flow', async () => {
   assert.equal(http.data.url, 'https://api.example.com/v1/data')
   assert.equal(imported.graph.edges.length, 1)
 })
+
+/** Minimal webhook → httpRequest workflow with the given credentials/params on the http node. */
+const credentialWorkflow = (credentials: Record<string, unknown> | undefined, parameters: Record<string, unknown> = {}) => ({
+  name: 'Cred test',
+  nodes: [
+    { parameters: { path: 'x' }, id: 'n-hook', name: 'Web', type: 'n8n-nodes-base.webhook', typeVersion: 2, position: [0, 0] },
+    {
+      parameters: { url: 'https://api.example.com', ...parameters },
+      id: 'n-call', name: 'Call', type: 'n8n-nodes-base.httpRequest', typeVersion: 4.2, position: [200, 0],
+      ...(credentials ? { credentials } : {}),
+    },
+  ],
+  connections: { Web: { main: [[{ node: 'Call', type: 'main', index: 0 }]] } },
+  settings: {},
+})
+
+test('credential type comes from the generated table, not the name heuristic', () => {
+  // shopifyAccessTokenApi injects X-Shopify-Access-Token; the old name heuristic said bearer.
+  const imported = fromN8nWorkflow(credentialWorkflow({ shopifyAccessTokenApi: { id: 'c1', name: 'My Shop' } }))
+  const group = imported.credentialGroups?.find((g) => g.sourceType === 'shopifyAccessTokenApi')
+  assert.ok(group, 'group missing')
+  assert.equal(group.credentialType, 'apiKeyHeader')
+  assert.equal(group.suggestedHeaderName, 'X-Shopify-Access-Token')
+  assert.equal(group.sourceDisplayName, 'Shopify Access Token API')
+})
+
+test('unknown credential type falls back to the name heuristic', () => {
+  const imported = fromN8nWorkflow(credentialWorkflow({ brandNewThingOAuth2Api: { id: 'c1', name: 'X' } }))
+  const group = imported.credentialGroups?.find((g) => g.sourceType === 'brandNewThingOAuth2Api')
+  assert.equal(group?.credentialType, 'oauth2')
+  assert.equal(group?.unsupported, undefined)
+})
+
+test('unsupported credential warns and does not pre-set a type on the step', () => {
+  // aws authenticates programmatically (SigV4) — no generic recipe exists.
+  const imported = fromN8nWorkflow(credentialWorkflow(
+    { aws: { id: 'c1', name: 'AWS' } },
+    { authentication: 'predefinedCredentialType', nodeCredentialType: 'aws' },
+  ))
+  const group = imported.credentialGroups?.find((g) => g.sourceType === 'aws')
+  assert.ok(group?.unsupported, 'group should be flagged unsupported')
+  assert.equal(group.credentialType, undefined)
+  const step = imported.graph.nodes.find((node) => node.id !== 'trigger' && node.type === 'http') as NodeOf<'http'>
+  assert.equal(step.data.credentialType, undefined)
+  assert.ok(imported.warnings.some((w) => w.includes('AWS (IAM)')), 'expected a programmatic-auth warning')
+})
+
+test('nango-served OAuth credentials still bind as connections, not vault groups', () => {
+  const imported = fromN8nWorkflow(credentialWorkflow({ slackOAuth2Api: { id: 'c1', name: 'Slack' } }))
+  assert.ok(!imported.credentialGroups?.some((g) => g.sourceType === 'slackOAuth2Api'))
+})
+
+test('query-param credential prefills the real param name', () => {
+  const imported = fromN8nWorkflow(credentialWorkflow({ calApi: { id: 'c1', name: 'Cal' } }))
+  const group = imported.credentialGroups?.find((g) => g.sourceType === 'calApi')
+  assert.equal(group?.credentialType, 'apiKeyQuery')
+  assert.equal(group?.suggestedQueryParam, 'apiKey')
+})

@@ -31,6 +31,7 @@ import type { FlowTrigger } from '@/lib/flows/trigger'
 import type { PortableAgent } from '@/lib/export/portable'
 import { agentHttpToolSchema, MAX_AGENT_HTTP_TOOLS, type AgentHttpTool } from '@/lib/agents/http-tools'
 import { FlowImportError, type CredentialGroup, type ImportedFlow, type StubbedNode } from './types'
+import { lookupN8nCredential } from './n8n-credential-map'
 
 /**
  * n8n OAuth credential types whose token our runtime can supply from an
@@ -50,13 +51,40 @@ const NANGO_CREDENTIAL_MAP: Record<string, string> = {
   asanaoauth2api: 'nango:asana',
 }
 
-/** Best-guess vault credential type for an n8n credential type name. */
-function vaultTypeFor(sourceType: string): CredentialGroup['credentialType'] {
+/** Name-sniffing fallback for credential types newer than the generated table. */
+function vaultTypeFor(sourceType: string): NonNullable<CredentialGroup['credentialType']> {
   const lower = sourceType.toLowerCase()
   if (lower.includes('oauth2')) return 'oauth2'
   if (lower.includes('basicauth') || lower.includes('basic_auth')) return 'basic'
   if (lower.includes('headerauth') || lower.includes('header_auth') || lower.includes('apikey')) return 'apiKeyHeader'
   return 'bearer'
+}
+
+type VaultCredentialInfo = Pick<
+  CredentialGroup,
+  'credentialType' | 'suggestedHeaderName' | 'suggestedQueryParam' | 'suggestedEntries' | 'sourceDisplayName' | 'unsupported'
+>
+
+/**
+ * How the vault can represent an n8n credential type — generated-table lookup
+ * by the ACTUAL injection recipe, with the name heuristic surviving only for
+ * types newer than the table.
+ */
+function vaultCredentialInfo(sourceType: string): VaultCredentialInfo {
+  const entry = lookupN8nCredential(sourceType)
+  if (!entry) return { credentialType: vaultTypeFor(sourceType) }
+  switch (entry.type) {
+    case 'unsupported':
+      return { sourceDisplayName: entry.displayName, unsupported: { reason: entry.reason } }
+    case 'apiKeyHeader':
+      return { credentialType: 'apiKeyHeader', suggestedHeaderName: entry.headerName, sourceDisplayName: entry.displayName }
+    case 'apiKeyQuery':
+      return { credentialType: 'apiKeyQuery', suggestedQueryParam: entry.queryParam, sourceDisplayName: entry.displayName }
+    case 'custom':
+      return { credentialType: 'custom', suggestedEntries: entry.entries, sourceDisplayName: entry.displayName }
+    default:
+      return { credentialType: entry.type, sourceDisplayName: entry.displayName }
+  }
 }
 
 const n8nNodeSchema = z.object({
@@ -714,10 +742,12 @@ function mapNode(node: N8nNode, id: string, warnings: string[]): Mapped {
             ...(usesCredential ? (() => {
               const nangoId = NANGO_CREDENTIAL_MAP[asString(p.nodeCredentialType).toLowerCase()]
               if (nangoId) return { authMode: 'predefined' as const, connectionId: nangoId }
-              const guess = vaultTypeFor(asString(p.nodeCredentialType ?? p.genericAuthType))
+              const info = vaultCredentialInfo(asString(p.nodeCredentialType ?? p.genericAuthType))
+              // Unsupported (programmatic) auth: pre-setting a type that can
+              // never work is worse than leaving the picker open.
               return {
                 authMode: 'generic' as const,
-                credentialType: guess === 'apiKeyHeader' ? 'apiKeyHeader' as const : guess === 'basic' ? 'basic' as const : guess === 'oauth2' ? 'oauth2' as const : 'bearer' as const,
+                ...(info.credentialType ? { credentialType: info.credentialType } : {}),
               }
             })() : {}),
           },
@@ -1306,13 +1336,14 @@ export function fromN8nWorkflow(raw: unknown): ImportedFlow {
       // already carries authMode 'predefined'), not by a vault credential.
       if (NANGO_CREDENTIAL_MAP[sourceType.toLowerCase()]) return
       const key = `${sourceType}:${identity || 'default'}`
-      const group = credentialGroups.get(key) ?? {
-        key,
-        sourceType,
-        name: name || sourceType,
-        credentialType: vaultTypeFor(sourceType),
-        nodeIds: [],
-      }
+      const existing = credentialGroups.get(key)
+      const group = existing ?? (() => {
+        const info = vaultCredentialInfo(sourceType)
+        if (info.unsupported) {
+          warnings.push(`n8n authenticates “${info.sourceDisplayName ?? sourceType}” programmatically — connect it as an integration or configure the step's auth manually.`)
+        }
+        return { key, sourceType, name: name || info.sourceDisplayName || sourceType, ...info, nodeIds: [] as string[] }
+      })()
       group.nodeIds.push(nodeId)
       credentialGroups.set(key, group)
     }
