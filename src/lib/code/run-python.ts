@@ -1,85 +1,140 @@
 /**
  * The Code node's Python runner — CPython compiled to WASM (Pyodide).
  *
- * Architecture:
- *   - ONE interpreter per process, loaded lazily. The load costs seconds; the
- *     BullMQ worker keeps it warm, the serverless test-node route pays it on
- *     cold start only.
- *   - Runs are SERIALIZED through a promise-chain mutex: the interpreter,
- *     its stdout hook, and the interrupt buffer are shared state.
- *   - Each run gets a FRESH globals dict (`pyodide.toPy({...})`), so no
- *     variable, import, or secret ever bleeds from one step's code into
- *     another's — the state-isolation contract the tests pin.
+ * SECURITY BOUNDARY:
+ *   - Every invocation gets a fresh worker, interpreter, JS isolate, and
+ *     in-memory filesystem. Nothing survives into another user's run.
+ *   - Pyodide's `js` module is backed by an empty object, never `globalThis`,
+ *     so guest Python cannot reach Node's process/env/modules or host fetch.
+ *   - Python receives an explicit minimal environment rather than inheriting
+ *     the worker process environment.
+ *   - The parent owns the wall-clock deadline and terminates blocked WASM.
+ *     V8 heap/stack limits constrain the worker independently of the server.
  *
- * TIMEOUTS — the part that is easy to get wrong: Python executes on the Node
- * main thread, so a `while True:` blocks the event loop and no Promise.race
- * timer can ever fire. Enforcement uses Pyodide's interrupt buffer instead:
- * a watchdog `worker_threads` Worker (source passed inline via `eval: true`,
- * so nothing needs bundling) sleeps for the timeout and then writes SIGINT
- * into a SharedArrayBuffer, which the interpreter checks between bytecodes
- * and raises as KeyboardInterrupt. Execution goes through a sync eval_code
- * helper called in OUR JS frame — never runPythonAsync, whose webloop
- * scheduling re-raises an interrupt as an uncatchable second error out of a
- * setTimeout handle (a worker-crashing uncaughtException). Python code is
- * therefore sync-only (no top-level await), matching n8n's Python node.
- *
- * Output contract mirrors run-js: the final expression's value, forced
- * through Python's json.dumps — so a step's output is JSON-serializable by
- * construction and lambdas/objects fail with a clear message.
+ * No host objects cross the boundary: input and output are structured-cloned
+ * JSON values and logs are bounded inside the worker before being returned.
  */
 import { Worker } from 'node:worker_threads'
 import type { CodeRunResult } from './run-js'
-import { CODE_DEFAULT_TIMEOUT_MS, CODE_MAX_TIMEOUT_MS, createLogSink, jsonSafeError, toJsonSafe } from './run-js'
+import {
+  CODE_DEFAULT_TIMEOUT_MS,
+  CODE_MAX_LOG_LINE_CHARS,
+  CODE_MAX_LOG_LINES,
+  CODE_MAX_MEMORY_BYTES,
+  CODE_MAX_OUTPUT_CHARS,
+  CODE_MAX_STACK_BYTES,
+} from './run-js'
 
-type Pyodide = Awaited<ReturnType<typeof import('pyodide').loadPyodide>>
-
-const SIGINT = 2
+const PYTHON_STARTUP_TIMEOUT_MS = 30_000
 
 const clampTimeout = (value: number | undefined) =>
-  Math.max(50, Math.min(CODE_MAX_TIMEOUT_MS, value ?? CODE_DEFAULT_TIMEOUT_MS))
+  Math.max(50, Math.min(60_000, value ?? CODE_DEFAULT_TIMEOUT_MS))
 
-let pyodidePromise: Promise<Pyodide> | null = null
-let interruptBuffer: Uint8Array<SharedArrayBuffer> | null = null
+const PYTHON_HELPERS = `
+import json
+import textwrap
+from pyodide.code import eval_code
 
-async function getPyodide(): Promise<Pyodide> {
-  pyodidePromise ??= (async () => {
-    const { loadPyodide } = await import('pyodide')
-    const pyodide = await loadPyodide()
-    interruptBuffer = new Uint8Array(new SharedArrayBuffer(1))
-    pyodide.setInterruptBuffer(interruptBuffer)
-    // Helpers live in the DEFAULT globals; user code runs with its own
-    // globals dict and never sees them. `_sublime_run` matters: eval_code
-    // called DIRECTLY from JS executes in our call frame, synchronously —
-    // unlike runPythonAsync, which schedules a webloop handle (a JS
-    // setTimeout) where a KeyboardInterrupt raises twice: once into our
-    // promise and once, uncatchably, out of the handle — an uncaughtException
-    // that would crash the worker process. The cost is no top-level `await`
-    // in Python code (n8n's Python node is sync-only as well).
-    // User code is wrapped in a function, so a top-level `return` works —
-    // n8n's Python snippets end in `return _items` and must run unchanged.
-    pyodide.runPython(
-      'import json\n'
-      + 'import textwrap\n'
-      + 'from pyodide.code import eval_code\n'
-      + 'def _sublime_dumps(value):\n'
-      + '    return json.dumps(value)\n'
-      + 'def _sublime_run(code, globals):\n'
-      + '    body = textwrap.indent(code, "    ") or "    pass"\n'
-      + '    eval_code("def _sublime_main():\\n" + body, globals=globals, filename="code-node.py")\n'
-      + '    return globals["_sublime_main"]()\n',
-    )
-    return pyodide
-  })()
-  return pyodidePromise
+def _sublime_dumps(value):
+    return json.dumps(value)
+
+def _sublime_run(code, globals):
+    body = textwrap.indent(code, "    ") or "    pass"
+    eval_code("def _sublime_main():\\n" + body, globals=globals, filename="code-node.py")
+    return globals["_sublime_main"]()
+`
+
+/**
+ * Kept inline so Next/Vercel does not need to deploy a second worker entry.
+ * `require.resolve('pyodide')` below keeps the package visible to output-file
+ * tracing; the resolved entry is passed in rather than resolved from eval.
+ */
+const WORKER_SOURCE = `
+const { parentPort, workerData } = require('node:worker_threads')
+const { pathToFileURL } = require('node:url')
+
+const send = (message) => parentPort.postMessage(message)
+
+function pythonErrorSummary(message) {
+  const lines = String(message).trimEnd().split('\\n')
+  const start = lines.findIndex((line) => line.includes('File "code-node.py"') || line.includes('File "<exec>"'))
+  return (start >= 0 ? lines.slice(start) : lines.slice(-3)).join('\\n')
 }
 
-/** Sleeps off-thread, then raises KeyboardInterrupt in the interpreter. */
-const WATCHDOG_SOURCE =
-  "const { workerData } = require('node:worker_threads');"
-  + 'setTimeout(() => { workerData.buffer[0] = workerData.signal }, workerData.timeoutMs);'
+function jsonError(reason) {
+  return reason === 'too-large'
+    ? 'Code returned too large a result (over ' + Math.round(workerData.maxOutputChars / 1000) + 'k characters). Return a summary or fewer fields.'
+    : 'Code must return JSON-serializable data (no functions, classes, or cycles).'
+}
 
-// The mutex: each run chains onto the previous one's completion.
-let chain: Promise<unknown> = Promise.resolve()
+void (async () => {
+  let run
+  let globals
+  let value
+  try {
+    const { loadPyodide } = await import(pathToFileURL(workerData.pyodideEntry).href)
+    const pyodide = await loadPyodide({
+      // The default is globalThis, which exposes process.env and fetch. An
+      // empty null-prototype bridge makes `import js` harmless by design.
+      jsglobals: Object.freeze(Object.create(null)),
+      env: { HOME: '/home/pyodide', LANG: 'C.UTF-8' },
+      stdout: () => undefined,
+      stderr: () => undefined,
+    })
+    const lines = []
+    let dropped = 0
+    const pushLog = (line) => {
+      if (lines.length >= workerData.maxLogLines) {
+        dropped += 1
+        return
+      }
+      const text = String(line)
+      lines.push(text.length > workerData.maxLogLineChars
+        ? text.slice(0, workerData.maxLogLineChars) + '… (truncated)'
+        : text)
+    }
+    const logs = () => dropped > 0
+      ? [...lines, '… ' + dropped + ' more line' + (dropped === 1 ? '' : 's') + ' not shown']
+      : lines
+    pyodide.setStdout({ batched: pushLog })
+    pyodide.setStderr({ batched: pushLog })
+    pyodide.runPython(workerData.helpers)
+    globals = pyodide.toPy({
+      _items: workerData.items,
+      ...(workerData.hasItem ? { _item: workerData.item } : {}),
+    })
+    run = pyodide.globals.get('_sublime_run')
+    value = run(workerData.code, globals)
+    const dumps = pyodide.globals.get('_sublime_dumps')
+    let text
+    try {
+      text = dumps(value)
+    } finally {
+      dumps.destroy()
+    }
+    if (text.length > workerData.maxOutputChars) {
+      send({ type: 'result', result: { ok: false, error: jsonError('too-large'), logs: logs() } })
+      return
+    }
+    send({ type: 'result', result: { ok: true, output: JSON.parse(text), logs: logs() } })
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    const unserializable = message.includes('JSONDecodeError') || message.includes('not JSON serializable')
+    send({
+      type: 'result',
+      result: {
+        ok: false,
+        error: unserializable ? jsonError('unserializable') : pythonErrorSummary(message),
+        logs: [],
+      },
+    })
+  } finally {
+    try { value && typeof value.destroy === 'function' && value.destroy() } catch {}
+    try { run && run.destroy() } catch {}
+    try { globals && globals.destroy() } catch {}
+  }
+})()
+`
 
 export async function runPython(params: {
   code: string
@@ -87,102 +142,71 @@ export async function runPython(params: {
   item?: unknown
   timeoutMs?: number
 }): Promise<CodeRunResult> {
-  const run = chain.then(() => runExclusively(params))
-  // The chain must survive a rejected run, or one failure would wedge every
-  // Python step that follows it.
-  chain = run.catch(() => undefined)
-  return run
-}
-
-async function runExclusively(params: {
-  code: string
-  items: unknown[]
-  item?: unknown
-  timeoutMs?: number
-}): Promise<CodeRunResult> {
   const timeoutMs = clampTimeout(params.timeoutMs)
-  // Same bounds as the JS engine — a step's logs are held in memory and its
-  // output is persisted, so neither may be unbounded.
-  const sink = createLogSink()
-  const logs = { get value() { return sink.drain() } }
-  let pyodide: Pyodide
+  let pyodideEntry: string
   try {
-    pyodide = await getPyodide()
+    pyodideEntry = require.resolve('pyodide')
   } catch (error) {
-    return { ok: false, error: `Python runtime failed to start: ${error instanceof Error ? error.message : String(error)}`, logs: logs.value }
+    return {
+      ok: false,
+      error: `Python runtime failed to start: ${error instanceof Error ? error.message : String(error)}`,
+      logs: [],
+    }
   }
 
-  interruptBuffer![0] = 0
-  pyodide.setStdout({ batched: (line) => sink.push(line) })
-  pyodide.setStderr({ batched: (line) => sink.push(line) })
+  return new Promise<CodeRunResult>((resolve) => {
+    const worker = new Worker(WORKER_SOURCE, {
+      eval: true,
+      workerData: {
+        pyodideEntry,
+        helpers: PYTHON_HELPERS,
+        code: params.code,
+        items: structuredClone(params.items),
+        item: params.item === undefined ? null : structuredClone(params.item),
+        hasItem: params.item !== undefined,
+        maxLogLines: CODE_MAX_LOG_LINES,
+        maxLogLineChars: CODE_MAX_LOG_LINE_CHARS,
+        maxOutputChars: CODE_MAX_OUTPUT_CHARS,
+      },
+      resourceLimits: {
+        maxOldGenerationSizeMb: Math.ceil(CODE_MAX_MEMORY_BYTES / 1024 / 1024),
+        maxYoungGenerationSizeMb: 16,
+        stackSizeMb: Math.max(1, Math.ceil(CODE_MAX_STACK_BYTES / 1024 / 1024)),
+      },
+    })
+    let settled = false
+    let executionTimer: NodeJS.Timeout | null = null
+    const startupTimer = setTimeout(() => finish({
+      ok: false,
+      error: 'Python runtime failed to start within 30 seconds.',
+      logs: [],
+    }), PYTHON_STARTUP_TIMEOUT_MS)
 
-  const watchdog = new Worker(WATCHDOG_SOURCE, {
-    eval: true,
-    workerData: { buffer: interruptBuffer, timeoutMs, signal: SIGINT },
+    function finish(result: CodeRunResult) {
+      if (settled) return
+      settled = true
+      clearTimeout(startupTimer)
+      if (executionTimer) clearTimeout(executionTimer)
+      worker.terminate().catch(() => undefined)
+      resolve(result)
+    }
+
+    // Pyodide initialization happens before user code. Start the user deadline
+    // on the first worker message; current workers return only a final result,
+    // so the startup ceiling remains the conservative outer bound as well.
+    executionTimer = setTimeout(() => finish({
+      ok: false,
+      error: `Code timed out after ${timeoutMs}ms.`,
+      logs: [],
+    }), timeoutMs + PYTHON_STARTUP_TIMEOUT_MS)
+
+    worker.once('message', (message: { type?: string; result?: CodeRunResult }) => {
+      if (message?.type === 'result' && message.result) finish(message.result)
+      else finish({ ok: false, error: 'Python runtime returned an invalid response.', logs: [] })
+    })
+    worker.once('error', (error) => finish({ ok: false, error: `Python runtime failed: ${error.message}`, logs: [] }))
+    worker.once('exit', (code) => {
+      if (!settled) finish({ ok: false, error: `Python runtime stopped unexpectedly (exit ${code}).`, logs: [] })
+    })
   })
-
-  // toPy deep-converts to real Python lists/dicts; this dict IS the run's
-  // entire global namespace, discarded afterwards.
-  const globals = pyodide.toPy({
-    _items: params.items,
-    ...(params.item !== undefined ? { _item: params.item } : {}),
-  })
-  const run = pyodide.globals.get('_sublime_run')
-  try {
-    // Synchronous single-frame execution — see the _sublime_run note above.
-    const value = run(params.code, globals)
-    return { ok: true, output: serialize(pyodide, value), logs: logs.value }
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error)
-    if (interruptBuffer![0] !== 0 || message.includes('KeyboardInterrupt')) {
-      return { ok: false, error: `Code timed out after ${timeoutMs}ms.`, logs: logs.value }
-    }
-    if (message.includes('JSONDecodeError') || message.includes('not JSON serializable')) {
-      return { ok: false, error: jsonSafeError('unserializable'), logs: logs.value }
-    }
-    if (message.includes('SUBLIME_OUTPUT_TOO_LARGE')) {
-      return { ok: false, error: jsonSafeError('too-large'), logs: logs.value }
-    }
-    return { ok: false, error: pythonErrorSummary(message), logs: logs.value }
-  } finally {
-    watchdog.terminate().catch(() => undefined)
-    run.destroy()
-    globals.destroy()
-    // Reset stdio so nothing later in the process writes into this run's logs.
-    pyodide.setStdout()
-    pyodide.setStderr()
-  }
-}
-
-/** Force the result through json.dumps inside the interpreter. */
-function serialize(pyodide: Pyodide, value: unknown): unknown {
-  if (value === undefined || value === null) return null
-  // Primitives (int/float/str/bool) come back as JS values already.
-  if (typeof value !== 'object' && typeof value !== 'function') {
-    return value
-  }
-  const dumps = pyodide.globals.get('_sublime_dumps')
-  const proxy = value as { destroy?: () => void }
-  try {
-    // json.dumps inside the interpreter proves serializability; the shared
-    // gate then applies the SAME size ceiling the JS engine uses.
-    const text: string = dumps(value)
-    const safe = toJsonSafe(JSON.parse(text))
-    if (!safe.ok) throw new Error(safe.reason === 'too-large' ? 'SUBLIME_OUTPUT_TOO_LARGE' : 'not JSON serializable')
-    return safe.value
-  } finally {
-    dumps.destroy()
-    proxy.destroy?.()
-  }
-}
-
-/**
- * The last lines of a Python traceback carry the story ("ValueError: bad
- * input" plus the offending line); the Pyodide-internal frames above them are
- * noise for a flow author.
- */
-function pythonErrorSummary(message: string): string {
-  const lines = message.trimEnd().split('\n')
-  const start = lines.findIndex((line) => line.includes('File "code-node.py"') || line.includes('File "<exec>"'))
-  return (start >= 0 ? lines.slice(start) : lines.slice(-3)).join('\n')
 }

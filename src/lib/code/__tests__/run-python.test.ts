@@ -47,10 +47,45 @@ test('print() output is captured as logs', async () => {
   assert.deepEqual(result.ok && result.logs, ['hello 42'])
 })
 
-test('state does not bleed between runs', async () => {
+test('Python globals do not bleed between runs', async () => {
   await runPython({ code: 'leaked = "secret"', items: [] })
   const result = await runPython({ code: 'return "leaked" in globals()', items: [] })
   assert.equal(result.ok && result.output, false)
+})
+
+test('the virtual filesystem does not bleed between runs', async () => {
+  await runPython({
+    code: 'with open("/tmp/tenant-secret", "w") as handle:\n    handle.write("tenant-a")\nreturn True',
+    items: [],
+  })
+  const result = await runPython({
+    code: 'import os\nreturn os.path.exists("/tmp/tenant-secret")',
+    items: [],
+  })
+  assert.equal(result.ok && result.output, false)
+})
+
+test('the Pyodide JS bridge exposes no Node process or host network', async () => {
+  const result = await runPython({
+    code: 'import js\nreturn {"process": hasattr(js, "process"), "fetch": hasattr(js, "fetch")}',
+    items: [],
+  })
+  assert.deepEqual(result.ok && result.output, { process: false, fetch: false })
+})
+
+test('Python receives a scrubbed environment rather than worker secrets', async () => {
+  const previous = process.env.SUBLIME_PYTHON_ISOLATION_SENTINEL
+  process.env.SUBLIME_PYTHON_ISOLATION_SENTINEL = 'must-not-cross'
+  try {
+    const result = await runPython({
+      code: 'import os\nreturn os.environ.get("SUBLIME_PYTHON_ISOLATION_SENTINEL")',
+      items: [],
+    })
+    assert.equal(result.ok && result.output, null)
+  } finally {
+    if (previous === undefined) delete process.env.SUBLIME_PYTHON_ISOLATION_SENTINEL
+    else process.env.SUBLIME_PYTHON_ISOLATION_SENTINEL = previous
+  }
 })
 
 test('a Python exception surfaces its message, not a host crash', async () => {
@@ -77,8 +112,8 @@ test('code without a return comes back as null output', async () => {
 })
 
 test('a runaway sync loop is interrupted by the timeout', async () => {
-  // Sync Python blocks the Node event loop, so a Promise.race alone can never
-  // fire — this only passes if the interrupt-buffer watchdog actually works.
+  // Sync Python blocks its worker, but the parent remains able to enforce the
+  // deadline by terminating the entire isolated interpreter.
   const result = await runPython({ code: 'while True:\n    pass', items: [], timeoutMs: 500 })
   assert.equal(result.ok, false)
   assert.match(!result.ok ? result.error : '', /timed out/i)
