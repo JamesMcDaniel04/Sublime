@@ -13,6 +13,10 @@ import React from 'react'
 import { render, cleanup, screen, waitFor } from '@testing-library/react'
 import { GranolaKeyPanel } from '../granola-key-panel'
 
+// tsconfig.test uses the classic JSX transform while the app uses Next's
+// automatic runtime; shared primitives therefore expect React in test global.
+;(globalThis as { React?: typeof React }).React = React
+
 afterEach(cleanup)
 
 function mockState(state: { configured: boolean; source: 'user' | null }) {

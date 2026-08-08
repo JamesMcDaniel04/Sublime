@@ -1,5 +1,6 @@
 import { test, before, after } from 'node:test'
 import assert from 'node:assert/strict'
+import crypto from 'node:crypto'
 import { NextRequest } from 'next/server'
 
 const TEST_DB = process.env.TEST_DATABASE_URL
@@ -63,6 +64,43 @@ if (TEST_DB) {
     assert.ok(!JSON.stringify(row.botToken).includes('xoxb-live-token'))
     const res2 = await POST(jsonReq('POST', { botToken: 'xoxb-rotated', signingSecret: 'sig-secret-2' }))
     assert.equal((await res2.json()).connection.id, data.connection.id)
+  })
+
+  test('workspace members cannot list, execute, or delete another member\'s Slack credential', async () => {
+    const { POST, GET, DELETE } = await import('@/app/api/slack/connections/route')
+    const owner = await prisma.slackWorkspaceConnection.findFirstOrThrow({
+      where: { organizationId: seeded.organizationId, userId: seeded.userId },
+    })
+    const other = await prisma.user.create({
+      data: {
+        supabaseId: crypto.randomUUID(),
+        organizationId: seeded.organizationId,
+        isActive: true,
+        role: 'MEMBER',
+      },
+    })
+    const { installTestAuth, makeTestAuthContext } = await import('@/lib/server/__tests__/test-auth')
+    installTestAuth(makeTestAuthContext({
+      organizationId: seeded.organizationId,
+      userId: other.supabaseId,
+      dbUser: other,
+      user: { id: other.supabaseId } as never,
+      role: 'MEMBER',
+    }))
+    try {
+      const list = await (await GET(jsonReq('GET'))).json()
+      assert.equal(list.connections.length, 0)
+      const denied = await DELETE(jsonReq('DELETE', undefined, `?id=${owner.id}`))
+      assert.equal(denied.status, 404)
+
+      const connected = await POST(jsonReq('POST', { botToken: 'xoxb-other', signingSecret: 'sig-other' }))
+      assert.equal(connected.status, 200)
+      const otherId = (await connected.json()).connection.id
+      assert.notEqual(otherId, owner.id, 'the same Slack team is a separate user-owned credential')
+      await DELETE(jsonReq('DELETE', undefined, `?id=${otherId}`))
+    } finally {
+      installTestAuth(seeded.auth)
+    }
   })
 
   test('GET lists redacted bindings; DELETE removes the row', async () => {

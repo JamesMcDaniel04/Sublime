@@ -213,6 +213,62 @@ if (TEST_DB) {
       assert.equal(body.flow.stepCount, 1)
     })
 
+    await t.test('multi-flow imports reserve the whole request and cannot cross a plan cap', async () => {
+      const capped = await seedTestOrg(prisma, { plan: 'STARTER' as never })
+      installTestAuth(capped.auth)
+      try {
+        for (let index = 0; index < 4; index += 1) {
+          await prisma.flow.create({
+            data: { name: `Existing ${index}`, organizationId: capped.organizationId, userId: capped.userId },
+          })
+        }
+        const response = await POST(post({
+          document: JSON.stringify({
+            id: 'over-cap-two-doors',
+            name: 'Two more doors',
+            nodes: [
+              { parameters: { path: 'a' }, id: 'w1', name: 'Door A', type: 'n8n-nodes-base.webhook', typeVersion: 2, position: [0, 0] },
+              { parameters: { path: 'b' }, id: 'w2', name: 'Door B', type: 'n8n-nodes-base.webhook', typeVersion: 2, position: [0, 200] },
+            ],
+            connections: {},
+          }),
+        }))
+        assert.equal(response.status, 403)
+        assert.equal((await response.json()).code, 'PLAN_LIMIT')
+        assert.equal(await prisma.flow.count({ where: { organizationId: capped.organizationId } }), 4)
+      } finally {
+        await capped.cleanup()
+        installTestAuth(seeded.auth)
+      }
+    })
+
+    await t.test('concurrent imports serialize capacity so only one claims the final slot', async () => {
+      const capped = await seedTestOrg(prisma, { plan: 'STARTER' as never })
+      installTestAuth(capped.auth)
+      try {
+        for (let index = 0; index < 4; index += 1) {
+          await prisma.flow.create({
+            data: { name: `Existing ${index}`, organizationId: capped.organizationId, userId: capped.userId },
+          })
+        }
+        const oneFlow = (id: string) => ({ document: JSON.stringify({
+          id,
+          name: `Concurrent ${id}`,
+          nodes: [{ parameters: {}, id: `trigger-${id}`, name: 'Manual', type: 'n8n-nodes-base.manualTrigger', typeVersion: 1, position: [0, 0] }],
+          connections: {},
+        }) })
+        const responses = await Promise.all([
+          POST(post(oneFlow('a'))),
+          POST(post(oneFlow('b'))),
+        ])
+        assert.deepEqual(responses.map((response) => response.status).sort(), [200, 403])
+        assert.equal(await prisma.flow.count({ where: { organizationId: capped.organizationId } }), 5)
+      } finally {
+        await capped.cleanup()
+        installTestAuth(seeded.auth)
+      }
+    })
+
     await t.test('400 on invalid JSON', async () => {
       const response = await POST(post({ document: 'not json {' }))
       assert.equal(response.status, 400)
