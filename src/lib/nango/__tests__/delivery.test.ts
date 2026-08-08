@@ -277,3 +277,88 @@ test('chooseDeliveryConnection: own first, then org-shared, NEVER another user\'
   // No acting user: org-shared only.
   assert.equal(chooseDeliveryConnection([foreign, shared], null), shared)
 })
+
+// ── Round 3: big-four operation depth ───────────────────────────────────────
+
+test('slackUpdateMessage proxies chat.update with channel + ts + text', async () => {
+  const { slackUpdateMessage } = await import('../delivery')
+  const { calls, proxy } = recordingProxy()
+  await slackUpdateMessage(connection, { channel: 'C1', ts: '171.001', text: 'edited' }, proxy)
+  assert.equal(calls[0].method, 'POST')
+  assert.equal(calls[0].endpoint, '/chat.update')
+  assert.deepEqual(calls[0].data, { channel: 'C1', ts: '171.001', text: 'edited' })
+})
+
+test('slackGetChannelHistory proxies conversations.history with params', async () => {
+  const { slackGetChannelHistory } = await import('../delivery')
+  const { calls, proxy } = recordingProxy()
+  await slackGetChannelHistory(connection, { channel: 'C1', limit: 25 }, proxy)
+  assert.equal(calls[0].method, 'GET')
+  assert.equal(calls[0].endpoint, '/conversations.history')
+  assert.deepEqual(calls[0].params, { channel: 'C1', limit: '25' })
+})
+
+test('slackAddReaction proxies reactions.add', async () => {
+  const { slackAddReaction } = await import('../delivery')
+  const { calls, proxy } = recordingProxy()
+  await slackAddReaction(connection, { channel: 'C1', timestamp: '171.001', name: 'tada' }, proxy)
+  assert.equal(calls[0].endpoint, '/reactions.add')
+  assert.deepEqual(calls[0].data, { channel: 'C1', timestamp: '171.001', name: 'tada' })
+})
+
+test('gmail get/list/trash proxy the messages API', async () => {
+  const { gmailGetMessage, gmailListMessages, gmailTrashMessage } = await import('../delivery')
+  const gmailConn = { connectionId: 'c', providerConfigKey: 'google-mail', scope: 'org' as const }
+  const one = recordingProxy()
+  await gmailGetMessage(gmailConn, { id: 'm1' }, one.proxy)
+  assert.equal(one.calls[0].method, 'GET')
+  assert.equal(one.calls[0].endpoint, '/gmail/v1/users/me/messages/m1')
+
+  const list = recordingProxy()
+  await gmailListMessages(gmailConn, { query: 'from:a@b.co', maxResults: 10 }, list.proxy)
+  assert.equal(list.calls[0].endpoint, '/gmail/v1/users/me/messages')
+  assert.deepEqual(list.calls[0].params, { q: 'from:a@b.co', maxResults: '10' })
+
+  const trash = recordingProxy()
+  await gmailTrashMessage(gmailConn, { id: 'm1' }, trash.proxy)
+  assert.equal(trash.calls[0].method, 'POST')
+  assert.equal(trash.calls[0].endpoint, '/gmail/v1/users/me/messages/m1/trash')
+})
+
+test('sheetsClearValues proxies the clear endpoint', async () => {
+  const { sheetsClearValues } = await import('../delivery')
+  const sheetsConn = { connectionId: 'c', providerConfigKey: 'google-sheet', scope: 'org' as const }
+  const { calls, proxy } = recordingProxy()
+  await sheetsClearValues(sheetsConn, { spreadsheetId: 's1', range: 'Sheet1!A1:B2' }, proxy)
+  assert.equal(calls[0].method, 'POST')
+  assert.equal(calls[0].endpoint, '/v4/spreadsheets/s1/values/Sheet1!A1%3AB2:clear')
+})
+
+test('salesforce update/get/query proxy the REST API', async () => {
+  const { salesforceUpdateRecord, salesforceGetRecord, salesforceQuery } = await import('../delivery')
+  const sfConn = { connectionId: 'c', providerConfigKey: 'salesforce', scope: 'org' as const }
+  const update = recordingProxy()
+  await salesforceUpdateRecord(sfConn, { sobject: 'Lead', id: 'L1', fields: { Status: 'Working' } }, update.proxy)
+  assert.equal(update.calls[0].method, 'PATCH')
+  assert.equal(update.calls[0].endpoint, '/services/data/v60.0/sobjects/Lead/L1')
+  assert.deepEqual(update.calls[0].data, { Status: 'Working' })
+
+  const get = recordingProxy()
+  await salesforceGetRecord(sfConn, { sobject: 'Lead', id: 'L1' }, get.proxy)
+  assert.equal(get.calls[0].method, 'GET')
+  assert.equal(get.calls[0].endpoint, '/services/data/v60.0/sobjects/Lead/L1')
+
+  const query = recordingProxy()
+  await salesforceQuery(sfConn, { soql: 'SELECT Id FROM Lead' }, query.proxy)
+  assert.equal(query.calls[0].endpoint, '/services/data/v60.0/query')
+  assert.deepEqual(query.calls[0].params, { q: 'SELECT Id FROM Lead' })
+})
+
+test('the new tools are registered in DELIVERY_TOOLS with schemas', () => {
+  const names = new Set(DELIVERY_TOOLS.map((tool) => tool.name))
+  for (const expected of [
+    'slack_update_message', 'slack_get_channel_history', 'slack_add_reaction',
+    'gmail_get_message', 'gmail_list_messages', 'gmail_trash_message',
+    'sheets_clear_values', 'salesforce_update_record', 'salesforce_get_record', 'salesforce_query',
+  ]) assert.ok(names.has(expected), `${expected} missing from DELIVERY_TOOLS`)
+})

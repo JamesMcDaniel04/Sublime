@@ -1306,3 +1306,51 @@ test('calendar and drive triggers poll their list tools; unknown pollers stay ma
   assert.equal(airtable.trigger.type, 'manual')
   assert.ok(airtable.warnings.some((w) => w.includes('airtableTrigger')))
 })
+
+test('slack update/history/reaction operations map to the new slack tools', () => {
+  const updated = singleNode('slack', { resource: 'message', operation: 'update', channelId: { __rl: true, value: 'C1' }, ts: '171.001', text: 'edited' }, 2.2)
+  assert.equal(toolNode(updated).data.toolName, 'slack_update_message')
+  assert.deepEqual(JSON.parse(toolNode(updated).data.args!), { channel: 'C1', ts: '171.001', text: 'edited' })
+
+  const history = singleNode('slack', { resource: 'channel', operation: 'history', channelId: { __rl: true, value: 'C1' }, limit: 25 }, 2.2)
+  assert.equal(toolNode(history).data.toolName, 'slack_get_channel_history')
+  assert.deepEqual(JSON.parse(toolNode(history).data.args!), { channel: 'C1', limit: 25 })
+
+  const reacted = singleNode('slack', { resource: 'reaction', operation: 'add', channelId: { __rl: true, value: 'C1' }, timestamp: '171.001', name: 'tada' }, 2.2)
+  assert.equal(toolNode(reacted).data.toolName, 'slack_add_reaction')
+  assert.deepEqual(JSON.parse(toolNode(reacted).data.args!), { channel: 'C1', timestamp: '171.001', name: 'tada' })
+})
+
+test('gmail get/getAll/trash operations map to the new gmail tools', () => {
+  const got = singleNode('gmail', { resource: 'message', operation: 'get', messageId: 'm1' }, 2.1)
+  assert.equal(toolNode(got).data.toolName, 'gmail_get_message')
+  assert.deepEqual(JSON.parse(toolNode(got).data.args!), { id: 'm1' })
+
+  const listed = singleNode('gmail', { resource: 'message', operation: 'getAll', filters: { q: 'is:unread' }, limit: 10 }, 2.1)
+  assert.equal(toolNode(listed).data.toolName, 'gmail_list_messages')
+  assert.deepEqual(JSON.parse(toolNode(listed).data.args!), { query: 'is:unread', max_results: 10 })
+
+  const trashed = singleNode('gmail', { resource: 'message', operation: 'trash', messageId: 'm2' }, 2.1)
+  assert.equal(toolNode(trashed).data.toolName, 'gmail_trash_message')
+  assert.deepEqual(JSON.parse(toolNode(trashed).data.args!), { id: 'm2' })
+})
+
+test('sheets clear and salesforce update/get/query map to the new tools', () => {
+  const cleared = singleNode('googleSheets', {
+    operation: 'clear', documentId: { __rl: true, value: 'doc1' }, sheetName: { __rl: true, value: 'gid=0', cachedResultName: 'Leads' },
+  }, 4)
+  assert.equal(toolNode(cleared).data.toolName, 'sheets_clear_values')
+  assert.deepEqual(JSON.parse(toolNode(cleared).data.args!), { spreadsheet_id: 'doc1', range: 'Leads' })
+
+  const updated = singleNode('salesforce', { resource: 'lead', operation: 'update', leadId: 'L1' })
+  assert.equal(toolNode(updated).data.toolName, 'salesforce_update_record')
+  assert.deepEqual(JSON.parse(toolNode(updated).data.args!), { sobject: 'Lead', id: 'L1', fields: {} })
+
+  const got = singleNode('salesforce', { resource: 'contact', operation: 'get', contactId: 'C1' })
+  assert.equal(toolNode(got).data.toolName, 'salesforce_get_record')
+  assert.deepEqual(JSON.parse(toolNode(got).data.args!), { sobject: 'Contact', id: 'C1' })
+
+  const queried = singleNode('salesforce', { resource: 'search', operation: 'query', query: 'SELECT Id FROM Lead' })
+  assert.equal(toolNode(queried).data.toolName, 'salesforce_query')
+  assert.deepEqual(JSON.parse(toolNode(queried).data.args!), { soql: 'SELECT Id FROM Lead' })
+})

@@ -968,33 +968,48 @@ function mapNode(node: N8nNode, id: string, warnings: string[]): Mapped {
     // disconnected one gets the standard missing-integration prompt — far
     // better than an HTTP stub.
     case 'slack': {
-      if ((asString(p.resource) || 'message') === 'message' && (asString(p.operation) || 'post') === 'post') {
-        const channel = isRecord(p.channelId) ? asString(p.channelId.value) : asString(p.channelId ?? p.channel)
-        return {
-          kind: 'node',
-          node: {
-            id, type: 'tool',
-            data: { label, connectionId: 'nango:slack', toolName: 'slack_post_message', args: JSON.stringify({ channel, text: asString(p.text) }) },
-          },
-        }
+      const resource = asString(p.resource) || 'message'
+      const operation = asString(p.operation) || 'post'
+      const channel = isRecord(p.channelId) ? asString(p.channelId.value) : asString(p.channelId ?? p.channel)
+      const slackTool = (toolName: string, args: Record<string, unknown>) =>
+        ({ kind: 'node' as const, node: { id, type: 'tool' as const, data: { label, connectionId: 'nango:slack', toolName, args: JSON.stringify(args) } } })
+      if (resource === 'message' && operation === 'post') {
+        return slackTool('slack_post_message', { channel, text: asString(p.text) })
       }
-      warnings.push(`"${label}" used a Slack action beyond posting a message — rebuild it with your Slack connection's actions.`)
+      if (resource === 'message' && operation === 'update') {
+        return slackTool('slack_update_message', { channel, ts: asString(p.ts), text: asString(p.text) })
+      }
+      if (resource === 'channel' && operation === 'history') {
+        return slackTool('slack_get_channel_history', { channel, ...(Number(p.limit) > 0 ? { limit: Number(p.limit) } : {}) })
+      }
+      if (resource === 'reaction' && operation === 'add') {
+        return slackTool('slack_add_reaction', { channel, timestamp: asString(p.timestamp ?? p.ts), name: asString(p.name ?? p.emojiName) })
+      }
+      warnings.push(`"${label}" used a Slack action beyond post/update/history/reaction — rebuild it with your Slack connection's actions.`)
       return stub()
     }
     case 'gmail': {
-      if ((asString(p.resource) || 'message') === 'message' && (asString(p.operation) || 'send') === 'send') {
-        return {
-          kind: 'node',
-          node: {
-            id, type: 'tool',
-            data: {
-              label, connectionId: 'nango:gmail', toolName: 'gmail_send_email',
-              args: JSON.stringify({ to: asString(p.sendTo ?? p.to), subject: asString(p.subject), body: asString(p.message ?? p.body) }),
-            },
-          },
-        }
+      const resource = asString(p.resource) || 'message'
+      const operation = asString(p.operation) || 'send'
+      const gmailTool = (toolName: string, args: Record<string, unknown>) =>
+        ({ kind: 'node' as const, node: { id, type: 'tool' as const, data: { label, connectionId: 'nango:gmail', toolName, args: JSON.stringify(args) } } })
+      if (resource === 'message' && operation === 'send') {
+        return gmailTool('gmail_send_email', { to: asString(p.sendTo ?? p.to), subject: asString(p.subject), body: asString(p.message ?? p.body) })
       }
-      warnings.push(`"${label}" used a Gmail action beyond sending an email — rebuild it with your Gmail connection's actions.`)
+      if (resource === 'message' && operation === 'get') {
+        return gmailTool('gmail_get_message', { id: asString(p.messageId) })
+      }
+      if (resource === 'message' && operation === 'getAll') {
+        const filters = isRecord(p.filters) ? p.filters : {}
+        return gmailTool('gmail_list_messages', {
+          ...(filters.q ? { query: asString(filters.q) } : {}),
+          ...(Number(p.limit) > 0 ? { max_results: Number(p.limit) } : {}),
+        })
+      }
+      if (resource === 'message' && operation === 'trash') {
+        return gmailTool('gmail_trash_message', { id: asString(p.messageId) })
+      }
+      warnings.push(`"${label}" used a Gmail action beyond send/get/list/trash — rebuild it with your Gmail connection's actions.`)
       return stub()
     }
     case 'googleSheets': {
@@ -1004,9 +1019,10 @@ function mapNode(node: N8nNode, id: string, warnings: string[]): Mapped {
       const toolName = operation === 'read' ? 'sheets_get_values'
         : operation === 'update' ? 'sheets_update_values'
         : operation === 'append' || operation === 'appendOrUpdate' ? 'sheets_append_rows'
+        : operation === 'clear' ? 'sheets_clear_values'
         : null
       if (toolName && spreadsheetId) {
-        if (toolName !== 'sheets_get_values') {
+        if (toolName === 'sheets_update_values' || toolName === 'sheets_append_rows') {
           warnings.push(`"${label}": map the row values on this Sheets step — n8n's column mapper does not translate.`)
         }
         return {
@@ -1017,25 +1033,32 @@ function mapNode(node: N8nNode, id: string, warnings: string[]): Mapped {
           },
         }
       }
-      warnings.push(`"${label}" used a Sheets action beyond read/update/append — rebuild it with your Sheets connection's actions.`)
+      warnings.push(`"${label}" used a Sheets action beyond read/update/append/clear — rebuild it with your Sheets connection's actions.`)
       return stub()
     }
     case 'salesforce': {
-      if (asString(p.operation) === 'create') {
-        const resource = asString(p.resource) || 'lead'
+      const operation = asString(p.operation)
+      const resource = asString(p.resource) || 'lead'
+      const sobject = resource === 'customObject' ? asString(p.customObject) : resource.charAt(0).toUpperCase() + resource.slice(1)
+      // n8n names the id param per resource: leadId, contactId, accountId, …
+      const recordId = asString(p[`${resource}Id`] ?? p.recordId)
+      const sfTool = (toolName: string, args: Record<string, unknown>) =>
+        ({ kind: 'node' as const, node: { id, type: 'tool' as const, data: { label, connectionId: 'nango:salesforce', toolName, args: JSON.stringify(args) } } })
+      if (operation === 'create') {
         warnings.push(`"${label}": map the record fields on this Salesforce step — n8n's per-field params do not translate.`)
-        return {
-          kind: 'node',
-          node: {
-            id, type: 'tool',
-            data: {
-              label, connectionId: 'nango:salesforce', toolName: 'salesforce_create_record',
-              args: JSON.stringify({ sobject: resource.charAt(0).toUpperCase() + resource.slice(1), fields: {} }),
-            },
-          },
-        }
+        return sfTool('salesforce_create_record', { sobject, fields: {} })
       }
-      warnings.push(`"${label}" used a Salesforce action beyond create — rebuild it with your Salesforce connection's actions.`)
+      if (operation === 'update' && recordId) {
+        warnings.push(`"${label}": map the record fields on this Salesforce step — n8n's per-field params do not translate.`)
+        return sfTool('salesforce_update_record', { sobject, id: recordId, fields: {} })
+      }
+      if (operation === 'get' && recordId) {
+        return sfTool('salesforce_get_record', { sobject, id: recordId })
+      }
+      if (resource === 'search' && operation === 'query') {
+        return sfTool('salesforce_query', { soql: asString(p.query) })
+      }
+      warnings.push(`"${label}" used a Salesforce action beyond create/update/get/query — rebuild it with your Salesforce connection's actions.`)
       return stub()
     }
     case 'github': {

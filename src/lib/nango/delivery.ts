@@ -219,6 +219,155 @@ export async function salesforceCreateRecord(
   return response.data
 }
 
+export async function slackUpdateMessage(
+  connection: DeliveryConnection,
+  args: { channel: string; ts: string; text: string },
+  proxy: NangoProxy = defaultProxy(),
+): Promise<unknown> {
+  const response = await proxy({
+    method: 'POST',
+    endpoint: '/chat.update',
+    connectionId: connection.connectionId,
+    providerConfigKey: connection.providerConfigKey,
+    data: { channel: args.channel, ts: args.ts, text: args.text },
+  })
+  return response.data
+}
+
+export async function slackGetChannelHistory(
+  connection: DeliveryConnection,
+  args: { channel: string; limit?: number },
+  proxy: NangoProxy = defaultProxy(),
+): Promise<unknown> {
+  const response = await proxy({
+    method: 'GET',
+    endpoint: '/conversations.history',
+    connectionId: connection.connectionId,
+    providerConfigKey: connection.providerConfigKey,
+    params: { channel: args.channel, ...(args.limit ? { limit: String(args.limit) } : {}) },
+  })
+  return response.data
+}
+
+export async function slackAddReaction(
+  connection: DeliveryConnection,
+  args: { channel: string; timestamp: string; name: string },
+  proxy: NangoProxy = defaultProxy(),
+): Promise<unknown> {
+  const response = await proxy({
+    method: 'POST',
+    endpoint: '/reactions.add',
+    connectionId: connection.connectionId,
+    providerConfigKey: connection.providerConfigKey,
+    data: { channel: args.channel, timestamp: args.timestamp, name: args.name },
+  })
+  return response.data
+}
+
+export async function gmailGetMessage(
+  connection: DeliveryConnection,
+  args: { id: string },
+  proxy: NangoProxy = defaultProxy(),
+): Promise<unknown> {
+  const response = await proxy({
+    method: 'GET',
+    endpoint: `/gmail/v1/users/me/messages/${encodeURIComponent(args.id)}`,
+    connectionId: connection.connectionId,
+    providerConfigKey: connection.providerConfigKey,
+  })
+  return response.data
+}
+
+export async function gmailListMessages(
+  connection: DeliveryConnection,
+  args: { query?: string; maxResults?: number },
+  proxy: NangoProxy = defaultProxy(),
+): Promise<unknown> {
+  const response = await proxy({
+    method: 'GET',
+    endpoint: '/gmail/v1/users/me/messages',
+    connectionId: connection.connectionId,
+    providerConfigKey: connection.providerConfigKey,
+    params: {
+      ...(args.query ? { q: args.query } : {}),
+      ...(args.maxResults ? { maxResults: String(args.maxResults) } : {}),
+    },
+  })
+  return response.data
+}
+
+export async function gmailTrashMessage(
+  connection: DeliveryConnection,
+  args: { id: string },
+  proxy: NangoProxy = defaultProxy(),
+): Promise<unknown> {
+  const response = await proxy({
+    method: 'POST',
+    endpoint: `/gmail/v1/users/me/messages/${encodeURIComponent(args.id)}/trash`,
+    connectionId: connection.connectionId,
+    providerConfigKey: connection.providerConfigKey,
+  })
+  return response.data
+}
+
+export async function sheetsClearValues(
+  connection: DeliveryConnection,
+  args: { spreadsheetId: string; range: string },
+  proxy: NangoProxy = defaultProxy(),
+): Promise<unknown> {
+  const response = await proxy({
+    method: 'POST',
+    endpoint: `/v4/spreadsheets/${encodeURIComponent(args.spreadsheetId)}/values/${encodeURIComponent(args.range)}:clear`,
+    connectionId: connection.connectionId,
+    providerConfigKey: connection.providerConfigKey,
+  })
+  return response.data
+}
+
+export async function salesforceUpdateRecord(
+  connection: DeliveryConnection,
+  args: { sobject: string; id: string; fields: Record<string, unknown> },
+  proxy: NangoProxy = defaultProxy(),
+): Promise<unknown> {
+  const response = await proxy({
+    method: 'PATCH',
+    endpoint: `/services/data/v60.0/sobjects/${args.sobject}/${encodeURIComponent(args.id)}`,
+    connectionId: connection.connectionId,
+    providerConfigKey: connection.providerConfigKey,
+    data: args.fields,
+  })
+  return response.data
+}
+
+export async function salesforceGetRecord(
+  connection: DeliveryConnection,
+  args: { sobject: string; id: string },
+  proxy: NangoProxy = defaultProxy(),
+): Promise<unknown> {
+  const response = await proxy({
+    method: 'GET',
+    endpoint: `/services/data/v60.0/sobjects/${args.sobject}/${encodeURIComponent(args.id)}`,
+    connectionId: connection.connectionId,
+    providerConfigKey: connection.providerConfigKey,
+  })
+  return response.data
+}
+
+export async function salesforceQuery(
+  connection: DeliveryConnection,
+  args: { soql: string },
+  proxy: NangoProxy = defaultProxy(),
+): Promise<unknown> {
+  const response = await proxy({
+    method: 'GET',
+    endpoint: '/services/data/v60.0/query',
+    connectionId: connection.connectionId,
+    providerConfigKey: connection.providerConfigKey,
+    params: { q: args.soql },
+  })
+  return response.data
+}
+
 export async function asanaCreateTask(
   connection: DeliveryConnection,
   args: { projectGid: string; name: string; notes?: string },
@@ -942,6 +1091,152 @@ export const DELIVERY_TOOLS: DeliveryToolSpec[] = [
       required: ['query'],
     },
     run: (connection, args, proxy) => perplexitySearch(connection, { query: String(args.query) }, proxy),
+  },
+  {
+    capability: 'slack',
+    name: 'slack_update_message',
+    description: 'Edit an existing Slack message the connected account posted.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        channel: { type: 'string', description: 'Channel id containing the message.' },
+        ts: { type: 'string', description: 'Timestamp id of the message to edit.' },
+        text: { type: 'string', description: 'Replacement message text.' },
+      },
+      required: ['channel', 'ts', 'text'],
+    },
+    run: (connection, args, proxy) =>
+      slackUpdateMessage(connection, { channel: String(args.channel), ts: String(args.ts), text: String(args.text) }, proxy),
+  },
+  {
+    capability: 'slack',
+    name: 'slack_get_channel_history',
+    description: 'Read recent messages from a Slack channel.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        channel: { type: 'string', description: 'Channel id.' },
+        limit: { type: 'number', description: 'Max messages to return (default 100).' },
+      },
+      required: ['channel'],
+    },
+    run: (connection, args, proxy) =>
+      slackGetChannelHistory(connection, { channel: String(args.channel), ...(args.limit ? { limit: Number(args.limit) } : {}) }, proxy),
+  },
+  {
+    capability: 'slack',
+    name: 'slack_add_reaction',
+    description: 'Add an emoji reaction to a Slack message.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        channel: { type: 'string', description: 'Channel id containing the message.' },
+        timestamp: { type: 'string', description: 'Timestamp id of the message.' },
+        name: { type: 'string', description: 'Emoji name without colons (e.g. tada).' },
+      },
+      required: ['channel', 'timestamp', 'name'],
+    },
+    run: (connection, args, proxy) =>
+      slackAddReaction(connection, { channel: String(args.channel), timestamp: String(args.timestamp), name: String(args.name) }, proxy),
+  },
+  {
+    capability: 'gmail',
+    name: 'gmail_get_message',
+    description: 'Fetch one Gmail message by id.',
+    inputSchema: {
+      type: 'object',
+      properties: { id: { type: 'string', description: 'Gmail message id.' } },
+      required: ['id'],
+    },
+    run: (connection, args, proxy) => gmailGetMessage(connection, { id: String(args.id) }, proxy),
+  },
+  {
+    capability: 'gmail',
+    name: 'gmail_list_messages',
+    description: 'List Gmail messages matching a search query.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        query: { type: 'string', description: 'Gmail search query (e.g. from:a@b.co is:unread).' },
+        max_results: { type: 'number', description: 'Max messages to return.' },
+      },
+    },
+    run: (connection, args, proxy) =>
+      gmailListMessages(connection, {
+        ...(args.query ? { query: String(args.query) } : {}),
+        ...(args.max_results ? { maxResults: Number(args.max_results) } : {}),
+      }, proxy),
+  },
+  {
+    capability: 'gmail',
+    name: 'gmail_trash_message',
+    description: 'Move a Gmail message to the trash.',
+    inputSchema: {
+      type: 'object',
+      properties: { id: { type: 'string', description: 'Gmail message id.' } },
+      required: ['id'],
+    },
+    run: (connection, args, proxy) => gmailTrashMessage(connection, { id: String(args.id) }, proxy),
+  },
+  {
+    capability: 'sheets',
+    name: 'sheets_clear_values',
+    description: 'Clear a cell range in a Google Sheet (A1 notation).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        spreadsheet_id: { type: 'string', description: 'The spreadsheet id (from its URL).' },
+        range: { type: 'string', description: 'A1-notation range to clear.' },
+      },
+      required: ['spreadsheet_id', 'range'],
+    },
+    run: (connection, args, proxy) =>
+      sheetsClearValues(connection, { spreadsheetId: String(args.spreadsheet_id), range: String(args.range) }, proxy),
+  },
+  {
+    capability: 'salesforce',
+    name: 'salesforce_update_record',
+    description: 'Update fields on an existing Salesforce record.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        sobject: { type: 'string', description: 'Object API name (Lead, Contact, Account, …).' },
+        id: { type: 'string', description: 'Record id.' },
+        fields: { type: 'object', description: 'Field name → new value.' },
+      },
+      required: ['sobject', 'id', 'fields'],
+    },
+    run: (connection, args, proxy) =>
+      salesforceUpdateRecord(connection, {
+        sobject: String(args.sobject), id: String(args.id),
+        fields: (args.fields && typeof args.fields === 'object' ? args.fields : {}) as Record<string, unknown>,
+      }, proxy),
+  },
+  {
+    capability: 'salesforce',
+    name: 'salesforce_get_record',
+    description: 'Fetch one Salesforce record by id.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        sobject: { type: 'string', description: 'Object API name (Lead, Contact, Account, …).' },
+        id: { type: 'string', description: 'Record id.' },
+      },
+      required: ['sobject', 'id'],
+    },
+    run: (connection, args, proxy) =>
+      salesforceGetRecord(connection, { sobject: String(args.sobject), id: String(args.id) }, proxy),
+  },
+  {
+    capability: 'salesforce',
+    name: 'salesforce_query',
+    description: 'Run a SOQL query against the connected Salesforce org.',
+    inputSchema: {
+      type: 'object',
+      properties: { soql: { type: 'string', description: 'SOQL query (SELECT … FROM …).' } },
+      required: ['soql'],
+    },
+    run: (connection, args, proxy) => salesforceQuery(connection, { soql: String(args.soql) }, proxy),
   },
 ]
 
