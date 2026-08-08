@@ -300,3 +300,95 @@ test('instructions describe fan-in via "fed by", which a linear list cannot', ()
   assert.match(md, /Summarize the lead\./, 'agent instructions travel')
   assert.match(md, /Before this will run elsewhere/)
 })
+
+// ── Round 3: export fidelity — branches, params, reverse expressions ────────
+
+const branchedGraph: FlowGraph = {
+  nodes: [
+    { id: 'trigger', type: 'trigger', data: { trigger: { type: 'webhook' } } },
+    {
+      id: 'gate', type: 'condition',
+      data: { label: 'Qualified?', match: 'all', clauses: [{ left: '{{trigger.input.score}}', op: 'gt', right: '50' }] },
+    },
+    {
+      id: 'route', type: 'switch',
+      data: { label: 'Tier', cases: [
+        { id: 'case-0', label: 'Gold', left: '{{trigger.input.tier}}', op: 'eq', right: 'gold' },
+        { id: 'case-1', label: 'Silver', left: '{{trigger.input.tier}}', op: 'eq', right: 'silver' },
+      ] },
+    },
+    { id: 'shape', type: 'transform', data: { label: 'Shape', fields: [{ name: 'team', value: '{{step.gate.output.team}}' }] } },
+    { id: 'notify', type: 'http', data: { label: 'Notify', method: 'POST', url: 'https://api/notify', body: '{{js: step["shape"].team + "!"}}', headers: '{"x-region":"{{var.REGION}}"}' } },
+    { id: 'fallback', type: 'http', data: { label: 'Fallback', method: 'GET', url: 'https://api/fallback' } },
+    { id: 'end', type: 'stop', data: { label: 'End', reason: 'Unqualified' } },
+  ],
+  edges: [
+    { id: 'e0', source: 'trigger', target: 'gate' },
+    { id: 'e1', source: 'gate', target: 'route', branch: 'true' },
+    { id: 'e2', source: 'gate', target: 'end', branch: 'false' },
+    { id: 'e3', source: 'route', target: 'shape', branch: 'case-0' },
+    { id: 'e4', source: 'route', target: 'notify', branch: 'case-1' },
+    { id: 'e5', source: 'route', target: 'fallback', branch: 'default' },
+    { id: 'e6', source: 'shape', target: 'notify' },
+  ],
+  layout: {},
+}
+
+const branchedPortable = () => toPortableFlow({ name: 'Branched', description: '', trigger: { type: 'webhook' }, graph: branchedGraph }, [], AT)
+
+test('export maps branches onto n8n output indexes instead of collapsing to 0', () => {
+  const workflow = toN8nWorkflow(branchedPortable())
+  const gate = workflow.connections['Qualified?']
+  assert.equal(gate.main[0]?.[0]?.node, 'Tier')
+  assert.equal(gate.main[1]?.[0]?.node, 'End')
+  const route = workflow.connections['Tier']
+  assert.equal(route.main[0]?.[0]?.node, 'Shape')
+  assert.equal(route.main[1]?.[0]?.node, 'Notify')
+  // default branch rides the extra fallback output.
+  assert.equal(route.main[2]?.[0]?.node, 'Fallback')
+})
+
+test('export emits real if/switch/set/stop params with reverse-translated expressions', () => {
+  const workflow = toN8nWorkflow(branchedPortable())
+  const byName = new Map(workflow.nodes.map((node) => [node.name, node]))
+
+  const gate = byName.get('Qualified?')!
+  const conditions = (gate.parameters.conditions as { combinator: string; conditions: Array<Record<string, unknown>> })
+  assert.equal(conditions.combinator, 'and')
+  assert.equal(conditions.conditions[0].leftValue, '={{ $json.score }}')
+  assert.deepEqual(conditions.conditions[0].operator, { type: 'number', operation: 'larger' })
+
+  const route = byName.get('Tier')!
+  const rules = (route.parameters.rules as { values: Array<{ outputKey: string; conditions: { conditions: Array<Record<string, unknown>> } }> }).values
+  assert.equal(rules.length, 2)
+  assert.equal(rules[0].outputKey, 'Gold')
+  assert.equal(rules[1].conditions.conditions[0].rightValue, 'silver')
+  assert.equal(route.parameters.fallbackOutput, 'extra')
+
+  const shape = byName.get('Shape')!
+  const assignments = (shape.parameters.assignments as { assignments: Array<Record<string, unknown>> }).assignments
+  assert.equal(assignments[0].name, 'team')
+  assert.equal(assignments[0].value, '={{ $node["Qualified?"].json.team }}')
+
+  const end = byName.get('End')!
+  assert.equal(end.type, 'n8n-nodes-base.stopAndError')
+  assert.equal(end.parameters.errorMessage, 'Unqualified')
+
+  const notify = byName.get('Notify')!
+  assert.equal(notify.parameters.jsonBody, '={{ $node["Shape"].json.team + "!" }}')
+  const headerParams = (notify.parameters.headerParameters as { parameters: Array<{ name: string; value: string }> }).parameters
+  assert.deepEqual(headerParams[0], { name: 'x-region', value: '={{ $env.REGION }}' })
+})
+
+test('exported branched workflow round-trips through the importer with branches intact', async () => {
+  const { fromN8nWorkflow } = await import('@/lib/import/n8n')
+  const reimported = fromN8nWorkflow(JSON.parse(JSON.stringify(toN8nWorkflow(branchedPortable()))))
+  const condition = reimported.graph.nodes.find((node) => node.type === 'condition')!
+  const clauses = (condition.data as { clauses: Array<{ op: string; right: string }> }).clauses
+  assert.equal(clauses[0].op, 'gt')
+  assert.equal(clauses[0].right, '50')
+  const conditionEdges = reimported.graph.edges.filter((edge) => edge.source === condition.id)
+  assert.deepEqual(new Set(conditionEdges.map((edge) => edge.branch)), new Set(['true', 'false']))
+  const sw = reimported.graph.nodes.find((node) => node.type === 'switch')!
+  assert.equal((sw.data as { cases: unknown[] }).cases.length, 2)
+})
