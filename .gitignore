@@ -19,3 +19,5 @@ node_modules/
 # Local editor config — mcp.json holds live bearer tokens, never commit it
 .vscode/
 supabase/.temp/
+playwright-report/
+test-results/
