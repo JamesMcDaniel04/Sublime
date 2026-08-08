@@ -5,11 +5,13 @@
  */
 import table from './n8n-credential-map.json'
 import type { N8nCredentialMapEntry } from './n8n-credential-classify'
+import { N8N_CREDENTIAL_OVERRIDES } from './n8n-credential-overrides'
 
 const MAP = table as Record<string, N8nCredentialMapEntry>
 
 export const N8N_CREDENTIAL_MAP_SIZE = Object.keys(MAP).length
 
 export function lookupN8nCredential(sourceType: string): N8nCredentialMapEntry | undefined {
-  return MAP[sourceType.toLowerCase()]
+  const key = sourceType.toLowerCase()
+  return N8N_CREDENTIAL_OVERRIDES[key] ?? MAP[key]
 }

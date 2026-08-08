@@ -38,3 +38,10 @@ test('every entry matches the discriminated union with lower-cased keys', () => 
     assert.ok(entry.displayName, `${key} missing displayName`)
   }
 })
+
+test('curated overrides win over the generated table for code-authed vendors', () => {
+  assert.deepEqual(lookupN8nCredential('notionApi'), { type: 'bearer', displayName: 'Notion API' })
+  assert.deepEqual(lookupN8nCredential('openAiApi'), { type: 'bearer', displayName: 'OpenAI' })
+  const seatable = lookupN8nCredential('seaTableApi')
+  assert.equal(seatable?.type, 'apiKeyHeader')
+})
