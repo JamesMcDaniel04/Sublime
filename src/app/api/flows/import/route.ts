@@ -331,7 +331,11 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
       additionalCreated.push({ id: row.id, name: row.name })
     }
     return { flow, createdAgents, clearedRefs: remapped.clearedRefs, additionalCreated }
-  }, { isolationLevel: 'Serializable', maxWait: 10_000, timeout: 30_000 })
+  // The transaction-scoped advisory lock in assertImportCapacity is the
+  // serialization primitive. ReadCommitted deliberately takes a fresh
+  // snapshot after waiting for that lock; Serializable would retain the
+  // pre-lock snapshot and turn an expected plan-limit response into P2034.
+  }, { isolationLevel: 'ReadCommitted', maxWait: 10_000, timeout: 30_000 })
   for (const ref of clearedRefs) {
     warnings.push(`An agent step referenced an agent (${ref}) that was not in the file — pick one of your agents.`)
   }
