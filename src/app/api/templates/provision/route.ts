@@ -430,7 +430,7 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
       // channel gets a warning (recorded + returned), never a silent failure
       // days later. Best-effort — validation unavailability never blocks.
       const deliveryCheck = delivery?.kind === 'slack' && slackChannel
-        ? await validateSlackDeliveryChannel(organizationId, slackChannel)
+        ? await validateSlackDeliveryChannel(organizationId, userId, slackChannel)
         : { ok: true as const }
 
       const graphJson = jsonValue(graph)

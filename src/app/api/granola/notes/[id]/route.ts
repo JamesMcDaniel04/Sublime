@@ -3,7 +3,7 @@ import { getGranolaApiKey, GRANOLA_BASE_URL } from '@/lib/integrations/granola'
 import { ApiError, withAuthenticatedApi } from '@/lib/server/api-handler'
 
 export const GET = withAuthenticatedApi(async (request: NextRequest, auth) => {
-  const resolved = await getGranolaApiKey(auth.organizationId)
+  const resolved = await getGranolaApiKey(auth.organizationId, auth.dbUser.id)
   if (!resolved) {
     throw new ApiError('Granola is not connected', 503, 'INTEGRATION_UNAVAILABLE')
   }

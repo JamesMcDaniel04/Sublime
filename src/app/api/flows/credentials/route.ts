@@ -177,13 +177,13 @@ function nativeItem(entry: ConnectionRef, configured: boolean, verifications: Ve
 }
 
 /** Whether the org has the backing config for a credential-bearing built-in. */
-async function nativeConfigured(organizationId: string, ref: string): Promise<boolean> {
+async function nativeConfigured(organizationId: string, userId: string, ref: string): Promise<boolean> {
   if (ref === 'granola') {
-    const secret = await prisma.integrationSecret.findFirst({ where: { organizationId, provider: 'granola' }, select: { id: true } })
+    const secret = await prisma.integrationSecret.findFirst({ where: { organizationId, userId, provider: 'granola', isActive: true }, select: { id: true } })
     return Boolean(secret)
   }
   if (ref === 'slack') {
-    const workspace = await prisma.slackWorkspaceConnection.findFirst({ where: { organizationId }, select: { id: true } })
+    const workspace = await prisma.slackWorkspaceConnection.findFirst({ where: { organizationId, userId, status: 'active' }, select: { id: true } })
     return Boolean(workspace)
   }
   return true
@@ -271,7 +271,7 @@ export const GET = withAuthenticatedApi(async (request, auth) => {
     }),
   )
   const nativeStates = await Promise.all(
-    nativeRefs.map(async (entry) => ({ entry, configured: await nativeConfigured(auth.organizationId, entry.ref) })),
+    nativeRefs.map(async (entry) => ({ entry, configured: await nativeConfigured(auth.organizationId, auth.dbUser.id, entry.ref) })),
   )
 
   const items: FlowCredentialItem[] = [

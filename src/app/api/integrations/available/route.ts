@@ -70,7 +70,7 @@ async function goalToolKeys(organizationId: string, goalId: string): Promise<Set
 export const GET = withAuthenticatedApi(async (request, auth) => {
   const organizationId = auth.organizationId
   const scope = await resolveGoalScope(auth, request.nextUrl.searchParams.get('goal'))
-  const [connections, hasGranola, nango, postgresCount] = await Promise.all([
+  const [connections, hasGranola, hasSlack, nango, postgresCount] = await Promise.all([
     prisma.mcpConnection.findMany({
       where: {
         organizationId,
@@ -80,9 +80,13 @@ export const GET = withAuthenticatedApi(async (request, auth) => {
       select: { id: true, name: true },
       orderBy: { createdAt: 'desc' },
     }),
-    granolaConfigured(organizationId),
+    granolaConfigured(organizationId, auth.dbUser.id),
+    prisma.slackWorkspaceConnection.findFirst({
+      where: { organizationId, userId: auth.dbUser.id, status: 'active' },
+      select: { id: true },
+    }).then(Boolean),
     prisma.nangoConnection.findMany({
-      where: { organizationId, status: 'connected' },
+      where: { organizationId, status: 'connected', OR: [{ userId: auth.dbUser.id }, { userId: null }] },
       select: { providerConfigKey: true },
     }),
     prisma.postgresConnection.count({ where: { organizationId } }),
@@ -106,7 +110,12 @@ export const GET = withAuthenticatedApi(async (request, auth) => {
     // picker. The registry entry stays so the runtime email plane still works
     // for any agent that already has it selected.
     if (c.providerId === 'email') continue
-    add({ key: c.key, label: c.label, slug: c.slug, connected: c.key === 'Granola' ? hasGranola : c.available() })
+    add({
+      key: c.key,
+      label: c.label,
+      slug: c.slug,
+      connected: c.key === 'Granola' ? hasGranola : c.key === 'Slack' ? hasSlack : c.available(),
+    })
   }
 
   // Postgres: one chip for the plane, connected once the org has any database.

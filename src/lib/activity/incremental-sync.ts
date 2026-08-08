@@ -80,11 +80,11 @@ export async function runIncrementalSync(
     // Granola authenticates via a per-org API key (IntegrationSecret), not a
     // Nango connection — enumerate it separately with its constant ref.
     if (wanted.has('granola')) {
-      const granolaSecret = await db.integrationSecret.findFirst({
-        where: { organizationId, provider: 'granola', isActive: true },
+      const granolaSecrets = await db.integrationSecret.findMany({
+        where: { organizationId, provider: 'granola', isActive: true, userId: { not: null } },
         select: { id: true },
       })
-      if (granolaSecret) await syncOne('granola', 'granola')
+      for (const granolaSecret of granolaSecrets) await syncOne('granola', granolaSecret.id)
     }
     if (Object.keys(stats.sources).length > 0) {
       apiLogger.info('activity.incremental-sync', stats as unknown as Record<string, unknown>)
@@ -106,7 +106,7 @@ export async function sweepIncrementalSync(db = systemPrisma, sources = listActi
       take: 2_000,
     }),
     db.integrationSecret.findMany({
-      where: { provider: 'granola', isActive: true },
+      where: { provider: 'granola', isActive: true, userId: { not: null } },
       select: { organizationId: true },
       take: 500,
     }),

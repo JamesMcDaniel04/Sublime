@@ -9,7 +9,7 @@ type GranolaNoteSummary = {
 }
 
 export const GET = withAuthenticatedApi(async (_request, auth) => {
-  const resolved = await getGranolaApiKey(auth.organizationId)
+  const resolved = await getGranolaApiKey(auth.organizationId, auth.dbUser.id)
   if (!resolved) {
     return { success: false, error: 'Granola is not connected', notes: [] }
   }

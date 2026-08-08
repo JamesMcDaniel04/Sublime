@@ -27,9 +27,10 @@ test('extraction: found=false and low confidence both refuse to produce a readin
 })
 
 test('slack assisted: resolves #name, reads history, extracts', async () => {
-  process.env.SLACK_BOT_TOKEN = 'xoxb-test'
   const urls: string[] = []
   const source = makeSlackAssistedMetricSource({
+    tokenFor: async (organizationId, userId) =>
+      organizationId === 'org' && userId === 'user' ? 'xoxb-test' : null,
     fetchImpl: (async (input: RequestInfo | URL) => {
       urls.push(String(input))
       return new Response(
@@ -40,13 +41,23 @@ test('slack assisted: resolves #name, reads history, extracts', async () => {
     generate: generateReturning({ found: true, value: 52_000, confidence: 'high', evidence: 'Weekly MRR: $52,000' }),
   })
   const reading = await source.fetchValue(
-    { organizationId: 'org', connectionRef: null, config: { channel: '#revenue', metricHint: 'MRR' } },
+    { organizationId: 'org', userId: 'user', connectionRef: null, config: { channel: '#revenue', metricHint: 'MRR' } },
     'assisted.value',
   )
   assert.equal(reading.value, 52_000)
   assert.match(urls[0], /conversations\.history/)
   assert.match(urls[0], /channel=C123456789/)
-  delete process.env.SLACK_BOT_TOKEN
+})
+
+test('slack assisted fails closed without the acting user\'s connection', async () => {
+  const source = makeSlackAssistedMetricSource({ tokenFor: async () => null })
+  await assert.rejects(
+    source.fetchValue(
+      { organizationId: 'org', userId: 'user-2', connectionRef: null, config: { channel: '#revenue' } },
+      'assisted.value',
+    ),
+    /your account/i,
+  )
 })
 
 test('gmail assisted: searches, decodes bodies, extracts; empty search fails clearly', async () => {

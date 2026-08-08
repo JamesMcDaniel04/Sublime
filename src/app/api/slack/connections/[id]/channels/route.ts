@@ -7,7 +7,7 @@ export const GET = withAuthenticatedApi(async (request, auth) => {
   const id = request.nextUrl.pathname.split('/').at(-2)
   if (!id) throw new ApiError('Slack connection id is required')
   const connection = await prisma.slackWorkspaceConnection.findFirst({
-    where: { id, organizationId: auth.organizationId, status: 'active' },
+    where: { id, organizationId: auth.organizationId, userId: auth.dbUser.id, status: 'active' },
   })
   if (!connection) throw new ApiError('Slack connection not found', 404, 'NOT_FOUND')
   try {

@@ -5,16 +5,15 @@ import { buildSlackManifest } from '@/lib/slack/manifest'
 import { slackTriggerConfigOf } from '@/lib/slack/route-event'
 
 // GET — a ready-to-paste Slack app manifest for this binding, slash commands
-// pre-filled from the org's active slack-triggered flows. Org-scoped: a
-// binding in another org 404s exactly like it doesn't exist.
+// pre-filled from the owner's active slack-triggered flows.
 export const GET = withAuthenticatedApi(async (request, auth) => {
   const id = new URL(request.url).pathname.split('/').at(-2)
   const binding = await prisma.slackWorkspaceConnection.findFirst({
-    where: { id: id ?? '', organizationId: auth.organizationId },
+    where: { id: id ?? '', organizationId: auth.organizationId, userId: auth.dbUser.id },
   })
   if (!binding) throw new ApiError('Slack connection not found', 404, 'NOT_FOUND')
   const flows = await prisma.flow.findMany({
-    where: { organizationId: auth.organizationId, status: 'ACTIVE' },
+    where: { organizationId: auth.organizationId, userId: auth.dbUser.id, status: 'ACTIVE' },
     select: { trigger: true },
     take: 200,
   })

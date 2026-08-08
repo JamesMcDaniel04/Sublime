@@ -12,10 +12,10 @@ import { Skeleton } from '@/components/ui/skeleton'
 /** Exactly what GET/POST/DELETE /api/integrations/granola return — the key
  *  itself is never part of the response, so this panel can only ever show
  *  whether one is configured and where it came from. */
-type GranolaState = { configured: boolean; source: 'org' | 'env' | null }
+type GranolaState = { configured: boolean; source: 'user' | null }
 
 /**
- * Per-org Granola API key management.
+ * Personal Granola API key management inside the current organization.
  *
  * Granola authenticates with a workspace API key rather than OAuth, so it has
  * no Connect flow — the routes have existed since the notes tools shipped, but
@@ -26,7 +26,7 @@ type GranolaState = { configured: boolean; source: 'org' | 'env' | null }
  * state ("Connected") and replaced wholesale rather than edited — the same
  * posture as the credential vault and the Postgres connection strings.
  */
-export function GranolaKeyPanel({ isAdmin = true }: { isAdmin?: boolean }) {
+export function GranolaKeyPanel() {
   const [state, setState] = useState<GranolaState | null>(null)
   const [apiKey, setApiKey] = useState('')
   const [saving, setSaving] = useState(false)
@@ -98,11 +98,7 @@ export function GranolaKeyPanel({ isAdmin = true }: { isAdmin?: boolean }) {
       const body = await response.json().catch(() => ({}))
       if (!response.ok) throw new Error(body.error || 'Could not remove the Granola API key.')
       setState({ configured: Boolean(body.configured), source: body.source ?? null })
-      // `configured` can stay true after a delete when the deployment sets
-      // GRANOLA_API_KEY — say so rather than claiming a disconnect that did
-      // not happen.
-      if (body.source === 'env') toast.success('Workspace key removed. Granola still runs on the deployment key.')
-      else toast.success('Granola disconnected.')
+      toast.success('Granola disconnected from your account.')
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Could not remove the Granola API key.')
     } finally {
@@ -112,8 +108,7 @@ export function GranolaKeyPanel({ isAdmin = true }: { isAdmin?: boolean }) {
 
   if (!state) return <Skeleton className="h-56 max-w-2xl rounded-xl" />
 
-  const orgKey = state.source === 'org'
-  const envKey = state.source === 'env'
+  const userKey = state.source === 'user'
 
   return (
     <div className="max-w-2xl space-y-4 rounded-xl border border-border bg-card p-4">
@@ -125,37 +120,34 @@ export function GranolaKeyPanel({ isAdmin = true }: { isAdmin?: boolean }) {
           <div>
             <p className="text-sm font-medium">Granola API key</p>
             <p className="text-xs text-muted-foreground">
-              {orgKey
-                ? 'A workspace key is saved. It is encrypted at rest and never shown again.'
-                : envKey
-                  ? 'Running on this deployment’s shared key. Save a workspace key to use your own Granola account.'
-                  : 'Create a key in Granola › Settings › API and paste it here.'}
+              {userKey
+                ? 'Your key is saved for you only. It is encrypted at rest and never shown again.'
+                : 'Create a key in Granola › Settings › API and paste it here.'}
             </p>
           </div>
         </div>
         {state.configured
-          ? <Badge variant="good"><CheckCircle2 className="mr-1 h-3 w-3" />{orgKey ? 'Connected' : 'Deployment key'}</Badge>
+          ? <Badge variant="good"><CheckCircle2 className="mr-1 h-3 w-3" />Connected</Badge>
           : <Badge variant="secondary">Not connected</Badge>}
       </div>
 
-      {isAdmin ? (
-        <form
+      <form
           className="space-y-2"
           onSubmit={(event) => { event.preventDefault(); void save() }}
         >
-          <Label htmlFor="granola-api-key">{orgKey ? 'Replace the saved key' : 'API key'}</Label>
+          <Label htmlFor="granola-api-key">{userKey ? 'Replace your saved key' : 'API key'}</Label>
           <div className="flex flex-col gap-2 sm:flex-row">
             <Input
               id="granola-api-key"
               type="password"
               autoComplete="off"
               spellCheck={false}
-              placeholder={orgKey ? 'Paste a new key to replace the saved one' : 'gr_…'}
+              placeholder={userKey ? 'Paste a new key to replace your saved one' : 'gr_…'}
               value={apiKey}
               onChange={(event) => setApiKey(event.target.value)}
             />
             <Button type="submit" loading={saving} disabled={saving || !apiKey.trim()}>
-              <Plug className="mr-1.5 h-4 w-4" />{orgKey ? 'Replace' : 'Connect'}
+              <Plug className="mr-1.5 h-4 w-4" />{userKey ? 'Replace' : 'Connect'}
             </Button>
           </div>
           <p className="text-xs text-muted-foreground">
@@ -172,7 +164,7 @@ export function GranolaKeyPanel({ isAdmin = true }: { isAdmin?: boolean }) {
             >
               Test connection
             </Button>
-            {orgKey && (
+            {userKey && (
               <Button
                 type="button"
                 variant="outline"
@@ -186,10 +178,7 @@ export function GranolaKeyPanel({ isAdmin = true }: { isAdmin?: boolean }) {
               </Button>
             )}
           </div>
-        </form>
-      ) : (
-        <p className="text-xs text-muted-foreground">Only workspace admins can change the Granola API key.</p>
-      )}
+      </form>
     </div>
   )
 }

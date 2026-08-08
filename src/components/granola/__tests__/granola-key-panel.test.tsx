@@ -15,40 +15,26 @@ import { GranolaKeyPanel } from '../granola-key-panel'
 
 afterEach(cleanup)
 
-function mockState(state: { configured: boolean; source: 'org' | 'env' | null }) {
+function mockState(state: { configured: boolean; source: 'user' | null }) {
   globalThis.fetch = (async () =>
     ({ ok: true, status: 200, json: async () => ({ success: true, ...state }) }) as Response) as typeof fetch
 }
 
-test('a saved workspace key reads as connected and offers removal', async () => {
-  mockState({ configured: true, source: 'org' })
-  render(<GranolaKeyPanel isAdmin />)
+test('a saved personal key reads as connected and offers removal', async () => {
+  mockState({ configured: true, source: 'user' })
+  render(<GranolaKeyPanel />)
   await waitFor(() => assert.ok(screen.getByText(/connected/i)))
   assert.ok(screen.getByRole('button', { name: /remove key/i }))
   // The key is encrypted and never returned, so nothing may present itself as
   // the stored value — the field must be empty and the action a replacement.
-  const field = screen.getByLabelText(/replace the saved key/i) as HTMLInputElement
+  const field = screen.getByLabelText(/replace your saved key/i) as HTMLInputElement
   assert.equal(field.value, '')
   assert.equal(field.type, 'password')
 })
 
-test('the deployment env fallback is configured but has nothing to remove', async () => {
-  mockState({ configured: true, source: 'env' })
-  render(<GranolaKeyPanel isAdmin />)
-  await waitFor(() => assert.ok(screen.getByText(/deployment key/i)))
-  assert.equal(screen.queryByRole('button', { name: /remove key/i }), null)
-})
-
 test('an unconfigured workspace is offered a connect form', async () => {
   mockState({ configured: false, source: null })
-  render(<GranolaKeyPanel isAdmin />)
+  render(<GranolaKeyPanel />)
   await waitFor(() => assert.ok(screen.getByText(/not connected/i)))
   assert.ok(screen.getByRole('button', { name: /^connect$/i }))
-})
-
-test('a member sees the state but no key form', async () => {
-  mockState({ configured: true, source: 'org' })
-  render(<GranolaKeyPanel isAdmin={false} />)
-  await waitFor(() => assert.ok(screen.getByText(/only workspace admins/i)))
-  assert.equal(screen.queryByLabelText(/replace the saved key/i), null)
 })

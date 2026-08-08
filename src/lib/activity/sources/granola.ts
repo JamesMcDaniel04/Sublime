@@ -11,7 +11,7 @@
  * and the AI summary are touched; transcripts are never ingested.
  */
 import { apiLogger } from '@/lib/logger'
-import { GRANOLA_BASE_URL, getGranolaApiKey } from '@/lib/integrations/granola'
+import { GRANOLA_BASE_URL, getGranolaApiKeyById } from '@/lib/integrations/granola'
 import {
   windowStart,
   type ActivitySource,
@@ -123,7 +123,7 @@ type NotesPage = { notes: GranolaNote[]; nextCursor?: string }
 
 export type GranolaFetchPage = (
   organizationId: string,
-  params: { createdAfter?: string; cursor?: string },
+  params: { createdAfter?: string; cursor?: string; connectionRef?: string },
 ) => Promise<NotesPage>
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
@@ -155,9 +155,11 @@ function parseNotesBody(body: Record<string, unknown>): NotesPage {
  */
 async function fetchNotesPage(
   organizationId: string,
-  params: { createdAfter?: string; cursor?: string },
+  params: { createdAfter?: string; cursor?: string; connectionRef?: string },
 ): Promise<NotesPage> {
-  const key = await getGranolaApiKey(organizationId)
+  const key = params.connectionRef
+    ? await getGranolaApiKeyById(organizationId, params.connectionRef)
+    : null
   if (!key) return { notes: [] }
   const search = new URLSearchParams()
   if (params.createdAfter) search.set('created_after', params.createdAfter)
@@ -227,6 +229,7 @@ export function makeGranolaActivitySource(fetchPageOverride?: GranolaFetchPage):
         let page: NotesPage
         try {
           page = await fetchPage(ctx.organizationId, {
+            connectionRef: ctx.connectionRef,
             ...(since ? { createdAfter: since.toISOString() } : {}),
             ...(pageCursor ? { cursor: pageCursor } : {}),
           })
@@ -260,6 +263,7 @@ export function makeGranolaActivitySource(fetchPageOverride?: GranolaFetchPage):
       try {
         do {
           const page = await fetchPage(ctx.organizationId, {
+            connectionRef: ctx.connectionRef,
             createdAfter: since.toISOString(),
             ...(pageCursor ? { cursor: pageCursor } : {}),
           })

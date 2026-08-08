@@ -7,8 +7,8 @@ import { ApiError, withAuthenticatedApi } from '@/lib/server/api-handler'
 
 export const runtime = 'nodejs'
 
-async function granolaState(organizationId: string) {
-  const resolved = await getGranolaApiKey(organizationId)
+async function granolaState(organizationId: string, userId: string) {
+  const resolved = await getGranolaApiKey(organizationId, userId)
   return {
     configured: Boolean(resolved),
     source: resolved?.source ?? null,
@@ -18,7 +18,7 @@ async function granolaState(organizationId: string) {
 // ── GET — connection state (never returns the key) ────────────────────────
 
 export const GET = withAuthenticatedApi(async (_request, auth) => {
-  return { success: true, ...(await granolaState(auth.organizationId)) }
+  return { success: true, ...(await granolaState(auth.organizationId, auth.dbUser.id)) }
 }, { requires: 'member' })
 
 // ── POST — validate and save the org's Granola API key (encrypted) ────────
@@ -38,13 +38,14 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
 
   const authConfig = buildAuthConfig({ authType: 'api_key', apiKey }) as Prisma.InputJsonObject
 
-  await prisma.integrationSecret.upsert({
+  const secret = await prisma.integrationSecret.upsert({
     where: {
-      organizationId_provider: { organizationId: auth.organizationId, provider: 'granola' },
+      organizationId_userId_provider: { organizationId: auth.organizationId, userId: auth.dbUser.id, provider: 'granola' },
     },
     update: { authType: 'api_key', authConfig, isActive: true },
     create: {
       organizationId: auth.organizationId,
+      userId: auth.dbUser.id,
       provider: 'granola',
       authType: 'api_key',
       authConfig,
@@ -60,21 +61,21 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
       startActivityBackfill({
         organizationId: auth.organizationId,
         source: 'granola',
-        connectionRef: 'granola',
+        connectionRef: secret.id,
         window: '90d',
       }),
     )
     .catch(() => undefined)
 
-  return { success: true, ...(await granolaState(auth.organizationId)) }
-}, { requires: 'settings:workspace' })
+  return { success: true, ...(await granolaState(auth.organizationId, auth.dbUser.id)) }
+}, { requires: 'member' })
 
 // ── DELETE — remove the org key (env fallback still applies, if set) ──────
 
 export const DELETE = withAuthenticatedApi(async (_request, auth) => {
   await prisma.integrationSecret.deleteMany({
-    where: { organizationId: auth.organizationId, provider: 'granola' },
+    where: { organizationId: auth.organizationId, userId: auth.dbUser.id, provider: 'granola' },
   })
 
-  return { success: true, ...(await granolaState(auth.organizationId)) }
-}, { requires: 'settings:workspace' })
+  return { success: true, ...(await granolaState(auth.organizationId, auth.dbUser.id)) }
+}, { requires: 'member' })

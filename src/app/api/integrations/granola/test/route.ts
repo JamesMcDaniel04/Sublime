@@ -5,8 +5,8 @@ import { ApiError, withAuthenticatedApi } from '@/lib/server/api-handler'
 export const runtime = 'nodejs'
 
 // Tests a Granola API key against a lightweight endpoint (list notes).
-// Uses the key from the request body when provided, otherwise the org's
-// resolved key (saved key first, env fallback second).
+// Uses the key from the request body when provided, otherwise the acting
+// user's saved key.
 export const POST = withAuthenticatedApi(async (request, auth) => {
   const { apiKey } = z
     .object({ apiKey: z.string().trim().min(1).optional() })
@@ -14,7 +14,7 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
 
   let candidate = apiKey
   if (!candidate) {
-    const resolved = await getGranolaApiKey(auth.organizationId)
+    const resolved = await getGranolaApiKey(auth.organizationId, auth.dbUser.id)
     if (!resolved) {
       throw new ApiError('No Granola API key to test. Paste a key first.', 400, 'NOT_CONFIGURED')
     }

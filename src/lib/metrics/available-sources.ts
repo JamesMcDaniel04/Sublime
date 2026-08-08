@@ -2,7 +2,6 @@ import { prisma } from '@/lib/prisma'
 import { credentialScope } from '@/lib/credentials/resolve'
 import { decryptCredentialConfig } from '@/lib/credentials/config'
 import { getMetricSource } from '@/lib/metrics/registry'
-import { slackConfigured } from '@/lib/integrations/slack'
 import type { MetricSourceOption } from './source-options'
 export {
   sourceIsAvailable,
@@ -29,7 +28,7 @@ export async function listMetricSourceOptions(auth: {
   organizationId: string
   dbUser: { id: string }
 }): Promise<MetricSourceOption[]> {
-  const [credentials, nangoConnections, googleConnections, postgresConnections] = await Promise.all([
+  const [credentials, nangoConnections, googleConnections, postgresConnections, slackConnection] = await Promise.all([
     prisma.credential.findMany({
       where: {
         ...credentialScope(auth.organizationId, auth.dbUser.id),
@@ -64,6 +63,10 @@ export async function listMetricSourceOptions(auth: {
       where: { organizationId: auth.organizationId },
       select: { id: true, name: true },
       orderBy: { name: 'asc' },
+    }),
+    prisma.slackWorkspaceConnection.findFirst({
+      where: { organizationId: auth.organizationId, userId: auth.dbUser.id, status: 'active' },
+      select: { id: true },
     }),
   ])
   const sheetsConnections = googleConnections.filter(
@@ -110,7 +113,7 @@ export async function listMetricSourceOptions(auth: {
     available:
       name === 'manual' ||
       name === 'url' ||
-      (name === 'slack_assisted' && slackConfigured()) ||
+      (name === 'slack_assisted' && Boolean(slackConnection)) ||
       undefined,
     metrics:
       name === 'manual'

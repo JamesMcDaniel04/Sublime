@@ -15,6 +15,7 @@ export type DeliveryValidation = { ok: boolean; warning?: string }
 
 export async function validateSlackDeliveryChannel(
   organizationId: string,
+  userId: string,
   channel: string,
   deps: { listChannels?: typeof listSlackChannels } = {},
 ): Promise<DeliveryValidation> {
@@ -22,7 +23,7 @@ export async function validateSlackDeliveryChannel(
   if (!name) return { ok: true }
   try {
     const connection = await prisma.slackWorkspaceConnection.findFirst({
-      where: { organizationId, status: 'active' },
+      where: { organizationId, userId, status: 'active' },
       select: { botToken: true },
     })
     // No workspace app installed — delivery may run through a Nango Slack
