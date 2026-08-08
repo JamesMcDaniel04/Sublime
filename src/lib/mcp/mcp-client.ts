@@ -15,7 +15,7 @@ import { decryptSecret } from '@/lib/crypto/secrets'
 import { applyCredentialPlan } from '@/lib/credentials/apply'
 import type { InjectionPlan } from '@/lib/credentials/types'
 import { refreshAccessToken } from '@/lib/mcp/oauth-authcode'
-import { assertPublicUrl } from '@/lib/net/ssrf'
+import { assertPublicUrl, fetchPublicUrl } from '@/lib/net/ssrf'
 
 // ---------------------------------------------------------------------------
 // Runtime config (constructor argument — secrets already decrypted)
@@ -126,7 +126,7 @@ export class McpClient {
       const origin = new URL(serverUrl).origin
       const discoveryUrl = `${origin}/.well-known/oauth-authorization-server`
       await assertPublicUrl(discoveryUrl)
-      const discoveryResp = await fetch(discoveryUrl, {
+      const discoveryResp = await fetchPublicUrl(discoveryUrl, {
         redirect: 'error', // don't let a 3xx bounce us to an internal host
         signal: AbortSignal.timeout(10_000),
       })
@@ -158,7 +158,7 @@ export class McpClient {
     // Re-validate at fetch time (tokenUrl may be a discovered endpoint, and this
     // guards against DNS rebinding since save).
     await assertPublicUrl(resolvedTokenUrl)
-    const response = await fetch(resolvedTokenUrl, {
+    const response = await fetchPublicUrl(resolvedTokenUrl, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/x-www-form-urlencoded',
@@ -344,7 +344,7 @@ export class McpClient {
       ? applyCredentialPlan(serverUrl, headers, this.config.credentialPlan)
       : { url: serverUrl, headers }
 
-    const response = await fetch(injected.url, {
+    const response = await fetchPublicUrl(injected.url, {
       method: 'POST',
       headers: injected.headers,
       body: JSON.stringify({

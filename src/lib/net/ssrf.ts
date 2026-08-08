@@ -6,13 +6,13 @@
  * endpoint (169.254.169.254). Applied both when a URL is saved and again before
  * each fetch, so a host that later resolves to a private IP is still blocked.
  *
- * Note: this re-resolves at fetch time (narrowing, not fully closing, the DNS
- * rebinding window). Pinning the validated IP into the connection would close it
- * entirely — a follow-up if the threat model warrants it.
+ * `fetchPublicUrl` pins the vetted address into Undici's connection lookup, so
+ * DNS cannot change between validation and the socket connection.
  */
 
 import { lookup } from 'node:dns/promises'
 import { isIP } from 'node:net'
+import { Agent } from 'undici'
 
 export class SsrfError extends Error {
   constructor(message: string) {
@@ -94,6 +94,12 @@ function isBlockedIp(ip: string): boolean {
  * public addresses. Safe to call on every request and on save.
  */
 export async function assertPublicUrl(raw: string): Promise<void> {
+  await resolvePublicTarget(raw)
+}
+
+type PublicTarget = { address: string; family: 4 | 6; origin: string }
+
+async function resolvePublicTarget(raw: string): Promise<PublicTarget> {
   let url: URL
   try {
     url = new URL(raw)
@@ -105,7 +111,7 @@ export async function assertPublicUrl(raw: string): Promise<void> {
   const host = url.hostname.replace(/^\[|\]$/g, '')
   if (isIP(host)) {
     if (isBlockedIp(host)) throw new SsrfError('URL host is a private or reserved address')
-    return
+    return { address: host, family: isIP(host) as 4 | 6, origin: url.origin }
   }
 
   let addresses: Array<{ address: string }>
@@ -118,4 +124,43 @@ export async function assertPublicUrl(raw: string): Promise<void> {
   for (const { address } of addresses) {
     if (isBlockedIp(address)) throw new SsrfError('URL resolves to a private or reserved address')
   }
+  const chosen = addresses[0].address
+  return { address: chosen, family: isIP(chosen) as 4 | 6, origin: url.origin }
+}
+
+const agents = new Map<string, Agent>()
+const MAX_PINNED_AGENTS = 100
+
+function pinnedAgent(target: PublicTarget): Agent {
+  const key = `${target.origin}|${target.address}`
+  const existing = agents.get(key)
+  if (existing) return existing
+  const agent = new Agent({
+    connect: {
+      lookup: (_hostname, _options, callback) => callback(null, target.address, target.family),
+    },
+    keepAliveTimeout: 10_000,
+    keepAliveMaxTimeout: 30_000,
+  })
+  agents.set(key, agent)
+  if (agents.size > MAX_PINNED_AGENTS) {
+    const oldest = agents.entries().next().value as [string, Agent] | undefined
+    if (oldest) {
+      agents.delete(oldest[0])
+      oldest[1].close().catch(() => undefined)
+    }
+  }
+  return agent
+}
+
+/** Validate and connect to the exact vetted public IP while preserving the
+ * original hostname for TLS SNI/certificate verification and Host headers. */
+export async function fetchPublicUrl(
+  raw: string,
+  init: RequestInit = {},
+  fetchImpl: typeof fetch = fetch,
+): Promise<Response> {
+  const target = await resolvePublicTarget(raw)
+  if (fetchImpl !== fetch) return fetchImpl(raw, init)
+  return fetch(raw, { ...init, dispatcher: pinnedAgent(target) } as RequestInit)
 }

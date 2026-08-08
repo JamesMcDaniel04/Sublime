@@ -13,7 +13,7 @@
  */
 
 import type { ToolDefinition } from '@/lib/llm/model-runner'
-import { assertPublicUrl } from '@/lib/net/ssrf'
+import { fetchPublicUrl } from '@/lib/net/ssrf'
 
 const HTTP_TIMEOUT_MS = 30_000
 const MAX_RESPONSE_CHARS = 50_000
@@ -61,7 +61,6 @@ export class HttpToolClient {
     if (name !== 'request') throw new Error(`Unknown HTTP tool: ${name}`)
     const url = String(args.url || '')
     assertEgressAllowed(url)
-    await assertPublicUrl(url)
 
     const method = String(args.method || 'GET').toUpperCase()
     const headers: Record<string, string> = { accept: 'application/json, text/plain;q=0.9, */*;q=0.8' }
@@ -76,7 +75,7 @@ export class HttpToolClient {
     const controller = new AbortController()
     const timer = setTimeout(() => controller.abort(), HTTP_TIMEOUT_MS)
     try {
-      const response = await fetch(url, { method, headers, body, signal: controller.signal, redirect: 'error' })
+      const response = await fetchPublicUrl(url, { method, headers, body, signal: controller.signal, redirect: 'error' })
       const text = (await response.text()).slice(0, MAX_RESPONSE_CHARS)
       return { status: response.status, ok: response.ok, body: text }
     } finally {

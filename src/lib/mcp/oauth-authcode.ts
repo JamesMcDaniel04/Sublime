@@ -15,6 +15,7 @@
  */
 
 import crypto from 'crypto'
+import { fetchPublicUrl } from '@/lib/net/ssrf'
 
 // ---------------------------------------------------------------------------
 // Redirect safety
@@ -63,7 +64,7 @@ export async function discoverAuthServer(
   const origin = new URL(serverUrl).origin
   const discoveryUrl = `${origin}/.well-known/oauth-authorization-server`
 
-  const response = await fetch(discoveryUrl, {
+  const response = await fetchPublicUrl(discoveryUrl, {
     headers: { Accept: 'application/json' },
     redirect: 'error', // don't follow a 3xx to an internal host (SSRF guard)
     signal: AbortSignal.timeout(10_000),
@@ -136,7 +137,7 @@ export async function registerClient(
   registrationEndpoint: string,
   redirectUri: string,
 ): Promise<RegisteredClient> {
-  const response = await fetch(registrationEndpoint, {
+  const response = await fetchPublicUrl(registrationEndpoint, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -263,7 +264,7 @@ export async function exchangeCode(
     ...bodyExtra,
   })
 
-  const response = await fetch(tokenEndpoint, {
+  const response = await fetchPublicUrl(tokenEndpoint, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/x-www-form-urlencoded',
@@ -318,7 +319,7 @@ export async function refreshAccessToken(
     ...bodyExtra,
   })
 
-  const response = await fetch(tokenEndpoint, {
+  const response = await fetchPublicUrl(tokenEndpoint, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/x-www-form-urlencoded',

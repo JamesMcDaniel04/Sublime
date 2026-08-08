@@ -511,7 +511,7 @@ export async function performHttpRequest(
   policy: HttpRequestPolicy,
   deps: HttpRequestDeps = {},
 ): Promise<FlowHttpOutput | FlowHttpPaginatedOutput> {
-  const fetchImpl = deps.fetchImpl ?? fetch
+  const fetchImpl = deps.fetchImpl ?? ((input, init) => fetchPublicUrl(String(input), init)) as typeof fetch
   const sleep = deps.sleep ?? defaultSleep
   let requestCount = 0
   const batch = policy.batch && typeof policy.batch === 'object' ? (policy.batch as Record<string, unknown>) : null
@@ -733,3 +733,4 @@ export async function responseOutput(response: Response, responseType: 'auto' | 
 }
 import { createHash, createHmac, randomBytes } from 'node:crypto'
 import type { RuntimeCredentialAuth } from '@/lib/credentials/resolve'
+import { fetchPublicUrl } from '@/lib/net/ssrf'

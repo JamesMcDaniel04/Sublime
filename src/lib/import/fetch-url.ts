@@ -5,7 +5,7 @@
  * re-run on EVERY redirect hop, https only, bounded time and bytes.
  */
 import { assertEgressAllowed } from '@/lib/integrations/http'
-import { assertPublicUrl } from '@/lib/net/ssrf'
+import { fetchPublicUrl } from '@/lib/net/ssrf'
 
 const TIMEOUT_MS = 10_000
 const MAX_REDIRECTS = 3
@@ -37,12 +37,11 @@ export async function fetchImportDocument(rawUrl: string, fetchImpl: typeof fetc
   let url = rawUrl
   for (let hop = 0; hop <= MAX_REDIRECTS; hop += 1) {
     assertEgressAllowed(url)
-    await assertPublicUrl(url)
-    const response = await fetchImpl(url, {
+    const response = await fetchPublicUrl(url, {
       redirect: 'manual',
       signal: AbortSignal.timeout(TIMEOUT_MS),
       headers: { accept: 'application/json, text/plain, */*' },
-    })
+    }, fetchImpl)
     if (response.status >= 300 && response.status < 400) {
       const location = response.headers.get('location')
       if (!location) throw new Error('The URL redirected without a destination.')

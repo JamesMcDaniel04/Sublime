@@ -15,7 +15,7 @@
 import { z } from 'zod'
 import { ApiError, withAuthenticatedApi } from '@/lib/server/api-handler'
 import { rateLimit } from '@/lib/ratelimit'
-import { assertPublicUrl, SsrfError } from '@/lib/net/ssrf'
+import { assertPublicUrl, fetchPublicUrl, SsrfError } from '@/lib/net/ssrf'
 
 const discoverSchema = z.object({
   serverUrl: z.string().url(),
@@ -44,7 +44,7 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
   }
 
   try {
-    const response = await fetch(discoveryUrl, {
+    const response = await fetchPublicUrl(discoveryUrl, {
       redirect: 'error', // don't let a 3xx bounce us to an internal host
       signal: AbortSignal.timeout(5_000),
     })
