@@ -33,6 +33,36 @@ import { toVerification, type Verification } from '@/lib/connections/verificatio
 export { mcpConnectionScope } from '@/features/agents/tool-planes'
 
 export type FlowToolSummary = { name: string; description: string; inputSchema?: unknown; outputSchema?: unknown; schemaHash?: string; risk?: 'read' | 'write' | 'destructive' }
+
+/** MCP tool annotations relevant to risk (see the MCP spec's ToolAnnotations). */
+export type ToolRiskAnnotations = { readOnlyHint?: boolean; destructiveHint?: boolean }
+
+const RISK_ORDER = { read: 0, write: 1, destructive: 2 } as const
+
+/**
+ * Risk classification for a tool. Structured annotations are preferred over
+ * the name heuristic, but annotations are advisory (server-supplied and
+ * unverifiable), so they may only RAISE the classification — on conflict the
+ * riskier of (annotation, name-heuristic + group write flag) wins.
+ */
+export function riskForTool(
+  name: string,
+  groupWrite: boolean,
+  annotations?: ToolRiskAnnotations,
+): 'read' | 'write' | 'destructive' {
+  const normalized = name.toLowerCase().replace(/[_-]/g, ' ')
+  const heuristic: 'read' | 'write' | 'destructive' =
+    /\b(delete|remove|destroy|revoke|archive|cancel|terminate|drop)\b/.test(normalized) ? 'destructive'
+    : groupWrite || /\b(create|update|set|send|post|publish|upload|invite|add|write|execute|trigger|reply)\b/.test(normalized) ? 'write'
+    : 'read'
+  const hinted: 'read' | 'write' | 'destructive' | undefined =
+    annotations?.destructiveHint === true ? 'destructive'
+    : annotations?.readOnlyHint === true ? 'read'
+    : annotations?.readOnlyHint === false ? 'write'
+    : undefined
+  if (!hinted) return heuristic
+  return RISK_ORDER[hinted] > RISK_ORDER[heuristic] ? hinted : heuristic
+}
 export type FlowToolCatalogConnection = { id: string; name: string; provider?: string; tools: FlowToolSummary[]; toolsError?: string; verification?: Verification }
 
 export async function loadFlowToolCatalog(
@@ -75,12 +105,6 @@ export async function loadFlowToolCatalog(
   // Whether each connection has actually been proven to work. A missing row
   // reads as `unverified` — never as healthy, which is the point.
   const verifications = await loadVerifications(organizationId, groups.map((group) => group.id))
-  const riskFor = (name: string, groupWrite: boolean): 'read' | 'write' | 'destructive' => {
-    const normalized = name.toLowerCase()
-    if (/\b(delete|remove|destroy|revoke|archive|cancel|terminate|drop)\b/.test(normalized.replace(/[_-]/g, ' '))) return 'destructive'
-    if (groupWrite || /\b(create|update|set|send|post|publish|upload|invite|add|write|execute|trigger|reply)\b/.test(normalized.replace(/[_-]/g, ' '))) return 'write'
-    return 'read'
-  }
   return groups
     .filter((group) => !wantedIds || wantedIds.has(group.id))
     .map((group) => ({
@@ -97,7 +121,7 @@ export async function loadFlowToolCatalog(
         inputSchema: tool.inputSchema ?? null,
         outputSchema: tool.outputSchema ?? null,
         schemaHash: createHash('sha256').update(JSON.stringify({ input: tool.inputSchema ?? null, output: tool.outputSchema ?? null })).digest('hex'),
-        risk: riskFor(tool.name, group.isWrite),
+        risk: riskForTool(tool.name, group.isWrite, tool.annotations),
       })),
     }))
 }

@@ -13,7 +13,7 @@ import React, { useState } from 'react'
 import { render, act, cleanup, fireEvent } from '@testing-library/react'
 import { NodeDetailView } from '../ndv/node-detail-view'
 import { updateNode } from '@/lib/flows/mutate'
-import type { FlowGraph, FlowNode } from '@/lib/flows/graph'
+import { DEFAULT_PAGINATION_MAX_PAGES, type FlowGraph, type FlowNode } from '@/lib/flows/graph'
 
 const httpNode = (data: Record<string, unknown> = {}): FlowNode =>
   ({ id: 'h1', type: 'http', data: { method: 'POST', url: 'https://api.example.com/x', ...data } }) as FlowNode
@@ -79,7 +79,7 @@ test('adding pagination from Options writes a usable default', (t) => {
   const add = container.querySelector('[aria-label="Add option"]') as HTMLSelectElement
   act(() => { fireEvent.change(add, { target: { value: 'pagination' } }) })
 
-  assert.deepEqual(dataOf(latest).pagination, { mode: 'page', pageParam: 'page', startPage: 1, maxPages: 10 })
+  assert.deepEqual(dataOf(latest).pagination, { mode: 'page', pageParam: 'page', startPage: 1, maxPages: DEFAULT_PAGINATION_MAX_PAGES })
   assert.ok(container.querySelector('[aria-label="Pagination mode"]'), 'the pagination controls render once added')
 })
 

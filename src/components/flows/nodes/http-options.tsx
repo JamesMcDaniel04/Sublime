@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import { X } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import type { FlowNode } from '@/lib/flows/graph'
+import { DEFAULT_PAGINATION_MAX_PAGES, type FlowNode } from '@/lib/flows/graph'
 import { controlClass, labelClass } from './field-primitives'
 import type { TokenEditorWiring } from './types'
 
@@ -66,7 +66,9 @@ const DEFAULTS: Record<OptionKey, unknown> = {
   retryStatusCodes: [429, 502, 503, 504],
   queryArrayFormat: 'repeat',
   cookie: '',
-  pagination: { mode: 'page', pageParam: 'page', startPage: 1, maxPages: 10 },
+  // maxPages seeds the same constant the executor falls back to — the two must
+  // match so an unedited seed and an absent value paginate identically.
+  pagination: { mode: 'page', pageParam: 'page', startPage: 1, maxPages: DEFAULT_PAGINATION_MAX_PAGES },
   batch: { size: 10, delayMs: 1000 },
   onError: 'stop',
   excludeFromContext: true,

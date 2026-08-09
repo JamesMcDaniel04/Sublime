@@ -68,6 +68,8 @@ export type PlaneToolDescriptor = {
   description: string
   inputSchema?: unknown
   outputSchema?: unknown
+  /** MCP tool annotations, when the server reports them (risk classification). */
+  annotations?: { readOnlyHint?: boolean; destructiveHint?: boolean }
 }
 
 /**
@@ -192,6 +194,7 @@ export async function loadMcpConnectionPlaneGroups(
         description: tool.description || `${tool.name} via ${fresh.name}`,
         inputSchema: tool.inputSchema || EMPTY_SCHEMA,
         outputSchema: (tool as { outputSchema?: unknown }).outputSchema,
+        annotations: tool.annotations,
       }))
     } catch (error) {
       apiLogger.warn('loadTools: org MCP connection tool discovery failed, skipping', {

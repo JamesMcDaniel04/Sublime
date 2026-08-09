@@ -2,6 +2,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { createHmac } from 'node:crypto'
 import { performHttpRequest, prepareHttpRequest, responseOutput, withBearerAuthorization, redactAuthHeaders, redactHttpStepInput, oauth1SignatureBase } from '../http'
+import { DEFAULT_PAGINATION_MAX_PAGES } from '@/lib/flows/graph'
 
 test('prepareHttpRequest appends query params and sends JSON bodies', () => {
   const request = prepareHttpRequest({
@@ -533,6 +534,21 @@ test('a digest challenge round-trip counts both fetches against batch throttling
 
   assert.equal(fetches, 6, 'three pages of a challenge + authenticated pair')
   assert.equal(sleeps, 2, 'a batch of 2 should pause before pages 2 and 3')
+})
+
+test('pagination without an explicit maxPages stops at the shared editor default', async () => {
+  // The editor seeds this same constant when pagination is enabled — the
+  // runtime fallback must match it or flows saved without maxPages drift.
+  let fetches = 0
+  const request = prepareHttpRequest({ method: 'GET', url: 'https://api.example.com/items' })
+  await performHttpRequest(request, { pagination: { mode: 'page' } }, {
+    fetchImpl: async () => {
+      fetches += 1
+      return new Response('[{"id":1}]', { status: 200, headers: { 'content-type': 'application/json' } })
+    },
+  })
+  assert.equal(DEFAULT_PAGINATION_MAX_PAGES, 10)
+  assert.equal(fetches, DEFAULT_PAGINATION_MAX_PAGES)
 })
 
 // ── WS1 hardening probes: every method actually callable ────────────────────
