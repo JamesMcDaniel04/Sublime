@@ -6,7 +6,7 @@
  * credentials and a silent no-op there is a defect, not a config choice.
  * Never throws — safe to fire-and-forget from scan/backfill hooks.
  */
-import { Prisma } from '@prisma/client'
+import { Prisma } from '@/generated/prisma/client'
 import { prisma } from '@/lib/prisma'
 import { apiLogger } from '@/lib/logger'
 import { generateStructured, DEFAULT_SUMMARY_MODEL } from '@/lib/llm/model-runner'

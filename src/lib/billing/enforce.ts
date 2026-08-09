@@ -1,4 +1,4 @@
-import { Prisma } from '@prisma/client'
+import { Prisma } from '@/generated/prisma/client'
 import { prisma, systemPrisma } from '@/lib/prisma'
 import { ApiError } from '@/lib/server/api-handler'
 import { formatLimit, limitsForOrg, type PlanLimits } from './limits'

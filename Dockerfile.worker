@@ -4,9 +4,11 @@ FROM node:20-alpine
 
 WORKDIR /app
 
-# Copy package files and prisma
-COPY package*.json ./
+# Copy package files and prisma (prisma.config.ts + .npmrc: Prisma 7 CLI reads
+# its config from the repo root, and npm ci needs the legacy-peer-deps flag)
+COPY package*.json .npmrc ./
 COPY tsconfig.json ./
+COPY prisma.config.ts ./
 COPY prisma ./prisma/
 
 # Install all dependencies (ts-node, tsconfig-paths are dev deps)

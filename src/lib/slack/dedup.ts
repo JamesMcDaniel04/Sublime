@@ -14,7 +14,7 @@
  * the tenant selector already, resolved by the ingress route before this is
  * called) — a session-less ingress-support table, not an org-scoped model.
  */
-import { Prisma } from '@prisma/client'
+import { Prisma } from '@/generated/prisma/client'
 import { systemPrisma } from '@/lib/prisma'
 
 const DEFAULT_PRUNE_AGE_MS = 60 * 60 * 1000 // 1h — well past any Slack retry window.

@@ -1,5 +1,5 @@
 import crypto from 'node:crypto'
-import { Prisma } from '@prisma/client'
+import { Prisma } from '@/generated/prisma/client'
 import { prisma } from '@/lib/prisma'
 import { encryptSecret, decryptSecret } from '@/lib/crypto/secrets'
 import { embedTexts, embeddingsConfigured, toSqlVector } from '@/lib/rag/embeddings'

@@ -3,7 +3,7 @@
  * (organizationId, dedupeKey) caught as P2002 — a replayed webhook or an
  * overlapping backfill page cannot double-write (same mechanism as Signal).
  */
-import { Prisma } from '@prisma/client'
+import { Prisma } from '@/generated/prisma/client'
 import { prisma } from '@/lib/prisma'
 import type { IngestKind, NormalizedActivity } from './types'
 

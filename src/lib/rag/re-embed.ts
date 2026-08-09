@@ -13,7 +13,7 @@
  * Gated on embeddings being configured; never throws — the cron caller treats
  * any failure as "try again tomorrow".
  */
-import { Prisma } from '@prisma/client'
+import { Prisma } from '@/generated/prisma/client'
 import { systemPrisma } from '@/lib/prisma'
 import { apiLogger } from '@/lib/logger'
 import { embedTexts, embeddingsConfigured, toSqlVector } from '@/lib/rag/embeddings'

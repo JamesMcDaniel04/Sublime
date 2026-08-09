@@ -1,4 +1,4 @@
-import type { Plan, UserRole } from '@prisma/client'
+import type { Plan, UserRole } from '@/generated/prisma/client'
 import { getAuthWithUser } from '@/lib/supabase/auth-utils'
 import { billingStateFor } from '@/lib/billing/trial'
 import { entitlementPlanFor } from '@/lib/billing/entitlements'

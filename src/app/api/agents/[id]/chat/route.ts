@@ -1,4 +1,4 @@
-import type { AgentChatMessage, Prisma } from '@prisma/client'
+import type { AgentChatMessage, Prisma } from '@/generated/prisma/client'
 import { z } from 'zod'
 import { prisma } from '@/lib/prisma'
 import { createModelRunner, DEFAULT_SUMMARY_MODEL } from '@/lib/llm/model-runner'

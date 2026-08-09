@@ -1,4 +1,4 @@
-import { Plan } from '@prisma/client'
+import { Plan } from '@/generated/prisma/client'
 
 export type SupportTier = 'resources' | 'priority' | 'dedicated'
 

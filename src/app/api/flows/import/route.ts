@@ -1,4 +1,4 @@
-import { Prisma } from '@prisma/client'
+import { Prisma } from '@/generated/prisma/client'
 import { z } from 'zod'
 import { createHash } from 'node:crypto'
 import { prisma } from '@/lib/prisma'

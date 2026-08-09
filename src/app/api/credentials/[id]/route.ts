@@ -1,3 +1,4 @@
+import type { Prisma } from '@/generated/prisma/client'
 import { z } from 'zod'
 import { prisma } from '@/lib/prisma'
 import { ApiError, withAuthenticatedApi } from '@/lib/server/api-handler'
@@ -87,7 +88,7 @@ export const PUT = withAuthenticatedApi(async (request, auth) => {
       ...(input.name ? { name: input.name } : {}),
       ...(input.type ? { type: input.type } : {}),
       ...(allowedDomains ? { allowedDomains } : {}),
-      authConfig,
+      authConfig: authConfig as Prisma.InputJsonValue,
     },
   })
   // An OAuth2 client-credentials token minted from the OLD secret must not

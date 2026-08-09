@@ -14,7 +14,7 @@
  * than the goal's own name would.
  */
 
-import type { GoalWork } from '@prisma/client'
+import type { GoalWork } from '@/generated/prisma/client'
 
 export const ANONYMISED_WORK_KEYS = [
   'id',

@@ -1,5 +1,5 @@
 import type { NextRequest } from 'next/server'
-import type { AgentTask } from '@prisma/client'
+import type { AgentTask } from '@/generated/prisma/client'
 import { prisma } from '@/lib/prisma'
 import { ApiError } from '@/lib/server/api-handler'
 import type { AuthContext } from '@/lib/server/auth'

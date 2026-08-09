@@ -8,7 +8,7 @@
  * (template provisioning) degrade to DRAFT with the reason; the publish route
  * converts a reason into a 400.
  */
-import { Prisma } from '@prisma/client'
+import { Prisma } from '@/generated/prisma/client'
 import { prisma } from '@/lib/prisma'
 import { flowGraphSchema } from '@/lib/flows/graph'
 import { validateFlowGraph, validationErrorMessage } from '@/lib/flows/validate'

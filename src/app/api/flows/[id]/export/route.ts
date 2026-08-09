@@ -1,3 +1,4 @@
+import type { Prisma } from '@/generated/prisma/client'
 import { z } from 'zod'
 import { prisma } from '@/lib/prisma'
 import { ApiError, withAuthenticatedApi } from '@/lib/server/api-handler'
@@ -98,7 +99,7 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
       triggerSecret = newTriggerSecret()
       await prisma.flow.update({
         where: { id: flow.id, organizationId: auth.organizationId },
-        data: { trigger: withTriggerSecret(trigger, triggerSecret) },
+        data: { trigger: withTriggerSecret(trigger, triggerSecret) as Prisma.InputJsonValue },
       })
       if (hadLegacySecret) {
         extraRequirements.push('A new webhook trigger secret was minted for this export — the previous secret no longer works.')

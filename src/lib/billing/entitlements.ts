@@ -1,4 +1,4 @@
-import { Plan } from '@prisma/client'
+import { Plan } from '@/generated/prisma/client'
 
 // Existing workspaces were promised unrestricted internal/test access when
 // paid-from-day-one launched. The durable marker is grandfatheredAt, while

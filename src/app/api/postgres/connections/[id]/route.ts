@@ -1,3 +1,4 @@
+import type { Prisma } from '@/generated/prisma/client'
 import { z } from 'zod'
 import { prisma } from '@/lib/prisma'
 import { ApiError, withAuthenticatedApi } from '@/lib/server/api-handler'
@@ -75,7 +76,7 @@ export const PATCH = withAuthenticatedApi(async (request, auth) => {
       ...(input.allowWrites !== undefined ? { allowWrites: input.allowWrites } : {}),
       ...(input.defaultSchema !== undefined ? { defaultSchema: input.defaultSchema.trim() || 'public' } : {}),
       ...(input.connectionString || input.caCert !== undefined
-        ? { authConfig: buildPostgresAuthConfig(input, existing.authConfig) }
+        ? { authConfig: buildPostgresAuthConfig(input, existing.authConfig) as Prisma.InputJsonValue }
         : {}),
     },
   })

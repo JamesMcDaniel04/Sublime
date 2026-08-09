@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { Plan } from '@prisma/client'
+import { Plan } from '@/generated/prisma/client'
 import { capabilitiesForPlan } from '../capabilities'
 
 test('Individual has one core area and private skills', () => {

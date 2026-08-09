@@ -12,7 +12,7 @@
  */
 
 import { timingSafeEqual } from 'crypto'
-import { Plan } from '@prisma/client'
+import { Plan } from '@/generated/prisma/client'
 import { systemPrisma } from '@/lib/prisma'
 import { getStripe } from '@/lib/stripe'
 import { reconcileOrganizationSubscription } from '@/lib/billing/sync-subscription'

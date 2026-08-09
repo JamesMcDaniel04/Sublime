@@ -3,6 +3,7 @@
  * the denials: cross-org, personal-to-another-user, inactive, and
  * domain-blocked must all refuse rather than inject.
  */
+import type { Prisma } from '@/generated/prisma/client'
 import { test, before, after } from 'node:test'
 import assert from 'node:assert/strict'
 
@@ -39,7 +40,7 @@ if (!TEST_DB) {
           userId: seeded.userId,
           name,
           type: 'bearer',
-          authConfig: buildCredentialConfig({ type: 'bearer', token: `tok-${name}` }),
+          authConfig: buildCredentialConfig({ type: 'bearer', token: `tok-${name}` }) as Prisma.InputJsonValue,
           allowedDomains: ['example.com'],
           ...extra,
         },

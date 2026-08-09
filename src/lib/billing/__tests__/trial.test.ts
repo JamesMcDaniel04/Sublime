@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { Plan } from '@prisma/client'
+import { Plan } from '@/generated/prisma/client'
 import { billingStateFor, trialDaysRemaining } from '../trial'
 
 const NOW = new Date('2026-07-28T12:00:00.000Z')
