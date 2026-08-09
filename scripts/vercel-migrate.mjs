@@ -10,12 +10,17 @@ import { execSync } from 'node:child_process'
 
 const env = process.env.VERCEL_ENV ?? 'local'
 if (env === 'production') {
+  // Branch enforcement is opt-in: set PRODUCTION_DEPLOY_BRANCH in Vercel to pin
+  // prod deploys (and their migrations) to one branch. Unset, any promoted
+  // preview build may deploy — the promotion itself is the human gate.
   const branch = process.env.VERCEL_GIT_COMMIT_REF
-  if (branch !== 'main') {
+  const requiredBranch = process.env.PRODUCTION_DEPLOY_BRANCH
+  if (requiredBranch && branch !== requiredBranch) {
     throw new Error(
-      `Refusing a production deployment from ${branch || 'an unknown branch'}; production deployments must originate from main.`,
+      `Refusing a production deployment from ${branch || 'an unknown branch'}; PRODUCTION_DEPLOY_BRANCH pins production deployments to ${requiredBranch}.`,
     )
   }
+  console.log(`▸ production deploy from ${branch || 'an unknown branch'} @ ${process.env.VERCEL_GIT_COMMIT_SHA || 'unknown commit'}`)
   // A 2026-08-02 deploy partially entered this migration before Supabase's
   // locked realtime schema rejected its policy DDL. The migration is now
   // idempotent and handles that role boundary, so clear only this known failed
