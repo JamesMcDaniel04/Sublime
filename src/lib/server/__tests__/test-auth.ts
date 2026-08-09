@@ -1,5 +1,5 @@
 import crypto from 'node:crypto'
-import { Plan, type UserRole } from '@prisma/client'
+import { Plan, type UserRole } from '@/generated/prisma/client'
 import { setTestAuthContext } from '../auth'
 import type { AuthContext } from '../auth'
 

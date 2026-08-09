@@ -1,6 +1,6 @@
 import { z } from 'zod'
 import { credentialScope } from '@/lib/credentials/resolve'
-import { Prisma } from '@prisma/client'
+import { Prisma } from '@/generated/prisma/client'
 import { after } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { ApiError, withAuthenticatedApi } from '@/lib/server/api-handler'

@@ -1,3 +1,4 @@
+import type { Prisma } from '@/generated/prisma/client'
 import { z } from 'zod'
 import { prisma } from '@/lib/prisma'
 import { ApiError, withAuthenticatedApi } from '@/lib/server/api-handler'
@@ -40,7 +41,7 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
     where: { id: flow.id, organizationId: auth.organizationId },
     // Hash validates incoming webhooks; ciphertext lets an owner-only export
     // recover the plaintext later without rotating (see lib/flows/webhook-secret).
-    data: { trigger: withTriggerSecret(trigger, secret) },
+    data: { trigger: withTriggerSecret(trigger, secret) as Prisma.InputJsonValue },
   })
   return { ...base, hasSecret: true, secret }
 }, { requires: 'member' })

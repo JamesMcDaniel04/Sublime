@@ -1,3 +1,4 @@
+import type { Prisma } from '@/generated/prisma/client'
 import { z } from 'zod'
 import { prisma, systemPrisma } from '@/lib/prisma'
 import { ApiError, withAuthenticatedApi } from '@/lib/server/api-handler'
@@ -49,7 +50,7 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
   const skills = Array.from(new Set([...(metadata.skills ?? []), skillId]))
   await prisma.agentTask.update({
     where: { id: agent.id, organizationId: auth.organizationId },
-    data: { metadata: { ...metadata, skills } },
+    data: { metadata: { ...metadata, skills } as Prisma.InputJsonValue },
   })
 
   return { success: true, skills }
@@ -76,7 +77,7 @@ export const DELETE = withAuthenticatedApi(async (request, auth) => {
   const skills = (metadata.skills ?? []).filter((id) => id !== skillId)
   await prisma.agentTask.update({
     where: { id: agent.id, organizationId: auth.organizationId },
-    data: { metadata: { ...metadata, skills } },
+    data: { metadata: { ...metadata, skills } as Prisma.InputJsonValue },
   })
 
   return { success: true, skills }

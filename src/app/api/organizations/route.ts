@@ -7,7 +7,7 @@ import { addScanExclusion, mergeOrgSettings, removeScanExclusion } from '@/lib/s
 
 const ORG_SELECT = { id: true, name: true, slug: true, plan: true, logoUrl: true, settings: true, createdAt: true, grandfatheredAt: true } as const
 
-function serializeOrganization<T extends { plan: import('@prisma/client').Plan; createdAt: Date; grandfatheredAt?: Date | null }>(organization: T) {
+function serializeOrganization<T extends { plan: import('@/generated/prisma/client').Plan; createdAt: Date; grandfatheredAt?: Date | null }>(organization: T) {
   return {
     ...organization,
     plan: entitlementPlanFor(organization),

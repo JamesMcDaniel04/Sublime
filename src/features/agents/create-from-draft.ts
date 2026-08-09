@@ -1,4 +1,4 @@
-import type { AgentTask } from '@prisma/client'
+import type { AgentTask } from '@/generated/prisma/client'
 import { prisma } from '@/lib/prisma'
 import { syncAgentConnectors } from '@/lib/connectors/agent-connectors'
 import { DEFAULT_AGENT_MODEL } from '@/lib/llm/model-runner'

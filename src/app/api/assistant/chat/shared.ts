@@ -1,4 +1,4 @@
-import type { AssistantChatMessage } from '@prisma/client'
+import type { AssistantChatMessage } from '@/generated/prisma/client'
 
 /**
  * Shared helpers for the Home assistant chat routes (`/chat` and

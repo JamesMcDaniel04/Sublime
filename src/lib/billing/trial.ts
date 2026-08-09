@@ -1,4 +1,4 @@
-import { Plan } from '@prisma/client'
+import { Plan } from '@/generated/prisma/client'
 import { entitlementPlanFor, isGrandfatheredOrganization } from './entitlements'
 
 type BillingFields = {

@@ -8,6 +8,7 @@
  *
  * Run: TEST_DATABASE_URL=postgres://... npx tsx --test <this file>
  */
+import type { Prisma } from '@/generated/prisma/client'
 import { test, before, after } from 'node:test'
 import assert from 'node:assert/strict'
 import { NextRequest } from 'next/server'
@@ -166,7 +167,7 @@ if (!TEST_DB) {
   const saveGraph = async (nodes: unknown[], edges: unknown[]) => {
     await prisma.flow.update({
       where: { id: flowId, organizationId: seeded.organizationId },
-      data: { graph: { nodes, edges } },
+      data: { graph: { nodes, edges } as Prisma.InputJsonValue },
     })
   }
 

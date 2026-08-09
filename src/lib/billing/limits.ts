@@ -1,4 +1,4 @@
-import { Plan } from '@prisma/client'
+import { Plan } from '@/generated/prisma/client'
 
 /**
  * Per-plan usage limits. Every workspace is treated as an Individual account

@@ -1,3 +1,4 @@
+import type { Prisma } from '@/generated/prisma/client'
 import { z } from 'zod'
 import { prisma } from '@/lib/prisma'
 import { ApiError, withAuthenticatedApi } from '@/lib/server/api-handler'
@@ -75,7 +76,7 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
     data: {
       organizationId: auth.organizationId,
       name: input.name,
-      authConfig: buildPostgresAuthConfig(input),
+      authConfig: buildPostgresAuthConfig(input) as Prisma.InputJsonValue,
       displayTarget,
       allowWrites: input.allowWrites ?? false,
       defaultSchema: input.defaultSchema?.trim() || 'public',

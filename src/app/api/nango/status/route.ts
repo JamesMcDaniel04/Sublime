@@ -1,4 +1,4 @@
-import type { Prisma } from '@prisma/client'
+import type { Prisma } from '@/generated/prisma/client'
 import { after } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { getNangoClient, nangoConfigured, nangoDeadline, NANGO_ORG_TAG } from '@/lib/nango/client'

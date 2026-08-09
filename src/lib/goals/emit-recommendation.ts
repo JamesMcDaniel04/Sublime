@@ -12,6 +12,7 @@
  * Org goals emit a UserSuggestion addressed to the creator because
  * AgentMemory requires an agentId FK. They additionally notify org-wide.
  */
+import type { Prisma } from '@/generated/prisma/client'
 import { prisma } from '@/lib/prisma'
 import { apiLogger } from '@/lib/logger'
 import { notify } from '@/lib/notifications/service'
@@ -125,10 +126,11 @@ const defaultDeps: EmitDeps = {
         triggerRiskLevel: data.triggerRiskLevel,
         diagnosis: data.diagnosis,
         evidence: data.evidence,
-        modelMeta: data.modelMeta,
+        modelMeta: data.modelMeta as Prisma.InputJsonValue,
         actions: {
           create: data.actions.map((action) => ({
             ...action,
+            payload: action.payload as Prisma.InputJsonValue,
             organizationId: data.organizationId,
           })),
         },

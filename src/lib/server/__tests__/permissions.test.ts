@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { Plan, type UserRole } from '@prisma/client'
+import { Plan, type UserRole } from '@/generated/prisma/client'
 import {
   CAPABILITIES,
   can,

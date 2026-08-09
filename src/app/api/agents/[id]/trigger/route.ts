@@ -1,6 +1,6 @@
 import { timingSafeEqual } from 'crypto'
 import { NextRequest, NextResponse } from 'next/server'
-import { Prisma } from '@prisma/client'
+import { Prisma } from '@/generated/prisma/client'
 import { prisma, systemPrisma } from '@/lib/prisma'
 import { getQueue, QUEUE_NAMES, workersEnabled } from '@/lib/queue/config'
 import { apiLogger } from '@/lib/logger'

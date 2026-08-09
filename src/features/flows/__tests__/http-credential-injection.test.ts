@@ -7,6 +7,7 @@
  * unit test of applyCredentialPlan — the secret passes through prepareHttpRequest,
  * the fetch, and the FlowRunStep write, and any one of those could persist it.
  */
+import type { Prisma } from '@/generated/prisma/client'
 import { test, before, after } from 'node:test'
 import assert from 'node:assert/strict'
 
@@ -48,7 +49,7 @@ if (!TEST_DB) {
         allowedDomains: ['example.com'],
         name: 'E2E bearer',
         type: 'bearer',
-        authConfig: buildCredentialConfig({ type: 'bearer', token: SECRET }),
+        authConfig: buildCredentialConfig({ type: 'bearer', token: SECRET }) as Prisma.InputJsonValue,
       },
       select: { id: true },
     })

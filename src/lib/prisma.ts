@@ -1,4 +1,5 @@
-import { PrismaClient } from '@prisma/client'
+import { PrismaClient } from '@/generated/prisma/client'
+import { PrismaPg } from '@prisma/adapter-pg'
 import { assertOrgScoped } from '@/lib/tenant-guard'
 
 const globalForPrisma = globalThis as unknown as {
@@ -7,7 +8,18 @@ const globalForPrisma = globalThis as unknown as {
 }
 
 function createPrismaClient() {
+  // Prisma 7 requires an explicit driver adapter; the client no longer reads
+  // the datasource from the schema. Same pooled DATABASE_URL as before —
+  // sslmode etc. stay in the connection string, interpreted by node-postgres.
+  // The getter defers env resolution to the first query (when the adapter
+  // builds its pg.Pool), preserving v6's lazy-connect timing that the
+  // DB-gated test suites rely on (they assign DATABASE_URL after import).
   return new PrismaClient({
+    adapter: new PrismaPg({
+      get connectionString() {
+        return process.env.DATABASE_URL
+      },
+    }),
     log: process.env.NODE_ENV === 'development' ? ['query', 'error', 'warn'] : ['error'],
   })
 }

@@ -1,7 +1,7 @@
 /** SlackThreadSession: one Slack thread ↔ one flow conversation.
  * resolveSessionRouting is the pure precedence decision the ingress applies
  * BEFORE trigger matching; the DB helpers wrap the session lifecycle. */
-import { Prisma } from '@prisma/client'
+import { Prisma } from '@/generated/prisma/client'
 import { systemPrisma } from '@/lib/prisma'
 
 function isUniqueViolation(error: unknown): boolean {

@@ -1,4 +1,4 @@
-import type { AgentTask } from '@prisma/client'
+import type { AgentTask } from '@/generated/prisma/client'
 import { prisma } from '@/lib/prisma'
 import { readAgentMetadata } from '@/lib/agents/metadata'
 import { retrieveContext, renderContext } from '@/lib/rag/retrieve'

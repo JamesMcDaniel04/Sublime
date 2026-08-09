@@ -1,3 +1,4 @@
+import type { Prisma } from '@/generated/prisma/client'
 import { z } from 'zod'
 import { prisma, systemPrisma } from '@/lib/prisma'
 import { ApiError, withAuthenticatedApi } from '@/lib/server/api-handler'
@@ -162,7 +163,7 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
   if (existing) {
     const template = await prisma.agentTemplate.update({
       where: { id: existing.id, organizationId: auth.organizationId },
-      data: { name, description: data.description, type: data.category, configuration },
+      data: { name, description: data.description, type: data.category, configuration: configuration as Prisma.InputJsonValue },
     })
     return { success: true, template: serializeTemplate(template, auth.organizationId), updated: true }
   }
@@ -171,7 +172,7 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
       name,
       description: data.description,
       type: data.category,
-      configuration,
+      configuration: configuration as Prisma.InputJsonValue,
       userId: auth.dbUser.id,
       organizationId: auth.organizationId,
     },

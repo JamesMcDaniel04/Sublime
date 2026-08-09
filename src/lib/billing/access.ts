@@ -1,4 +1,4 @@
-import { Plan } from '@prisma/client'
+import { Plan } from '@/generated/prisma/client'
 import { getAuthWithUser } from '@/lib/supabase/auth-utils'
 import { canManageBillingByRole } from '@/lib/server/permissions'
 import { billingStateFor, trialDaysRemaining } from './trial'

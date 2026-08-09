@@ -18,7 +18,7 @@
  * Individual plan still does not get the cross-goal view.
  */
 
-import type { Plan, UserRole } from '@prisma/client'
+import type { Plan, UserRole } from '@/generated/prisma/client'
 import { capabilitiesForPlan } from '@/lib/billing/capabilities'
 
 /**

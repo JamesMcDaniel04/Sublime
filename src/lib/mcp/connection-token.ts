@@ -13,7 +13,7 @@
  *  - Never include token values in log messages.
  */
 
-import { Prisma } from '@prisma/client'
+import { Prisma } from '@/generated/prisma/client'
 import { systemPrisma } from '@/lib/prisma'
 import { apiLogger } from '@/lib/logger'
 import { encryptSecret, decryptSecret } from '@/lib/crypto/secrets'

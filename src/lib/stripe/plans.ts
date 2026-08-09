@@ -1,4 +1,4 @@
-import { Plan } from '@prisma/client'
+import { Plan } from '@/generated/prisma/client'
 
 /**
  * Free days granted on a workspace's first subscription. A pricing decision,

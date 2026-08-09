@@ -12,7 +12,7 @@
  * CRON_SECRET-gated at the route). Pure helpers carry the logic so the
  * k-anonymity contract is testable without a database.
  */
-import { Prisma } from '@prisma/client'
+import { Prisma } from '@/generated/prisma/client'
 import { systemPrisma } from '@/lib/prisma'
 import { apiLogger } from '@/lib/logger'
 import { captureError } from '@/lib/observability/sentry'

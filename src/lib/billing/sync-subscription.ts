@@ -1,5 +1,5 @@
 import type Stripe from 'stripe'
-import { Plan } from '@prisma/client'
+import { Plan } from '@/generated/prisma/client'
 import { prisma } from '@/lib/prisma'
 import { planForPriceId } from '@/lib/stripe/plans'
 import { apiLogger } from '@/lib/logger'
