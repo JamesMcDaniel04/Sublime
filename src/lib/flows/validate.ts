@@ -73,7 +73,7 @@ export function nodeLabel(node: FlowNode | undefined) {
         case 'select':
           return 'Select'
       }
-      break
+      break // unknown op — shared fallback below
     case 'humanReview':
       return 'Request information'
     case 'input':
@@ -102,6 +102,9 @@ export function nodeLabel(node: FlowNode | undefined) {
           return 'Append to string variable'
       }
   }
+  // Unmatched inner op or a future node type — never leak "undefined" into
+  // user-facing validation messages.
+  return 'This step'
 }
 
 function unique<T>(items: T[]): T[] {

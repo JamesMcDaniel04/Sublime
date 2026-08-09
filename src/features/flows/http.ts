@@ -567,7 +567,7 @@ export async function performHttpRequest(
   const pagination = policy.pagination && typeof policy.pagination === 'object' ? (policy.pagination as Record<string, unknown>) : null
   if (!pagination || pagination.mode === 'off' || !pagination.mode) return fetchPage(request.url)
   const pages: unknown[] = []
-  const maxPages = Math.max(1, Math.min(1000, Number(pagination.maxPages ?? 100)))
+  const maxPages = Math.max(1, Math.min(1000, Number(pagination.maxPages ?? DEFAULT_PAGINATION_MAX_PAGES)))
   const intervalMs = Math.max(0, Math.min(60000, Number(pagination.intervalMs ?? 0) || 0))
   let pageUrl = request.url
   let cursor: unknown
@@ -732,5 +732,6 @@ export async function responseOutput(response: Response, responseType: 'auto' | 
   }
 }
 import { createHash, createHmac, randomBytes } from 'node:crypto'
+import { DEFAULT_PAGINATION_MAX_PAGES } from '@/lib/flows/graph'
 import type { RuntimeCredentialAuth } from '@/lib/credentials/resolve'
 import { fetchPublicUrl } from '@/lib/net/ssrf'

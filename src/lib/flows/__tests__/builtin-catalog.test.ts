@@ -9,16 +9,20 @@ test('built-in groups cover the drill-in taxonomy', () => {
   const ids = BUILTIN_GROUPS.map((g) => g.id)
   assert.deepEqual(ids, ['http', 'control', 'data-operation', 'variable', 'human-review'])
   const control = BUILTIN_GROUPS.find((g) => g.id === 'control')!
-  assert.deepEqual(control.children.map((c) => c.stepType), ['condition', 'switch', 'loop', 'repeatUntil', 'wait', 'subflow', 'parallel', 'stop'])
+  assert.deepEqual(control.children.map((c) => c.stepType), ['condition', 'switch', 'filter', 'loop', 'repeatUntil', 'wait', 'subflow', 'input', 'output', 'parallel', 'stop'])
   const http = BUILTIN_GROUPS.find((g) => g.id === 'http')!
   assert.deepEqual(http.children.map((c) => c.stepType), ['http', 'http', 'respondWebhook'])
 })
 
 test('the Data operations group offers every data op with its display label', () => {
   const dataOp = BUILTIN_GROUPS.find((g) => g.id === 'data-operation')!
-  assert.ok(dataOp.children.every((c) => c.stepType === 'data'))
-  assert.deepEqual(dataOp.children.map((c) => c.seed?.dataOp), [...DATA_OPS])
-  for (const leaf of dataOp.children) {
+  // 'Set fields' (transform) leads the group; the rest are data-op leaves.
+  assert.equal(dataOp.children[0].stepType, 'transform')
+  assert.equal(dataOp.children[0].label, 'Set fields')
+  const dataLeaves = dataOp.children.filter((c) => c.stepType === 'data')
+  assert.equal(dataLeaves.length, dataOp.children.length - 1)
+  assert.deepEqual(dataLeaves.map((c) => c.seed?.dataOp), [...DATA_OPS])
+  for (const leaf of dataLeaves) {
     assert.equal(leaf.label, DATA_OP_LABELS[leaf.seed!.dataOp!])
   }
 })

@@ -65,6 +65,8 @@ const STEP_ICON: Partial<Record<StepType, LucideIcon>> = {
   variable: Variable,
   data: Braces,
   humanReview: UserCheck,
+  input: Play,
+  output: CircleStop,
 }
 
 const STEP_TONE: Partial<Record<StepType, string>> = {
@@ -81,6 +83,8 @@ const STEP_TONE: Partial<Record<StepType, string>> = {
   variable: 'bg-purple-600 text-white',
   data: 'bg-violet-600 text-white',
   humanReview: 'bg-blue-600 text-white',
+  input: 'bg-teal-600 text-white',
+  output: 'bg-teal-700 text-white',
 }
 
 const LEAF_ICON: Record<string, LucideIcon> = {

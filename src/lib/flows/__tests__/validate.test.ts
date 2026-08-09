@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import type { FlowGraph } from '../graph'
-import { validateFlowGraph, validationErrorMessage } from '../validate'
+import { nodeLabel, validateFlowGraph, validationErrorMessage } from '../validate'
 
 test('validateFlowGraph accepts a runnable agent flow', () => {
   const graph: FlowGraph = {
@@ -618,4 +618,19 @@ test('foreign n8n-style expressions produce a targeted warning', async () => {
   const foreign = result.warnings.find((issue) => issue.code === 'FOREIGN_EXPRESSION')
   assert.ok(foreign, 'expected FOREIGN_EXPRESSION warning')
   assert.equal(foreign?.nodeId, 'h')
+})
+
+test('nodeLabel never renders as undefined for unknown ops or node types', () => {
+  const nodes = [
+    { id: 'd', type: 'data', data: { op: 'brandNewOp', input: 'x' } },
+    { id: 'v', type: 'variable', data: { op: 'squareRoot', name: 'n' } },
+    { id: 'f', type: 'hologram', data: {} },
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  ] as any[]
+  for (const node of nodes) {
+    const label = nodeLabel(node)
+    assert.equal(typeof label, 'string', `label for ${node.type} should be a string`)
+    assert.notEqual(label, 'undefined')
+    assert.ok(label.length > 0)
+  }
 })

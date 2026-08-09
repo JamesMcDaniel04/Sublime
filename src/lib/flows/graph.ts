@@ -160,6 +160,13 @@ const toolNode = z.object({
  * (lib/agents/http-tools.ts) persist this exact config so the flows HTTP
  * editor UI and executor can be reused verbatim on the agent surface.
  */
+/** Pagination page cap when `maxPages` is absent. The editor's seed and the
+ *  runtime's fallback must both use this constant, or a flow saved without an
+ *  explicit value paginates differently at run time than the editor showed.
+ *  10 (conservative) rather than 100: no importer emits pagination without
+ *  maxPages, so no flows in the wild rely on a larger implicit cap. */
+export const DEFAULT_PAGINATION_MAX_PAGES = 10
+
 export const httpStepDataSchema = z.object({
     label: z.string().optional(),
     note: z.string().optional(),

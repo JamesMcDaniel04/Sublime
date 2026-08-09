@@ -41,10 +41,13 @@ export const BUILTIN_GROUPS: PickerGroup[] = [
     children: [
       { id: 'control-condition', label: 'Condition', description: 'Route down different paths based on a rule.', mode: 'action', stepType: 'condition' },
       { id: 'control-switch', label: 'Switch', description: 'Route to one of several cases, with a default path.', mode: 'action', stepType: 'switch' },
+      { id: 'control-filter', label: 'Filter', description: 'Continue only when the data matches your conditions.', mode: 'action', stepType: 'filter' },
       { id: 'control-loop', label: 'For each', description: 'Run steps once for every item in a list.', mode: 'action', stepType: 'loop' },
       { id: 'control-repeat-until', label: 'Repeat until', description: 'Repeat steps until a rule matches, with safe run limits.', mode: 'action', stepType: 'repeatUntil' },
       { id: 'control-wait', label: 'Wait', description: 'Delay the next step for a configured duration.', mode: 'action', stepType: 'wait' },
       { id: 'control-subflow', label: 'Run workflow', description: 'Call another workflow and use its output.', mode: 'action', stepType: 'subflow' },
+      { id: 'control-input', label: 'Input', description: 'Declare the typed inputs this workflow accepts when another workflow calls it.', mode: 'action', stepType: 'input' },
+      { id: 'control-output', label: 'Output', description: 'Declare the fields this workflow returns to its caller.', mode: 'action', stepType: 'output' },
       { id: 'control-parallel', label: 'Parallel branches', description: 'Run independent branches at the same time.', mode: 'action', stepType: 'parallel' },
       { id: 'control-stop', label: 'Stop flow', description: 'End the flow early with an optional message.', mode: 'action', stepType: 'stop' },
     ],
@@ -55,6 +58,7 @@ export const BUILTIN_GROUPS: PickerGroup[] = [
     description: 'Shape, parse, and filter data between steps.',
     mode: 'action',
     children: [
+      { id: 'data-set-fields', label: 'Set fields', description: 'Compose an object of named fields from earlier step data.', mode: 'action', stepType: 'transform' },
       { id: 'data-compose', label: 'Compose', description: 'Pass a value through so later steps can reuse it.', mode: 'action', stepType: 'data', seed: { dataOp: 'compose' } },
       { id: 'data-parse-json', label: 'Parse JSON', description: 'Turn JSON text into structured data for later steps.', mode: 'action', stepType: 'data', seed: { dataOp: 'parseJson' } },
       { id: 'data-join', label: 'Join', description: 'Combine a list into one text value with a separator.', mode: 'action', stepType: 'data', seed: { dataOp: 'join' } },
