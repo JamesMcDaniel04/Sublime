@@ -124,12 +124,11 @@ export function LandingPage({ fontClassName = '' }: { fontClassName?: string }) 
             {/* Left column — text */}
             <div className="relative z-[3] flex-1 min-w-0 max-w-[540px]">
               <h1 className="text-[clamp(2rem,4vw,3.2rem)] font-[500] leading-[1.08] tracking-[-0.04em] text-foreground max-w-[540px]">
-                Agents that achieve your goals
+                Agents that actually generate ROI
               </h1>
               <p className="mt-6 text-base leading-relaxed text-muted-foreground max-w-[420px]">
-                Sublime connects to your stack and deploys specialized agents against the
-                goals that matter — quota, ARR, KPIs. Every run shows its work, and every
-                goal shows the ROI.
+                Sublime Agents helps RevOps teams hit the goals that matter: quota, ROI, and
+                KPIs by deploying specialized agents across the tools you already run.
               </p>
               <div className="mt-10 flex items-center gap-4">
                 <Link href="/auth/signup">
