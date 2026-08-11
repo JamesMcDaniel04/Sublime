@@ -1,4 +1,5 @@
 import type { Job } from 'bullmq'
+import { createHash } from 'crypto'
 import { prisma } from '@/lib/prisma'
 import { workersEnabled } from '@/lib/queue/config'
 import { broadcastRunEvent } from '@/lib/realtime/run-events'
@@ -96,6 +97,8 @@ export type FlowExecutionJob = {
   /** Queue-internal claim metadata. Never accepted from an HTTP request. */
   queueClaimed?: boolean
   queueWorkerId?: string
+  /** Caller/provider ingress token. Stored only as a SHA-256 digest. */
+  idempotencyKey?: string
   // Scheduled/triggered runs execute the PUBLISHED graph; a manual builder run
   // executes the working draft so you can test before publishing.
   usePublished?: boolean
@@ -125,6 +128,36 @@ const MAX_SUBFLOW_DEPTH = 5
 
 function jsonValue(value: unknown) {
   return JSON.parse(JSON.stringify(value ?? null))
+}
+
+function flowIdempotencyDigest(value: string): string {
+  return createHash('sha256').update(value).digest('hex')
+}
+
+function flowIngressPayloadHash(job: FlowExecutionJob): string {
+  const { idempotencyKey: _key, runBudget: _budget, queueClaimed: _claimed, queueWorkerId: _worker, ...payload } = job
+  return flowDispatchPayloadHash(payload)
+}
+
+async function existingIdempotentRun(job: FlowExecutionJob, key: string, payloadHash: string) {
+  const existing = await prisma.flowRun.findFirst({
+    where: { organizationId: job.organizationId, flowId: job.flowId, idempotencyKey: key },
+    select: { id: true, status: true, output: true, error: true, webhookResponse: true, idempotencyPayloadHash: true },
+  })
+  if (!existing) return null
+  if (existing.idempotencyPayloadHash !== payloadHash) {
+    throw new ApiError('This idempotency key was already used with a different payload.', 409, 'IDEMPOTENCY_CONFLICT')
+  }
+  if (['queued', 'claimed', 'running', 'stopping'].includes(existing.status)) {
+    return { queued: true as const, flowRunId: existing.id }
+  }
+  return {
+    flowRunId: existing.id,
+    status: existing.status,
+    output: existing.output,
+    error: existing.error ?? undefined,
+    webhookResponse: existing.webhookResponse as { statusCode: number; headers: Record<string, string>; bodyMode: 'json' | 'text' | 'binary' | 'none'; body?: unknown } | undefined,
+  }
 }
 
 /**
@@ -1279,13 +1312,20 @@ export async function runFlowExecution(
  */
 export async function dispatchFlowExecution(
   job: FlowExecutionJob,
-  opts: { background?: boolean } = {},
+  opts: { background?: boolean; forceInline?: boolean } = {},
 ): Promise<{ flowRunId: string; status: string; output: unknown; error?: string; logs?: string[]; waiting?: { nodeId: string; question?: string; wakeAt?: string }; webhookResponse?: { statusCode: number; headers: Record<string, string>; bodyMode: 'json' | 'text' | 'binary' | 'none'; body?: unknown } } | { queued: true; flowRunId: string }> {
   // Billing choke point: every flow execution path (cron schedule, trigger
   // webhook, manual run, timed resume) dispatches through here — an unpaid
   // workspace's flows stop even though these callers never hit requireAuthContext.
   await assertOrganizationBillingActive(job.organizationId)
-  if (inlineExecution) {
+  const idempotencyKey = job.idempotencyKey?.trim() ? flowIdempotencyDigest(job.idempotencyKey.trim()) : undefined
+  const idempotencyPayloadHash = idempotencyKey ? flowIngressPayloadHash(job) : undefined
+  if (idempotencyKey && idempotencyPayloadHash) {
+    const existing = await existingIdempotentRun(job, idempotencyKey, idempotencyPayloadHash)
+    if (existing) return existing
+  }
+
+  if (inlineExecution || opts.forceInline) {
     // `background` decouples a FRESH run from the caller's request even in inline
     // mode: the manual builder run must survive the user navigating away, so we
     // pre-create the row and run detached on this process's event loop instead
@@ -1295,6 +1335,29 @@ export async function dispatchFlowExecution(
     // reply UI, not vanish into a detached promise. Queue mode already decouples
     // every run, so `background` is a no-op there.
     const resuming = Boolean(job.flowRunId && (job.reply !== undefined || job.resumeReason === 'time'))
+    if (!resuming && idempotencyKey && idempotencyPayloadHash) {
+      let preCreated
+      try {
+        preCreated = await prisma.flowRun.create({
+          data: {
+            flowId: job.flowId,
+            status: 'running',
+            input: jsonValue({ prompt: job.input ?? '' }),
+            trigger: jsonValue(job.trigger ?? { type: 'manual' }),
+            organizationId: job.organizationId,
+            userId: job.userId,
+            idempotencyKey,
+            idempotencyPayloadHash,
+          },
+        })
+      } catch (error) {
+        const raced = await existingIdempotentRun(job, idempotencyKey, idempotencyPayloadHash)
+        if (raced) return raced
+        throw error
+      }
+      if (opts.background) return runFlowExecutionDetached(job, preCreated.id)
+      return runFlowExecution({ ...job, queuedRunId: preCreated.id })
+    }
     if (opts.background && !resuming) return runFlowExecutionDetached(job)
     return runFlowExecution(job)
   }
@@ -1340,8 +1403,10 @@ export async function dispatchFlowExecution(
     return { queued: true, flowRunId: waiting.id }
   }
 
-  const created = await prisma.$transaction(async (tx) => {
-    const run = await tx.flowRun.create({
+  let created
+  try {
+    created = await prisma.$transaction(async (tx) => {
+      const run = await tx.flowRun.create({
       data: {
         flowId: job.flowId,
         status: 'queued',
@@ -1350,10 +1415,12 @@ export async function dispatchFlowExecution(
         queuedAt: new Date(),
         organizationId: job.organizationId,
         userId: job.userId,
+        idempotencyKey,
+        idempotencyPayloadHash,
       },
-    })
-    const payload = jsonValue({ ...job, queuedRunId: run.id })
-    const outbox = await tx.flowDispatchOutbox.create({
+      })
+      const payload = jsonValue({ ...job, idempotencyKey: undefined, queuedRunId: run.id })
+      const outbox = await tx.flowDispatchOutbox.create({
       data: {
         flowRunId: run.id,
         organizationId: job.organizationId,
@@ -1362,9 +1429,16 @@ export async function dispatchFlowExecution(
         payload,
         payloadHash: flowDispatchPayloadHash(payload),
       },
+      })
+      return { run, outbox }
     })
-    return { run, outbox }
-  })
+  } catch (error) {
+    if (idempotencyKey && idempotencyPayloadHash) {
+      const raced = await existingIdempotentRun(job, idempotencyKey, idempotencyPayloadHash)
+      if (raced) return raced
+    }
+    throw error
+  }
   // Delivery failure leaves a durable pending/failed intent. The worker and
   // cron recovery loops retry it; the caller can safely poll the queued run.
   await publishFlowDispatchOutbox(created.outbox.id).catch(() => false)
@@ -1385,8 +1459,8 @@ export async function dispatchFlowExecution(
  * strand it `running` until the 30-minute reaper. The `status: 'running'` guard
  * means this never stomps a terminal status the run already wrote.
  */
-async function runFlowExecutionDetached(job: FlowExecutionJob): Promise<{ queued: true; flowRunId: string }> {
-  const preCreated = await prisma.flowRun.create({
+async function runFlowExecutionDetached(job: FlowExecutionJob, existingRunId?: string): Promise<{ queued: true; flowRunId: string }> {
+  const preCreated = existingRunId ? { id: existingRunId } : await prisma.flowRun.create({
     data: {
       flowId: job.flowId,
       status: 'running',

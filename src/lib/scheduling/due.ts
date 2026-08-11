@@ -199,6 +199,48 @@ export function isDue(
 }
 
 /**
+ * The concrete occurrence that makes a schedule due. Unlike a boolean due
+ * check, this value is stable across overlapping dispatcher invocations and
+ * can therefore be used as an ingress idempotency key.
+ */
+export function dueOccurrence(
+  schedule: AgentSchedule,
+  lastExecutedAt: Date | null,
+  now: Date,
+): Date | null {
+  if (!isDue(schedule, lastExecutedAt, now)) return null
+  const tz = schedule.timezone || 'UTC'
+  switch (schedule.type) {
+    case 'once': {
+      if (!schedule.runAt) return null
+      const [year, month, day] = schedule.runAt.split('-').map(Number)
+      return instantForDate(year, month, day, schedule.time || '09:00', tz)
+    }
+    case 'hourly':
+      // Never-run hourly schedules are due immediately. Minute flooring gives
+      // overlapping cron requests one shared initial occurrence.
+      return lastExecutedAt
+        ? new Date(lastExecutedAt.getTime() + 60 * 60_000)
+        : new Date(Math.floor(now.getTime() / 60_000) * 60_000)
+    case 'daily':
+    case 'weekly':
+      return todayInstant(schedule.time || '00:00', tz, now)
+    case 'cron': {
+      const sinceMs = lastExecutedAt?.getTime() ?? now.getTime() - 25 * 60 * 60 * 1000
+      const cutoff = Math.max(sinceMs, now.getTime() - 400 * 24 * 60 * 60 * 1000)
+      let cursor = Math.floor(now.getTime() / 60_000) * 60_000
+      while (cursor > cutoff) {
+        if (matchesCron(schedule.cron, tz, new Date(cursor))) return new Date(cursor)
+        cursor -= 60_000
+      }
+      return null
+    }
+    default:
+      return null
+  }
+}
+
+/**
  * Returns the next UTC instant strictly after `from` at which the schedule
  * fires, or null if it never will (manual, inactive, or a passed `once`).
  *

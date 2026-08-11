@@ -933,6 +933,10 @@ model FlowRun {
   workerId        String?
   queueAttempt    Int       @default(0)
   waitGeneration  Int       @default(0)
+  /// SHA-256 of the caller/provider idempotency token. Nullable for legacy or
+  /// deliberately non-idempotent manual/test runs.
+  idempotencyKey         String?
+  idempotencyPayloadHash String?
   organizationId  String    @db.Uuid
   userId          String?
 
@@ -944,6 +948,7 @@ model FlowRun {
   @@index([status, wakeAt])
   @@index([status, queuedAt])
   @@index([status, leaseExpiresAt])
+  @@unique([organizationId, flowId, idempotencyKey])
   @@map("flow_runs")
 }
 
