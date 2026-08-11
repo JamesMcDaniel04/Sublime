@@ -55,6 +55,8 @@ export async function emitFlowSignal(params: {
   signal: string
   payload: unknown
   sourceFlowId?: string
+  sourceRunId?: string
+  requestId?: string
   depth?: number
 }): Promise<{ matched: number }> {
   const depth = params.depth ?? 0
@@ -127,6 +129,9 @@ export async function emitFlowSignal(params: {
         input: params.payload,
         usePublished: true,
         trigger: { type: 'signal', signal: params.signal, depth },
+        ...((params.sourceRunId || params.requestId)
+          ? { idempotencyKey: `signal:${params.sourceRunId ?? params.requestId}:${params.signal}:${flow.id}` }
+          : {}),
       })
     } catch (error) {
       apiLogger.warn('emitFlowSignal: flow dispatch failed, continuing with other matches', {

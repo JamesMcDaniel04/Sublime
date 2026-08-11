@@ -1222,6 +1222,7 @@ export async function runFlowExecution(
         usePublished: true,
         trigger: { type: 'signal', signal: 'flow.failed', sourceFlowId: flow.id },
         errorDepth: (job.errorDepth ?? 0) + 1,
+        idempotencyKey: `flow-error:${run.id}:${errorFlowId}`,
       }).catch((error) => apiLogger.error('flow error handler dispatch failed', { flowRunId: run.id, error: error instanceof Error ? error.message : String(error) }))
     }
   }
@@ -1264,6 +1265,7 @@ export async function runFlowExecution(
           signal: 'flow.completed',
           payload: { flowId: flow.id, flowName: flow.name, output: result.output },
           sourceFlowId: flow.id,
+          sourceRunId: run.id,
           depth: signals.signalDepthOf(job.trigger) + 1,
         }),
       )

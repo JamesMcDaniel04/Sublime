@@ -1,14 +1,10 @@
 /**
- * BullMQ job options for a queued flow execution (see execute-flow.ts's
- * dispatchFlowExecution). Resume jobs get a jobId derived from the run —
- * redelivery/retry of the SAME job is safe because runFlowExecution's atomic
- * claim (Task 1 of WS-R2) makes a second attempt a harmless no-op. Fresh
- * executions get attempts:1 — there is no pre-existing row a retry could
- * safely resume against, so a retry would duplicate the whole run.
+ * Stable BullMQ identity for a transactional-outbox dispatch. Both fresh and
+ * resume jobs have one immutable outbox id; re-publishing after an ambiguous
+ * queue response therefore deduplicates to the same BullMQ job.
  */
 export type FlowQueueDecision = { jobId?: string; attempts?: number }
 
-export function flowJobOptions(flowRunId: string | undefined, now: number = Date.now()): FlowQueueDecision {
-  if (flowRunId) return { jobId: `${flowRunId}-resume-${now}` }
-  return { attempts: 1 }
+export function flowJobOptions(outboxId: string): FlowQueueDecision {
+  return { jobId: `flow-${outboxId}`, attempts: 1 }
 }

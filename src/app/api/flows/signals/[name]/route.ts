@@ -17,6 +17,7 @@ export const POST = withAuthenticatedApi(async (request: NextRequest, auth) => {
     throw new ApiError('Signal name must be non-blank and at most 100 characters', 400, 'INVALID_SIGNAL_NAME')
   }
   const payload = await request.json().catch(() => ({}))
-  const result = await emitFlowSignal({ organizationId: auth.organizationId, signal: name, payload })
+  const requestId = request.headers.get('idempotency-key')?.trim() || undefined
+  const result = await emitFlowSignal({ organizationId: auth.organizationId, signal: name, payload, requestId })
   return { success: true, matched: result.matched }
 }, { requires: 'member', rateLimit: { feature: 'flow-signal', perUser: 30 } })

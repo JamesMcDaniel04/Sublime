@@ -1683,6 +1683,7 @@ export async function runAgentExecution(
           organizationId,
           signal: 'agent.completed',
           payload: { agentId: agent.id, executionId: execution.id, summary: summary.slice(0, 2000) },
+          sourceRunId: execution.id,
           depth: 1,
         }),
       )

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma, systemPrisma } from '@/lib/prisma'
 import { apiLogger } from '@/lib/logger'
-import { dispatchFlowExecution, runFlowExecution } from '@/features/flows/execute-flow'
+import { dispatchFlowExecution } from '@/features/flows/execute-flow'
 import { hashToken, timingSafeEqualHex } from '@/lib/crypto/secrets'
 import { rateLimit } from '@/lib/ratelimit'
 import { flowInputFromWebhookBody } from '@/lib/flows/input'
@@ -136,8 +136,7 @@ async function handle(request: NextRequest) {
     }
 
     // Billing gate before any run row exists: external callers get an honest
-    // 402 (also covers the runFlowExecution fast-path, which bypasses the
-    // dispatchFlowExecution choke point).
+    // 402 before parsing or dispatching the potentially large request body.
     try {
       await assertOrganizationBillingActive(flow.organizationId)
     } catch {
@@ -186,12 +185,19 @@ async function handle(request: NextRequest) {
       input,
       usePublished: !testMode,
       trigger: { type: 'webhook' as const, mode: testMode ? 'test' : 'production' },
+      ...(() => {
+        const key = request.headers.get('idempotency-key')?.trim()
+          || request.headers.get('x-github-delivery')?.trim()
+          || request.headers.get('x-shopify-webhook-id')?.trim()
+          || request.headers.get('x-event-id')?.trim()
+        return key ? { idempotencyKey: `webhook:${key}` } : {}
+      })(),
     }
     // A caller waiting for the last step or Respond-to-webhook node needs the
     // terminal value on this same HTTP connection. Immediate/receipt mode
     // keeps normal queued execution throughput.
     const result = trigger.webhookResponse === 'lastNode' || trigger.webhookResponse === 'respondNode'
-      ? await runFlowExecution(executionJob)
+      ? await dispatchFlowExecution(executionJob, { forceInline: true })
       : await dispatchFlowExecution(executionJob)
     const run = 'queued' in result ? { flowRunId: result.flowRunId, status: 'queued', output: null } : result
     if (!('queued' in result) && trigger.webhookResponse === 'respondNode' && result.webhookResponse) {

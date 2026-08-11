@@ -98,6 +98,9 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
     startNodeId: parsed.startNodeId,
     mockOutputs: parsed.mockOutputs,
     ...(parsed.demo ? { trigger: { type: 'demo' as const } } : {}),
+    ...(!parsed.flowRunId && request.headers.get('idempotency-key')?.trim()
+      ? { idempotencyKey: `manual:${request.headers.get('idempotency-key')!.trim()}` }
+      : {}),
   }, { background: true })
   const run = 'queued' in result ? { flowRunId: result.flowRunId, status: 'queued', output: null } : result
   return { success: true, run }

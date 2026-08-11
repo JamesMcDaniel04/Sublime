@@ -1,5 +1,4 @@
 /** Live activity → flow routing with database-backed idempotency. */
-import { Prisma } from '@/generated/prisma/client'
 import { prisma, systemPrisma } from '@/lib/prisma'
 import { apiLogger } from '@/lib/logger'
 import { dispatchFlowExecution } from '@/features/flows/execute-flow'
@@ -72,16 +71,6 @@ function activityRunTrigger(event: PersistedActivity) {
   }
 }
 
-async function claimActivityTrigger(eventId: string, flowId: string): Promise<boolean> {
-  try {
-    await prisma.activityTriggerClaim.create({ data: { eventId, flowId } })
-    return true
-  } catch (error) {
-    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') return false
-    throw error
-  }
-}
-
 export async function routeActivityEvent(event: PersistedActivity): Promise<void> {
   if (event.ingestKind === 'backfill') return
   try {
@@ -95,7 +84,7 @@ export async function routeActivityEvent(event: PersistedActivity): Promise<void
     })
     for (const match of matchActivityFlows(event, candidates)) {
       const flow = candidates.find((candidate) => candidate.id === match.id)
-      if (!flow || !(await claimActivityTrigger(event.id, flow.id))) continue
+      if (!flow) continue
       try {
         const owner = flow.userId
           ? await prisma.user.findFirst({ where: { id: flow.userId, organizationId: event.organizationId, isActive: true } })
@@ -112,6 +101,7 @@ export async function routeActivityEvent(event: PersistedActivity): Promise<void
           input: trigger.activity,
           usePublished: true,
           trigger,
+          idempotencyKey: `activity:${event.id}:${flow.id}`,
         })
       } catch (error) {
         apiLogger.error('activity flow dispatch failed', {

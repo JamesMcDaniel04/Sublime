@@ -2,6 +2,7 @@ import { createHash } from 'crypto'
 import { systemPrisma } from '@/lib/prisma'
 import { apiLogger } from '@/lib/logger'
 import { getQueue, QUEUE_NAMES } from './config'
+import { flowJobOptions } from '@/lib/flows/queue-options'
 
 export const FLOW_OUTBOX_LOCK_MS = 60_000
 export const FLOW_OUTBOX_BATCH = 100
@@ -54,7 +55,8 @@ export async function publishFlowDispatchOutbox(outboxId: string, now = new Date
   if (!row) return false
   try {
     const queue = getQueue(QUEUE_NAMES.FLOW_EXECUTION)
-    const jobId = `flow-${row.id}`
+    const options = flowJobOptions(row.id)
+    const jobId = options.jobId!
     // A prior setup-only attempt may have failed and released this outbox.
     // Remove that terminal BullMQ shell before re-adding the same stable id.
     // Active jobs are left untouched and queue.add simply deduplicates them.
@@ -66,12 +68,7 @@ export async function publishFlowDispatchOutbox(outboxId: string, now = new Date
     await queue.add(
       'execute-flow',
       { outboxId: row.id, flowRunId: row.flowRunId, organizationId: row.organizationId } satisfies FlowQueueJobData,
-      {
-        jobId,
-        // Until the side-effect ledger classifies a run as safely replayable,
-        // a queue-level retry must not replay an ambiguous write.
-        attempts: 1,
-      },
+      options,
     )
     // systemPrisma: terminalize the globally claimed outbox row.
     await systemPrisma.flowDispatchOutbox.updateMany({

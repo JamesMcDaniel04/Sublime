@@ -19,10 +19,10 @@ import { apiLogger } from '@/lib/logger'
 import { runAgentExecution } from '@/features/agents/execute-agent'
 import { dispatchFlowExecution } from '@/features/flows/execute-flow'
 import { parseFlowInput } from '@/lib/flows/input'
-import { diffPollResult, pollConfigFrom, pollIsDue, type PollState } from '@/lib/flows/poll-trigger'
+import { diffPollResult, pollConfigFrom, pollIdentityOf, pollIsDue, type PollState } from '@/lib/flows/poll-trigger'
 import { parseFlowToolConnectionId } from '@/lib/flows/tool-connection-id'
 import { resolveFlowToolExecutor } from '@/features/agents/tool-planes'
-import { isDue, type AgentSchedule } from '@/lib/scheduling/due'
+import { dueOccurrence, isDue, type AgentSchedule } from '@/lib/scheduling/due'
 import { getQueue, QUEUE_NAMES, workersEnabled } from '@/lib/queue/config'
 import { EXECUTION_MODE } from '@/lib/queue/execution-mode'
 import { AGENT_PENDING_TIMEOUT_MS, AGENT_STUCK_TIMEOUT_MS } from '@/lib/agents/timeouts'
@@ -446,7 +446,8 @@ export async function GET(request: Request) {
         if (!trigger || trigger.type !== 'schedule' || !schedule || typeof schedule !== 'object') continue
         // Publish state is enforced in the WHERE (isPublished: true) — a
         // draft-only flow never reaches this loop.
-        if (!isDue(schedule, flow.runs[0]?.startedAt ?? null, now)) continue
+        const scheduledFor = dueOccurrence(schedule, flow.runs[0]?.startedAt ?? null, now)
+        if (!scheduledFor) continue
         // Overlap guard: a still-active previous run means skip this tick —
         // a slow flow must never stack concurrent scheduled executions. A
         // `waiting` run older than 24h stops blocking (blocksSchedule): it
@@ -468,7 +469,8 @@ export async function GET(request: Request) {
           userId: owner.id,
           input: parseFlowInput(trigger.input ?? ''),
           usePublished: true,
-          trigger: { type: 'schedule' },
+          trigger: { type: 'schedule', scheduledFor: scheduledFor.toISOString() },
+          idempotencyKey: `schedule:${flow.id}:${scheduledFor.toISOString()}`,
         })
         ranFlowIds.push(flow.id)
       } catch (error) {
@@ -523,20 +525,25 @@ export async function GET(request: Request) {
         }
         const result = await executor.execute(config.toolName, args)
         const { newItems, nextState } = diffPollResult(result, state, config, now)
-        await systemPrisma.flow.updateMany({
-          where: { id: flow.id },
-          data: { metadata: JSON.parse(JSON.stringify({ ...metadata, pollState: nextState })) },
-        })
         for (const item of newItems) {
+          const identity = pollIdentityOf(item, config.idPath ?? 'id')
           await dispatchFlowExecution({
             flowId: flow.id,
             organizationId: flow.organizationId,
             userId: owner.id,
             input: item,
             usePublished: true,
-            trigger: { type: 'poll' },
+            trigger: { type: 'poll', identity },
+            idempotencyKey: `poll:${flow.id}:${identity}`,
           })
         }
+        // Cursor-after-dispatch: if any DB/outbox transaction above fails, the
+        // cursor stays put. The next tick replays prior items through their
+        // stable idempotency keys before advancing, so nothing is lost.
+        await systemPrisma.flow.updateMany({
+          where: { id: flow.id },
+          data: { metadata: JSON.parse(JSON.stringify({ ...metadata, pollState: nextState })) },
+        })
         polledFlows += 1
       } catch (error) {
         apiLogger.warn('cron/dispatch: poll check failed, advancing cursor', {
