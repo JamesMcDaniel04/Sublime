@@ -7,6 +7,18 @@ function sleep(ms: number) {
 /** Thrown by withTimeout so callers can tell a timeout from a hard failure. */
 export class FlowTimeoutError extends Error {}
 
+export function retryableHttpStatus(status: number): boolean {
+  return status === 408 || status === 425 || status === 429 || status === 502 || status === 503 || status === 504
+}
+
+export function isTransientNetworkError(error: unknown): boolean {
+  if (!(error instanceof Error)) return false
+  const code = 'code' in error ? String((error as Error & { code?: unknown }).code ?? '') : ''
+  return error.name === 'AbortError'
+    || ['ECONNRESET', 'ECONNREFUSED', 'EPIPE', 'ETIMEDOUT', 'UND_ERR_CONNECT_TIMEOUT', 'UND_ERR_SOCKET'].includes(code)
+    || /fetch failed|network error|socket hang up/i.test(error.message)
+}
+
 /**
  * Retry-after-TIMEOUT policy per step kind (hard errors always retry up to
  * `retries`). Agent and tool timeouts merely ABANDON the in-flight call —
@@ -58,6 +70,11 @@ export async function runWithRetries<T>(
     // errors still retry. Defaults to true (existing behavior) — pass
     // shouldRetryAfterTimeout(kind) to apply the per-step-kind policy.
     retryOnTimeout?: boolean
+    /** Retry classifier. Unknown errors are only retried when this callback
+     * explicitly permits them; omit it to preserve the generic helper's
+     * backwards-compatible retry-all behavior. */
+    shouldRetry?: (error: unknown, attempt: number) => boolean
+    sleep?: (ms: number) => Promise<void>
   } = {},
 ): Promise<T> {
   const retries = flowActionRetries(options.retries)
@@ -74,7 +91,13 @@ export async function runWithRetries<T>(
       lastError = error
       if (attempt >= retries) break
       if (error instanceof FlowTimeoutError && options.retryOnTimeout === false) break
-      await sleep(options.retryDelayMs ?? DEFAULT_RETRY_DELAY_MS)
+      if (options.shouldRetry && !options.shouldRetry(error, attempt)) break
+      const baseDelay = options.retryDelayMs ?? DEFAULT_RETRY_DELAY_MS
+      const retryAfter = error && typeof error === 'object' && 'retryAfterMs' in error
+        ? Number((error as { retryAfterMs?: unknown }).retryAfterMs)
+        : 0
+      const delay = Math.min(60_000, Math.max(Number.isFinite(retryAfter) ? retryAfter : 0, baseDelay * (2 ** attempt)))
+      await (options.sleep ?? sleep)(delay)
     }
   }
   throw lastError instanceof Error ? lastError : new Error(String(lastError))

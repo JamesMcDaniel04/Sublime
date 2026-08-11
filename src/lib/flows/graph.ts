@@ -143,6 +143,10 @@ const toolNode = z.object({
     actionInputSchema: z.any().optional(),
     actionOutputSchema: z.any().optional(),
     risk: z.enum(['read', 'write', 'destructive']).optional(),
+    // Provider argument that accepts a caller-supplied idempotency token.
+    // When configured, write retries and crash recovery are safe; otherwise a
+    // potentially committed write is deliberately parked as ambiguous.
+    idempotencyKeyArg: z.string().min(1).max(100).optional(),
     // Hold this step for a human before it fires. The run parks as `waiting`
     // and the reply that resumes it either releases or cancels the call —
     // deny-by-default. See features/flows/action-approval.ts.
@@ -226,6 +230,9 @@ export const httpStepDataSchema = z.object({
     outputFields: z.array(outputFieldSchema).optional(),
     retryDelayMs: z.number().int().min(0).max(60000).optional(),
     retryStatusCodes: z.array(z.number().int().min(100).max(599)).optional(),
+    // Header accepted by this endpoint for provider-side deduplication (for
+    // example Idempotency-Key). The runtime supplies a stable per-effect key.
+    idempotencyKeyHeader: z.string().min(1).max(100).optional(),
     // Hold this request for a human before it fires — see the tool node's
     // matching flag and features/flows/action-approval.ts.
     requireApproval: z.boolean().optional(),

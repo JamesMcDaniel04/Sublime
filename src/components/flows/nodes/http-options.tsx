@@ -33,6 +33,7 @@ type Patch = (values: Data) => void
 type OptionKey =
   | 'responseType' | 'failOnHttpError' | 'followRedirects' | 'maxRedirects' | 'timeoutMs'
   | 'retries' | 'retryDelayMs' | 'retryStatusCodes' | 'queryArrayFormat' | 'cookie'
+  | 'idempotencyKeyHeader'
   | 'pagination' | 'batch' | 'onError' | 'excludeFromContext' | 'disabled' | 'mockOutput'
 
 const LABELS: Record<OptionKey, string> = {
@@ -44,6 +45,7 @@ const LABELS: Record<OptionKey, string> = {
   retries: 'Retry on fail',
   retryDelayMs: 'Retry delay (ms)',
   retryStatusCodes: 'Retry on status codes',
+  idempotencyKeyHeader: 'Idempotency key header',
   queryArrayFormat: 'Array format in query parameters',
   cookie: 'Cookie',
   pagination: 'Pagination',
@@ -64,6 +66,7 @@ const DEFAULTS: Record<OptionKey, unknown> = {
   retries: 1,
   retryDelayMs: 500,
   retryStatusCodes: [429, 502, 503, 504],
+  idempotencyKeyHeader: 'Idempotency-Key',
   queryArrayFormat: 'repeat',
   cookie: '',
   // maxPages seeds the same constant the executor falls back to — the two must
@@ -78,7 +81,7 @@ const DEFAULTS: Record<OptionKey, unknown> = {
 
 const ORDER: OptionKey[] = [
   'pagination', 'batch', 'responseType', 'failOnHttpError', 'timeoutMs',
-  'retries', 'retryDelayMs', 'retryStatusCodes', 'followRedirects', 'maxRedirects',
+  'retries', 'retryDelayMs', 'retryStatusCodes', 'idempotencyKeyHeader', 'followRedirects', 'maxRedirects',
   'queryArrayFormat', 'cookie', 'onError', 'excludeFromContext', 'disabled', 'mockOutput',
 ]
 
@@ -226,10 +229,11 @@ export function HttpOptionsSection({
         />
       )
     }
-    if (key === 'cookie') {
+    if (key === 'cookie' || key === 'idempotencyKeyHeader') {
       return (
-        <input aria-label="Cookie" className={controlClass} placeholder="session=abc; theme=dark"
-          value={String(value ?? '')} onChange={(event) => patch({ cookie: event.target.value })} />
+        <input aria-label={LABELS[key]} className={controlClass}
+          placeholder={key === 'cookie' ? 'session=abc; theme=dark' : 'Idempotency-Key'}
+          value={String(value ?? '')} onChange={(event) => patch({ [key]: event.target.value })} />
       )
     }
     if (key === 'timeoutMs') {

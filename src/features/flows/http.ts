@@ -35,6 +35,29 @@ export type FlowHttpOutput = {
   bodyText: string
 }
 
+export class FlowHttpStatusError extends Error {
+  readonly status: number
+  readonly retryable: boolean
+  readonly retryAfterMs?: number
+
+  constructor(status: number, message: string, options: { retryable?: boolean; retryAfterMs?: number } = {}) {
+    super(message)
+    this.name = 'FlowHttpStatusError'
+    this.status = status
+    this.retryable = options.retryable === true
+    this.retryAfterMs = options.retryAfterMs
+  }
+}
+
+function retryAfterMs(response: Response): number | undefined {
+  const value = response.headers.get('retry-after')
+  if (!value) return undefined
+  const seconds = Number(value)
+  if (Number.isFinite(seconds)) return Math.max(0, seconds * 1000)
+  const date = Date.parse(value)
+  return Number.isFinite(date) ? Math.max(0, date - Date.now()) : undefined
+}
+
 // fetch forbids a body on GET/HEAD (undici throws); every other method may
 // carry one. n8n shows the Send Body toggle on all methods, so rather than
 // dropping a configured body silently we send it wherever fetch allows and
@@ -559,8 +582,17 @@ export async function performHttpRequest(
       }
       const nextOutput = await responseOutput(response, request.responseType, deps.maxResponseChars ?? 50_000)
       const retryCodes = Array.isArray(policy.retryStatusCodes) ? policy.retryStatusCodes.map(Number) : []
-      if (retryCodes.includes(nextOutput.status)) throw new Error(`HTTP ${nextOutput.status}: configured for retry.`)
-      if (request.failOnHttpError && !nextOutput.ok) throw new Error(`HTTP ${nextOutput.status}: ${nextOutput.bodyText.slice(0, 200)}`)
+      if (retryCodes.includes(nextOutput.status)) {
+        throw new FlowHttpStatusError(nextOutput.status, `HTTP ${nextOutput.status}: configured for retry.`, {
+          retryable: true,
+          retryAfterMs: retryAfterMs(response),
+        })
+      }
+      if (request.failOnHttpError && !nextOutput.ok) {
+        throw new FlowHttpStatusError(nextOutput.status, `HTTP ${nextOutput.status}: ${nextOutput.bodyText.slice(0, 200)}`, {
+          retryAfterMs: retryAfterMs(response),
+        })
+      }
       return nextOutput
     }
   }

@@ -86,6 +86,19 @@ function ToolBody({
         />
       )}
       {node.data.risk && node.data.risk !== 'read' && <p className="rounded-lg bg-amber-50 p-2 text-xs text-amber-800">This action is classified as {node.data.risk} — it performs an external write when the flow runs.</p>}
+      {node.data.risk && node.data.risk !== 'read' && (
+        <div className="grid gap-2">
+          <label className={labelClass}>Provider idempotency argument <span className="font-normal text-muted-foreground">(optional)</span></label>
+          <input
+            aria-label="Provider idempotency argument"
+            className="h-9 rounded-md border border-input bg-background px-3 text-sm"
+            placeholder="idempotency_key"
+            value={node.data.idempotencyKeyArg ?? ''}
+            onChange={(event) => update({ ...node, data: { ...node.data, idempotencyKeyArg: event.target.value.trim() || undefined } })}
+          />
+          <p className="text-[11px] leading-4 text-muted-foreground">Set this only when the provider documents deduplication for that argument. Protected writes can be retried after lost responses.</p>
+        </div>
+      )}
     </div>
   )
 }

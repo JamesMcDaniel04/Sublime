@@ -82,6 +82,7 @@ model Organization {
   emailSends                EmailSend[]
   feedbackSubmissions       FeedbackSubmission[]
   flowDispatchOutbox        FlowDispatchOutbox[]
+  flowSideEffects           FlowSideEffect[]
 
   @@map("organizations")
 }
@@ -943,6 +944,7 @@ model FlowRun {
   flow     Flow                 @relation(fields: [flowId], references: [id], onDelete: Cascade)
   steps    FlowRunStep[]
   dispatch FlowDispatchOutbox[]
+  effects  FlowSideEffect[]
 
   @@index([flowId, startedAt])
   @@index([status, wakeAt])
@@ -996,10 +998,48 @@ model FlowRunStep {
   startedAt        DateTime?
   finishedAt       DateTime?
 
-  run FlowRun @relation(fields: [flowRunId], references: [id], onDelete: Cascade)
+  run     FlowRun          @relation(fields: [flowRunId], references: [id], onDelete: Cascade)
+  effects FlowSideEffect[]
 
   @@index([flowRunId, order])
   @@map("flow_run_steps")
+}
+
+/// Durable exactly-once decision boundary for outbound effects. A provider can
+/// only guarantee exactly-once delivery when it accepts our idempotency key;
+/// otherwise an interrupted write is retained as `ambiguous` and requires an
+/// operator decision instead of being submitted a second time.
+model FlowSideEffect {
+  id                 String    @id @default(cuid())
+  organizationId     String    @db.Uuid
+  flowRunId          String
+  flowRunStepId      String
+  effectKey          String    @unique
+  nodeId             String
+  iterationPath      String?
+  kind               String // tool | http
+  provider           String
+  operation          String
+  safety             String // read | idempotent_write | unsafe_write
+  providerKey        String?
+  requestHash        String
+  status             String    @default("claimed") // claimed | succeeded | failed | ambiguous
+  attempts           Int       @default(0)
+  response            Json?
+  providerRequestId  String?
+  lastError           String?
+  startedAt          DateTime  @default(now()) @db.Timestamptz(6)
+  completedAt        DateTime? @db.Timestamptz(6)
+  createdAt          DateTime  @default(now()) @db.Timestamptz(6)
+  updatedAt          DateTime  @updatedAt @db.Timestamptz(6)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  run          FlowRun      @relation(fields: [flowRunId], references: [id], onDelete: Cascade)
+  step         FlowRunStep  @relation(fields: [flowRunStepId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, status, updatedAt])
+  @@index([flowRunId, nodeId])
+  @@map("flow_side_effects")
 }
 
 /// A pinned node output: a dev-time fixture so testing a step doesn't re-hit an
