@@ -53,6 +53,7 @@ const STATUS_TEXT: Record<string, string> = {
   failed: 'text-red-600',
   waiting: 'text-blue-600',
   running: 'text-amber-600',
+  claimed: 'text-amber-600',
   stopping: 'text-slate-500',
   skipped: 'text-muted-foreground',
   stopped: 'text-slate-500',
@@ -61,7 +62,7 @@ const STATUS_TEXT: Record<string, string> = {
 }
 
 /** Live runs can be stopped; settled ones can be re-run with their input. */
-const STOPPABLE_RUN_STATUSES = new Set(['running', 'waiting', 'stopping'])
+const STOPPABLE_RUN_STATUSES = new Set(['queued', 'claimed', 'running', 'waiting', 'stopping'])
 const RESUBMITTABLE_RUN_STATUSES = new Set(['succeeded', 'failed', 'stopped'])
 
 function preview(value: unknown): string {
@@ -338,7 +339,7 @@ export function RunPanel({
           <>
             <div className="border-b border-border px-3 py-2">
               <div className="flex items-center justify-between gap-2">
-                <span className={cn('text-xs font-semibold capitalize', STATUS_TEXT[selected.status])}>{selected.status === 'running' ? <TypewriterStatus /> : selected.status}</span>
+                <span className={cn('text-xs font-semibold capitalize', STATUS_TEXT[selected.status])}>{selected.status === 'running' || selected.status === 'claimed' ? <TypewriterStatus /> : selected.status}</span>
                 <div className="flex items-center gap-1">
                   {onStopRun && STOPPABLE_RUN_STATUSES.has(selected.status) && (
                     <Button

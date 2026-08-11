@@ -9,10 +9,12 @@ import { deadLetterFromFlowJob } from '@/lib/queue/flow-dead-letter'
 import { registerAgentSchedules } from '@/lib/workers/agent-schedule-registrar'
 import { initSentry, captureError, flushErrorReporting } from '@/lib/observability/sentry'
 import { executeActivityBackfillJob } from '@/lib/activity/backfill'
+import { flushFlowDispatchOutbox } from '@/lib/queue/flow-outbox'
 
 class WorkerRuntime {
   private server = Fastify({ logger: true })
   private scheduleTimer?: NodeJS.Timeout
+  private flowOutboxTimer?: NodeJS.Timeout
   // handler is typed as the generic BullMQ Processor so this array (mixing
   // the agent- and flow-job handler signatures) unifies to one element type —
   // each queue is still wired to its own correctly-typed handler at runtime.
@@ -79,6 +81,7 @@ class WorkerRuntime {
       if (this.shuttingDown) return
       this.shuttingDown = true
       if (this.scheduleTimer) clearInterval(this.scheduleTimer)
+      if (this.flowOutboxTimer) clearInterval(this.flowOutboxTimer)
       // Stop taking new jobs immediately; in-flight jobs keep running.
       await Promise.allSettled(this.workers.map((worker) => worker.pause(true)))
       await this.server.close()
@@ -120,9 +123,13 @@ class WorkerRuntime {
       void flushErrorReporting().finally(() => process.exit(1))
     })
     await registerAgentSchedules()
+    await flushFlowDispatchOutbox().catch((error) => this.server.log.error(error, 'Flow outbox recovery failed'))
     this.scheduleTimer = setInterval(() => {
       registerAgentSchedules().catch((error) => this.server.log.error(error, 'Schedule reconciliation failed'))
     }, 60_000)
+    this.flowOutboxTimer = setInterval(() => {
+      flushFlowDispatchOutbox().catch((error) => this.server.log.error(error, 'Flow outbox recovery failed'))
+    }, 10_000)
     await this.server.listen({ port, host: '0.0.0.0' })
   }
 }

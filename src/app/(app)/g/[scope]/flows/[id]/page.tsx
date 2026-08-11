@@ -1191,7 +1191,7 @@ function FlowBuilder() {
         if (!data?.runs) return
         setRuns((data.runs as FlowRunDetail[]).map((r) => ({ id: r.id, status: r.status, startedAt: r.startedAt })))
         const latest = data.latest as FlowRunDetail | null
-        if (latest && (latest.status === 'running' || latest.status === 'waiting') && !searchParams.get('run')) {
+        if (latest && (['queued', 'claimed', 'running', 'waiting'].includes(latest.status)) && !searchParams.get('run')) {
           setShowRuns(true)
           pollRuns()
         }

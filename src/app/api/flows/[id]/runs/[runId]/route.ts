@@ -80,6 +80,19 @@ export const PATCH = withAuthenticatedApi(async (request, auth) => {
     return { success: true, status: 'stopped' }
   }
 
+  if (run.status === 'queued' || run.status === 'claimed') {
+    const updated = await prisma.flowRun.updateMany({
+      where: { id: run.id, organizationId: auth.organizationId, status: { in: ['queued', 'claimed'] } },
+      data: { status: 'stopped', finishedAt: new Date(), workerId: null, leaseExpiresAt: null },
+    })
+    if (updated.count === 0) throw new ApiError('The run started before it could be stopped.', 409, 'RUN_MOVED')
+    await prisma.flowDispatchOutbox.updateMany({
+      where: { flowRunId: run.id, organizationId: auth.organizationId, status: { in: ['pending', 'publishing', 'published', 'failed'] } },
+      data: { status: 'consumed', consumedAt: new Date(), lastError: 'Stopped before execution' },
+    })
+    return { success: true, status: 'stopped' }
+  }
+
   if (run.status === 'running' || run.status === 'stopping') {
     const updated = await prisma.flowRun.updateMany({
       where: { id: run.id, organizationId: auth.organizationId, status: { in: ['running', 'stopping'] } },

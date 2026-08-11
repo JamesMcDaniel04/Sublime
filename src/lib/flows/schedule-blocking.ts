@@ -12,7 +12,7 @@ export const STALE_WAITING_BLOCK_MS = 24 * 60 * 60 * 1000
 
 /** Does the flow's latest run still block starting the next scheduled run? */
 export function blocksSchedule(run: { status: string; startedAt: Date }, now: Date = new Date()): boolean {
-  if (run.status === 'running') return true
+  if (run.status === 'queued' || run.status === 'claimed' || run.status === 'running') return true
   if (run.status !== 'waiting') return false
   return now.getTime() - run.startedAt.getTime() < STALE_WAITING_BLOCK_MS
 }

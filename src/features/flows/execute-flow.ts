@@ -1,9 +1,9 @@
 import type { Job } from 'bullmq'
 import { prisma } from '@/lib/prisma'
-import { getQueue, QUEUE_NAMES, workersEnabled } from '@/lib/queue/config'
+import { workersEnabled } from '@/lib/queue/config'
 import { broadcastRunEvent } from '@/lib/realtime/run-events'
 import { inlineExecution } from '@/lib/queue/execution-mode'
-import { flowJobOptions } from '@/lib/flows/queue-options'
+import { flowDispatchPayloadHash, loadFlowDispatch, publishFlowDispatchOutbox, type FlowQueueJobData } from '@/lib/queue/flow-outbox'
 import { runAgentExecution } from '@/features/agents/execute-agent'
 import { flowGraphSchema } from '@/lib/flows/graph'
 import { validateFlowGraph, validationErrorMessage } from '@/lib/flows/validate'
@@ -93,6 +93,9 @@ export type FlowExecutionJob = {
   // the caller has an id to poll) — adopt it instead of creating a new one.
   // Distinct from flowRunId, which always means "resume a waiting run".
   queuedRunId?: string
+  /** Queue-internal claim metadata. Never accepted from an HTTP request. */
+  queueClaimed?: boolean
+  queueWorkerId?: string
   // Scheduled/triggered runs execute the PUBLISHED graph; a manual builder run
   // executes the working draft so you can test before publishing.
   usePublished?: boolean
@@ -239,8 +242,13 @@ export async function runFlowExecution(
   let existingRun: Awaited<ReturnType<typeof prisma.flowRun.findFirst>> = null
   if (resuming) {
     const claimed = await prisma.flowRun.updateMany({
-      where: { id: job.flowRunId, organizationId: job.organizationId, status: 'waiting' },
-      data: { status: 'running', startedAt: new Date() },
+      where: {
+        id: job.flowRunId,
+        organizationId: job.organizationId,
+        status: job.queueClaimed ? 'claimed' : 'waiting',
+        ...(job.queueClaimed && job.queueWorkerId ? { workerId: job.queueWorkerId } : {}),
+      },
+      data: { status: 'running', startedAt: new Date(), heartbeatAt: new Date() },
     })
     if (claimed.count === 0) throw new ApiError('This run is not waiting for input', 409, 'FLOW_RUN_NOT_WAITING')
   }
@@ -370,8 +378,15 @@ export async function runFlowExecution(
   let adoptedRun: typeof existingRun = null
   if (!existingRun && job.queuedRunId) {
     const adopted = await prisma.flowRun.updateMany({
-      where: { id: job.queuedRunId, organizationId: job.organizationId, flowId: flow.id, status: 'running' },
+      where: {
+        id: job.queuedRunId,
+        organizationId: job.organizationId,
+        flowId: flow.id,
+        status: job.queueClaimed ? 'claimed' : 'running',
+        ...(job.queueClaimed && job.queueWorkerId ? { workerId: job.queueWorkerId } : {}),
+      },
       data: {
+        status: 'running',
         input: jsonValue({ prompt: input }),
         trigger: jsonValue({ ...(job.trigger ?? { type: 'manual' }), ...(reusedInput ? { reusedInput: true } : {}) }),
         graphSnapshot: jsonValue(graph),
@@ -1060,7 +1075,18 @@ export async function runFlowExecution(
   const runError = status === 'failed' ? (result.error ?? 'The flow failed.').slice(0, 300) : null
   await prisma.flowRun.update({
     where: { id: run.id, organizationId: job.organizationId },
-    data: { status, output: jsonValue(result.output), error: runError, wakeAt: result.waiting?.wakeAt ? new Date(result.waiting.wakeAt) : null, webhookResponse: result.webhookResponse ? jsonValue(result.webhookResponse) : undefined, finishedAt: status === 'waiting' ? null : new Date() },
+    data: {
+      status,
+      output: jsonValue(result.output),
+      error: runError,
+      wakeAt: result.waiting?.wakeAt ? new Date(result.waiting.wakeAt) : null,
+      webhookResponse: result.webhookResponse ? jsonValue(result.webhookResponse) : undefined,
+      finishedAt: status === 'waiting' ? null : new Date(),
+      heartbeatAt: new Date(),
+      leaseExpiresAt: null,
+      workerId: null,
+      ...(status === 'waiting' ? { waitGeneration: { increment: 1 } } : {}),
+    },
   })
   // Push half of run delivery: the terminal/waiting transition broadcasts on
   // the org's private Realtime topic so the builder/run panel refresh
@@ -1276,35 +1302,73 @@ export async function dispatchFlowExecution(
 
   const resuming = Boolean(job.flowRunId && (job.reply !== undefined || job.resumeReason === 'time'))
   if (resuming) {
-    const queue = getQueue(QUEUE_NAMES.FLOW_EXECUTION)
-    await queue.add('execute-flow', job, flowJobOptions(job.flowRunId))
-    return { queued: true, flowRunId: job.flowRunId! }
+    const waiting = await prisma.flowRun.findFirst({
+      where: { id: job.flowRunId, organizationId: job.organizationId },
+      select: { id: true, flowId: true, status: true, waitGeneration: true },
+    })
+    if (!waiting || waiting.flowId !== job.flowId) throw new ApiError('Flow run not found', 404, 'NOT_FOUND')
+    const dispatchKey = `flow-${waiting.id}-resume-${waiting.waitGeneration}`
+    const payload = jsonValue(job)
+    const payloadHash = flowDispatchPayloadHash(payload)
+    const existing = await prisma.flowDispatchOutbox.findFirst({
+      where: { organizationId: job.organizationId, dispatchKey },
+      select: { id: true, payloadHash: true },
+    })
+    if (existing) {
+      if (existing.payloadHash !== payloadHash) throw new ApiError('A different reply already resumed this wait.', 409, 'IDEMPOTENCY_CONFLICT')
+      await publishFlowDispatchOutbox(existing.id).catch(() => false)
+      return { queued: true, flowRunId: waiting.id }
+    }
+    const outbox = await prisma.$transaction(async (tx) => {
+      const claimed = await tx.flowRun.updateMany({
+        where: { id: waiting.id, organizationId: job.organizationId, status: 'waiting', waitGeneration: waiting.waitGeneration },
+        data: { status: 'queued', queuedAt: new Date(), claimedAt: null, heartbeatAt: null, leaseExpiresAt: null, workerId: null },
+      })
+      if (claimed.count !== 1) throw new ApiError('This run is not waiting for input', 409, 'FLOW_RUN_NOT_WAITING')
+      return tx.flowDispatchOutbox.create({
+        data: {
+          flowRunId: waiting.id,
+          organizationId: job.organizationId,
+          dispatchKey,
+          kind: 'resume',
+          payload,
+          payloadHash,
+        },
+      })
+    })
+    await publishFlowDispatchOutbox(outbox.id).catch(() => false)
+    return { queued: true, flowRunId: waiting.id }
   }
 
-  const preCreated = await prisma.flowRun.create({
-    data: {
-      flowId: job.flowId,
-      status: 'running',
-      input: jsonValue({ prompt: job.input ?? '' }),
-      trigger: jsonValue(job.trigger ?? { type: 'manual' }),
-      organizationId: job.organizationId,
-      userId: job.userId,
-    },
+  const created = await prisma.$transaction(async (tx) => {
+    const run = await tx.flowRun.create({
+      data: {
+        flowId: job.flowId,
+        status: 'queued',
+        input: jsonValue({ prompt: job.input ?? '' }),
+        trigger: jsonValue(job.trigger ?? { type: 'manual' }),
+        queuedAt: new Date(),
+        organizationId: job.organizationId,
+        userId: job.userId,
+      },
+    })
+    const payload = jsonValue({ ...job, queuedRunId: run.id })
+    const outbox = await tx.flowDispatchOutbox.create({
+      data: {
+        flowRunId: run.id,
+        organizationId: job.organizationId,
+        dispatchKey: `flow-${run.id}`,
+        kind: 'fresh',
+        payload,
+        payloadHash: flowDispatchPayloadHash(payload),
+      },
+    })
+    return { run, outbox }
   })
-  try {
-    const queue = getQueue(QUEUE_NAMES.FLOW_EXECUTION)
-    await queue.add('execute-flow', { ...job, queuedRunId: preCreated.id }, flowJobOptions(undefined))
-  } catch (error) {
-    // Never leave a phantom 'running' row for a job that was never enqueued.
-    await prisma.flowRun
-      .updateMany({
-        where: { id: preCreated.id, organizationId: job.organizationId, status: 'running' },
-        data: { status: 'failed', error: 'Unable to queue flow execution', finishedAt: new Date() },
-      })
-      .catch(() => undefined)
-    throw error
-  }
-  return { queued: true, flowRunId: preCreated.id }
+  // Delivery failure leaves a durable pending/failed intent. The worker and
+  // cron recovery loops retry it; the caller can safely poll the queued run.
+  await publishFlowDispatchOutbox(created.outbox.id).catch(() => false)
+  return { queued: true, flowRunId: created.run.id }
 }
 
 /**
@@ -1346,6 +1410,88 @@ async function runFlowExecutionDetached(job: FlowExecutionJob): Promise<{ queued
 }
 
 /** BullMQ job handler — the worker calls this for each dequeued flow job. */
-export async function executeFlowJob(job: Job<FlowExecutionJob>): Promise<{ flowRunId: string; status: string; output: unknown }> {
-  return runFlowExecution(job.data)
+export async function executeFlowJob(job: Job<FlowQueueJobData>): Promise<{ flowRunId: string; status: string; output: unknown }> {
+  const dispatch = await loadFlowDispatch(job.data.outboxId, job.data.flowRunId)
+  if (!dispatch) throw new Error('Flow dispatch intent not found')
+  const payload = dispatch.payload as unknown as FlowExecutionJob
+  const beforeClaim = await prisma.flowRun.findFirst({
+    where: { id: dispatch.flowRunId, organizationId: dispatch.organizationId },
+    select: { status: true, output: true },
+  })
+  if (!beforeClaim) throw new Error('Flow run not found')
+  if (['succeeded', 'failed', 'stopped'].includes(beforeClaim.status)) {
+    await prisma.flowDispatchOutbox.updateMany({
+      where: { id: dispatch.id, organizationId: dispatch.organizationId },
+      data: { status: 'consumed', consumedAt: new Date() },
+    })
+    return { flowRunId: dispatch.flowRunId, status: beforeClaim.status, output: beforeClaim.output }
+  }
+  const workerId = `${process.pid}:${job.id ?? dispatch.id}`
+  const now = new Date()
+  const leaseExpiresAt = new Date(now.getTime() + 60_000)
+  const claimed = await prisma.flowRun.updateMany({
+    where: {
+      id: dispatch.flowRunId,
+      organizationId: dispatch.organizationId,
+      OR: [
+        { status: 'queued' },
+        { status: { in: ['claimed', 'running'] }, leaseExpiresAt: { lt: now } },
+      ],
+    },
+    data: {
+      status: 'claimed',
+      claimedAt: now,
+      heartbeatAt: now,
+      leaseExpiresAt,
+      workerId,
+      queueAttempt: { increment: 1 },
+    },
+  })
+  if (claimed.count !== 1) throw new Error('Flow run is not queued for claim')
+
+  const heartbeat = setInterval(() => {
+    const beat = new Date()
+    void prisma.flowRun.updateMany({
+      where: { id: dispatch.flowRunId, organizationId: dispatch.organizationId, workerId, status: { in: ['claimed', 'running'] } },
+      data: { heartbeatAt: beat, leaseExpiresAt: new Date(beat.getTime() + 60_000) },
+    }).catch(() => undefined)
+  }, 15_000)
+  heartbeat.unref?.()
+  try {
+    const result = await runFlowExecution({ ...payload, queueClaimed: true, queueWorkerId: workerId })
+    await prisma.flowDispatchOutbox.updateMany({
+      where: { id: dispatch.id, organizationId: dispatch.organizationId },
+      data: { status: 'consumed', consumedAt: new Date() },
+    })
+    return result
+  } catch (error) {
+    const current = await prisma.flowRun.findFirst({
+      where: { id: dispatch.flowRunId, organizationId: dispatch.organizationId },
+      select: { status: true, output: true },
+    }).catch(() => null)
+    if (current && ['succeeded', 'failed', 'stopped'].includes(current.status)) {
+      await prisma.flowDispatchOutbox.updateMany({
+        where: { id: dispatch.id, organizationId: dispatch.organizationId },
+        data: { status: 'consumed', consumedAt: new Date() },
+      }).catch(() => undefined)
+      return { flowRunId: dispatch.flowRunId, status: current.status, output: current.output }
+    }
+    // Setup-time throws are safe to requeue at the run boundary. Once the
+    // interpreter settles a run it returns a failed result instead of throwing.
+    await prisma.flowRun.updateMany({
+      where: { id: dispatch.flowRunId, organizationId: dispatch.organizationId, workerId, status: { in: ['claimed', 'running'] } },
+      data: { status: 'queued', workerId: null, claimedAt: null, heartbeatAt: null, leaseExpiresAt: null },
+    }).catch(() => undefined)
+    await prisma.flowDispatchOutbox.updateMany({
+      where: { id: dispatch.id, organizationId: dispatch.organizationId },
+      data: {
+        status: 'failed',
+        availableAt: new Date(),
+        lastError: error instanceof Error ? error.message.slice(0, 300) : String(error).slice(0, 300),
+      },
+    }).catch(() => undefined)
+    throw error
+  } finally {
+    clearInterval(heartbeat)
+  }
 }

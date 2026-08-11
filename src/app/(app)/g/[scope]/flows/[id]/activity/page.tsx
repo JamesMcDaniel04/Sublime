@@ -43,6 +43,8 @@ const STATUS_BADGE: Record<string, 'good' | 'risk' | 'warn' | 'info' | 'outline'
   succeeded: 'good',
   failed: 'risk',
   running: 'info',
+  claimed: 'info',
+  queued: 'outline',
   stopping: 'info',
   waiting: 'warn',
   stopped: 'outline',
@@ -194,7 +196,7 @@ export default function FlowActivityPage() {
 
     const load = async () => {
       const qs = new URLSearchParams({ summary: '1', take: String(take) })
-      if (filter !== 'all') qs.set('status', filter)
+      if (filter !== 'all') qs.set('status', filter === 'running' ? 'queued,claimed,running,stopping' : filter)
       const result = await fetch(`/api/flows/${id}/runs?${qs.toString()}`, { cache: 'no-store' })
         .then(async (response) => ({ status: response.status, data: await response.json().catch(() => null) }))
         .catch(() => null)
@@ -213,7 +215,7 @@ export default function FlowActivityPage() {
       const nextRuns: RunSummary[] = result.data.runs
       setRuns(nextRuns)
       setLoading(false)
-      const active = nextRuns.some((run) => run.status === 'running' || run.status === 'waiting' || run.status === 'stopping')
+      const active = nextRuns.some((run) => ['queued', 'claimed', 'running', 'waiting', 'stopping'].includes(run.status))
       if (active && !timer) timer = setInterval(load, 5000)
       if (!active && timer) {
         clearInterval(timer)
