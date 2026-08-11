@@ -2129,6 +2129,7 @@ function FlowBuilder() {
         {showRuns && (
           <ResizablePanel storageKey="flow.runsWidth">
             <RunPanel
+              flowId={flow.id}
               runs={runs}
               selected={selectedRun}
               onSelectRun={selectRun}

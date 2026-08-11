@@ -13,6 +13,7 @@ import { captureError } from '@/lib/observability/sentry'
 export const USER_EVENT_KINDS = [
   'agent_run_manual', 'agent_created', 'agent_edited',
   'flow_created', 'flow_edited', 'flow_published', 'flow_run_manual',
+  'flow_run_outcome', 'flow_run_feedback',
   'copilot_prompt', 'assistant_prompt',
   'suggestion_accepted', 'suggestion_dismissed',
   'template_used', 'connection_added', 'connection_removed',

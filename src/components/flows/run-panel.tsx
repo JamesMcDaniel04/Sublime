@@ -285,7 +285,40 @@ function WaitingBanner({
   )
 }
 
+function OutcomeFeedback({ flowId, runId }: { flowId: string; runId: string }) {
+  const [sent, setSent] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
+  const submit = async (outcome: 'worked' | 'failed') => {
+    if (busy) return
+    setBusy(true)
+    try {
+      const response = await fetch(`/api/flows/${encodeURIComponent(flowId)}/runs/${encodeURIComponent(runId)}/feedback`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ outcome, score: outcome === 'worked' ? 1 : -1 }),
+      })
+      if (response.ok) setSent(outcome)
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <div className="border-b border-border px-3 py-2">
+      <p className="mb-2 text-xs text-muted-foreground">Did this run deliver the intended outcome?</p>
+      {sent ? (
+        <p className="text-xs text-emerald-700">Feedback recorded. Future suggestions will use this outcome.</p>
+      ) : (
+        <div className="flex gap-2">
+          <Button variant="outline" size="sm" className="h-7 text-xs" disabled={busy} onClick={() => void submit('worked')}>Yes, it worked</Button>
+          <Button variant="outline" size="sm" className="h-7 text-xs" disabled={busy} onClick={() => void submit('failed')}>Needs improvement</Button>
+        </div>
+      )}
+    </div>
+  )
+}
+
 export function RunPanel({
+  flowId,
   runs,
   selected,
   onSelectRun,
@@ -297,6 +330,7 @@ export function RunPanel({
   onStopRun,
   onResubmitRun,
 }: {
+  flowId: string
   runs: { id: string; status: string; startedAt?: string }[]
   selected: FlowRunDetail | null
   onSelectRun: (runId: string) => void
@@ -398,6 +432,7 @@ export function RunPanel({
                 <OutputView value={selected.output} />
               </div>
             )}
+            {RESUBMITTABLE_RUN_STATUSES.has(selected.status) && <OutcomeFeedback key={selected.id} flowId={flowId} runId={selected.id} />}
             {selected.steps.length === 0 ? (
               <p className="p-4 text-sm text-muted-foreground">No steps recorded.</p>
             ) : (

@@ -1309,6 +1309,19 @@ export async function runFlowExecution(
       .catch(() => undefined)
   }
 
+  // Structured, references-only observations are the durable learning input;
+  // reflection consumes those facts and emits reviewable suggestions.
+  await import('@/lib/intelligence/flow-observations')
+    .then(({ recordFlowObservations }) => recordFlowObservations({
+      organizationId: job.organizationId,
+      userId: job.userId,
+      flowId: flow.id,
+      flowRunId: run.id,
+      status,
+      error: runError,
+    }))
+    .catch((error) => apiLogger.warn('flow observation capture failed', { flowRunId: run.id, error: error instanceof Error ? error.message : String(error) }))
+
   // Best-effort recursive-learning pass: repeated run evidence becomes a
   // reviewable builder suggestion; it never mutates the published graph.
   await import('@/lib/intelligence/reflect-flow-run')

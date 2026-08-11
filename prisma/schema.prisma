@@ -83,6 +83,8 @@ model Organization {
   feedbackSubmissions       FeedbackSubmission[]
   flowDispatchOutbox        FlowDispatchOutbox[]
   flowSideEffects           FlowSideEffect[]
+  flowLearningObservations  FlowLearningObservation[]
+  flowLearningFeedback      FlowLearningFeedback[]
 
   @@map("organizations")
 }
@@ -838,6 +840,7 @@ model Flow {
   collaborators FlowCollaborator[]
   comments      FlowComment[]
   nodePins      FlowNodePin[]
+  observations  FlowLearningObservation[]
 
   @@index([organizationId, updatedAt])
   // Event-side flow matching: activity/Slack/signal ingestion narrows to
@@ -945,6 +948,7 @@ model FlowRun {
   steps    FlowRunStep[]
   dispatch FlowDispatchOutbox[]
   effects  FlowSideEffect[]
+  observations FlowLearningObservation[]
 
   @@index([flowId, startedAt])
   @@index([status, wakeAt])
@@ -1040,6 +1044,56 @@ model FlowSideEffect {
   @@index([organizationId, status, updatedAt])
   @@index([flowRunId, nodeId])
   @@map("flow_side_effects")
+}
+
+/// Privacy-bounded facts learned from a flow execution. `features` and
+/// `evidence` contain structural metadata (node ids/types, timings, status),
+/// never prompts, tool arguments, provider response bodies, or credentials.
+model FlowLearningObservation {
+  id              String    @id @default(cuid())
+  observationKey  String    @unique
+  organizationId  String    @db.Uuid
+  userId           String?
+  flowId           String
+  flowRunId        String
+  nodeId           String?
+  kind             String // run_outcome | step_outcome | recovery
+  subject          String
+  outcome          String // succeeded | failed | stopped | waiting | ambiguous
+  features         Json      @default("{}")
+  evidence         Json      @default("{}")
+  occurredAt       DateTime  @default(now()) @db.Timestamptz(6)
+  createdAt        DateTime  @default(now()) @db.Timestamptz(6)
+
+  organization Organization          @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  flow         Flow                  @relation(fields: [flowId], references: [id], onDelete: Cascade)
+  run          FlowRun               @relation(fields: [flowRunId], references: [id], onDelete: Cascade)
+  feedback     FlowLearningFeedback[]
+
+  @@index([organizationId, flowId, occurredAt])
+  @@index([organizationId, subject, outcome])
+  @@map("flow_learning_observations")
+}
+
+/// Outcome feedback closes the learning loop without rewriting history. It is
+/// append-only and points to the exact observation/evidence being evaluated.
+model FlowLearningFeedback {
+  id              String   @id @default(cuid())
+  observationId   String
+  organizationId  String   @db.Uuid
+  userId           String?
+  source           String // human | downstream | system
+  outcome          String // worked | failed | corrected | accepted | rejected
+  score            Int?
+  note              String?
+  createdAt         DateTime @default(now()) @db.Timestamptz(6)
+
+  observation  FlowLearningObservation @relation(fields: [observationId], references: [id], onDelete: Cascade)
+  organization Organization            @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, observationId, createdAt])
+  @@index([organizationId, outcome, createdAt])
+  @@map("flow_learning_feedback")
 }
 
 /// A pinned node output: a dev-time fixture so testing a step doesn't re-hit an
