@@ -11,7 +11,7 @@ const replaySchema = z.object({ action: z.literal('replay'), deadLetterId: z.str
 
 export const GET = withAuthenticatedApi(async (_request, auth) => {
   const organizationId = auth.organizationId
-  const [runs, outbox, effects, deadLetters, learning] = await Promise.all([
+  const [runs, outbox, effects, deadLetters, learning, oldestPending, expiredLeases] = await Promise.all([
     prisma.flowRun.groupBy({ by: ['status'], where: { organizationId }, _count: { _all: true } }),
     prisma.flowDispatchOutbox.groupBy({ by: ['status'], where: { organizationId }, _count: { _all: true } }),
     prisma.flowSideEffect.groupBy({ by: ['status'], where: { organizationId }, _count: { _all: true } }),
@@ -28,6 +28,14 @@ export const GET = withAuthenticatedApi(async (_request, auth) => {
       prisma.flowLearningObservation.count({ where: { organizationId } }),
       prisma.flowLearningFeedback.count({ where: { organizationId } }),
     ]),
+    prisma.flowDispatchOutbox.findFirst({
+      where: { organizationId, status: { in: ['pending', 'failed'] } },
+      orderBy: { createdAt: 'asc' },
+      select: { createdAt: true },
+    }),
+    prisma.flowRun.count({
+      where: { organizationId, status: { in: ['claimed', 'running'] }, leaseExpiresAt: { lt: new Date() } },
+    }),
   ])
   let transport: Record<string, unknown> = { available: false }
   if (workersEnabled) {
@@ -48,6 +56,8 @@ export const GET = withAuthenticatedApi(async (_request, auth) => {
       outbox: Object.fromEntries(outbox.map((row) => [row.status, row._count._all])),
       effects: Object.fromEntries(effects.map((row) => [row.status, row._count._all])),
       learning: { observations: learning[0], feedback: learning[1] },
+      oldestPendingAt: oldestPending?.createdAt ?? null,
+      expiredLeases,
     },
     deadLetters,
   }

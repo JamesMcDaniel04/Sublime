@@ -64,3 +64,12 @@ test('runWithRetries with retryOnTimeout=false still retries hard errors', async
   assert.equal(result, 'ok')
   assert.equal(attempts, 2)
 })
+
+test('an explicit retry classifier blocks unknown hard errors', async () => {
+  let attempts = 0
+  await assert.rejects(runWithRetries(async () => {
+    attempts += 1
+    throw new Error('invalid credentials')
+  }, { retries: 5, retryDelayMs: 0, shouldRetry: () => false }), /invalid credentials/)
+  assert.equal(attempts, 1)
+})

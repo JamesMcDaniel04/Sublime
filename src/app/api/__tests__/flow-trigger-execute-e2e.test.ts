@@ -398,7 +398,7 @@ if (TEST_DB) {
     assert.ok(body.run.flowRunId, 'caller gets an id to poll')
     // background:true — the route answers 'queued' and the run continues
     // detached, so the terminal status is polled from the DB.
-    assert.ok(['queued', 'running', 'succeeded'].includes(body.run.status), `unexpected status ${body.run.status}`)
+    assert.ok(['queued', 'claimed', 'running', 'succeeded'].includes(body.run.status), `unexpected status ${body.run.status}`)
 
     const run = await terminalRun(body.run.flowRunId)
     assert.ok(run, 'FlowRun must appear and terminalize, scoped by organizationId')

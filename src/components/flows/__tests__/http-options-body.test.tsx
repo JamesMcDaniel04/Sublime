@@ -89,7 +89,7 @@ test('cookie, batching, and retry status codes are reachable from Options', (t) 
   openSettings(container)
   const add = container.querySelector('[aria-label="Add option"]') as HTMLSelectElement
   const offered = [...add.querySelectorAll('option')].map((option) => option.value)
-  for (const key of ['cookie', 'batch', 'retryStatusCodes', 'pagination']) {
+  for (const key of ['cookie', 'batch', 'retryStatusCodes', 'idempotencyKeyHeader', 'pagination']) {
     assert.ok(offered.includes(key), `${key} should be offered`)
   }
   // bodyMode must NOT be here — Body Content Type owns it.

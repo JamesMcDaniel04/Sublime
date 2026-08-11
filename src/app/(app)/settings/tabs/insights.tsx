@@ -54,6 +54,8 @@ type QueueResponse = {
     outbox?: Record<string, number>
     effects?: Record<string, number>
     learning?: { observations: number; feedback: number }
+    oldestPendingAt?: string | null
+    expiredLeases?: number
   }
   deadLetters?: Array<{
     id: string; queue: string; executionType: string; executionId?: string | null; error: string
@@ -187,13 +189,15 @@ function QueueOperationsCard() {
       </CardHeader>
       <CardContent className="space-y-4">
         {loading && !data ? <Skeleton className="h-20 rounded-lg" /> : (
-          <div className="grid grid-cols-2 gap-2 text-sm sm:grid-cols-4">
+          <div className="grid grid-cols-2 gap-2 text-sm sm:grid-cols-5">
             <div className="rounded-md border p-2"><p className="text-xs text-muted-foreground">Queued / claimed</p><p className="font-semibold">{(runs.queued ?? 0) + (runs.claimed ?? 0)}</p></div>
             <div className="rounded-md border p-2"><p className="text-xs text-muted-foreground">Outbox pending</p><p className="font-semibold">{(outbox.pending ?? 0) + (outbox.failed ?? 0)}</p></div>
             <div className="rounded-md border p-2"><p className="text-xs text-muted-foreground">Ambiguous effects</p><p className="font-semibold">{effects.ambiguous ?? 0}</p></div>
             <div className="rounded-md border p-2"><p className="text-xs text-muted-foreground">Open dead letters</p><p className="font-semibold">{open.length}</p></div>
+            <div className="rounded-md border p-2"><p className="text-xs text-muted-foreground">Expired leases</p><p className="font-semibold">{data?.queues?.expiredLeases ?? 0}</p></div>
           </div>
         )}
+        {data?.queues?.oldestPendingAt && <p className="text-xs text-muted-foreground">Oldest pending dispatch: {new Date(data.queues.oldestPendingAt).toLocaleString()}</p>}
         {open.length === 0 ? <p className="text-sm text-muted-foreground">No replayable dead letters.</p> : (
           <div className="space-y-2">
             {open.map((row) => (

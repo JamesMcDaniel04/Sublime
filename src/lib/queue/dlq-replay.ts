@@ -39,7 +39,7 @@ export async function replayDeadLetter(params: {
         }),
         prisma.flowDispatchOutbox.updateMany({
           where: { id: row.outboxId, organizationId: params.organizationId },
-          data: { status: 'failed', availableAt: new Date(), lockedAt: null, consumedAt: null, lastError: null },
+          data: { status: 'failed', attempts: 0, availableAt: new Date(), lockedAt: null, consumedAt: null, lastError: null },
         }),
       ])
       const published = await publishFlowDispatchOutbox(row.outboxId)

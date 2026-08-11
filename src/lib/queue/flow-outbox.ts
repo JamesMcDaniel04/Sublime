@@ -44,6 +44,10 @@ export function flowRunClaimDecision(
   return 'wait'
 }
 
+export function flowDispatchFailureDecision(publishedAttempts: number): 'retry' | 'dead_letter' {
+  return publishedAttempts < 3 ? 'retry' : 'dead_letter'
+}
+
 function stableStringify(value: unknown): string {
   if (value === null || typeof value !== 'object') return JSON.stringify(value)
   if (Array.isArray(value)) return `[${value.map(stableStringify).join(',')}]`

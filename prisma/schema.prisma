@@ -921,7 +921,7 @@ model FlowVersion {
 model FlowRun {
   id              String    @id @default(cuid())
   flowId          String
-  status          String    @default("running") // running | succeeded | failed | waiting
+  status          String    @default("running") // queued | claimed | running | waiting | stopping | stopped | succeeded | failed
   trigger         Json      @default("{}")
   input           Json      @default("{}")
   output          Json?

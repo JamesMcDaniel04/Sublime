@@ -1350,7 +1350,7 @@ function FlowBuilder() {
       // A fresh run now dispatches in the background and returns before it
       // finishes (status 'queued'/'running') — the run panel tracks it to
       // completion, and it keeps going if you navigate away.
-      else if (data.run?.status === 'queued' || data.run?.status === 'running') toast.success('Flow started — running in the background.')
+      else if (['queued', 'claimed', 'running'].includes(data.run?.status)) toast.success('Flow started — running in the background.')
       else toast.success('Flow ran.')
       pollRuns()
     } finally {

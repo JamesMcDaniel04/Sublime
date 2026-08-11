@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { fairDispatchOrder, flowRunClaimDecision } from '../flow-outbox'
+import { fairDispatchOrder, flowDispatchFailureDecision, flowRunClaimDecision } from '../flow-outbox'
 
 test('outbox recovery round-robins organizations instead of draining a noisy tenant first', () => {
   const at = new Date('2026-08-11T00:00:00Z')
@@ -10,6 +10,12 @@ test('outbox recovery round-robins organizations instead of draining a noisy ten
     { id: 'c1', organizationId: 'org-c', availableAt: at },
   ]
   assert.deepEqual(fairDispatchOrder(rows, 5).map((row) => row.id), ['a1', 'b1', 'c1', 'a2', 'a3'])
+})
+
+test('automatic setup retries stop at the durable dead-letter boundary', () => {
+  assert.equal(flowDispatchFailureDecision(1), 'retry')
+  assert.equal(flowDispatchFailureDecision(2), 'retry')
+  assert.equal(flowDispatchFailureDecision(3), 'dead_letter')
 })
 
 test('a worker crash is recoverable only after its durable lease expires', () => {

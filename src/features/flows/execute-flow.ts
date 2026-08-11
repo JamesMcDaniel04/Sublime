@@ -4,7 +4,8 @@ import { prisma } from '@/lib/prisma'
 import { workersEnabled } from '@/lib/queue/config'
 import { broadcastRunEvent } from '@/lib/realtime/run-events'
 import { inlineExecution } from '@/lib/queue/execution-mode'
-import { flowDispatchPayloadHash, flowRunClaimDecision, loadFlowDispatch, publishFlowDispatchOutbox, type FlowQueueJobData } from '@/lib/queue/flow-outbox'
+import { flowDispatchFailureDecision, flowDispatchPayloadHash, flowRunClaimDecision, loadFlowDispatch, publishFlowDispatchOutbox, type FlowQueueJobData } from '@/lib/queue/flow-outbox'
+import { recordFlowDeadLetter } from '@/lib/queue/flow-dead-letter'
 import { runAgentExecution } from '@/features/agents/execute-agent'
 import { flowGraphSchema } from '@/lib/flows/graph'
 import { validateFlowGraph, validationErrorMessage } from '@/lib/flows/validate'
@@ -1729,21 +1730,40 @@ export async function executeFlowJob(job: Job<FlowQueueJobData>): Promise<{ flow
       }).catch(() => undefined)
       return { flowRunId: dispatch.flowRunId, status: current.status, output: current.output }
     }
-    // Setup-time throws are safe to requeue at the run boundary. Once the
-    // interpreter settles a run it returns a failed result instead of throwing.
+    const message = error instanceof Error ? error.message : String(error)
+    // Setup-time throws happen before the interpreter can settle the run and
+    // are safe at the run boundary. Retry through the durable outbox twice;
+    // after three published attempts, stop automatic replay and create the
+    // operator-owned DLQ record. Returning (rather than throwing) prevents the
+    // BullMQ failed listener from creating a duplicate dead letter.
+    if (flowDispatchFailureDecision(dispatch.attempts) === 'retry') {
+      await prisma.flowRun.updateMany({
+        where: { id: dispatch.flowRunId, organizationId: dispatch.organizationId, workerId, status: { in: ['claimed', 'running'] } },
+        data: { status: 'queued', workerId: null, claimedAt: null, heartbeatAt: null, leaseExpiresAt: null },
+      }).catch(() => undefined)
+      await prisma.flowDispatchOutbox.updateMany({
+        where: { id: dispatch.id, organizationId: dispatch.organizationId },
+        data: { status: 'failed', availableAt: new Date(), lastError: message.slice(0, 300) },
+      }).catch(() => undefined)
+      return { flowRunId: dispatch.flowRunId, status: 'queued', output: null }
+    }
     await prisma.flowRun.updateMany({
       where: { id: dispatch.flowRunId, organizationId: dispatch.organizationId, workerId, status: { in: ['claimed', 'running'] } },
-      data: { status: 'queued', workerId: null, claimedAt: null, heartbeatAt: null, leaseExpiresAt: null },
+      data: { status: 'failed', error: message.slice(0, 300), finishedAt: new Date(), workerId: null, leaseExpiresAt: null },
     }).catch(() => undefined)
     await prisma.flowDispatchOutbox.updateMany({
       where: { id: dispatch.id, organizationId: dispatch.organizationId },
-      data: {
-        status: 'failed',
-        availableAt: new Date(),
-        lastError: error instanceof Error ? error.message.slice(0, 300) : String(error).slice(0, 300),
-      },
+      data: { status: 'consumed', consumedAt: new Date(), lastError: message.slice(0, 300) },
     }).catch(() => undefined)
-    throw error
+    await recordFlowDeadLetter({
+      queue: 'flow-execution',
+      jobId: job.id,
+      flowRunId: dispatch.flowRunId,
+      organizationId: dispatch.organizationId,
+      data: job.data,
+      error: message,
+    })
+    return { flowRunId: dispatch.flowRunId, status: 'failed', output: null }
   } finally {
     clearInterval(heartbeat)
   }

@@ -123,7 +123,7 @@ export function CopilotPanel({
         const poll = await fetch(`/api/flows/${flowId}/runs?take=10`).then((r) => r.json()).catch(() => null)
         const run = poll?.runs?.find((entry: { id: string }) => entry.id === runId)
         if (!run) continue
-        if (run.status === 'queued' || run.status === 'running') continue
+        if (run.status === 'queued' || run.status === 'claimed' || run.status === 'running') continue
         const steps: DemoStep[] = (run.steps ?? []).map((step: { nodeId: string; status: string; output?: unknown }) => ({
           nodeId: step.nodeId,
           label: labelForNode(step.nodeId),
