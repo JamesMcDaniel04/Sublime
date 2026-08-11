@@ -85,6 +85,7 @@ model Organization {
   flowSideEffects           FlowSideEffect[]
   flowLearningObservations  FlowLearningObservation[]
   flowLearningFeedback      FlowLearningFeedback[]
+  queueDeadLetters          QueueDeadLetter[]
 
   @@map("organizations")
 }
@@ -1094,6 +1095,34 @@ model FlowLearningFeedback {
   @@index([organizationId, observationId, createdAt])
   @@index([organizationId, outcome, createdAt])
   @@map("flow_learning_feedback")
+}
+
+/// Database-backed DLQ. Redis is transport, not the source of truth: these
+/// rows survive queue retention/flushes and carry an audited replay lifecycle.
+model QueueDeadLetter {
+  id              String    @id @default(cuid())
+  organizationId  String?   @db.Uuid
+  queue            String
+  sourceJobId      String?
+  executionType    String // flow | agent | backfill
+  executionId      String?
+  outboxId         String?
+  payload          Json      @default("{}")
+  error            String
+  status           String    @default("open") // open | replaying | replayed | dismissed | replay_failed
+  replayAttempts   Int       @default(0)
+  lastReplayError  String?
+  replayedByUserId String?
+  replayedAt       DateTime? @db.Timestamptz(6)
+  resolvedAt       DateTime? @db.Timestamptz(6)
+  createdAt        DateTime  @default(now()) @db.Timestamptz(6)
+  updatedAt        DateTime  @updatedAt @db.Timestamptz(6)
+
+  organization Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, status, createdAt])
+  @@index([queue, status, createdAt])
+  @@map("queue_dead_letters")
 }
 
 /// A pinned node output: a dev-time fixture so testing a step doesn't re-hit an

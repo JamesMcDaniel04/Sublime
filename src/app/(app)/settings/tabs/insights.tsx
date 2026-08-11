@@ -13,6 +13,7 @@ import { useEffect, useState } from 'react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
 import { useCachedJson } from '@/lib/client/use-cached-json'
 import type { Member } from './types'
 
@@ -46,6 +47,19 @@ type InsightsResponse = {
 }
 
 type GoalsResponse = { goals?: Array<{ id: string; name: string; personal?: boolean; restricted?: boolean }> }
+type QueueResponse = {
+  queues?: {
+    transport?: Record<string, unknown>
+    runs?: Record<string, number>
+    outbox?: Record<string, number>
+    effects?: Record<string, number>
+    learning?: { observations: number; feedback: number }
+  }
+  deadLetters?: Array<{
+    id: string; queue: string; executionType: string; executionId?: string | null; error: string
+    status: string; replayAttempts: number; lastReplayError?: string | null; createdAt: string
+  }>
+}
 
 function relativeDay(iso: string | null): string {
   if (!iso) return 'never'
@@ -140,7 +154,62 @@ export function InsightsTab({ members }: Readonly<{ members: Member[] }>) {
       </Card>
 
       <RestrictedGoalsCard members={members} />
+      <QueueOperationsCard />
     </div>
+  )
+}
+
+function QueueOperationsCard() {
+  const { data, loading, refresh } = useCachedJson<QueueResponse>('/api/system/queues')
+  const [replaying, setReplaying] = useState<string | null>(null)
+  const replay = async (id: string) => {
+    setReplaying(id)
+    try {
+      await fetch('/api/system/queues', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ action: 'replay', deadLetterId: id }),
+      })
+      await refresh()
+    } finally {
+      setReplaying(null)
+    }
+  }
+  const outbox = data?.queues?.outbox ?? {}
+  const runs = data?.queues?.runs ?? {}
+  const effects = data?.queues?.effects ?? {}
+  const open = (data?.deadLetters ?? []).filter((row) => row.status === 'open' || row.status === 'replay_failed')
+  return (
+    <Card className="max-w-3xl">
+      <CardHeader>
+        <CardTitle>Flow queue operations</CardTitle>
+        <CardDescription>Durable dispatch, worker leases, side-effect safety, and dead-letter replay.</CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {loading && !data ? <Skeleton className="h-20 rounded-lg" /> : (
+          <div className="grid grid-cols-2 gap-2 text-sm sm:grid-cols-4">
+            <div className="rounded-md border p-2"><p className="text-xs text-muted-foreground">Queued / claimed</p><p className="font-semibold">{(runs.queued ?? 0) + (runs.claimed ?? 0)}</p></div>
+            <div className="rounded-md border p-2"><p className="text-xs text-muted-foreground">Outbox pending</p><p className="font-semibold">{(outbox.pending ?? 0) + (outbox.failed ?? 0)}</p></div>
+            <div className="rounded-md border p-2"><p className="text-xs text-muted-foreground">Ambiguous effects</p><p className="font-semibold">{effects.ambiguous ?? 0}</p></div>
+            <div className="rounded-md border p-2"><p className="text-xs text-muted-foreground">Open dead letters</p><p className="font-semibold">{open.length}</p></div>
+          </div>
+        )}
+        {open.length === 0 ? <p className="text-sm text-muted-foreground">No replayable dead letters.</p> : (
+          <div className="space-y-2">
+            {open.map((row) => (
+              <div key={row.id} className="flex items-start gap-3 rounded-md border p-3">
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-medium">{row.executionType} · {row.queue}</p>
+                  <p className="truncate text-xs text-muted-foreground">{row.error}</p>
+                  {row.lastReplayError && <p className="mt-1 text-xs text-red-600">{row.lastReplayError}</p>}
+                </div>
+                <Button variant="outline" size="sm" loading={replaying === row.id} onClick={() => void replay(row.id)}>Replay</Button>
+              </div>
+            ))}
+          </div>
+        )}
+      </CardContent>
+    </Card>
   )
 }
 

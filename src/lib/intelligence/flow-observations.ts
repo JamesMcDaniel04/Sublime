@@ -1,5 +1,6 @@
 import { Prisma } from '@/generated/prisma/client'
 import { prisma } from '@/lib/prisma'
+import { recordUserEvent } from '@/lib/behavior/record-event'
 
 type ObservationInput = {
   organizationId: string
@@ -92,6 +93,23 @@ export async function recordFlowObservations(input: ObservationInput): Promise<v
         features: row.features as Prisma.InputJsonValue,
         evidence: row.evidence as Prisma.InputJsonValue,
         occurredAt: row.occurredAt,
+      },
+    })
+  }
+  if (input.userId) {
+    await recordUserEvent({
+      organizationId: input.organizationId,
+      userId: input.userId,
+      kind: 'flow_run_outcome',
+      resourceType: 'flow',
+      resourceId: input.flowId,
+      context: {
+        flowRunId: input.flowRunId,
+        outcome,
+        triggerType,
+        errorClass: errorClass(input.error),
+        stepCount: steps.length,
+        queueAttempt: run.queueAttempt,
       },
     })
   }

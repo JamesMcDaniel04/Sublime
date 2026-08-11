@@ -5,12 +5,43 @@ import { getQueue, QUEUE_NAMES } from './config'
 import { flowJobOptions } from '@/lib/flows/queue-options'
 
 export const FLOW_OUTBOX_LOCK_MS = 60_000
+export const FLOW_OUTBOX_RECONCILE_MS = 120_000
 export const FLOW_OUTBOX_BATCH = 100
+
+export function fairDispatchOrder<T extends { organizationId: string; availableAt: Date; id: string }>(rows: T[], limit: number): T[] {
+  const byOrg = new Map<string, T[]>()
+  for (const row of rows) {
+    const bucket = byOrg.get(row.organizationId) ?? []
+    bucket.push(row)
+    byOrg.set(row.organizationId, bucket)
+  }
+  const result: T[] = []
+  while (result.length < limit && byOrg.size > 0) {
+    for (const [organizationId, bucket] of byOrg) {
+      const next = bucket.shift()
+      if (next) result.push(next)
+      if (bucket.length === 0) byOrg.delete(organizationId)
+      if (result.length >= limit) break
+    }
+  }
+  return result
+}
 
 export type FlowQueueJobData = {
   outboxId: string
   flowRunId: string
   organizationId: string
+}
+
+export function flowRunClaimDecision(
+  status: string,
+  leaseExpiresAt: Date | null | undefined,
+  now: Date,
+): 'claim' | 'wait' | 'terminal' {
+  if (['succeeded', 'failed', 'stopped'].includes(status)) return 'terminal'
+  if (status === 'queued') return 'claim'
+  if ((status === 'claimed' || status === 'running') && leaseExpiresAt && leaseExpiresAt < now) return 'claim'
+  return 'wait'
 }
 
 function stableStringify(value: unknown): string {
@@ -37,6 +68,7 @@ function retryAt(attempts: number, now: Date): Date {
  */
 export async function publishFlowDispatchOutbox(outboxId: string, now = new Date()): Promise<boolean> {
   const staleLock = new Date(now.getTime() - FLOW_OUTBOX_LOCK_MS)
+  const stalePublished = new Date(now.getTime() - FLOW_OUTBOX_RECONCILE_MS)
   // systemPrisma: worker/system publisher claims an org-unknown outbox id.
   const claimed = await systemPrisma.flowDispatchOutbox.updateMany({
     where: {
@@ -44,6 +76,9 @@ export async function publishFlowDispatchOutbox(outboxId: string, now = new Date
       OR: [
         { status: { in: ['pending', 'failed'] }, availableAt: { lte: now } },
         { status: 'publishing', lockedAt: { lt: staleLock } },
+        // Redis may acknowledge queue.add and then lose the job before the
+        // worker sees it. Periodically reassert the stable job id from DB.
+        { status: 'published', updatedAt: { lt: stalePublished } },
       ],
     },
     data: { status: 'publishing', lockedAt: now, attempts: { increment: 1 }, lastError: null },
@@ -83,7 +118,9 @@ export async function publishFlowDispatchOutbox(outboxId: string, now = new Date
       where: { id: row.id, status: 'publishing' },
       data: {
         status: 'failed',
-        availableAt: retryAt(row.attempts + 1, now),
+        // `attempts` was incremented by the claim above and is already the
+        // current attempt number.
+        availableAt: retryAt(row.attempts, now),
         lockedAt: null,
         lastError: message.slice(0, 300),
       },
@@ -96,18 +133,22 @@ export async function publishFlowDispatchOutbox(outboxId: string, now = new Date
 /** Recover pending/failed or abandoned-publishing intents in bounded batches. */
 export async function flushFlowDispatchOutbox(now = new Date(), limit = FLOW_OUTBOX_BATCH): Promise<number> {
   const staleLock = new Date(now.getTime() - FLOW_OUTBOX_LOCK_MS)
+  const stalePublished = new Date(now.getTime() - FLOW_OUTBOX_RECONCILE_MS)
   // systemPrisma: global worker/cron recovery sweep by design.
-  const rows = await systemPrisma.flowDispatchOutbox.findMany({
+  const candidates = await systemPrisma.flowDispatchOutbox.findMany({
     where: {
       OR: [
         { status: { in: ['pending', 'failed'] }, availableAt: { lte: now } },
         { status: 'publishing', lockedAt: { lt: staleLock } },
+        { status: 'published', updatedAt: { lt: stalePublished } },
       ],
     },
     orderBy: { availableAt: 'asc' },
-    take: limit,
-    select: { id: true },
+    // Read ahead so one noisy tenant cannot fill the whole publish batch.
+    take: Math.max(limit, Math.min(1000, limit * 10)),
+    select: { id: true, organizationId: true, availableAt: true },
   })
+  const rows = fairDispatchOrder(candidates, limit)
   const results = await Promise.allSettled(rows.map((row) => publishFlowDispatchOutbox(row.id, now)))
   return results.filter((result) => result.status === 'fulfilled' && result.value).length
 }

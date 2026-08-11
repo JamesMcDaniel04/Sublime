@@ -39,7 +39,7 @@ import { Prisma } from '@/generated/prisma/client'
 //    auth bootstrap) is a short exclusion list, verified against the
 //    generated types below so a schema change that adds or removes a
 //    nullable organizationId fails `tsc` instead of silently drifting.
-const NULLABLE_ORG_ID_MODELS = ['User'] as const
+const NULLABLE_ORG_ID_MODELS = ['User', 'QueueDeadLetter'] as const
 
 export const ORG_SCOPED_MODELS: ReadonlySet<string> = new Set(
   Object.values(Prisma.ModelName).filter((model) => {

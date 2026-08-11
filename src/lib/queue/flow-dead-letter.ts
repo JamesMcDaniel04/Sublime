@@ -12,6 +12,7 @@ import { systemPrisma } from '@/lib/prisma'
 import { apiLogger } from '@/lib/logger'
 import { captureError } from '@/lib/observability/sentry'
 import { getQueue, QUEUE_NAMES } from './config'
+import { Prisma } from '@/generated/prisma/client'
 
 export interface FlowDeadLetterInput {
   queue: string
@@ -36,6 +37,27 @@ export async function recordFlowDeadLetter(input: FlowDeadLetterInput): Promise<
       })
       .catch(() => undefined)
   }
+
+  // systemPrisma: worker-side cross-tenant capture. organizationId is copied
+  // from the authenticated dispatch row and remains nullable for malformed
+  // legacy jobs so even orphan failures are inspectable.
+  await systemPrisma.queueDeadLetter.create({
+    data: {
+      organizationId: input.organizationId,
+      queue: input.queue,
+      sourceJobId: input.jobId,
+      executionType: 'flow',
+      executionId: input.flowRunId,
+      outboxId: input.data && typeof input.data === 'object' && 'outboxId' in input.data
+        ? String((input.data as { outboxId?: unknown }).outboxId ?? '') || null
+        : null,
+      payload: input.data === undefined ? Prisma.JsonNull : input.data as Prisma.InputJsonValue,
+      error: input.error.slice(0, 2000),
+    },
+  }).catch((error) => apiLogger.error('failed to persist flow dead letter', {
+    flowRunId: input.flowRunId,
+    error: error instanceof Error ? error.message : String(error),
+  }))
 
   try {
     const dlq = getQueue(QUEUE_NAMES.FLOW_DEAD_LETTER)

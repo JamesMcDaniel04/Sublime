@@ -2,6 +2,7 @@ import { prisma } from '@/lib/prisma'
 import { orgIntelligenceAgentId } from '@/lib/intelligence/connection-scan'
 import { FLOW_TARGET_MARKER_PREFIX } from '@/lib/intelligence/suggest-workflows'
 import type { FlowGraph } from '@/lib/flows/graph'
+import { flowObservationErrorClass } from './flow-observations'
 
 /**
  * Evidence-based, flow-level learning pass. It never edits a live workflow:
@@ -10,14 +11,19 @@ import type { FlowGraph } from '@/lib/flows/graph'
  */
 export async function reflectFlowRun(params: { organizationId: string; flowId: string; flowRunId: string; graph: FlowGraph; status: string; error?: string | null }) {
   if (params.status !== 'failed' || !params.error) return
-  const recent = await prisma.flowRun.findMany({
-    where: { organizationId: params.organizationId, flowId: params.flowId, status: 'failed' },
-    orderBy: { startedAt: 'desc' },
+  const recent = await prisma.flowLearningObservation.findMany({
+    where: { organizationId: params.organizationId, flowId: params.flowId, kind: 'run_outcome', outcome: { in: ['failed', 'ambiguous'] } },
+    orderBy: { occurredAt: 'desc' },
     take: 10,
-    select: { error: true },
+    select: { evidence: true },
   })
-  const signature = params.error.slice(0, 120)
-  const repeats = recent.filter((run) => run.error?.slice(0, 120) === signature).length
+  const errorClass = flowObservationErrorClass(params.error) ?? 'runtime'
+  const repeats = recent.filter((observation) => {
+    const evidence = observation.evidence && typeof observation.evidence === 'object' && !Array.isArray(observation.evidence)
+      ? observation.evidence as Record<string, unknown>
+      : {}
+    return evidence.errorClass === errorClass
+  }).length
   if (repeats < 2) return
 
   const failingNode = params.graph.nodes.find((node) => {
@@ -33,15 +39,19 @@ export async function reflectFlowRun(params: { organizationId: string; flowId: s
     where: { organizationId: params.organizationId, agentId, kind: 'suggestion', question: marker, title, createdAt: { gte: new Date(Date.now() - 30 * 86_400_000) } },
   })
   if (existing) return
-  const recommendation = failingNode?.type === 'http' || failingNode?.type === 'tool'
-    ? 'Add bounded retries for transient errors and place the action in an Error shield with a fallback path.'
-    : 'Add an Error shield and a fallback or notification path around the failing portion of the workflow.'
+  const recommendation = errorClass === 'ambiguous_side_effect'
+    ? 'Configure the provider’s documented idempotency header or argument before replaying this write; verify the existing provider result first.'
+    : errorClass === 'authorization'
+      ? 'Reconnect or replace the credential, then verify it before the next run.'
+      : failingNode?.type === 'http' || failingNode?.type === 'tool'
+        ? 'Add a fallback path. Enable bounded retries only for reads or writes protected by a provider idempotency key.'
+        : 'Add an Error shield and a fallback or notification path around the failing portion of the workflow.'
   await prisma.agentMemory.create({ data: {
     organizationId: params.organizationId,
     agentId,
     kind: 'suggestion',
     title,
-    content: `${recommendation} Evidence: ${repeats} of the 10 most recent runs failed with “${signature}”.`,
+    content: `${recommendation} Evidence: ${repeats} of the 10 most recent structured run observations failed with class “${errorClass}”.`,
     question: marker,
     sourceExecutionId: params.flowRunId,
   } })

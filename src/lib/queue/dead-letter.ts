@@ -12,6 +12,7 @@ import { systemPrisma } from '@/lib/prisma'
 import { apiLogger } from '@/lib/logger'
 import { captureError } from '@/lib/observability/sentry'
 import { getQueue, QUEUE_NAMES } from './config'
+import { Prisma } from '@/generated/prisma/client'
 
 export interface DeadLetterInput {
   queue: string
@@ -38,6 +39,22 @@ export async function recordDeadLetter(input: DeadLetterInput): Promise<void> {
       })
       .catch(() => undefined)
   }
+
+  // systemPrisma: worker-side cross-tenant capture; see flow twin.
+  await systemPrisma.queueDeadLetter.create({
+    data: {
+      organizationId: input.organizationId,
+      queue: input.queue,
+      sourceJobId: input.jobId,
+      executionType: 'agent',
+      executionId: input.executionId,
+      payload: input.data === undefined ? Prisma.JsonNull : input.data as Prisma.InputJsonValue,
+      error: input.error.slice(0, 2000),
+    },
+  }).catch((error) => apiLogger.error('failed to persist agent dead letter', {
+    executionId: input.executionId,
+    error: error instanceof Error ? error.message : String(error),
+  }))
 
   try {
     const dlq = getQueue(QUEUE_NAMES.DEAD_LETTER)
