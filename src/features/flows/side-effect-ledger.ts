@@ -58,6 +58,15 @@ export type SideEffectClaim =
   | { mode: 'execute'; id: string; effectKey: string; providerKey?: string }
   | { mode: 'replay'; id: string; output: unknown }
 
+export function sideEffectRecoveryDecision(
+  status: string,
+  safety: FlowEffectSafety,
+): 'replay' | 'execute' | 'block_ambiguous' {
+  if (status === 'succeeded') return 'replay'
+  if (safety === 'unsafe_write' && (status === 'claimed' || status === 'ambiguous')) return 'block_ambiguous'
+  return 'execute'
+}
+
 async function existingClaim(params: ClaimParams, effectKey: string, requestHash: string): Promise<SideEffectClaim | null> {
   const existing = await prisma.flowSideEffect.findFirst({
     where: { effectKey, organizationId: params.organizationId },
@@ -66,10 +75,11 @@ async function existingClaim(params: ClaimParams, effectKey: string, requestHash
   if (existing.requestHash !== requestHash) {
     throw new Error('Side-effect identity was reused with a different request. Start a new flow run before retrying this action.')
   }
-  if (existing.status === 'succeeded') {
+  const decision = sideEffectRecoveryDecision(existing.status, params.safety)
+  if (decision === 'replay') {
     return { mode: 'replay', id: existing.id, output: existing.response }
   }
-  if (params.safety === 'unsafe_write' && (existing.status === 'claimed' || existing.status === 'ambiguous')) {
+  if (decision === 'block_ambiguous') {
     await prisma.flowSideEffect.updateMany({
       where: { id: existing.id, organizationId: params.organizationId },
       data: { status: 'ambiguous' },

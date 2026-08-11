@@ -29,8 +29,15 @@ import type { EvalJsFn, FlowContext } from './context'
 import { resolveResumeState } from './resume-scan'
 import { buildRouterPrompt, routerBranchSchema, parseRouterChoice } from '@/lib/flows/router'
 import { generateStructured, generateText } from '@/lib/llm/model-runner'
-import { flowActionRetries, flowActionTimeoutMs, runWithRetries, shouldRetryAfterTimeout } from './action-reliability'
-import { performHttpRequest, prepareHttpRequest, redactHttpStepInput, withBearerAuthorization } from './http'
+import { FlowTimeoutError, flowActionRetries, flowActionTimeoutMs, isTransientNetworkError, retryableHttpStatus, runWithRetries } from './action-reliability'
+import { FlowHttpStatusError, performHttpRequest, prepareHttpRequest, redactHttpStepInput, withBearerAuthorization } from './http'
+import {
+  claimSideEffect,
+  completeSideEffect,
+  failSideEffect,
+  recordSideEffectAttempt,
+  type FlowEffectSafety,
+} from './side-effect-ledger'
 import { assertLiteralOriginForConnectionAuth, resolveHttpConnectionToken } from './http-auth'
 import { resolveHttpCredential } from '@/lib/credentials/resolve'
 import { applyCredentialPlan } from '@/lib/credentials/apply'
@@ -894,23 +901,65 @@ export async function runFlowExecution(
           publicFetch: deps.publicFetch,
         })
 
-        const retries = flowActionRetries(node.config.retries)
-        const timeoutMs = flowActionTimeoutMs(node.config.timeoutMs)
-        // retryOnTimeout=false: a timed-out tool call is only abandoned, not
-        // cancelled — the write may still land, so retrying could execute the
-        // side effect twice. Hard errors keep the retry budget. (HTTP steps
-        // below abort the request on timeout, so they may retry.)
-        const output = await runWithRetries(
-          async () => flowToolOutput(await executor.execute(toolName, args)),
-          {
-            retries,
-            timeoutMs,
-            retryOnTimeout: shouldRetryAfterTimeout('tool'),
-            timeoutMessage: timeoutMs
-              ? `Tool ${toolName} timed out after ${Math.round(timeoutMs / 1000)}s — the call may still be finishing in the background.`
-              : undefined,
-          },
-        )
+        const idempotencyArg = typeof node.config.idempotencyKeyArg === 'string'
+          ? node.config.idempotencyKeyArg.trim()
+          : ''
+        const isWrite = node.config.risk !== 'read' || executor.isWrite || isWriteProvider(executor.provider)
+        const safety: FlowEffectSafety = !isWrite ? 'read' : idempotencyArg ? 'idempotent_write' : 'unsafe_write'
+        const effect = await claimSideEffect({
+          organizationId: job.organizationId,
+          flowRunId: run.id,
+          flowRunStepId: step.id,
+          nodeId: node.id,
+          iterationPath: node.iterationPath?.join('.') ?? null,
+          kind: 'tool',
+          provider: executor.provider,
+          operation: toolName,
+          safety,
+          request: { toolName, args },
+        })
+        let output: unknown
+        if (effect.mode === 'replay') {
+          output = effect.output
+        } else {
+          const effectiveArgs = idempotencyArg && effect.providerKey
+            ? { ...args, [idempotencyArg]: effect.providerKey }
+            : args
+          const retries = flowActionRetries(node.config.retries)
+          const timeoutMs = flowActionTimeoutMs(node.config.timeoutMs)
+          try {
+            output = await runWithRetries(
+              async () => {
+                await recordSideEffectAttempt(effect.id, job.organizationId)
+                return flowToolOutput(await executor.execute(toolName, effectiveArgs))
+              },
+              {
+                retries,
+                timeoutMs,
+                // An abandoned write is only replayable when the provider
+                // deduplicates our stable key. Reads are safe to repeat too.
+                retryOnTimeout: safety !== 'unsafe_write',
+                shouldRetry: (error) => safety !== 'unsafe_write' && (
+                  error instanceof FlowTimeoutError
+                  || isTransientNetworkError(error)
+                  || /rate.?limit|temporar|unavailable|timeout|try again/i.test(error instanceof Error ? error.message : String(error))
+                ),
+                timeoutMessage: timeoutMs
+                  ? `Tool ${toolName} timed out after ${Math.round(timeoutMs / 1000)}s — the call may still be finishing in the background.`
+                  : undefined,
+              },
+            )
+            await completeSideEffect({ id: effect.id, organizationId: job.organizationId, output })
+          } catch (error) {
+            await failSideEffect({
+              id: effect.id,
+              organizationId: job.organizationId,
+              error,
+              ambiguous: safety === 'unsafe_write',
+            })
+            throw error
+          }
+        }
         // Immutable audit trail, mirroring the agent loop's tool execution:
         // every plane is recorded; write/delivery planes are the consequential
         // ones. Args are hashed by recordAudit, never stored raw.
@@ -976,32 +1025,84 @@ export async function runFlowExecution(
         })
         request.init.headers = withBearerAuthorization(request.init.headers as Record<string, string>, token)
       }
+      const httpMethod = String(request.init.method ?? node.config.method ?? 'POST').toUpperCase()
+      const idempotencyHeader = typeof node.config.idempotencyKeyHeader === 'string'
+        ? node.config.idempotencyKeyHeader.trim()
+        : ''
+      const safety: FlowEffectSafety = ['GET', 'HEAD', 'OPTIONS'].includes(httpMethod)
+        ? 'read'
+        : ['PUT', 'DELETE'].includes(httpMethod) || Boolean(idempotencyHeader)
+          ? 'idempotent_write'
+          : 'unsafe_write'
+      const effect = await claimSideEffect({
+        organizationId: job.organizationId,
+        flowRunId: run.id,
+        flowRunStepId: step.id,
+        nodeId: node.id,
+        iterationPath: node.iterationPath?.join('.') ?? null,
+        kind: 'http',
+        provider: new URL(request.url).hostname,
+        operation: `${httpMethod} ${new URL(request.url).pathname}`,
+        safety,
+        request: {
+          method: httpMethod,
+          url: request.url,
+          body: request.init.body == null ? null : String(request.init.body),
+          policy: redactHttpStepInput(node.config),
+        },
+      })
+      if (effect.mode === 'execute' && idempotencyHeader && effect.providerKey) {
+        request.init.headers = { ...(request.init.headers as Record<string, string>), [idempotencyHeader]: effect.providerKey }
+      }
       const retries = flowActionRetries(node.config.retries)
       let output
       try {
-        output = await runWithRetries(async () => {
-          const controller = new AbortController()
-          let timedOut = false
-          const timer = setTimeout(() => {
-            timedOut = true
-            controller.abort()
-          }, request.timeoutMs)
-          try {
-            // The whole request sequence (redirects, pagination, batch throttle)
-            // lives in performHttpRequest so it's unit-testable; this wrapper
-            // supplies the real fetch, SSRF guard, and per-attempt abort signal.
-            return await performHttpRequest(request, node.config, {
-              assertUrlAllowed: assertFlowHttpUrlAllowed,
-              signal: controller.signal,
-              maxResponseChars: HTTP_MAX_RESPONSE_CHARS,
-            })
-          } catch (error) {
-            if (timedOut) throw new Error(`HTTP request timed out after ${request.timeoutMs}ms`)
-            throw error
-          } finally {
-            clearTimeout(timer)
-          }
-        }, { retries, retryDelayMs: typeof node.config.retryDelayMs === 'number' ? node.config.retryDelayMs : undefined })
+        if (effect.mode === 'replay') {
+          output = effect.output
+        } else {
+          output = await runWithRetries(async () => {
+            await recordSideEffectAttempt(effect.id, job.organizationId)
+            const controller = new AbortController()
+            let timedOut = false
+            const timer = setTimeout(() => {
+              timedOut = true
+              controller.abort()
+            }, request.timeoutMs)
+            try {
+              // The whole request sequence (redirects, pagination, batch throttle)
+              // lives in performHttpRequest so it's unit-testable; this wrapper
+              // supplies the real fetch, SSRF guard, and per-attempt abort signal.
+              return await performHttpRequest(request, node.config, {
+                assertUrlAllowed: assertFlowHttpUrlAllowed,
+                signal: controller.signal,
+                maxResponseChars: HTTP_MAX_RESPONSE_CHARS,
+              })
+            } catch (error) {
+              if (timedOut) throw new FlowTimeoutError(`HTTP request timed out after ${request.timeoutMs}ms`)
+              throw error
+            } finally {
+              clearTimeout(timer)
+            }
+          }, {
+            retries,
+            retryDelayMs: typeof node.config.retryDelayMs === 'number' ? node.config.retryDelayMs : undefined,
+            retryOnTimeout: safety !== 'unsafe_write',
+            shouldRetry: (error) => safety !== 'unsafe_write' && (
+              error instanceof FlowTimeoutError
+              || isTransientNetworkError(error)
+              || (error instanceof FlowHttpStatusError && (error.retryable || retryableHttpStatus(error.status)))
+            ),
+          })
+          const headers = output && typeof output === 'object' && 'headers' in output
+            ? (output as { headers?: Record<string, string> }).headers
+            : undefined
+          await completeSideEffect({
+            id: effect.id,
+            organizationId: job.organizationId,
+            output,
+            providerRequestId: headers?.['x-request-id'] ?? headers?.['request-id'],
+          })
+        }
         if (useGeneric && httpCredentialId) {
           recordVerificationAsync({
             organizationId: job.organizationId,
@@ -1010,6 +1111,14 @@ export async function runFlowExecution(
           })
         }
       } catch (error) {
+        if (effect.mode === 'execute') {
+          await failSideEffect({
+            id: effect.id,
+            organizationId: job.organizationId,
+            error,
+            ambiguous: safety === 'unsafe_write',
+          })
+        }
         if (useGeneric && httpCredentialId) {
           recordVerificationAsync({
             organizationId: job.organizationId,
@@ -1028,7 +1137,6 @@ export async function runFlowExecution(
       // whole, which would mark plain GETs as writes). recordAudit hashes the
       // payload, and the url/headers are the already-redacted copy, so no
       // credential reaches the audit row.
-      const httpMethod = String(node.config.method ?? 'POST').toUpperCase()
       await recordAudit({
         organizationId: job.organizationId,
         executionId: run.id,
