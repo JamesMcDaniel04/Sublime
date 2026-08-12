@@ -565,10 +565,22 @@ export async function interpretFlow(graph: FlowGraph, input: unknown, opts: Opts
 
     if (node.type === 'trigger') return { kind: 'skip' }
 
-    if ((node.type === 'agent' || node.type === 'tool' || node.type === 'http' || node.type === 'code') && node.data.disabled) {
-      emit({ nodeId: node.id, status: 'skipped', output: node.data.mockOutput, iterationPath: ctx.iterationPath })
-      if (node.data.mockOutput !== undefined) ctx.step[node.id] = { output: node.data.mockOutput }
-      return { kind: 'ok', output: node.data.mockOutput }
+    // A deactivated node (any type) is skipped and the rest of the flow
+    // continues: containers skip their bodies, side-effect adapters never run.
+    // Output precedence: mockOutput if set; else the single wired parent's
+    // output passes through (n8n parity — keeps downstream {{step.x.output}}
+    // refs alive in linear chains); else no output.
+    if ((node.data as { disabled?: boolean }).disabled) {
+      const mock = (node.data as { mockOutput?: unknown }).mockOutput
+      let output = mock
+      if (output === undefined) {
+        const parents = (inEdges.get(node.id) ?? []).map((edge) => edge.source)
+        const withOutput = parents.filter((parentId) => ctx.step[parentId]?.output !== undefined)
+        if (withOutput.length === 1) output = ctx.step[withOutput[0]]?.output
+      }
+      emit({ nodeId: node.id, status: 'skipped', output, iterationPath: ctx.iterationPath })
+      if (output !== undefined) ctx.step[node.id] = { output }
+      return { kind: 'ok', output }
     }
     if ((node.type === 'agent' || node.type === 'tool' || node.type === 'http' || node.type === 'code') && node.data.mockOutput !== undefined) {
       const output = await resolveTemplateValueAsync(node.data.mockOutput, ctx, opts.evalJs)
@@ -1458,6 +1470,19 @@ export async function interpretFlow(graph: FlowGraph, input: unknown, opts: Opts
   // else delegates. Returns the node's disposition plus, for branch nodes, the
   // chosen label so the scheduler knows which edges to light.
   const runOne = async (node: FlowNode, nctx: FlowContext): Promise<Disposition> => {
+    // A deactivated branch node skips its evaluation and routes
+    // deterministically — condition takes 'true' (n8n passes through its first
+    // output), switch and router take 'default' — so the rest of the flow
+    // continues without consulting the missing logic. Non-branch types fall
+    // through to execNode, whose own disabled arm handles them.
+    if (
+      (node.type === 'condition' || node.type === 'switch' || node.type === 'router')
+      && (node.data as { disabled?: boolean }).disabled
+    ) {
+      const branch = node.type === 'condition' ? 'true' : 'default'
+      emit({ nodeId: node.id, status: 'skipped', output: branch, iterationPath: nctx.iterationPath })
+      return { kind: 'settled', branch }
+    }
     if (node.type === 'condition') {
       if (overBudget()) return { kind: 'fail', error: 'Flow exceeded the maximum number of steps.' }
       // n8n-parity item routing: split the input list per item. Both branches

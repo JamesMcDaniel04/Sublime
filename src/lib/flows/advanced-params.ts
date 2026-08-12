@@ -34,11 +34,14 @@ const BY_TYPE: Partial<Record<FlowNode['type'], AdvancedParamKey[]>> = {
   agent: ['includeUpstream', 'onError', 'retries', 'timeoutMs', 'disabled', 'mockOutput'],
   tool: ['excludeFromContext', 'onError', 'retries', 'timeoutMs', 'disabled', 'mockOutput'],
   code: ['excludeFromContext', 'onError', 'retries', 'timeoutMs', 'disabled', 'mockOutput'],
-  loop: ['concurrency'],
+  loop: ['concurrency', 'disabled'],
 }
 
 export function advancedParamKeys(type: FlowNode['type']): AdvancedParamKey[] {
-  return BY_TYPE[type] ?? []
+  // Triggers can't be deactivated; http keeps its own Options panel (see the
+  // header comment). Every other type supports at least Execution on/off.
+  if (type === 'trigger' || type === 'http') return BY_TYPE[type] ?? []
+  return BY_TYPE[type] ?? ['disabled']
 }
 
 /** How many of the node's advanced params are explicitly set. */

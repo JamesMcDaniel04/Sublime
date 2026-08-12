@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
 import { createPortal } from 'react-dom'
-import { Bot, Braces, Check, CircleStop, Clock, ClipboardCopy, Code2, Copy, Filter, GitBranch, Globe, LogIn, LogOut, MessageSquare, MoreHorizontal, PanelRight, Pencil, Plus, Radio, Repeat, Rows3, Settings2, ShieldAlert, SlidersHorizontal, Sparkles, Split, Trash2, UserCheck, Variable, Webhook, Workflow, Wrench, Zap } from 'lucide-react'
+import { Bot, Braces, Check, CircleStop, Clock, ClipboardCopy, Code2, Copy, Filter, GitBranch, Globe, LogIn, LogOut, MessageSquare, MoreHorizontal, PanelRight, Pencil, Plus, Power, PowerOff, Radio, Repeat, Rows3, Settings2, ShieldAlert, SlidersHorizontal, Sparkles, Split, Trash2, UserCheck, Variable, Webhook, Workflow, Wrench, Zap } from 'lucide-react'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
 import { jamCursorColor } from '@/lib/flows/jam-presence'
@@ -186,6 +186,11 @@ export function StepCard({
   const isTrigger = node.type === 'trigger'
   const label = (node.data as { label?: string }).label ?? ''
   const setLabel = (value: string) => onChange?.({ ...node, data: { ...node.data, label: value || undefined } } as FlowNode)
+  // Deactivation: the interpreter skips a disabled node and the rest of the
+  // flow continues. `undefined` (not false) keeps re-activated graphs clean.
+  const deactivated = !isTrigger && Boolean((node.data as { disabled?: boolean }).disabled)
+  const toggleDeactivated = () =>
+    onChange?.({ ...node, data: { ...node.data, disabled: deactivated ? undefined : true } } as FlowNode)
   const copyNodeJson = async () => {
     try {
       await navigator.clipboard.writeText(JSON.stringify(node, null, 2))
@@ -251,6 +256,7 @@ export function StepCard({
       className={cn(
         'w-full rounded-[18px] border bg-card text-left shadow-[0_2px_10px_rgba(15,23,42,0.08)] outline-none transition-all duration-fast',
         'hover:border-border hover:shadow-[0_8px_24px_rgba(15,23,42,0.12)] focus-visible:ring-2 focus-visible:ring-blue-200',
+        deactivated && 'opacity-60',
         selected
           ? 'border-blue-500 ring-2 ring-blue-100'
           : highlighted
@@ -350,6 +356,11 @@ export function StepCard({
             {jamEditors.length === 1 ? `${jamEditors[0].name} is here` : `${jamEditors.length} teammates here`}
           </span>
         )}
+        {deactivated && (
+          <span className="flex shrink-0 items-center gap-1 rounded-full border border-border bg-muted px-2.5 py-1 text-xs font-semibold text-muted-foreground">
+            <PowerOff className="h-3 w-3" /> Deactivated
+          </span>
+        )}
         {status && (
           <span className="flex shrink-0 items-center gap-1.5 rounded-full border border-border px-2.5 py-1 text-xs font-semibold text-muted-foreground">
             <span className={cn('h-2 w-2 rounded-full', STATUS_DOT[status])} />
@@ -397,6 +408,13 @@ export function StepCard({
             {!isTrigger && (
               <DropdownMenuItem onSelect={() => setRenaming(true)}>
                 <Pencil className="h-4 w-4" /> Rename
+              </DropdownMenuItem>
+            )}
+            {!isTrigger && onChange && (
+              <DropdownMenuItem onSelect={toggleDeactivated}>
+                {deactivated ? <Power className="h-4 w-4" /> : <PowerOff className="h-4 w-4" />}
+                {deactivated ? 'Activate' : 'Deactivate'}
+                <span className="ml-auto pl-4 text-xs text-muted-foreground">D</span>
               </DropdownMenuItem>
             )}
             {!isTrigger && onDuplicate && (

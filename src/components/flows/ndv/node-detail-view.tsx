@@ -1,8 +1,9 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
-import { Copy, Play, Trash2, X } from 'lucide-react'
+import { Copy, Play, Power, PowerOff, Trash2, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { cn } from '@/lib/utils'
 import type { FlowNode } from '@/lib/flows/graph'
 import type { NodeRef } from '@/lib/flows/node-test-input'
 import type { FlowContext } from '@/features/flows/context'
@@ -189,6 +190,27 @@ export function NodeDetailView({
             <Button size="sm" variant="outline" onClick={runFromHere} disabled={testState?.status === 'running'}>
               Run from here
             </Button>
+          )}
+          {node.type !== 'trigger' && (
+            // Deactivate/activate: the interpreter skips a disabled step while
+            // the rest of the flow continues.
+            <button
+              type="button"
+              onClick={() =>
+                onChange({
+                  ...node,
+                  data: { ...node.data, disabled: (node.data as { disabled?: boolean }).disabled ? undefined : true },
+                } as FlowNode)
+              }
+              aria-label={(node.data as { disabled?: boolean }).disabled ? 'Activate step' : 'Deactivate step'}
+              title={(node.data as { disabled?: boolean }).disabled ? 'Activate step' : 'Deactivate step'}
+              className={cn(
+                'text-muted-foreground hover:text-foreground',
+                (node.data as { disabled?: boolean }).disabled && 'text-amber-600 hover:text-amber-700',
+              )}
+            >
+              {(node.data as { disabled?: boolean }).disabled ? <Power className="h-4 w-4" /> : <PowerOff className="h-4 w-4" />}
+            </button>
           )}
           {onDuplicateNode && node.type !== 'trigger' && (
             <button type="button" onClick={onDuplicateNode} aria-label="Duplicate step" className="text-muted-foreground hover:text-foreground">

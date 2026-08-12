@@ -100,6 +100,7 @@ function StepWidget({ data }: Readonly<NodeProps>) {
   const step = data as unknown as WidgetData
   const Icon = nodeIconOf(step.node.type)
   const errors = step.issues?.errors ?? 0
+  const deactivated = step.node.type !== 'trigger' && Boolean((step.node.data as { disabled?: boolean }).disabled)
   return (
     <div className="group relative" style={{ width: WIDGET_WIDTH }}>
       {step.node.type !== 'trigger' && (
@@ -112,6 +113,9 @@ function StepWidget({ data }: Readonly<NodeProps>) {
           'flex w-full items-center gap-2.5 rounded-xl border bg-card p-2.5 text-left shadow-sm transition-all hover:shadow-md',
           step.selected ? 'border-blue-500 ring-2 ring-blue-200' : 'border-border hover:border-blue-300',
           step.highlighted && 'ring-2 ring-amber-300',
+          // A deactivated step is skipped at run time — dim it so the flow's
+          // live path reads at a glance (badge text lives in the subtitle).
+          deactivated && 'opacity-50',
         )}
         // A peer on this step outlines it in THEIR cursor color — selection
         // presence that works even across canvas modes.
@@ -129,6 +133,7 @@ function StepWidget({ data }: Readonly<NodeProps>) {
           <span className="block truncate text-[11px] text-muted-foreground">
             {NODE_TYPE_LABEL[step.node.type] ?? step.node.type}
             {step.childCount > 0 && ` · ${step.childCount} inside`}
+            {deactivated && ' · deactivated'}
           </span>
         </span>
         {errors > 0 && <AlertCircle className="h-4 w-4 shrink-0 text-red-500" aria-label={`${errors} errors`} />}

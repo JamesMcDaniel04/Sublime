@@ -305,6 +305,8 @@ export function toN8nWorkflow(portable: PortableFlow, options: { triggerBaseUrl?
       typeVersion: mapped.typeVersion,
       // Reuse the canvas layout so the imported workflow looks like the original.
       position: [position ? Math.round(position.x) : index * 220, position ? Math.round(position.y) : 0],
+      // Deactivation round-trips: a disabled step exports disabled.
+      ...((node.data as { disabled?: boolean }).disabled ? { disabled: true } : {}),
       ...(notes ? { notes, notesInFlow: true } : {}),
     }
   })

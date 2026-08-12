@@ -1281,7 +1281,6 @@ function mapNode(node: N8nNode, id: string, warnings: string[]): Mapped {
 /** Node types that accept each imported node-level property. */
 const SUPPORTS_ONERROR = new Set(['agent', 'tool', 'http', 'code', 'subflow'])
 const SUPPORTS_RETRIES = new Set(['agent', 'tool', 'http', 'code'])
-const SUPPORTS_DISABLED = new Set(['agent', 'tool', 'http', 'code'])
 const SUPPORTS_NOTE = new Set([
   'agent', 'condition', 'stop', 'tool', 'http', 'code', 'transform', 'filter', 'switch', 'variable', 'data',
   'humanReview', 'respondWebhook', 'wait', 'repeatUntil', 'input', 'output', 'subflow', 'router', 'errorShield', 'loop', 'parallel',
@@ -1291,7 +1290,9 @@ const SUPPORTS_NOTE = new Set([
 function applyCommonProps(mapped: FlowNode, source: N8nNode, warnings: string[]): void {
   const data = mapped.data as Record<string, unknown>
   if (source.notes && SUPPORTS_NOTE.has(mapped.type) && data.note === undefined) data.note = source.notes
-  if (source.disabled && SUPPORTS_DISABLED.has(mapped.type)) data.disabled = true
+  // Every node type except the trigger supports deactivation, so a disabled
+  // n8n node imports disabled instead of silently coming alive.
+  if (source.disabled && mapped.type !== 'trigger') data.disabled = true
   if (source.onError && source.onError !== 'stopWorkflow' && SUPPORTS_ONERROR.has(mapped.type)) {
     data.onError = 'continue'
     if (source.onError === 'continueErrorOutput') {

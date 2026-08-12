@@ -537,7 +537,7 @@ export async function runFlowExecution(
   const stepLogs: Record<string, string[]> = {}
   const onStep = (outcome: { nodeId: string; status: string; output?: unknown; error?: string; logs?: string[]; iterationPath?: number[] }) => {
     if (outcome.logs?.length) stepLogs[outcome.nodeId] = outcome.logs
-    if (!shouldPersistInterpreterStep(nodeTypeById.get(outcome.nodeId))) return
+    if (!shouldPersistInterpreterStep(nodeTypeById.get(outcome.nodeId), outcome.status)) return
     pending.push(
       prisma.flowRunStep
         .create({

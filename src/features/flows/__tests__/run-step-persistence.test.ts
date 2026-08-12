@@ -15,3 +15,12 @@ test('shouldPersistInterpreterStep keeps container and control outcomes', () => 
   assert.equal(shouldPersistInterpreterStep('stop'), true)
   assert.equal(shouldPersistInterpreterStep(undefined), true)
 })
+
+test('a skipped outcome persists even for adapter-persisted types', () => {
+  // A deactivated agent/tool/http/subflow step never reaches its adapter, so
+  // the interpreter's skipped row is the only record of it in run history.
+  assert.equal(shouldPersistInterpreterStep('agent', 'skipped'), true)
+  assert.equal(shouldPersistInterpreterStep('http', 'skipped'), true)
+  assert.equal(shouldPersistInterpreterStep('agent', 'succeeded'), false)
+  assert.equal(shouldPersistInterpreterStep('loop', 'skipped'), true)
+})

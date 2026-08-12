@@ -395,6 +395,23 @@ export function validateFlowGraph(graph: FlowGraph, context: FlowValidationConte
   }
 
   for (const node of graph.nodes) {
+    // A deactivated step is skipped at run time, so its configuration issues
+    // can't bite — suppress them (n8n parity: a half-configured deactivated
+    // step must not block publish). The one exception is an inline literal
+    // secret: that's a leak in the stored graph whether or not the step runs.
+    if (node.type !== 'trigger' && (node.data as { disabled?: boolean }).disabled) {
+      const inlineSecrets = inlineLiteralSecretNodes({ nodes: [node] })[0]?.fields ?? []
+      if (inlineSecrets.length > 0) {
+        add(
+          issues,
+          'error',
+          'INLINE_AUTH_SECRET',
+          `${nodeLabel(node)} stores credential material directly in ${inlineSecrets.join(', ')}. Save it as a workspace credential (Integrations → Credentials) and attach it instead.`,
+          node.id,
+        )
+      }
+      continue
+    }
     // Foreign (n8n-style) expressions resolve as LITERAL text at runtime —
     // silent wrong data. Imported flows keep untranslatable ones verbatim;
     // surface them here so the checker and copilot point at the exact step.

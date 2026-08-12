@@ -775,6 +775,21 @@ function FlowBuilder() {
         }
         return
       }
+      // D toggles activation (n8n parity): a deactivated step is skipped at
+      // run time while the rest of the flow continues.
+      if (e.key.toLowerCase() === 'd' && !e.metaKey && !e.ctrlKey && !e.altKey) {
+        if (viewingVersion) return
+        if (openNode && openNode.type !== 'trigger') {
+          e.preventDefault()
+          const wasDeactivated = Boolean((openNode.data as { disabled?: boolean }).disabled)
+          commitGraph(updateNode(graph, {
+            ...openNode,
+            data: { ...openNode.data, disabled: wasDeactivated ? undefined : true },
+          } as FlowNode))
+          toast.success(wasDeactivated ? 'Step activated.' : 'Step deactivated — it is skipped when the flow runs.')
+        }
+        return
+      }
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'v') {
         if (viewingVersion) return
         const copied = readFlowClipboard()

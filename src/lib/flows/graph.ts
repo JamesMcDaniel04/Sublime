@@ -106,13 +106,14 @@ const conditionNode = z.object({
     // ({{item.…}} refs). Output becomes {matched, unmatched}; both branches
     // run when both sides are non-empty.
     splitItems: z.boolean().optional(),
+    disabled: z.boolean().optional(),
   }),
 })
 // Ends the flow early with an optional message.
 const stopNode = z.object({
   id: z.string(),
   type: z.literal('stop'),
-  data: z.object({ label: z.string().optional(), reason: z.string().optional(), note: z.string().optional() }),
+  data: z.object({ label: z.string().optional(), reason: z.string().optional(), note: z.string().optional(), disabled: z.boolean().optional() }),
 })
 // Deterministic single MCP tool call against an org connection — no LLM in the
 // loop. `args` is a JSON object literal whose string values may use {{tokens}}.
@@ -275,6 +276,7 @@ const loopNode = z.object({
     // batch memory) instead of a fresh conversation each item. Forces sequential
     // execution (concurrency 1) — you cannot thread one conversation concurrently.
     threadAgent: z.boolean().optional(),
+    disabled: z.boolean().optional(),
   }),
 })
 const parallelNode = z.object({
@@ -290,6 +292,7 @@ const parallelNode = z.object({
     // 'merge' = shallow-merge branch objects into one.
     join: z.enum(['object', 'array', 'merge']).optional(),
     labels: z.array(z.string()).optional(),
+    disabled: z.boolean().optional(),
   }),
 })
 // Deterministic "Set fields": build an object from templated assignments. Its
@@ -331,6 +334,7 @@ const transformNode = z.object({
     outputFields: z.array(outputFieldSchema).optional(),
     // Keep this node's output OUT of the `{{upstream}}` aggregate. Default: included.
     excludeFromContext: z.boolean().optional(),
+    disabled: z.boolean().optional(),
   }),
 })
 // Gate: continues only when the condition passes, else stops the flow (or, in a
@@ -346,6 +350,7 @@ const filterNode = z.object({
     // n8n Filter parity: keep the MATCHING items of the input list (clauses
     // see {{item.…}}) and always continue — even with zero matches.
     splitItems: z.boolean().optional(),
+    disabled: z.boolean().optional(),
   }),
 })
 // Multi-way branch: the first case whose condition matches routes to its edge
@@ -357,6 +362,7 @@ const switchNode = z.object({
     label: z.string().optional(),
     note: z.string().optional(),
     cases: z.array(z.object({ id: z.string(), label: z.string().optional(), left: z.string(), op: z.enum(CONDITION_OPS), right: z.string() })).default([]),
+    disabled: z.boolean().optional(),
   }),
 })
 
@@ -397,6 +403,7 @@ const variableNode = z.object({
     name: z.string(),
     varType: z.enum(VARIABLE_TYPES).optional(),
     value: z.string().optional(),
+    disabled: z.boolean().optional(),
   }),
 })
 
@@ -430,6 +437,7 @@ const dataNode = z.object({
     forEachItem: z.boolean().optional(),
     // Keep this node's output OUT of the `{{upstream}}` aggregate. Default: included.
     excludeFromContext: z.boolean().optional(),
+    disabled: z.boolean().optional(),
   }),
 })
 
@@ -445,6 +453,7 @@ const humanReviewNode = z.object({
     note: z.string().optional(),
     message: z.string(),
     assigneeUserId: z.string().optional(),
+    disabled: z.boolean().optional(),
   }),
 })
 
@@ -461,6 +470,7 @@ const respondWebhookNode = z.object({
     headers: z.string().optional(),
     body: z.string().optional(),
     bodyMode: z.enum(['json', 'text', 'binary', 'none']).default('json'),
+    disabled: z.boolean().optional(),
   }),
 })
 
@@ -478,6 +488,7 @@ const waitNode = z.object({
     // POST hits /api/flows/<id>/runs/<runId>/resume (flow webhook secret
     // auth); the callback body becomes this step's output.
     until: z.enum(['delay', 'webhook']).optional(),
+    disabled: z.boolean().optional(),
   }),
 })
 
@@ -494,6 +505,7 @@ const repeatUntilNode = z.object({
     match: z.enum(['all', 'any']).optional(),
     maxIterations: z.number().int().min(1).max(1000).default(20),
     delayMs: z.number().int().min(0).max(60000).optional(),
+    disabled: z.boolean().optional(),
   }),
 })
 
@@ -508,6 +520,7 @@ const inputNode = z.object({
     label: z.string().optional(),
     note: z.string().optional(),
     params: z.array(inputParamSchema).default([]),
+    disabled: z.boolean().optional(),
   }),
 })
 // First-class OUTPUT: the flow's typed return object. Each field is bound from
@@ -520,6 +533,7 @@ const outputNode = z.object({
     label: z.string().optional(),
     note: z.string().optional(),
     fields: z.array(outputFieldBindingSchema).default([]),
+    disabled: z.boolean().optional(),
   }),
 })
 // Synchronous SUBFLOW: run a child flow to completion and block on its output.
@@ -536,6 +550,7 @@ const subflowNode = z.object({
     input: z.string().optional(),
     onError: z.enum(['stop', 'continue']).optional(),
     outputFields: z.array(outputFieldSchema).optional(),
+    disabled: z.boolean().optional(),
   }),
 })
 
@@ -553,6 +568,7 @@ const routerNode = z.object({
     input: z.string().optional(),
     instructions: z.string().optional(),
     branches: z.array(z.object({ id: z.string(), label: z.string().optional(), description: z.string().optional() })).default([]),
+    disabled: z.boolean().optional(),
   }),
 })
 // ERROR SHIELD: a container that runs `body`; if the body FAILS, it runs
@@ -567,6 +583,7 @@ const errorShieldNode = z.object({
     note: z.string().optional(),
     body: z.array(z.string()).default([]),
     fallback: z.array(z.string()).default([]),
+    disabled: z.boolean().optional(),
   }),
 })
 
