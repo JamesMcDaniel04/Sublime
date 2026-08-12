@@ -297,5 +297,36 @@ if (TEST_DB) {
       const response = await POST(post({ document: '{}', url: 'https://example.com/f.json' }))
       assert.equal(response.status, 400)
     })
+
+    await t.test('strips inline literal secrets with a warning instead of rejecting', async () => {
+      const response = await POST(post({
+        document: JSON.stringify({
+          name: 'Leaky n8n workflow',
+          nodes: [
+            { parameters: {}, id: 'a', name: 'Manual', type: 'n8n-nodes-base.manualTrigger', typeVersion: 1, position: [0, 0] },
+            {
+              parameters: {
+                url: 'https://api.example.com/x',
+                method: 'GET',
+                sendHeaders: true,
+                headerParameters: { parameters: [{ name: 'Authorization', value: 'Bearer sk_live_LEAKME' }] },
+              },
+              id: 'b', name: 'Call API', type: 'n8n-nodes-base.httpRequest', typeVersion: 4.2, position: [200, 0],
+            },
+          ],
+          connections: { Manual: { main: [[{ node: 'Call API', type: 'main', index: 0 }]] } },
+        }),
+      }))
+      assert.equal(response.status, 200, 'a foreign doc with an inline secret must import, not 400')
+      const body = await response.json()
+      assert.equal(body.success, true)
+      assert.equal(
+        body.report.warnings.some((warning: string) => /removed inline secret/i.test(warning)),
+        true,
+        'the strip must be reported per step',
+      )
+      const row = await prisma.flow.findFirstOrThrow({ where: { id: body.flow.id, organizationId: seeded.organizationId } })
+      assert.equal(JSON.stringify(row).includes('sk_live_LEAKME'), false, 'the secret must never be persisted')
+    })
   })
 }

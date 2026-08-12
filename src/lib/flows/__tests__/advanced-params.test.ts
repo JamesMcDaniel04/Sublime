@@ -6,8 +6,11 @@ import type { FlowNode } from '../graph'
 test('each node type declares its advanced keys', () => {
   assert.deepEqual(advancedParamKeys('agent'), ['includeUpstream', 'onError', 'retries', 'timeoutMs', 'disabled', 'mockOutput'])
   assert.deepEqual(advancedParamKeys('tool'), ['excludeFromContext', 'onError', 'retries', 'timeoutMs', 'disabled', 'mockOutput'])
-  assert.deepEqual(advancedParamKeys('loop'), ['concurrency'])
+  assert.deepEqual(advancedParamKeys('loop'), ['concurrency', 'disabled'])
   assert.deepEqual(advancedParamKeys('trigger'), [])
+  // Every other type gets at least the Execution on/off toggle.
+  assert.deepEqual(advancedParamKeys('transform'), ['disabled'])
+  assert.deepEqual(advancedParamKeys('switch'), ['disabled'])
 })
 
 test('the http node opts out — it owns an n8n-style Options panel instead', () => {

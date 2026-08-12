@@ -625,7 +625,7 @@ test('nodeLabel never renders as undefined for unknown ops or node types', () =>
     { id: 'd', type: 'data', data: { op: 'brandNewOp', input: 'x' } },
     { id: 'v', type: 'variable', data: { op: 'squareRoot', name: 'n' } },
     { id: 'f', type: 'hologram', data: {} },
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+     
   ] as any[]
   for (const node of nodes) {
     const label = nodeLabel(node)

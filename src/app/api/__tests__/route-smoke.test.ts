@@ -143,6 +143,10 @@ if (TEST_DB) {
     { name: 'POST /api/flows/[id]/export', run: async () => (await import('../flows/[id]/export/route')).POST(new NextRequest(new URL('http://test/api/flows/no-such-id/export'), { method: 'POST', body: '{}', headers: { 'content-type': 'application/json' } } as never)) },
     { name: 'GET /api/flows/[id]/jam', run: async () => (await import('../flows/[id]/jam/route')).GET(req('/api/flows/no-such-id/jam')) },
     { name: 'GET /api/flows/[id]/pins', run: async () => (await import('../flows/[id]/pins/route')).GET(req('/api/flows/no-such-id/pins')) },
+    { name: 'GET /api/flows/[id]/runs/[runId]/feedback', run: async () => (await import('../flows/[id]/runs/[runId]/feedback/route')).GET(req('/api/flows/no-such-id/runs/no-such-run/feedback')) },
+    // Queue/DLQ metrics: scoped DB reads; the transport probe degrades to
+    // { available: false } without Redis, so it works against the seeded org.
+    { name: 'GET /api/system/queues', run: async () => (await import('../system/queues/route')).GET(req('/api/system/queues')) },
     { name: 'GET /api/credentials', run: async () => (await import('../credentials/route')).GET(req('/api/credentials')) },
     { name: 'GET /api/credentials/[id]', run: async () => (await import('../credentials/[id]/route')).GET(req('/api/credentials/no-such-id')) },
     // Listing connected databases is a plain scoped read — it never decrypts a

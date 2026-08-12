@@ -56,7 +56,6 @@ import type { ReactFlowInstance } from '@xyflow/react'
 import { JamButton } from '@/components/flows/jam-button'
 import type { StepStatus } from '@/components/flows/step-card'
 import { SuggestedImprovementBanner } from '@/components/intelligence/suggested-improvement-banner'
-import { ImportedCredentialGroupsBanner } from '@/components/flows/imported-credential-groups-banner'
 import type { CredentialGroup } from '@/lib/import/types'
 import { getCachedJson, invalidateCachedJson } from '@/lib/client/use-cached-json'
 import { useRunEvents } from '@/lib/client/use-run-events'
@@ -64,6 +63,12 @@ import { useRunEvents } from '@/lib/client/use-run-events'
 // Side panels are substantial, mutually optional surfaces. Keep them out of
 // the builder's initial bundle and load each only when the user opens it.
 const CopilotPanel = dynamic(() => import('@/components/flows/copilot-panel').then((m) => m.CopilotPanel), { ssr: false })
+// Rare surface (imported flows with unbound credential groups) that pulls the
+// whole credential picker/editor stack — keep it out of the main page chunk.
+const ImportedCredentialGroupsBanner = dynamic(
+  () => import('@/components/flows/imported-credential-groups-banner').then((m) => m.ImportedCredentialGroupsBanner),
+  { ssr: false },
+)
 const RunPanel = dynamic(() => import('@/components/flows/run-panel').then((m) => m.RunPanel), { ssr: false })
 const CheckerPanel = dynamic(() => import('@/components/flows/checker-panel').then((m) => m.CheckerPanel), { ssr: false })
 const TestPanel = dynamic(() => import('@/components/flows/test-panel').then((m) => m.TestPanel), { ssr: false })
