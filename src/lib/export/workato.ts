@@ -42,8 +42,9 @@ function mapStep(node: FlowNode, portable: PortableFlow, triggerBaseUrl?: string
     case 'agent': {
       const agentId = typeof data.agentId === 'string' ? data.agentId : ''
       if (!triggerBaseUrl || !agentId) break
-      // Runnable: calls the live Sublime agent's trigger endpoint.
-      const secret = portable.credentials?.agentTriggerSecrets?.[agentId] ?? 'REPLACE_WITH_TRIGGER_SECRET'
+      // Runnable: calls the live Sublime agent's trigger endpoint. The secret
+      // is never exported — the recipient pastes it from Webhook settings.
+      const secret = 'REPLACE_WITH_TRIGGER_SECRET'
       return {
         provider: 'http',
         name: 'post',
@@ -93,10 +94,7 @@ export function toWorkatoRecipe(portable: PortableFlow, options: { triggerBaseUr
       const agentRef = (node.data as { agentId?: string }).agentId
       const agent = portable.agents.find((candidate) => candidate.ref === agentRef)
       const runnable = Boolean(options.triggerBaseUrl)
-      const filled = Boolean(agentRef && portable.credentials?.agentTriggerSecrets?.[agentRef])
-      const runNote = filled
-        ? ' — this HTTP action runs the live Sublime agent; the trigger secret is embedded, so treat this recipe like a password.'
-        : ' — this HTTP action runs the live Sublime agent; paste the trigger secret from the agent\u2019s Webhook settings.'
+      const runNote = ' — this HTTP action runs the live Sublime agent; paste the trigger secret from the agent\u2019s Webhook settings.'
       notes.push(agent
         ? `AI agent "${agent.title}"${runnable ? runNote : ' — rebuild with an LLM connector.'}\n\n${agent.instructions}`
         : 'AI agent step — definition unavailable at export.')

@@ -72,7 +72,7 @@ type Agent = { id: string; title: string }
 import {
   spineIds, parentLoop, parentParallelBranch, parseFlowValue, isRecordLike,
   triggerInputFields,
-  clampZoom, filenameSlug,
+  clampZoom,
 } from './flow-builder-helpers'
 
 /**
@@ -1441,17 +1441,16 @@ function FlowBuilder() {
 
   /**
    * Export this workflow for another platform. The server does the conversion
-   * and streams a file back, so this just follows the download. Owners can opt
-   * into embedding live credentials (trigger secrets, HTTP keys) so the file
-   * runs without hunting for them — the server enforces owner-only for that.
+   * and streams a file back, so this just follows the download. Every export
+   * is sanitized server-side — credentials never leave the platform.
    */
   const exportFlow = useCallback(
-    async (target: 'portable' | 'n8n' | 'workato' | 'power-automate' | 'instructions', includeCredentials: boolean) => {
+    async (target: 'portable' | 'n8n' | 'workato' | 'power-automate' | 'instructions') => {
       try {
         const response = await fetch(`/api/flows/${id}/export`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ target, includeCredentials }),
+          body: JSON.stringify({ target }),
         })
         if (!response.ok) {
           const data = await response.json().catch(() => ({}))
@@ -1466,11 +1465,9 @@ function FlowBuilder() {
         link.click()
         URL.revokeObjectURL(url)
         toast.success(
-          includeCredentials
-            ? 'Exported with live credentials — treat the file like a password.'
-            : target === 'instructions'
-              ? 'Rebuild instructions downloaded — paste them into any builder.'
-              : 'Exported. Credentials were not included — the file lists what to reconnect.',
+          target === 'instructions'
+            ? 'Rebuild instructions downloaded — paste them into any builder.'
+            : 'Exported. Credentials are never included — the file lists what to reconnect.',
         )
       } catch (error) {
         toast.error(error instanceof Error ? error.message : 'Export failed')
@@ -1479,25 +1476,10 @@ function FlowBuilder() {
     [id],
   )
 
-  const downloadFlow = useCallback(() => {
-    const flowName = name.trim() || 'Untitled flow'
-    const payload = {
-      name: flowName,
-      description,
-      version,
-      graph,
-      exportedAt: new Date().toISOString(),
-    }
-    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' })
-    const url = URL.createObjectURL(blob)
-    const link = document.createElement('a')
-    link.href = url
-    link.download = `${filenameSlug(flowName)}.json`
-    document.body.appendChild(link)
-    link.click()
-    link.remove()
-    URL.revokeObjectURL(url)
-  }, [name, description, version, graph])
+  // Download goes through the server export rather than serializing client
+  // state: the portable serializer is where credential redaction lives, and a
+  // client-side JSON.stringify of the raw graph would bypass all of it.
+  const downloadFlow = useCallback(() => exportFlow('portable'), [exportFlow])
 
   const deleteFlow = useCallback(async () => {
     const flowName = name.trim() || 'this flow'
@@ -1665,10 +1647,9 @@ function FlowBuilder() {
               <Download className="h-4 w-4" /> Download JSON
             </DropdownMenuItem>
             <DropdownMenuSeparator />
-            {/* Take this workflow elsewhere. Owners export with live
-                credentials embedded by default (the server mints/decrypts
-                trigger secrets and enforces owner-only); non-owners get the
-                sanitized variant, which lists what to reconnect. */}
+            {/* Take this workflow elsewhere. Every export is sanitized
+                server-side — credentials never travel; the file lists what to
+                reconnect on the other side. */}
             <DropdownMenuLabel>Export to another platform</DropdownMenuLabel>
             {([
               ['portable', 'Portable JSON (any platform)'],
@@ -1676,16 +1657,11 @@ function FlowBuilder() {
               ['workato', 'Workato recipe (linear — merges noted)'],
               ['power-automate', 'Power Automate flow (import-ready)'],
             ] as const).map(([target, label]) => (
-              <DropdownMenuItem key={target} onSelect={() => exportFlow(target, canManageJam)}>
+              <DropdownMenuItem key={target} onSelect={() => exportFlow(target)}>
                 <Download className="h-4 w-4" /> {label}
               </DropdownMenuItem>
             ))}
-            {canManageJam && (
-              <DropdownMenuItem onSelect={() => exportFlow('portable', false)}>
-                <Download className="h-4 w-4" /> Portable JSON (no credentials)
-              </DropdownMenuItem>
-            )}
-            <DropdownMenuItem onSelect={() => exportFlow('instructions', canManageJam)}>
+            <DropdownMenuItem onSelect={() => exportFlow('instructions')}>
               <ScrollText className="h-4 w-4" /> Rebuild instructions (Zapier &amp; anything else)
             </DropdownMenuItem>
             <DropdownMenuSeparator />

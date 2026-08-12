@@ -63,12 +63,10 @@ function mapAction(node: FlowNode, portable: PortableFlow, triggerBaseUrl?: stri
       const agent = portable.agents.find((candidate) => candidate.ref === (data.agentId as string | undefined))
       const agentId = typeof data.agentId === 'string' ? data.agentId : ''
       if (triggerBaseUrl && agentId) {
-        // Runnable: an HTTP action that executes the live Sublime agent.
-        const secret = portable.credentials?.agentTriggerSecrets?.[agentId] ?? 'REPLACE_WITH_TRIGGER_SECRET'
-        const filled = secret !== 'REPLACE_WITH_TRIGGER_SECRET'
-        const secretNote = filled
-          ? 'The trigger secret is embedded — treat this flow file like a password.'
-          : "Paste the trigger secret from the agent's Webhook settings."
+        // Runnable: an HTTP action that executes the live Sublime agent. The
+        // secret is never exported.
+        const secret = 'REPLACE_WITH_TRIGGER_SECRET'
+        const secretNote = "Paste the trigger secret from the agent's Webhook settings."
         return {
           type: 'Http',
           inputs: {
@@ -79,7 +77,7 @@ function mapAction(node: FlowNode, portable: PortableFlow, triggerBaseUrl?: stri
           },
           description: agent
             ? `Runs the live Sublime agent "${agent.title}". ${secretNote}\n\nInstructions:\n${agent.instructions}`
-            : `Runs a live Sublime agent — ${filled ? 'the trigger secret is embedded; treat this flow file like a password' : 'paste the trigger secret from the agent\u2019s Webhook settings'}.`,
+            : `Runs a live Sublime agent — paste the trigger secret from the agent\u2019s Webhook settings.`,
         }
       }
       return {

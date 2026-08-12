@@ -132,8 +132,7 @@ function mapNode(node: FlowNode, portable: PortableFlow, nameById: Map<string, s
     case 'agent': {
       const agentId = typeof data.agentId === 'string' ? data.agentId : ''
       if (!triggerBaseUrl || !agentId) break // placeholder fallback below
-      const secret = portable.credentials?.agentTriggerSecrets?.[agentId] ?? 'REPLACE_WITH_TRIGGER_SECRET'
-      const filled = secret !== 'REPLACE_WITH_TRIGGER_SECRET'
+      // The trigger secret is never exported \u2014 the recipient pastes it in.
       return {
         type: 'n8n-nodes-base.httpRequest',
         typeVersion: 4.2,
@@ -141,14 +140,12 @@ function mapNode(node: FlowNode, portable: PortableFlow, nameById: Map<string, s
           method: 'POST',
           url: `${triggerBaseUrl}/api/agents/${agentId}/trigger`,
           sendHeaders: true,
-          headerParameters: { parameters: [{ name: 'x-trigger-secret', value: secret }] },
+          headerParameters: { parameters: [{ name: 'x-trigger-secret', value: 'REPLACE_WITH_TRIGGER_SECRET' }] },
           sendBody: true,
           specifyBody: 'json',
           jsonBody: '={{ JSON.stringify({ input: $json }) }}',
         },
-        notes: filled
-          ? 'Runs the live Sublime agent. The trigger secret is embedded \u2014 treat this workflow file like a password.'
-          : 'Runs the live Sublime agent. Paste the trigger secret from the agent\u2019s Webhook settings into the x-trigger-secret header.',
+        notes: 'Runs the live Sublime agent. Paste the trigger secret from the agent\u2019s Webhook settings into the x-trigger-secret header.',
       }
     }
     case 'trigger':

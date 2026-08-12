@@ -5,16 +5,15 @@
  * the agents it runs are inlined (a bare `agentId` is meaningless on another
  * platform), and every step keeps its wiring so the DAG can be rebuilt.
  *
- * SAFETY: sanitization is the DEFAULT — an export leaves this platform, so it
- * carries no credentials unless the flow's OWNER opts in per download:
+ * SAFETY: sanitization is UNCONDITIONAL — an export leaves this platform, so
+ * it NEVER carries a credential. There is no opt-out:
  *   - `trigger.webhookSecretHash`/`webhookSecretEnc` are always dropped
  *   - Authorization/Proxy-Authorization headers and Cookie are redacted
+ *   - credential-shaped values in URLs, query and body are redacted by key
+ *   - vault `credentialId`s and workspace-internal `connectionId`s are
+ *     stripped (portable nango:/native:/template: ids survive)
  *   - a connection reference exports as a NAME + a "reconnect this" requirement,
  *     never a token — connections are per-user OAuth grants and cannot travel
- * With `includeCredentials` (owner-only; enforced by the export route), the
- * plaintext trigger secrets live EXCLUSIVELY in the top-level `credentials`
- * block — never inside flow.trigger — and user-typed HTTP credentials stay in
- * their steps. The document says so loudly in `requirements`.
  *
  * The result is deliberately plain JSON with a version, so an importer (ours or
  * an LLM) can read it without knowing our internals.
@@ -41,23 +40,10 @@ export type PortableAgent = {
   httpTools?: AgentHttpTool[]
 }
 
-export type PortableCredentials = {
-  /** Plaintext webhook trigger secret for this flow, if it has one. */
-  triggerSecret?: string
-  /** Plaintext trigger secrets for inlined agents, keyed by PortableAgent.ref. */
-  agentTriggerSecrets?: Record<string, string>
-}
-
-export type PortableExportOptions = { includeCredentials?: boolean } & PortableCredentials
-
 export type PortableFlow = {
   format: typeof PORTABLE_FORMAT
   version: typeof PORTABLE_VERSION
   exportedAt: string
-  /** Present (true) only when the export was made with credentials embedded. */
-  containsCredentials?: true
-  /** Live secrets — present only when containsCredentials. NEVER placed inside flow.trigger. */
-  credentials?: PortableCredentials
   flow: {
     name: string
     description: string
@@ -127,6 +113,13 @@ function sanitizeTrigger(trigger: unknown): unknown {
 }
 
 /**
+ * Workspace-internal connection references never travel; the portable
+ * nango:/native:/template: forms do (mirrors import/sanitize.ts, which
+ * whitelists exactly these on the way back in).
+ */
+const PORTABLE_CONNECTION_ID = /^(nango:|native:|template:)/
+
+/**
  * Redact anything credential-shaped a user may have typed into a step.
  *
  * Auth headers are NOT the only hiding place — a token is just as often in the
@@ -134,11 +127,7 @@ function sanitizeTrigger(trigger: unknown): unknown {
  * that authenticate that way. Each of those is stripped by key name, so the step
  * stays rebuildable while the credential does not travel.
  */
-function sanitizeNode(node: FlowNode, includeCredentials: boolean): FlowNode {
-  // Owner opted in: user-typed secrets travel verbatim. The redaction helpers
-  // below stay UNCONDITIONAL — redactHttpAuthOption is shared with the
-  // persisted-run-row sanitizer, so the opt-in must live here, one level up.
-  if (includeCredentials) return node
+function sanitizeNode(node: FlowNode): FlowNode {
   if (node.type === 'http') {
     const data = { ...node.data } as Record<string, unknown>
     // `redactAuthHeaders` is the same helper that keeps tokens out of persisted
@@ -152,12 +141,23 @@ function sanitizeNode(node: FlowNode, includeCredentials: boolean): FlowNode {
     if (data.body !== undefined) data.body = redactDeep(data.body)
     // The Cookie convenience field is a credential by definition.
     if (typeof data.cookie === 'string' && data.cookie.trim()) data.cookie = REDACTED
+    // Vault ids are workspace-internal — meaningless to the recipient, and the
+    // importer clears them anyway. Don't leak them into the file.
+    delete data.credentialId
+    if (typeof data.connectionId === 'string' && !PORTABLE_CONNECTION_ID.test(data.connectionId)) {
+      delete data.connectionId
+    }
     return { ...node, data } as FlowNode
   }
   if (node.type === 'tool') {
     // Tool args are user-authored JSON and can carry a key for the target API.
     const data = { ...node.data } as Record<string, unknown>
     if (data.args !== undefined) data.args = redactDeep(data.args)
+    if (typeof data.connectionId === 'string' && !PORTABLE_CONNECTION_ID.test(data.connectionId)) {
+      // Required field in the schema — blank it rather than delete, matching
+      // what import/sanitize.ts leaves behind.
+      data.connectionId = ''
+    }
     return { ...node, data } as FlowNode
   }
   return node
@@ -178,17 +178,10 @@ export function toPortableFlow(
   flow: { name: string; description?: string; trigger?: unknown; graph: FlowGraph },
   agents: { id: string; title: string; instructions: string; goal?: string | null; model?: string; integrations?: string[] }[],
   exportedAt: string,
-  options: PortableExportOptions = {},
 ): PortableFlow {
-  const includeCredentials = options.includeCredentials === true
-  const nodes = (flow.graph.nodes ?? []).map((node) => sanitizeNode(node, includeCredentials))
+  const nodes = (flow.graph.nodes ?? []).map((node) => sanitizeNode(node))
   const byId = new Map(agents.map((agent) => [agent.id, agent]))
   const requirements: string[] = []
-  if (includeCredentials) {
-    requirements.push(
-      '⚠ This file contains live credentials (trigger secrets and any keys typed into HTTP steps). Anyone holding it can trigger your flow — share it like a password.',
-    )
-  }
 
   // Agents referenced by the graph, inlined.
   const referenced = new Set(
@@ -216,14 +209,10 @@ export function toPortableFlow(
   const toolSteps = nodes.filter((node) => node.type === 'tool')
   if (toolSteps.length) {
     requirements.push(
-      `Reconnect the integrations used by: ${[...new Set(toolSteps.map(labelOf))].join(', ')}. ${
-        includeCredentials
-          ? 'OAuth connections cannot travel — reconnect them on the target.'
-          : 'Credentials are never exported.'
-      }`,
+      `Reconnect the integrations used by: ${[...new Set(toolSteps.map(labelOf))].join(', ')}. Credentials are never exported.`,
     )
   }
-  if (!includeCredentials && nodes.some((node) => node.type === 'http')) {
+  if (nodes.some((node) => node.type === 'http')) {
     requirements.push(
       'Re-enter any API keys/tokens for HTTP steps — credentials are redacted on export wherever they appear (Authorization headers, cookies, URL user:pass, and api_key/token/secret values in the URL, query or body).',
     )
@@ -237,17 +226,6 @@ export function toPortableFlow(
     format: PORTABLE_FORMAT,
     version: PORTABLE_VERSION,
     exportedAt,
-    ...(includeCredentials
-      ? {
-          containsCredentials: true as const,
-          credentials: {
-            ...(options.triggerSecret ? { triggerSecret: options.triggerSecret } : {}),
-            ...(options.agentTriggerSecrets && Object.keys(options.agentTriggerSecrets).length
-              ? { agentTriggerSecrets: options.agentTriggerSecrets }
-              : {}),
-          },
-        }
-      : {}),
     flow: {
       name: flow.name,
       description: flow.description ?? '',

@@ -91,9 +91,6 @@ export function toInstructions(portable: PortableFlow): string {
   const nameOf = new Map(nodes.map((node) => [node.id, labelOf(node)]))
 
   const lines: string[] = []
-  if (portable.containsCredentials) {
-    lines.push('> ⚠ **This document contains live credentials.** Trigger secrets below are real — anyone holding this file can trigger your flow. Share it like a password.', '')
-  }
   lines.push(`# ${flow.name || 'Untitled workflow'}`, '')
   if (flow.description) lines.push(flow.description, '')
   lines.push(
@@ -132,21 +129,6 @@ export function toInstructions(portable: PortableFlow): string {
   if (requirements.length) {
     lines.push('## Before this will run elsewhere', '')
     for (const requirement of requirements) lines.push(`- ${requirement}`)
-    lines.push('')
-  }
-
-  // Owner opted into a credentialed export: list the live secrets so the
-  // rebuilt workflow (e.g. a Zapier webhook step calling an agent's trigger
-  // endpoint with x-trigger-secret) works without hunting for them.
-  if (portable.containsCredentials && portable.credentials) {
-    lines.push('## Credentials (live — handle like passwords)', '')
-    if (portable.credentials.triggerSecret) {
-      lines.push(`- **Flow webhook trigger secret** (\`x-trigger-secret\` header): \`${portable.credentials.triggerSecret}\``)
-    }
-    for (const [ref, secret] of Object.entries(portable.credentials.agentTriggerSecrets ?? {})) {
-      const agent = agents.find((candidate) => candidate.ref === ref)
-      lines.push(`- **Agent "${agent?.title ?? ref}" trigger secret** (\`x-trigger-secret\` header): \`${secret}\``)
-    }
     lines.push('')
   }
 

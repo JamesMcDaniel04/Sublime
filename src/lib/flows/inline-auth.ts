@@ -22,6 +22,10 @@ import { isCredentialKey } from '@/lib/export/redact'
 
 /** The auth-option fields that carry a secret value. Mirrors http.ts's list. */
 export const INLINE_AUTH_SECRET_FIELDS = ['password', 'token', 'value'] as const
+// Fixed names kept for explicitness; isCredentialKey (shared with the export
+// redactor) is what gives the save-time gate the same reach as export
+// redaction — e.g. X-Shopify-Access-Token — so a header the export would
+// redact can't be persisted into the graph in the first place.
 const SENSITIVE_HEADER_NAMES = new Set([
   'authorization',
   'proxy-authorization',
@@ -30,6 +34,11 @@ const SENSITIVE_HEADER_NAMES = new Set([
   'apikey',
   'x-auth-token',
 ])
+
+function isSensitiveHeaderName(name: string): boolean {
+  const lower = name.trim().toLowerCase()
+  return SENSITIVE_HEADER_NAMES.has(lower) || isCredentialKey(lower)
+}
 
 const FULL_TOKEN_RE = /^\{\{\s*[^{}]+?\s*\}\}$/
 
@@ -69,7 +78,7 @@ export function literalSensitiveHeaders(headers: unknown): string[] {
     const parsed = JSON.parse(headers)
     if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return []
     return Object.entries(parsed as Record<string, unknown>).flatMap(([name, value]) =>
-      SENSITIVE_HEADER_NAMES.has(name.trim().toLowerCase())
+      isSensitiveHeaderName(name)
       && typeof value === 'string'
       && value.trim()
       && !isRuntimeReference(value)
@@ -133,6 +142,135 @@ function literalUrlCredentials(value: unknown): string[] {
     if (isCredentialKey(key) && item.trim() && !isRuntimeReference(item)) fields.push(`url.query.${key}`)
   }
   return fields
+}
+
+/** Deep scrub mirroring literalCredentialPaths: literal credential-named
+ *  values become '' (which the detector ignores), never a marker string the
+ *  detector would flag again. Shape and non-secret values are preserved. */
+function scrubDeep(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(scrubDeep)
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>).map(([key, item]) =>
+        isCredentialKey(key) && typeof item === 'string' && item.trim() && !isRuntimeReference(item)
+          ? [key, '']
+          : [key, scrubDeep(item)],
+      ),
+    )
+  }
+  if (typeof value !== 'string' || !value.trim()) return value
+  const trimmed = value.trim()
+  if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
+    try {
+      return JSON.stringify(scrubDeep(JSON.parse(trimmed)))
+    } catch {
+      return value
+    }
+  }
+  if (trimmed.includes('=')) {
+    try {
+      const params = new URLSearchParams(trimmed)
+      let changed = false
+      for (const [key, item] of [...params.entries()]) {
+        if (isCredentialKey(key) && item.trim() && !isRuntimeReference(item)) {
+          params.set(key, '')
+          changed = true
+        }
+      }
+      return changed ? params.toString() : value
+    } catch {
+      return value
+    }
+  }
+  return value
+}
+
+function scrubHeaders(headers: unknown): unknown {
+  if (typeof headers !== 'string' || !headers.trim()) return headers
+  try {
+    const parsed = JSON.parse(headers)
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return headers
+    let changed = false
+    const scrubbed = Object.fromEntries(
+      Object.entries(parsed as Record<string, unknown>).map(([name, value]) => {
+        if (isSensitiveHeaderName(name) && typeof value === 'string' && value.trim() && !isRuntimeReference(value)) {
+          changed = true
+          return [name, '']
+        }
+        return [name, value]
+      }),
+    )
+    return changed ? JSON.stringify(scrubbed) : headers
+  } catch {
+    return headers
+  }
+}
+
+function scrubUrl(url: string): string {
+  if (!url.trim()) return url
+  let parsed: URL
+  try {
+    parsed = new URL(url)
+  } catch {
+    // Not an absolute URL (often templated) — scrub only the query substring
+    // the detector inspects, leaving the rest byte-identical.
+    const [base, rest] = [url.split('?')[0], url.split('?').slice(1).join('?')]
+    if (!rest) return url
+    const query = rest.split('#')[0]
+    const hash = rest.includes('#') ? `#${rest.split('#').slice(1).join('#')}` : ''
+    return `${base}?${String(scrubDeep(query))}${hash}`
+  }
+  parsed.username = ''
+  parsed.password = ''
+  for (const [key, item] of [...parsed.searchParams.entries()]) {
+    if (isCredentialKey(key) && item.trim() && !isRuntimeReference(item)) parsed.searchParams.set(key, '')
+  }
+  return parsed.toString()
+}
+
+/**
+ * Remove literal inline secrets from an IMPORTED graph, one warning per
+ * affected step. Interactive saves keep the hard reject (a user typing a
+ * secret should be told, not silently edited), but an imported document is
+ * foreign: rejecting the whole file leaves no path forward, while stripping
+ * costs only re-attaching a vault credential — and guarantees the secret is
+ * never persisted.
+ */
+export function stripInlineLiteralSecrets<
+  G extends { nodes: Array<{ id: string; type: string; data?: unknown }> },
+>(graph: G): { graph: G; warnings: string[] } {
+  const flagged = inlineLiteralSecretNodes(graph)
+  if (!flagged.length) return { graph, warnings: [] }
+  const fieldsById = new Map(flagged.map((entry) => [entry.nodeId, entry.fields]))
+  const nodes = graph.nodes.map((node) => {
+    if (!fieldsById.has(node.id)) return node
+    const data = { ...(node.data as Record<string, unknown>) }
+    if (node.type === 'http') {
+      if (data.auth && typeof data.auth === 'object' && !Array.isArray(data.auth)) {
+        const auth = { ...(data.auth as Record<string, unknown>) }
+        for (const field of literalAuthSecrets(auth)) delete auth[field]
+        data.auth = auth
+      }
+      data.headers = scrubHeaders(data.headers)
+      if (typeof data.url === 'string') data.url = scrubUrl(data.url)
+      if (data.query !== undefined) data.query = scrubDeep(data.query)
+      if (data.body !== undefined) data.body = scrubDeep(data.body)
+      if (data.cookies !== undefined) data.cookies = scrubDeep(data.cookies)
+    } else if (node.type === 'tool' && data.args !== undefined) {
+      data.args = scrubDeep(data.args)
+    }
+    return { ...node, data }
+  })
+  const labelOf = (id: string) => {
+    const node = graph.nodes.find((candidate) => candidate.id === id)
+    const label = (node?.data as { label?: string } | undefined)?.label
+    return label?.trim() || id
+  }
+  const warnings = flagged.map(
+    (entry) =>
+      `Removed inline secret${entry.fields.length > 1 ? 's' : ''} (${entry.fields.join(', ')}) from step "${labelOf(entry.nodeId)}" — attach a saved credential instead.`,
+  )
+  return { graph: { ...graph, nodes }, warnings }
 }
 
 export function inlineLiteralSecretNodes(graph: { nodes: Array<{ id: string; type: string; data?: unknown }> }) {

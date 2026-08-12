@@ -4,7 +4,7 @@
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { hasInlineLiteralSecret, inlineLiteralSecretNodes, isRuntimeReference, literalAuthSecrets, literalSensitiveHeaders } from '../inline-auth'
+import { hasInlineLiteralSecret, inlineLiteralSecretNodes, isRuntimeReference, literalAuthSecrets, literalSensitiveHeaders, stripInlineLiteralSecrets } from '../inline-auth'
 import { validateFlowGraph } from '../validate'
 import type { FlowGraph } from '../graph'
 
@@ -173,4 +173,65 @@ test('a literal authorization header is a blocking validation error', () => {
   }))
   assert.equal(result.ok, false)
   assert.ok(result.errors.some((entry) => entry.code === 'INLINE_AUTH_SECRET'))
+})
+
+// ── stripInlineLiteralSecrets (import-only scrub) ───────────────────────────
+
+test('stripping removes every literal secret and the detector agrees', () => {
+  const graph = {
+    nodes: [
+      { id: 'trigger', type: 'trigger', data: { trigger: { type: 'manual' } } },
+      {
+        id: 'h', type: 'http',
+        data: {
+          label: 'Call API',
+          method: 'GET',
+          url: 'https://joe:BASIC_SECRET@api/x?api_key=URL_SECRET&page=2',
+          auth: { type: 'bearer', token: 'sk_live_abc' },
+          headers: JSON.stringify({ 'X-Shopify-Access-Token': 'shpat_123', Accept: 'application/json' }),
+          query: JSON.stringify({ access_token: 'QUERY_SECRET', q: 'leads' }),
+          body: JSON.stringify({ client_secret: 'BODY_SECRET', payload: 'keep' }),
+        },
+      },
+      { id: 't', type: 'tool', data: { label: 'Tool', connectionId: 'c1', toolName: 'send', args: JSON.stringify({ token: 'TOOL_SECRET', text: 'hi' }) } },
+    ],
+    edges: [{ id: 'e0', source: 'trigger', target: 'h' }],
+  }
+  const { graph: stripped, warnings } = stripInlineLiteralSecrets(graph)
+  const json = JSON.stringify(stripped)
+  for (const secret of ['BASIC_SECRET', 'URL_SECRET', 'sk_live_abc', 'shpat_123', 'QUERY_SECRET', 'BODY_SECRET', 'TOOL_SECRET']) {
+    assert.equal(json.includes(secret), false, `left ${secret} behind`)
+  }
+  // Non-secret content survives so the steps stay rebuildable.
+  assert.equal(json.includes('page=2'), true)
+  assert.equal(json.includes('application/json'), true)
+  assert.equal(json.includes('leads'), true)
+  assert.equal(json.includes('keep'), true)
+  assert.equal(json.includes('hi'), true)
+  // The result passes the same gate interactive saves enforce.
+  assert.deepEqual(inlineLiteralSecretNodes(stripped), [])
+  assert.equal(warnings.length, 2)
+  assert.match(warnings[0], /Call API/)
+  assert.match(warnings.join(' '), /attach a saved credential/i)
+})
+
+test('stripping is a no-op for a clean graph and keeps runtime references', () => {
+  const graph = {
+    nodes: [
+      { id: 'trigger', type: 'trigger', data: { trigger: { type: 'manual' } } },
+      {
+        id: 'h', type: 'http',
+        data: { label: 'Ref', method: 'GET', url: 'https://api/x', auth: { type: 'bearer', token: '{{trigger.input.key}}' } },
+      },
+    ],
+    edges: [{ id: 'e0', source: 'trigger', target: 'h' }],
+  }
+  const { graph: stripped, warnings } = stripInlineLiteralSecrets(graph)
+  assert.deepEqual(warnings, [])
+  assert.equal(JSON.stringify(stripped).includes('{{trigger.input.key}}'), true)
+})
+
+test('a header the export redactor would catch is caught at save time too', () => {
+  assert.deepEqual(literalSensitiveHeaders(JSON.stringify({ 'X-Shopify-Access-Token': 'shpat_123' })), ['X-Shopify-Access-Token'])
+  assert.deepEqual(literalSensitiveHeaders(JSON.stringify({ 'X-Request-Id': 'abc' })), [])
 })

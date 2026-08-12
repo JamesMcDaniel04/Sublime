@@ -125,63 +125,53 @@ test('secrets stay out of the n8n and instructions targets too', () => {
   }
 })
 
-// ── Opt-in credentialed export (spec 2026-07-24 §5) ─────────────────────────
+// ── Credentials NEVER travel — there is no opt-in ───────────────────────────
 
-const withCreds = () =>
-  toPortableFlow(flow, agents, AT, {
-    includeCredentials: true,
-    triggerSecret: 'FLOW_SECRET_PLAINTEXT',
-    agentTriggerSecrets: { agt_1: 'AGENT_SECRET_PLAINTEXT' },
-  })
-
-test('default call shape is unchanged: no credentials key, still redacted', () => {
+test('the portable document has no credentials block and no way to ask for one', () => {
   const doc = portable()
   assert.equal('credentials' in doc, false)
   assert.equal('containsCredentials' in doc, false)
+  // toPortableFlow takes no options — a fourth argument is not an opt-in.
+  assert.equal(toPortableFlow.length, 3)
 })
 
-test('includeCredentials carries the secrets in the credentials block only', () => {
-  const doc = withCreds()
-  assert.equal(doc.containsCredentials, true)
-  assert.equal(doc.credentials?.triggerSecret, 'FLOW_SECRET_PLAINTEXT')
-  assert.equal(doc.credentials?.agentTriggerSecrets?.agt_1, 'AGENT_SECRET_PLAINTEXT')
-  // The trigger object itself STILL never carries hash or ciphertext.
-  const triggerJson = JSON.stringify(doc.flow.trigger)
-  assert.equal(triggerJson.includes('webhookSecretHash'), false)
-  assert.equal(triggerJson.includes('webhookSecretEnc'), false)
-  assert.equal(triggerJson.includes('HASHED_SECRET'), false)
-})
-
-test('includeCredentials keeps user-typed HTTP credentials in the steps', () => {
-  const json = JSON.stringify(withCreds())
-  assert.equal(json.includes('SUPER_SECRET'), true, 'bearer token travels when opted in')
-  assert.equal(json.includes('SECRET_COOKIE'), true, 'cookie travels when opted in')
-})
-
-test('includeCredentials leads requirements with the live-credentials warning', () => {
-  const doc = withCreds()
-  assert.match(doc.requirements[0] ?? '', /live credentials/i)
-})
-
-test('every target carries the real secrets when the document does', () => {
-  const doc = withCreds()
+test('every runnable target ships the fill-me-in placeholder, never a secret', () => {
+  const doc = portable()
   const outputs = [
     JSON.stringify(toN8nWorkflow(doc, { triggerBaseUrl: 'https://app.example' })),
     JSON.stringify(toWorkatoRecipe(doc, { triggerBaseUrl: 'https://app.example' })),
     JSON.stringify(toPowerAutomateFlow(doc, { triggerBaseUrl: 'https://app.example' })),
-    toInstructions(doc),
   ]
   for (const out of outputs) {
-    assert.equal(out.includes('AGENT_SECRET_PLAINTEXT'), true, 'agent trigger secret must be filled in')
-    assert.equal(out.includes('REPLACE_WITH_TRIGGER_SECRET'), false, 'no placeholder when the secret is known')
+    assert.equal(out.includes('REPLACE_WITH_TRIGGER_SECRET'), true, 'runnable agent call needs the placeholder')
   }
-  assert.match(toInstructions(doc).split('\n')[0] ?? '', /live credentials/i)
 })
 
-test('targets keep the placeholder when the document has no credentials', () => {
-  const doc = portable()
-  const n8n = JSON.stringify(toN8nWorkflow(doc, { triggerBaseUrl: 'https://app.example' }))
-  assert.equal(n8n.includes('REPLACE_WITH_TRIGGER_SECRET'), true)
+test('vault credentialId and internal connectionId never leave the workspace', () => {
+  const refs: FlowGraph = {
+    nodes: [
+      { id: 'trigger', type: 'trigger', data: {} },
+      {
+        id: 'h', type: 'http',
+        data: { label: 'Vaulted', method: 'GET', url: 'https://api/x', authMode: 'generic', credentialType: 'bearer', credentialId: 'cmdinternalcuid123' },
+      },
+      { id: 'h2', type: 'http', data: { label: 'Connected', method: 'GET', url: 'https://api/y', authMode: 'predefined', connectionId: 'cmdconncuid456' } },
+      { id: 'h3', type: 'http', data: { label: 'Portable', method: 'GET', url: 'https://api/z', authMode: 'predefined', connectionId: 'nango:salesforce' } },
+      { id: 't', type: 'tool', data: { label: 'Tool', connectionId: 'cmdtoolcuid789', toolName: 'send' } },
+      { id: 't2', type: 'tool', data: { label: 'Native tool', connectionId: 'native:slack', toolName: 'send' } },
+    ],
+    edges: [{ id: 'e0', source: 'trigger', target: 'h' }],
+  }
+  const doc = toPortableFlow({ ...flow, graph: refs }, agents, AT)
+  const json = JSON.stringify(doc)
+  assert.equal(json.includes('cmdinternalcuid123'), false, 'credentialId leaked')
+  assert.equal(json.includes('cmdconncuid456'), false, 'http connectionId leaked')
+  assert.equal(json.includes('cmdtoolcuid789'), false, 'tool connectionId leaked')
+  // Portable ids are the documented exception — the importer rebinds them.
+  assert.equal(json.includes('nango:salesforce'), true)
+  assert.equal(json.includes('native:slack'), true)
+  // The non-secret editor hint survives so the importer knows what to attach.
+  assert.equal(json.includes('credentialType'), true)
 })
 
 // ── Portable ────────────────────────────────────────────────────────────────

@@ -7,7 +7,7 @@ import { recordUserEvent } from '@/lib/behavior/record-event'
 import { assertImportCapacity } from '@/lib/billing/enforce'
 import { serializeFlow } from '@/lib/flows/serialize'
 import { validateFlowGraph } from '@/lib/flows/validate'
-import { inlineLiteralSecretNodes } from '@/lib/flows/inline-auth'
+import { inlineLiteralSecretNodes, stripInlineLiteralSecrets } from '@/lib/flows/inline-auth'
 import { loadFlowToolCatalog } from '@/lib/flows/tool-catalog'
 import { missingRequiredProviders, resolveGraphToolConnections, TEMPLATE_CONNECTION_PREFIX } from '@/lib/templates/provision-plan'
 import { DEFAULT_AGENT_MODEL } from '@/lib/llm/model-runner'
@@ -133,10 +133,17 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
   let graph = sanitized.graph
   warnings.push(...sanitized.warnings)
 
-  // Imported JSON is untrusted input — same literal-secret gate as POST /api/flows.
+  // Imported JSON is untrusted input. Unlike POST /api/flows (which hard-
+  // rejects so a user typing a secret is told), a foreign document gets its
+  // literal secrets STRIPPED with a per-step warning — the import proceeds
+  // and the secret is never persisted. A residual hit after stripping is a
+  // bug in the scrubber; fail closed on it.
+  const stripped = stripInlineLiteralSecrets(graph)
+  graph = stripped.graph
+  warnings.push(...stripped.warnings)
   if (inlineLiteralSecretNodes(graph).length) {
     throw new ApiError(
-      'Inline secrets must be saved as a private credential before this flow can be saved.',
+      'Inline secrets must be saved as a workspace credential before this flow can be saved.',
       400,
       'INLINE_AUTH_SECRET',
     )
@@ -162,15 +169,16 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
   // trigger) go through the same sanitize/secret pipeline as the primary.
   const siblings = (imported.additionalFlows ?? []).map((flow) => {
     const cleaned = sanitizeImportedGraph(flow.graph)
-    if (inlineLiteralSecretNodes(cleaned.graph).length) {
+    const cleanedStripped = stripInlineLiteralSecrets(cleaned.graph)
+    if (inlineLiteralSecretNodes(cleanedStripped.graph).length) {
       throw new ApiError(
-        'Inline secrets must be saved as a private credential before this flow can be saved.',
+        'Inline secrets must be saved as a workspace credential before this flow can be saved.',
         400,
         'INLINE_AUTH_SECRET',
       )
     }
-    warnings.push(...cleaned.warnings.map((warning) => `[${flow.name}] ${warning}`))
-    return { flow, graph: cleaned.graph }
+    warnings.push(...[...cleaned.warnings, ...cleanedStripped.warnings].map((warning) => `[${flow.name}] ${warning}`))
+    return { flow, graph: cleanedStripped.graph }
   })
 
   // Idempotent re-import: the same document imported twice should not
