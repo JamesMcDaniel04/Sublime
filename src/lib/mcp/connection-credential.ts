@@ -15,7 +15,7 @@ import type { InjectionPlan } from '@/lib/credentials/types'
 
 export async function mcpCredentialPlan(
   conn: { serverUrl: string; authType: string; authConfig: unknown },
-  ctx: { organizationId: string; userId?: string },
+  ctx: { organizationId: string },
 ): Promise<InjectionPlan | undefined> {
   if (conn.authType !== 'api_key') return undefined
   const stored =
@@ -32,7 +32,6 @@ export async function mcpCredentialPlan(
   return resolveCredential({
     credentialId,
     organizationId: ctx.organizationId,
-    userId: ctx.userId,
     requestUrl: conn.serverUrl,
   })
 }

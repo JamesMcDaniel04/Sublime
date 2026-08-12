@@ -17,7 +17,6 @@ type ListedCredential = {
   name: string
   type: string
   allowedDomains: string[]
-  personal?: boolean
   config?: RedactedCredential
   verification?: VerificationView
 }
@@ -137,7 +136,6 @@ export function CredentialPicker({
                 draft: draftFromRedacted({
                   name: selectedCredential.name,
                   type: selectedCredential.type,
-                  personal: selectedCredential.personal ?? true,
                   allowedDomains: selectedCredential.allowedDomains,
                   config: selectedCredential.config as RedactedCredential,
                 }),
@@ -163,7 +161,7 @@ export function CredentialPicker({
         onRechecked={() => void loadCredentials().catch(() => undefined)}
       />
       <p className="text-xs text-muted-foreground">
-        Credentials are encrypted, scoped to your account by default, and reusable by other steps that call an allowed domain.
+        Credentials are encrypted, shared with this workspace, and reusable by other steps that call an allowed domain.
       </p>
 
       <Dialog open={credentialModal !== null} onOpenChange={(open) => !open && setCredentialModal(null)}>

@@ -1,13 +1,15 @@
 'use client'
 
 import { useState } from 'react'
-import { AlertTriangle, CheckCircle2, Plus, Trash2 } from 'lucide-react'
+import { AlertTriangle, CheckCircle2, Eye, EyeOff, Plus, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import {
   FIELD_LABELS,
   SECRET_FIELDS,
+  SECRET_MASK,
+  SECRET_PLACEHOLDER,
   TYPE_LABELS,
   activeFields,
   draftProblems,
@@ -65,6 +67,10 @@ export function CredentialEditor({
   const [draft, setDraft] = useState<CredentialDraft>(initial ?? emptyDraft())
   const [saving, setSaving] = useState(false)
   const [showProblems, setShowProblems] = useState(false)
+  // "Revealed" secret fields. Reveal never fetches anything — the server has
+  // no decrypt path — it swaps the mask for a generic placeholder so the
+  // invariant is visible instead of looking like a broken toggle.
+  const [revealed, setRevealed] = useState<Partial<Record<CredentialField, boolean>>>({})
   // Survives the save so a failed check stays on screen instead of vanishing
   // with its toast — and so the credential is not attached behind the user's
   // back. `saved` holds the row awaiting an explicit "attach anyway".
@@ -147,7 +153,7 @@ export function CredentialEditor({
           <input
             type="password"
             value={entry.value}
-            placeholder={editing ? 'Unchanged' : 'Value'}
+            placeholder={entry.originalName ? `${SECRET_MASK} — unchanged` : 'Value'}
             onChange={(event) =>
               set(which, draft[which].map((row, i) => (i === index ? { ...row, value: event.target.value } : row)))
             }
@@ -206,21 +212,49 @@ export function CredentialEditor({
       )
     }
     const isSecret = SECRET_FIELDS.has(field)
+    // A stored, untouched secret gets a masked hint and an eye toggle. The
+    // toggle can only ever show SECRET_PLACEHOLDER: reads are redacted
+    // server-side, so there is no value to reveal.
+    const hasStored = editing && draft.storedSecrets.includes(field)
+    const untouched = !String(draft[field] ?? '')
+    const showPlaceholderReveal = isSecret && hasStored && untouched
+    const isRevealed = showPlaceholderReveal && Boolean(revealed[field])
     return (
       <div key={field} className="grid gap-1.5">
         <label className={labelClass} htmlFor={`cred-${field}`}>
           {FIELD_LABELS[field]}
           {!isSecret || !editing ? <span className="ml-1 text-red-500">*</span> : null}
         </label>
-        <input
-          id={`cred-${field}`}
-          type={isSecret ? 'password' : 'text'}
-          autoComplete={isSecret ? 'new-password' : 'off'}
-          value={String(draft[field] ?? '')}
-          placeholder={isSecret && editing ? 'Unchanged — leave blank to keep it' : undefined}
-          onChange={(event) => set(field, event.target.value as CredentialDraft[typeof field])}
-          className={controlClass}
-        />
+        <div className="relative">
+          <input
+            id={`cred-${field}`}
+            type={isSecret && !isRevealed ? 'password' : 'text'}
+            autoComplete={isSecret ? 'new-password' : 'off'}
+            readOnly={isRevealed}
+            value={isRevealed ? SECRET_PLACEHOLDER : String(draft[field] ?? '')}
+            placeholder={showPlaceholderReveal ? `${SECRET_MASK} — leave blank to keep it` : undefined}
+            onChange={(event) => {
+              if (isRevealed) return
+              set(field, event.target.value as CredentialDraft[typeof field])
+            }}
+            className={cn(controlClass, showPlaceholderReveal && 'pr-10', isRevealed && 'text-muted-foreground')}
+          />
+          {showPlaceholderReveal && (
+            <button
+              type="button"
+              onClick={() => setRevealed((previous) => ({ ...previous, [field]: !previous[field] }))}
+              className="absolute right-2 top-2.5 text-muted-foreground hover:text-foreground"
+              aria-label={isRevealed ? `Hide ${FIELD_LABELS[field]}` : `Reveal ${FIELD_LABELS[field]}`}
+            >
+              {isRevealed ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+            </button>
+          )}
+        </div>
+        {isRevealed && (
+          <p className="text-[11px] leading-4 text-muted-foreground">
+            Stored secrets can never be displayed — this is a placeholder. Type a new value to replace the stored one.
+          </p>
+        )}
       </div>
     )
   }
@@ -293,7 +327,8 @@ export function CredentialEditor({
       </div>
 
       <p className="rounded-lg border border-border bg-muted/40 p-3 text-xs text-muted-foreground">
-        This credential is private to your account. Other workspace members cannot view, attach, edit, or delete it.
+        This credential is shared with your workspace: any member can attach it to steps that call an allowed domain.
+        Secret values are write-only — they can be replaced, but never viewed or exported.
       </p>
 
       {showProblems && problems.length > 0 && (

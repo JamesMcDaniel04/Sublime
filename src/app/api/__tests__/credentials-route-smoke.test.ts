@@ -91,13 +91,12 @@ if (!TEST_DB) {
     const plan = await resolveCredential({
       credentialId: created.credential.id,
       organizationId: seeded.organizationId,
-      userId: seeded.userId,
       requestUrl: 'https://api.example.com/x',
     })
     assert.equal(plan.headers?.['X-New'], SECRET)
   })
 
-  test('a duplicate personal name is a 409', async () => {
+  test('a duplicate name in the workspace is a 409', async () => {
     await post({ name: 'Unique one', type: 'bearer', token: 'a', allowedDomains: ['example.com'] })
     const again = await post({ name: 'Unique one', type: 'bearer', token: 'b', allowedDomains: ['example.com'] })
     assert.equal(again.status, 409)
@@ -131,13 +130,12 @@ if (!TEST_DB) {
     }
   })
 
-  test('a personal credential is invisible to another user in the same org', async () => {
+  test('a workspace credential is visible and usable by another member of the same org', async () => {
     // Re-assert auth rather than inheriting it: the cross-org test above swaps
     // the acting identity, and a test that depends on another test's teardown
     // ordering fails for reasons that have nothing to do with what it asserts.
     installTestAuth(seeded.auth)
-    const created = await (await post({ name: 'Just mine', type: 'bearer', token: 'p', personal: false, allowedDomains: ['example.com'] })).json()
-    assert.equal(created.credential.personal, true)
+    const created = await (await post({ name: 'Shared with the team', type: 'bearer', token: SECRET, allowedDomains: ['example.com'] })).json()
     const testAuth = await import('@/lib/server/__tests__/test-auth')
     const otherUser = await prisma.user.create({
       data: {
@@ -156,18 +154,23 @@ if (!TEST_DB) {
       role: 'MEMBER',
     }))
     try {
+      // Listed for the teammate — redacted, with creator attribution.
       const listed = await (await list()).json()
-      assert.equal(
-        listed.credentials.some((credential: { id: string }) => credential.id === created.credential.id),
-        false,
-        'same-org list leaked another user\'s credential',
-      )
-      assert.equal((await get(created.credential.id)).status, 404)
-      assert.equal((await put(created.credential.id, { name: 'hijacked' })).status, 404)
-      assert.equal((await del(created.credential.id)).status, 404)
+      const row = listed.credentials.find((credential: { id: string }) => credential.id === created.credential.id)
+      assert.ok(row, 'same-org member could not see the workspace credential')
+      assert.equal(JSON.stringify(listed).includes(SECRET), false, 'workspace list leaked the secret value')
 
-      const untouched = await prisma.credential.findFirst({ where: { id: created.credential.id, organizationId: seeded.organizationId } })
-      assert.equal(untouched?.name, 'Just mine')
+      // Readable, editable, resolvable — and finally deletable — by the teammate.
+      assert.equal((await get(created.credential.id)).status, 200)
+      assert.equal((await put(created.credential.id, { name: 'Renamed by teammate' })).status, 200)
+      const { resolveCredential } = await import('@/lib/credentials/resolve')
+      const plan = await resolveCredential({
+        credentialId: created.credential.id,
+        organizationId: seeded.organizationId,
+        requestUrl: 'https://api.example.com/x',
+      })
+      assert.equal(plan.headers?.authorization, `Bearer ${SECRET}`)
+      assert.equal((await del(created.credential.id)).status, 200)
     } finally {
       installTestAuth(seeded.auth)
     }
@@ -206,7 +209,7 @@ if (!TEST_DB) {
         authType: 'api_key',
         authConfig: { credentialId: created.credential.id },
       },
-      { organizationId: seeded.organizationId, userId: seeded.userId },
+      { organizationId: seeded.organizationId },
     )
     // The same header an inline api_key would have produced — one saved key,
     // now reusable by any MCP server or HTTP step on an allowed domain.
@@ -229,7 +232,7 @@ if (!TEST_DB) {
     await assert.rejects(
       () => mcpCredentialPlan(
         { serverUrl: 'https://mcp.example.com/rpc', authType: 'api_key', authConfig: { credentialId: created.credential.id } },
-        { organizationId: seeded.organizationId, userId: seeded.userId },
+        { organizationId: seeded.organizationId },
       ),
       /not allowed for that request URL/,
     )

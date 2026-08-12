@@ -60,6 +60,13 @@ export function fieldsForType(type: CredentialType): CredentialField[] {
   }
 }
 
+/**
+ * What the editor shows for a stored secret. Reads are always redacted, so a
+ * "reveal" can only ever surface this generic placeholder — never the value.
+ */
+export const SECRET_MASK = '••••••••••••••••'
+export const SECRET_PLACEHOLDER = 'placeholder-key-0000-0000'
+
 export const SECRET_FIELDS: ReadonlySet<CredentialField> = new Set([
   'password',
   'token',
@@ -106,7 +113,13 @@ export const FIELD_LABELS: Record<CredentialField, string> = {
 export type CredentialDraft = {
   name: string
   type: CredentialType
-  personal: boolean
+  /**
+   * Secret fields that hold a stored value server-side, derived from the
+   * redacted hasX flags. Display-only: the editor uses it to show a masked
+   * placeholder (a stored secret can never be fetched back), and saveBody
+   * never serializes it.
+   */
+  storedSecrets: CredentialField[]
   allowedDomains: string
   username: string
   password: string
@@ -134,7 +147,7 @@ export type CredentialDraft = {
 export const emptyDraft = (): CredentialDraft => ({
   name: '',
   type: 'bearer',
-  personal: true,
+  storedSecrets: [],
   allowedDomains: '',
   username: '',
   password: '',
@@ -159,6 +172,20 @@ export const emptyDraft = (): CredentialDraft => ({
   clientAuth: 'header',
 })
 
+/** Secret fields that carry a stored value, from the redacted hasX flags. */
+export function storedSecretFields(config: RedactedCredential): CredentialField[] {
+  const flags: Array<[boolean | undefined, CredentialField]> = [
+    [config.hasPassword, 'password'],
+    [config.hasToken, 'token'],
+    [config.hasKey, 'key'],
+    [config.hasConsumerSecret, 'consumerSecret'],
+    [config.hasAccessToken, 'accessToken'],
+    [config.hasTokenSecret, 'tokenSecret'],
+    [config.hasClientSecret, 'clientSecret'],
+  ]
+  return flags.filter(([has]) => has).map(([, field]) => field)
+}
+
 /**
  * Seed the editor from a REDACTED credential. Secret inputs start blank by
  * construction — a redacted credential carries no values to prefill, and a
@@ -167,7 +194,6 @@ export const emptyDraft = (): CredentialDraft => ({
 export function draftFromRedacted(row: {
   name: string
   type: string
-  personal: boolean
   allowedDomains: string[]
   config: RedactedCredential
 }): CredentialDraft {
@@ -175,7 +201,7 @@ export function draftFromRedacted(row: {
     ...emptyDraft(),
     name: row.name,
     type: row.type as CredentialType,
-    personal: row.personal,
+    storedSecrets: storedSecretFields(row.config),
     allowedDomains: row.allowedDomains.join(', '),
     username: row.config.username ?? '',
     headerName: row.config.headerName ?? '',

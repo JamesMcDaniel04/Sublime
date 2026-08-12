@@ -752,10 +752,12 @@ model IntegrationSecret {
   @@map("integration_secrets")
 }
 
-/// Reusable, user-owned credential for authenticating outbound requests from
-/// flow nodes. authConfig holds encryptSecret() blobs for secret fields plus
-/// plaintext metadata (headerName, queryParam, username). Legacy rows may have
-/// a null userId but are inactive and never selected. Empty allowedDomains fail
+/// Reusable, workspace-shared credential for authenticating outbound requests
+/// from flow nodes: every active org member can list (redacted), attach, edit,
+/// and run with it. userId/createdById are provenance only. authConfig holds
+/// encryptSecret() blobs for secret fields plus plaintext metadata
+/// (headerName, queryParam, username). Legacy pre-vault rows may have a null
+/// userId but are inactive and never selected. Empty allowedDomains fail
 /// closed at runtime.
 model Credential {
   id             String    @id @default(cuid())

@@ -1013,7 +1013,6 @@ export async function runFlowExecution(
         const resolvedCredential = await resolveHttpCredential({
           credentialId: httpCredentialId,
           organizationId: job.organizationId,
-          userId: job.userId,
           requestUrl: request.url,
           assertUrlAllowed: assertFlowHttpUrlAllowed,
         })

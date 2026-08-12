@@ -105,7 +105,6 @@ if (!TEST_DB) {
     const plan = await resolveCredential({
       credentialId,
       organizationId: seeded.organizationId,
-      userId: seeded.userId,
       requestUrl: 'https://example.com/things',
     })
     assert.deepEqual(plan.headers, { 'X-Renamed': 'secret-one' })

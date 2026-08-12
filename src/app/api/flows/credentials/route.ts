@@ -243,9 +243,9 @@ export const GET = withAuthenticatedApi(async (request, auth) => {
       : [],
     credentialIds.length
       ? prisma.credential.findMany({
-          // Same hard per-user scope as resolution (lib/credentials/resolve.ts):
-          // someone else's credential in a shared flow is not yours to manage.
-          where: { id: { in: credentialIds }, organizationId: auth.organizationId, userId: auth.dbUser.id },
+          // Same workspace scope as resolution (lib/credentials/resolve.ts):
+          // vault credentials are shared across the org.
+          where: { id: { in: credentialIds }, organizationId: auth.organizationId },
           select: { id: true, name: true, type: true, isActive: true },
         })
       : [],

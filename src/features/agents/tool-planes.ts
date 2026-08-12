@@ -166,14 +166,9 @@ export async function loadMcpConnectionPlaneGroups(
     try {
       const fresh = await ensureFreshConnectionToken(conn)
       const config = mcpConfigFromConnection(fresh)
-      // ownerUserId must reach credentialScope: without it a connection whose
-      // authConfig points at a PERSONAL vault credential resolves to the
-      // actor-required sentinel and fails closed, so the agent path could not
-      // use a credential the flow path (which does pass userId) resolves fine.
-      config.credentialPlan = await mcpCredentialPlan(fresh, {
-        organizationId,
-        ...(ownerUserId ? { userId: ownerUserId } : {}),
-      })
+      // Vault credentials are workspace-scoped, so the plan resolves for any
+      // member — no owner threading needed.
+      config.credentialPlan = await mcpCredentialPlan(fresh, { organizationId })
       // For authcode connections, let a mid-run token refresh persist the
       // rotated tokens back to this row so the next run reuses them.
       if (config.flow === 'authcode') {
@@ -667,7 +662,7 @@ export async function resolveFlowToolExecutor(params: {
     const fresh = await ensureFreshConnectionToken(conn)
     const client = new McpClient({
       ...mcpConfigFromConnection(fresh),
-      credentialPlan: await mcpCredentialPlan(fresh, { organizationId, userId }),
+      credentialPlan: await mcpCredentialPlan(fresh, { organizationId }),
       fetchImpl: publicFetch,
     })
     return {

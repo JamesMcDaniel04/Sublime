@@ -127,7 +127,7 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
   await requirePublicUrl(data.serverUrl, 'serverUrl')
   await requirePublicUrl(data.tokenUrl, 'tokenUrl')
 
-  await assertOwnedCredential(data.credentialId, auth.organizationId, auth.dbUser.id)
+  await assertOwnedCredential(data.credentialId, auth.organizationId)
 
   const authConfig = buildAuthConfig({
     authType: data.authType,
@@ -203,7 +203,7 @@ export const PUT = withAuthenticatedApi(async (request, auth) => {
       ? (existing.authConfig as Record<string, unknown>)
       : {}
 
-  await assertOwnedCredential(body.credentialId, auth.organizationId, auth.dbUser.id)
+  await assertOwnedCredential(body.credentialId, auth.organizationId)
 
   const newAuthType = body.authType ?? existing.authType
   const authConfig = mergeAuthConfig(existingConfig, {

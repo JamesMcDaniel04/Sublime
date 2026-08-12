@@ -1,7 +1,8 @@
 /**
  * Credential resolution against a real Postgres. The assertions that matter are
- * the denials: cross-org, personal-to-another-user, inactive, and
- * domain-blocked must all refuse rather than inject.
+ * the denials: cross-org, quarantined-legacy, inactive, and domain-blocked
+ * must all refuse rather than inject — while any member of the workspace can
+ * resolve any active credential in it.
  */
 import type { Prisma } from '@/generated/prisma/client'
 import { test, before, after } from 'node:test'
@@ -52,7 +53,9 @@ if (!TEST_DB) {
     await make('theirs', { userId: other.userId })
     await make('inactive', { isActive: false })
     await make('scoped', { allowedDomains: ['acme.com'] })
-    await make('legacy-shared', { userId: null })
+    // The pre-vault migration quarantined every NULL-userId row by
+    // deactivating it — isActive is what keeps them dead, not the null owner.
+    await make('legacy-shared', { userId: null, isActive: false })
   })
 
   after(async () => {
@@ -60,20 +63,21 @@ if (!TEST_DB) {
     if (other) await other.cleanup()
   })
 
-  const resolve = (name: string, url = 'https://api.example.com/x', userId = seeded.userId) =>
-    resolveCredential({ credentialId: ids[name], organizationId: seeded.organizationId, userId, requestUrl: url })
+  const resolve = (name: string, url = 'https://api.example.com/x') =>
+    resolveCredential({ credentialId: ids[name], organizationId: seeded.organizationId, requestUrl: url })
 
-  test('refuses a legacy org-shared credential', async () => {
+  test('refuses a quarantined legacy credential', async () => {
     await assert.rejects(() => resolve('legacy-shared'), new RegExp(CREDENTIAL_UNAVAILABLE))
   })
 
-  test("resolves the acting user's own personal credential", async () => {
-    const plan = await resolve('mine', 'https://api.example.com/x', seeded.userId)
+  test("resolves the acting user's own credential", async () => {
+    const plan = await resolve('mine', 'https://api.example.com/x')
     assert.equal(plan.headers?.authorization, 'Bearer tok-mine')
   })
 
-  test("refuses another user's personal credential", async () => {
-    await assert.rejects(() => resolve('theirs', 'https://api.example.com/x', seeded.userId), new RegExp(CREDENTIAL_UNAVAILABLE))
+  test("resolves a workspace credential created by another member", async () => {
+    const plan = await resolve('theirs', 'https://api.example.com/x')
+    assert.equal(plan.headers?.authorization, 'Bearer tok-theirs')
   })
 
   test('refuses an inactive credential', async () => {
@@ -82,7 +86,7 @@ if (!TEST_DB) {
 
   test('refuses a credential from another org', async () => {
     await assert.rejects(
-      () => resolveCredential({ credentialId: ids.mine, organizationId: other.organizationId, userId: other.userId, requestUrl: 'https://api.example.com/x' }),
+      () => resolveCredential({ credentialId: ids.mine, organizationId: other.organizationId, requestUrl: 'https://api.example.com/x' }),
       new RegExp(CREDENTIAL_UNAVAILABLE),
     )
   })
@@ -95,7 +99,7 @@ if (!TEST_DB) {
 
   test('a missing credential id refuses rather than injecting nothing silently', async () => {
     await assert.rejects(
-      () => resolveCredential({ credentialId: 'nope', organizationId: seeded.organizationId, userId: seeded.userId, requestUrl: 'https://api/x' }),
+      () => resolveCredential({ credentialId: 'nope', organizationId: seeded.organizationId, requestUrl: 'https://api/x' }),
       new RegExp(CREDENTIAL_UNAVAILABLE),
     )
   })

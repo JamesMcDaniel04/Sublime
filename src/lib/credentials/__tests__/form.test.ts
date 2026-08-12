@@ -5,8 +5,18 @@
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { draftFromRedacted, draftProblems, emptyDraft, fieldsForType, parseAllowedDomains, saveBody } from '../form'
+import { draftFromRedacted, draftProblems, emptyDraft, fieldsForType, parseAllowedDomains, saveBody, storedSecretFields } from '../form'
 import { CREDENTIAL_TYPES } from '../types'
+
+test('storedSecretFields maps every redacted hasX flag to its field', () => {
+  assert.deepEqual(storedSecretFields({ type: 'bearer', hasToken: true }), ['token'])
+  assert.deepEqual(
+    storedSecretFields({ type: 'oauth1', hasConsumerSecret: true, hasAccessToken: true, hasTokenSecret: true }),
+    ['consumerSecret', 'accessToken', 'tokenSecret'],
+  )
+  // Absent flags mean no stored secret — nothing to mask, nothing to "reveal".
+  assert.deepEqual(storedSecretFields({ type: 'basic', username: 'u' }), [])
+})
 
 test('every credential type declares its fields', () => {
   for (const type of CREDENTIAL_TYPES) {
@@ -71,23 +81,22 @@ test('seeding from a redacted credential never prefills a secret', () => {
   const draft = draftFromRedacted({
     name: 'Acme',
     type: 'apiKeyHeader',
-    personal: true,
     allowedDomains: ['acme.com'],
     config: { type: 'apiKeyHeader', headerName: 'X-K', hasKey: true },
   })
   assert.equal(draft.name, 'Acme')
   assert.equal(draft.headerName, 'X-K')
-  assert.equal(draft.personal, true)
   assert.equal(draft.allowedDomains, 'acme.com')
-  // hasKey said a key exists; the value is not available and must stay blank.
+  // hasKey said a key exists; the value is not available and must stay blank —
+  // storedSecrets is how the editor knows to show the masked placeholder.
   assert.equal(draft.key, '')
+  assert.deepEqual(draft.storedSecrets, ['key'])
 })
 
 test('seeding custom entries keeps the names and blanks the values', () => {
   const draft = draftFromRedacted({
     name: 'C',
     type: 'custom',
-    personal: false,
     allowedDomains: [],
     config: { type: 'custom', headers: [{ name: 'X-A', hasValue: true }], query: [] },
   })
@@ -98,8 +107,8 @@ test('seeding custom entries keeps the names and blanks the values', () => {
 })
 
 test('domains travel but ownership cannot be changed by the client', () => {
-  const body = saveBody({ ...emptyDraft(), name: 'A', token: 't', personal: true, allowedDomains: 'acme.com' }, false)
-  assert.equal('personal' in body, false)
+  const body = saveBody({ ...emptyDraft(), name: 'A', token: 't', storedSecrets: ['token'], allowedDomains: 'acme.com' }, false)
+  assert.equal('storedSecrets' in body, false)
   assert.deepEqual(body.allowedDomains, ['acme.com'])
 })
 
@@ -173,7 +182,6 @@ test('seeding from a redacted credential records each entry’s original name', 
   const draft = draftFromRedacted({
     name: 'Acme',
     type: 'custom',
-    personal: true,
     allowedDomains: [],
     config: { type: 'custom', headers: [{ name: 'X-Api-Key', hasValue: true }], query: [] },
   })

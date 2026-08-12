@@ -39,12 +39,10 @@ if (!TEST_DB) {
     const cred = await prisma.credential.create({
       data: {
         organizationId: seeded.organizationId,
-        // Both fields are load-bearing under the fail-closed credential policy:
-        // an ownerless (NULL userId) row can never resolve — credentialScope
-        // substitutes an actor-required sentinel rather than falling back to
-        // legacy shared rows — and an empty allow-list denies every URL. A
-        // fixture missing either resolves to CREDENTIAL_UNAVAILABLE, which
-        // would mask what these tests actually assert.
+        // allowedDomains is load-bearing: an empty allow-list denies every
+        // URL, resolving to CREDENTIAL_UNAVAILABLE and masking what these
+        // tests actually assert. userId is provenance only — credentials are
+        // workspace-scoped.
         userId: seeded.userId,
         allowedDomains: ['example.com'],
         name: 'E2E bearer',

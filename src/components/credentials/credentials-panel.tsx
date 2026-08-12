@@ -17,7 +17,7 @@ export type ListedCredential = {
   name: string
   type: string
   allowedDomains: string[]
-  personal: boolean
+  createdBy: { id: string; name: string | null } | null
   lastUsedAt: string | null
   config: RedactedCredential
   verification?: VerificationView
@@ -84,8 +84,9 @@ export function CredentialsPanel() {
     <div className="space-y-4">
       <div className="flex items-start justify-between gap-4">
         <p className="max-w-2xl text-sm text-muted-foreground">
-          Save an API credential once and attach it to any HTTP step in any flow. Secrets are encrypted at rest, injected
-          server-side at request time, and never travel in a flow&apos;s definition or its run history.
+          Save an API credential once and anyone in this workspace can attach it to any HTTP step in any flow. Secrets
+          are encrypted at rest, injected server-side at request time, and never travel in a flow&apos;s definition, its
+          run history, or an export.
         </p>
         <Button size="sm" onClick={() => setCreating(true)}>
           <Plus className="mr-1.5 h-4 w-4" /> New credential
@@ -112,7 +113,7 @@ export function CredentialsPanel() {
               <div className="min-w-0 flex-1">
                 <p className="flex items-center gap-2 truncate text-sm font-medium">
                   {row.name}
-                  {row.personal && <Badge variant="secondary">Personal</Badge>}
+                  {row.createdBy?.name && <Badge variant="secondary">Added by {row.createdBy.name}</Badge>}
                 </p>
                 <p className="truncate text-[11px] text-muted-foreground">
                   {TYPE_LABELS[row.type as CredentialType] ?? row.type}

@@ -31,7 +31,7 @@ export async function listMetricSourceOptions(auth: {
   const [credentials, nangoConnections, googleConnections, postgresConnections, slackConnection] = await Promise.all([
     prisma.credential.findMany({
       where: {
-        ...credentialScope(auth.organizationId, auth.dbUser.id),
+        ...credentialScope(auth.organizationId),
         type: { in: ['bearer', 'apiKeyHeader'] },
       },
       select: { id: true, name: true, type: true, authConfig: true },

@@ -48,7 +48,7 @@ type ResolveConnection = (ctx: MetricSourceContext) => Promise<Connection>
 async function resolveVaultCredential(ctx: MetricSourceContext): Promise<Connection> {
   const id = refId(ctx.connectionRef, 'credential')
   const credential = await prisma.credential.findFirst({
-    where: { id, ...credentialScope(ctx.organizationId, ctx.userId) },
+    where: { id, ...credentialScope(ctx.organizationId) },
     select: { type: true, authConfig: true },
   })
   if (!credential) {

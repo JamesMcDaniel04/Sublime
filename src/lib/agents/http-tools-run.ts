@@ -41,7 +41,6 @@ export async function runAgentHttpTool(
     const resolved = await resolveHttpCredential({
       credentialId,
       organizationId: context.organizationId,
-      ...(context.userId ? { userId: context.userId } : {}),
       requestUrl: request.url,
       assertUrlAllowed: assertAgentHttpUrlAllowed,
     })
