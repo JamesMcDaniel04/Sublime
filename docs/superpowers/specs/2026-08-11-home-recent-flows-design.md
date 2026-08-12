@@ -38,6 +38,8 @@ the Flows page — was considered and dropped in favor of this.)
   chips, inside the centered `max-w-4xl` block.
 - Hidden during an active chat transcript — the transcript and pinned composer
   own the screen.
+- Hidden as soon as the user starts typing in the composer (non-empty input),
+  so a drafted message keeps the screen; it returns if the input is cleared.
 - Hidden entirely (no header, no empty state) when no qualifying flows exist,
   so first-run and no-flow workspaces see no extra chrome.
 - While the flows payload is loading, render nothing (the cache is warmed at
@@ -45,13 +47,15 @@ the Flows page — was considered and dropped in favor of this.)
 
 ## Card contents
 
-Compact card, 3-up grid on `sm+` (stacked on mobile):
+The same catalogue cards the flow templates page uses (`TemplateCatalogueCard`
+with `kind="flow"`), in the templates grid layout (1/2/3 columns):
 
-- Workflow icon (matches the Flows page card treatment)
-- Flow name (truncated)
-- Status badge (reuses the Flows page `STATUS_STYLE` treatment)
-- Relative updated time ("2h", "3d" — same `relativeTime` idiom Home already
-  uses for chat history)
+- Workflow icon + accent bar (from the card shell)
+- Flow name and description (`No description yet.` fallback)
+- Status as the category badge ("Active" / "Draft" / "Disabled")
+- "Open flow" CTA; the whole card links into the canvas
+- Card hrefs are pre-scoped via `useScopedHref` because the catalogue card
+  links with a plain `next/link`
 
 ## Components
 
@@ -62,7 +66,7 @@ Compact card, 3-up grid on `sm+` (stacked on mobile):
   (`pickRecentFlows`) and unit-tested: takes the flows array, returns ≤3
   non-suggested flows by recency.
 - `home-assistant.tsx` renders `<RecentFlows />` in the hero branch after the
-  preset chips.
+  preset chips, gated on an empty composer.
 
 ## Error handling
 

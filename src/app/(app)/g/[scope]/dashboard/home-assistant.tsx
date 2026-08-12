@@ -24,6 +24,7 @@ import { Button } from '@/components/ui/button'
 import { Markdown } from '@/components/ui/markdown'
 import { notifyAgentsChanged } from '@/components/layout/sidebar'
 import { FirstRunGuide } from '@/components/goals/first-run-guide'
+import { RecentFlows } from './recent-flows'
 import { useAuth } from '@/hooks/use-auth'
 import { cn } from '@/lib/utils'
 import { getCachedJson } from '@/lib/client/use-cached-json'
@@ -653,8 +654,12 @@ export function HomeAssistant() {
 
       {empty ? (
         /* Hero: greeting + composer + presets, vertically centered. */
-        <div className="flex min-h-0 flex-1 items-center justify-center p-4">
-          <div className="w-full max-w-4xl">
+        <div className="flex min-h-0 flex-1 justify-center overflow-y-auto p-4">
+          {/* my-auto (not items-center on the parent): centered flex content
+              that overflows a scroll container clips above the top with no way
+              to reach it; auto margins center when there is room and degrade
+              to a scrollable top-aligned layout when there is not. */}
+          <div className="my-auto w-full max-w-4xl">
             <FirstRunGuide goalsCount={goals === null ? null : activeGoals(goals).length} />
             {/* The goal status strip and impact line used to render here.
                 Removed: the goal lens made them redundant — goals now have a
@@ -698,6 +703,9 @@ export function HomeAssistant() {
                 </button>
               ))}
             </div>
+            {/* Quick jumps back into recent flow canvases — only while the
+                composer is untouched, so a drafted message keeps the screen. */}
+            {input.trim() === '' && <RecentFlows />}
           </div>
         </div>
       ) : (

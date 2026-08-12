@@ -10,6 +10,15 @@
 
 **Spec:** `docs/superpowers/specs/2026-08-11-home-recent-flows-design.md`
 
+> **Deviation note (mid-execution, 2026-08-11):** after Task 2 landed, the user
+> asked for (a) the strip to reuse the flow-templates catalogue cards
+> (`TemplateCatalogueCard`) instead of the bespoke compact card, and (b) the
+> strip to hide once the composer has text. The catalogue card has no
+> timestamp/status-badge slot, so Task 2's `relativeTime`/`STATUS_STYLE`
+> extractions became unnecessary and were reverted (`git revert 22a884e`).
+> Task 3 as executed renders `TemplateCatalogueCard` (status as category badge,
+> pre-scoped hrefs, "Open flow" CTA) gated on `input.trim() === ''`.
+
 ## Global Constraints
 
 - Cap the strip at **3** flows (`RECENT_FLOWS_LIMIT = 3`).

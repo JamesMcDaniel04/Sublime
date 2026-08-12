@@ -7,6 +7,7 @@
 export type RecentFlowInput = {
   id: string
   name: string
+  description?: string
   status: string
   updatedAt: string
   suggested?: boolean
