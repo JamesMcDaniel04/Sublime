@@ -20,7 +20,9 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { IntegrationChip } from '@/components/integrations/integration-chip'
 import { cn } from '@/lib/utils'
-import { PRODUCT_DEPARTMENTS, type Department } from '@/lib/templates/departments'
+import { type Department } from '@/lib/templates/departments'
+import { LibraryFilterBar, departmentLabel } from '@/components/templates/library-filter-bar'
+import { ALL_FILTER, categoriesOf, matchesLibraryFilters } from '@/lib/templates/library-filters'
 import { connectedSlugSet, missingIntegrations, sortByReadiness } from '@/lib/templates/relevance'
 import { useCachedJson } from '@/lib/client/use-cached-json'
 import { TemplateCatalogueCard } from '@/components/templates/template-catalogue-card'
@@ -127,11 +129,6 @@ function accentFor(category: string) {
   return ACCENTS[hashIndex(category || 'default', ACCENTS.length)]
 }
 
-/** Display label for a department slug — 'csm' reads as an acronym, the rest title-case. */
-function deptLabel(dept: string): string {
-  return dept === 'csm' ? 'CSM' : dept.charAt(0).toUpperCase() + dept.slice(1)
-}
-
 function categoryIcon(category: string) {
   const c = (category || '').toLowerCase()
   if (c.includes('meet')) return CalendarClock
@@ -195,7 +192,11 @@ export function TemplatesExplorer() {
     () => (goalsQuery.data?.goals ?? []).filter((goal) => !goal.personal && goal.status === 'active'),
     [goalsQuery.data],
   )
-  const [dept, setDept] = useState<Department | 'all'>('all')
+  // The library filters, shared by all three grids. `dept` keeps its name so
+  // the per-card department label below still reads naturally; ALL_FILTER is
+  // the same 'all' sentinel it always used.
+  const [dept, setDept] = useState<Department | typeof ALL_FILTER>(ALL_FILTER)
+  const [category, setCategory] = useState<string>(ALL_FILTER)
   const openCreate = (kind: 'template' | 'skill') => setDialog(emptyAsset(kind))
   const openEditTemplate = (t: TemplateItem) =>
     setDialog({
@@ -301,15 +302,33 @@ export function TemplatesExplorer() {
   // from their runs, or hand-authored by their org) render in their own
   // "Your library" section. Seed (Starter catalogue) rows are pulled into
   // their own section below. Cross-org community templates are not shown.
-  const seeds = templates.filter((t) => t.seed)
-  const myTemplates = templates.filter((t) => t.mine && !t.seed)
-  const filteredSkills = skills
+  // One predicate for all three grids. Search, category, and department used to
+  // disagree: search filtered nothing, category was only a card badge, and
+  // department narrowed the Starter catalogue alone while your own templates
+  // and every skill ignored it. Now a typed word means the same thing wherever
+  // you are looking.
+  const filters = { search, category, department: dept }
+  const matches = (item: TemplateItem | SkillItem) => matchesLibraryFilters(item, filters)
 
-  // Department filter — applies only to the Starter catalogue; never hides a
-  // template outright, just narrows which seeds are shown for the chosen dept.
-  const inDept = (t: TemplateItem) => dept === 'all' || (t.departments ?? []).includes(dept)
+  // Section presence is decided by what EXISTS, not by what survives the
+  // filter, so narrowing to nothing shows this grid's empty state rather than
+  // making the whole section vanish and leaving the page looking broken.
+  const hasSeeds = templates.some((t) => t.seed)
+  const hasMyTemplates = templates.some((t) => t.mine && !t.seed)
+
+  const seeds = templates.filter((t) => t.seed && matches(t))
+  const myTemplates = templates.filter((t) => t.mine && !t.seed && matches(t))
+  const filteredSkills = skills.filter(matches)
+
+  // The Category dropdown lists what the library actually holds — across both
+  // templates and skills, so switching tabs never presents a dead option.
+  const categoryOptions = useMemo(
+    () => categoriesOf([...templates, ...skills]),
+    [templates, skills],
+  )
+
   const catalogueSeeds = sortByReadiness(
-    seeds.filter(inDept).map((t) => ({ ...t, requiredIntegrations: t.requiredIntegrations ?? [] })),
+    seeds.map((t) => ({ ...t, requiredIntegrations: t.requiredIntegrations ?? [] })),
     connected,
   )
   const cataloguePagination = paginate(catalogueSeeds, cataloguePage, PAGE_SIZE)
@@ -389,7 +408,7 @@ export function TemplatesExplorer() {
         href={`/templates/${t.id}`}
         name={t.name}
         description={t.description}
-        category={department ? deptLabel(department) : t.category}
+        category={department ? departmentLabel(department) : t.category}
         integrations={t.requiredIntegrations ?? []}
         recommendedIntegrations={t.recommendedIntegrations ?? []}
         kind={t.kind ?? 'agent'}
@@ -399,8 +418,17 @@ export function TemplatesExplorer() {
     )
   }
 
+  // Any narrowing can shorten a grid past the page you are on, which would
+  // otherwise leave you staring at an empty page-3 of a 2-page result.
+  const resetPaging = () => {
+    setCataloguePage(1)
+    setMyTemplatesPage(1)
+    setSkillsPage(1)
+  }
+
   const onSearch = (value: string) => {
     setSearch(value)
+    resetPaging()
   }
 
   // Asks the model to match the typed goal against the already-loaded catalog.
@@ -528,26 +556,17 @@ export function TemplatesExplorer() {
     <>
       <div className="max-w-6xl mx-auto p-6 space-y-6">
 
-        <div className="relative w-full">
-          <Input
-            value={search}
-            onChange={(event) => onSearch(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === 'Enter') runAiSearch()
-            }}
-            placeholder="Describe what you want to accomplish — press Enter for AI matches…"
-            className="h-11 w-full pr-28"
-          />
-          <button
-            type="button"
-            disabled={search.trim().length < 3 || aiLoading}
-            onClick={runAiSearch}
-            className="absolute right-1.5 top-1/2 flex -translate-y-1/2 items-center gap-1.5 rounded-md bg-foreground px-3 py-1.5 text-xs font-semibold text-background transition-colors hover:bg-foreground/85 disabled:pointer-events-none disabled:opacity-50"
-          >
-            <Sparkles className="h-3.5 w-3.5" />
-            {aiLoading ? 'Asking…' : 'Ask AI'}
-          </button>
-        </div>
+        <LibraryFilterBar
+          search={search}
+          onSearchChange={onSearch}
+          categories={categoryOptions}
+          category={category}
+          onCategoryChange={(value) => { setCategory(value); resetPaging() }}
+          department={dept}
+          onDepartmentChange={(value) => { setDept(value as Department | typeof ALL_FILTER); resetPaging() }}
+          onAskAi={runAiSearch}
+          askAiLoading={aiLoading}
+        />
 
         {aiResults !== null && (
           <div className="space-y-3 rounded-xl border border-indigo-200/60 bg-indigo-50/40 p-4">
@@ -632,12 +651,20 @@ export function TemplatesExplorer() {
               <Button size="sm" onClick={() => openCreate('template')}><Plus className="mr-1.5 h-4 w-4" /> Create template</Button>
             </div>
 
-            {myTemplates.length > 0 && (
+            {hasMyTemplates && (
               <section className="space-y-3">
                 <h3 className="text-sm font-semibold text-muted-foreground">Your library</h3>
+                {myTemplates.length === 0 ? (
+                  <EmptyState
+                    icon={Sparkles}
+                    title="Nothing in your library matches these filters"
+                    description="Clear the search or widen the category and department to see your own templates again."
+                  />
+                ) : (
                 <div className="stagger-children grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                   {myTemplatesPagination.pageItems.map((t) => renderTemplateCard(t))}
                 </div>
+                )}
                 <Pagination
                   page={myTemplatesPagination.page}
                   pageCount={myTemplatesPagination.pageCount}
@@ -646,48 +673,19 @@ export function TemplatesExplorer() {
               </section>
             )}
 
-            {seeds.length > 0 && (
+            {hasSeeds && (
               <section className="space-y-3">
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <div>
                     <h3 className="text-sm font-semibold text-muted-foreground">Starter catalogue</h3>
                     <p className="text-xs text-muted-foreground">Ready-to-run playbooks, sorted by what you can use right now.</p>
                   </div>
-                  <div className="flex flex-wrap gap-1.5">
-                    <button
-                      type="button"
-                      onClick={() => { setDept('all'); setCataloguePage(1) }}
-                      className={cn(
-                        'rounded-full border px-2.5 py-1 text-xs font-medium transition-colors',
-                        dept === 'all'
-                          ? 'border-indigo-300 bg-indigo-50 text-indigo-700'
-                          : 'border-border/60 bg-card text-muted-foreground hover:bg-accent hover:text-foreground',
-                      )}
-                    >
-                      All
-                    </button>
-                    {PRODUCT_DEPARTMENTS.map((d) => (
-                      <button
-                        key={d}
-                        type="button"
-                        onClick={() => { setDept(dept === d ? 'all' : d); setCataloguePage(1) }}
-                        className={cn(
-                          'rounded-full border px-2.5 py-1 text-xs font-medium transition-colors',
-                          dept === d
-                            ? 'border-indigo-300 bg-indigo-50 text-indigo-700'
-                            : 'border-border/60 bg-card text-muted-foreground hover:bg-accent hover:text-foreground',
-                        )}
-                      >
-                        {deptLabel(d)}
-                      </button>
-                    ))}
-                  </div>
                 </div>
                 {catalogueSeeds.length === 0 ? (
                   <EmptyState
                     icon={Sparkles}
-                    title="No starter templates for this department yet"
-                    description="Try a different department, or browse the full catalogue with All."
+                    title="No starter templates match these filters"
+                    description="Clear the search, or widen the category and department to browse the full catalogue."
                   />
                 ) : (
                   <div className="stagger-children grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -715,11 +713,21 @@ export function TemplatesExplorer() {
             </div>
 
             {filteredSkills.length === 0 ? (
-              <EmptyState
-                icon={Sparkles}
-                title="No skills available yet"
-                description="Skills published to your workspace appear here."
-              />
+              // Distinguishes "you filtered them all out" from "there are none":
+              // the same empty grid otherwise reads as an empty workspace.
+              skills.length === 0 ? (
+                <EmptyState
+                  icon={Sparkles}
+                  title="No skills available yet"
+                  description="Skills published to your workspace appear here."
+                />
+              ) : (
+                <EmptyState
+                  icon={Sparkles}
+                  title="No skills match these filters"
+                  description="Clear the search, or widen the category and department to see every skill."
+                />
+              )
             ) : (
               <div className="stagger-children grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                 {paginate(filteredSkills, skillsPage, PAGE_SIZE).pageItems.map((skill) => {

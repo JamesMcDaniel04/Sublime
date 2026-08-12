@@ -4,7 +4,6 @@ import { ApiError, withAuthenticatedApi } from '@/lib/server/api-handler'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { recordAudit } from '@/lib/audit'
 import { assertSeatCapacity } from '@/lib/billing/enforce'
-import { isLegacyPlatformUser } from '@/lib/billing/entitlements'
 import { assertNotLastAdmin } from '@/lib/server/last-admin'
 
 const inviteSchema = z.object({ email: z.string().email(), role: z.enum(['ADMIN', 'MEMBER']).default('MEMBER') })
@@ -16,10 +15,10 @@ export const GET = withAuthenticatedApi(async (_request, auth) => {
   ])
   return {
     success: true,
-    members: members.map((member) => ({
-      ...member,
-      role: isLegacyPlatformUser(member) ? 'ADMIN' as const : member.role,
-    })),
+    // The stored role is what we show. It used to be re-derived from createdAt
+    // here, which meant the list could display ADMIN for a row the database
+    // called MEMBER — see 20260812010000_backfill_legacy_admin_role.
+    members,
     invitations,
   }
 }, { requires: 'member' })

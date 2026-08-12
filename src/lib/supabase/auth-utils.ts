@@ -222,14 +222,13 @@ export async function getAuthWithUser() {
     user = data.user
   }
 
-  const resolvedDbUser = await ensureWorkspaceMembership(user)
-  // Every account that existed before paid-from-day-one is an unrestricted
-  // internal/test account. Normalize its role at the auth boundary so every
-  // admin-only surface (settings, integrations, flows, members) agrees even
-  // when a deployment missed the one-time role backfill.
-  const dbUser = resolvedDbUser && isLegacyPlatformUser(resolvedDbUser)
-    ? { ...resolvedDbUser, role: 'ADMIN' as const }
-    : resolvedDbUser
+  // `users.role` is authoritative. The grandfathered admin grant used to be
+  // re-derived here on every request from `createdAt <= cutoff`, which left the
+  // column disagreeing with the behaviour and made any path that can set an old
+  // createdAt (import, restore, seed) an admin-minting path. The grant is now
+  // written down once by 20260812010000_backfill_legacy_admin_role; grandfathered
+  // BILLING still derives from the organization and is unaffected.
+  const dbUser = await ensureWorkspaceMembership(user)
 
   return {
     user,
