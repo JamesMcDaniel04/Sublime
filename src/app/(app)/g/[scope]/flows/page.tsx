@@ -22,6 +22,7 @@ import { STARTER_TEMPLATES } from '@/lib/flows/starter-templates'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { TemplateCatalogueCard } from '@/components/templates/template-catalogue-card'
 import { ImportFlowDialog } from '@/components/flows/import-flow-dialog'
+import { STATUS_STYLE } from '@/components/flows/flow-status'
 import { FlowCredentialsPanel } from '@/components/flows/flow-credentials-panel'
 
 /** Cards per page on the Flows grid. */
@@ -89,12 +90,6 @@ function suggestionExplainer(readiness: LearningReadiness | null | undefined): s
     return 'Sublime has a suggestion in progress — it will appear here once the draft is ready.'
   }
   return `Sublime spotted ${plural(personal.eligiblePatterns, 'repeating pattern')} in your work and is drafting suggestions from ${personal.eligiblePatterns === 1 ? 'it' : 'them'}.`
-}
-
-const STATUS_STYLE: Record<string, string> = {
-  active: 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-300',
-  draft: 'border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-300',
-  disabled: 'border-border bg-muted text-muted-foreground',
 }
 
 type FlowsResponse = { success?: boolean; error?: string; flows?: FlowItem[]; suggestionReadiness?: SuggestionReadiness | null; unlinkedCount?: number }
