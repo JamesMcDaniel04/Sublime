@@ -26,7 +26,6 @@ import { notifyAgentsChanged } from '@/components/layout/sidebar'
 import { FirstRunGuide } from '@/components/goals/first-run-guide'
 import { useAuth } from '@/hooks/use-auth'
 import { cn } from '@/lib/utils'
-import { relativeTime } from '@/lib/client/relative-time'
 import { getCachedJson } from '@/lib/client/use-cached-json'
 import type { GoalSummary } from '@/lib/types'
 import { activeGoals, goalPresets } from '@/lib/goals/dashboard-copy'
@@ -57,6 +56,23 @@ type ChatMessage = {
 }
 
 type SessionSummary = { id: string; title: string; updatedAt: string; messageCount: number }
+
+/** Compact relative time for the history list, e.g. "just now", "2h", "3d". */
+function relativeTime(iso: string): string {
+  const then = new Date(iso).getTime()
+  if (!Number.isFinite(then)) return ''
+  const seconds = Math.max(0, Math.floor((Date.now() - then) / 1000))
+  if (seconds < 60) return 'just now'
+  const minutes = Math.floor(seconds / 60)
+  if (minutes < 60) return `${minutes}m`
+  const hours = Math.floor(minutes / 60)
+  if (hours < 24) return `${hours}h`
+  const days = Math.floor(hours / 24)
+  if (days < 7) return `${days}d`
+  const weeks = Math.floor(days / 7)
+  if (weeks < 5) return `${weeks}w`
+  return `${Math.floor(days / 30)}mo`
+}
 
 // Preset chips are limited to what the assistant can actually do: convert
 // assignments, report on runs, report on connections, and build agents.
