@@ -17,13 +17,16 @@ export const CREDENTIAL_UNAVAILABLE =
 export const CREDENTIAL_DOMAIN_BLOCKED =
   'This credential is not allowed for that request URL. Add the domain to the credential’s allowed list.'
 
-/** Credentials are always owned by the acting user, even inside a shared org. */
-export function credentialScope(organizationId: string, userId?: string) {
+/**
+ * Credentials are workspace resources: every active member of the org can
+ * list (redacted), attach, edit, and run with them. `userId`/`createdById`
+ * remain as provenance only. Legacy pre-vault rows were quarantined with
+ * `isActive: false`, so the isActive filter keeps them dead.
+ */
+export function credentialScope(organizationId: string) {
   return {
     organizationId,
     isActive: true as const,
-    // A missing actor must never fall back to legacy NULL/shared rows.
-    userId: userId ?? '__credential_actor_required__',
   }
 }
 
@@ -50,13 +53,12 @@ export type ResolvedHttpCredential = {
 export async function resolveHttpCredential(params: {
   credentialId: string
   organizationId: string
-  userId?: string
   requestUrl: string
   fetchImpl?: typeof fetch
   assertUrlAllowed?: (url: string) => Promise<void>
 }): Promise<ResolvedHttpCredential> {
   const cred = await prisma.credential.findFirst({
-    where: { id: params.credentialId, ...credentialScope(params.organizationId, params.userId) },
+    where: { id: params.credentialId, ...credentialScope(params.organizationId) },
   })
   if (!cred) throw new Error(CREDENTIAL_UNAVAILABLE)
   // Domain check BEFORE decrypt: a blocked target should never cause the secret
@@ -99,7 +101,6 @@ export async function resolveHttpCredential(params: {
 export async function resolveCredential(params: {
   credentialId: string
   organizationId: string
-  userId?: string
   requestUrl: string
 }): Promise<InjectionPlan> {
   return (await resolveHttpCredential(params)).plan

@@ -12,7 +12,8 @@ import { credentialVerificationKey, toVerification } from '@/lib/connections/ver
 
 export const runtime = 'nodejs'
 
-// GET/POST /api/credentials — the reusable credential vault.
+// GET/POST /api/credentials — the reusable credential vault, shared across
+// the workspace: any member can list, attach, edit, and delete.
 //
 // Reads are ALWAYS redacted: a secret enters through POST/PUT and leaves only
 // through the server-side resolver at fetch time. No route ever returns a
@@ -59,9 +60,18 @@ const createSchema = credentialInputSchema.extend({
 
 export const GET = withAuthenticatedApi(async (_request, auth) => {
   const rows = await prisma.credential.findMany({
-    where: credentialScope(auth.organizationId, auth.dbUser.id),
+    where: credentialScope(auth.organizationId),
     orderBy: { name: 'asc' },
-    select: { id: true, name: true, type: true, authConfig: true, allowedDomains: true, userId: true, lastUsedAt: true, updatedAt: true },
+    select: {
+      id: true,
+      name: true,
+      type: true,
+      authConfig: true,
+      allowedDomains: true,
+      lastUsedAt: true,
+      updatedAt: true,
+      user: { select: { id: true, name: true, email: true } },
+    },
   })
   const verifications = await loadVerifications(
     auth.organizationId,
@@ -74,7 +84,7 @@ export const GET = withAuthenticatedApi(async (_request, auth) => {
       name: row.name,
       type: row.type,
       allowedDomains: row.allowedDomains,
-      personal: row.userId !== null,
+      createdBy: row.user ? { id: row.user.id, name: row.user.name ?? row.user.email } : null,
       lastUsedAt: row.lastUsedAt,
       updatedAt: row.updatedAt,
       verification: toVerification(verifications.get(credentialVerificationKey(row.id))),
@@ -89,13 +99,15 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
   const allowedDomains = normalizeAllowedDomains(input.allowedDomains)
   if (!allowedDomains?.length) throw new ApiError('Allowed domains must be valid hostnames.', 400, 'INVALID_ALLOWED_DOMAINS')
 
-  // Postgres treats NULL as distinct in a unique key, so org-shared name
-  // uniqueness has to be enforced here rather than by the index.
+  // Credentials are workspace-shared, so names must be unique across the org.
+  // The [org, userId, name] unique index can't enforce that (NULLs are
+  // distinct, and rows from different creators may share a name), so it is
+  // enforced here.
   const clash = await prisma.credential.findFirst({
-    where: { organizationId: auth.organizationId, userId, name: input.name },
+    where: { organizationId: auth.organizationId, name: input.name, isActive: true },
     select: { id: true },
   })
-  if (clash) throw new ApiError('A credential with that name already exists.', 409, 'DUPLICATE_NAME')
+  if (clash) throw new ApiError('A credential with that name already exists in this workspace.', 409, 'DUPLICATE_NAME')
 
   const row = await prisma.credential.create({
     data: {
@@ -107,7 +119,7 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
       allowedDomains,
       createdById: auth.dbUser.id,
     },
-    select: { id: true, name: true, type: true, authConfig: true, allowedDomains: true, userId: true },
+    select: { id: true, name: true, type: true, authConfig: true, allowedDomains: true },
   })
   await recordAudit({
     organizationId: auth.organizationId,
@@ -125,7 +137,6 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
       name: row.name,
       type: row.type,
       allowedDomains: row.allowedDomains,
-      personal: row.userId !== null,
       config: redactCredential(row.type, row.authConfig),
     },
   }

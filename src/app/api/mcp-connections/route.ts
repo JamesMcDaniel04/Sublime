@@ -110,10 +110,10 @@ export const GET = withAuthenticatedApi(async (_request, auth) => {
  * id travels in a request body, and an unchecked one would let a connection
  * point at another tenant's secret.
  */
-async function assertOwnedCredential(credentialId: string | undefined, organizationId: string, userId: string) {
+async function assertOwnedCredential(credentialId: string | undefined, organizationId: string) {
   if (!credentialId) return
   const owned = await prisma.credential.findFirst({
-    where: { id: credentialId, ...credentialScope(organizationId, userId) },
+    where: { id: credentialId, ...credentialScope(organizationId) },
     select: { id: true },
   })
   if (!owned) throw new ApiError('That credential is not available to this workspace.', 404, 'NOT_FOUND')

@@ -24,10 +24,10 @@ const updateSchema = credentialInputSchema.partial({ type: true }).extend({
 })
 
 /** In-scope row or 404 — never confirm a cross-org id exists. */
-async function ownedCredential(id: string, organizationId: string, userId: string) {
+async function ownedCredential(id: string, organizationId: string) {
   const row = await prisma.credential.findFirst({
-    where: { id, ...credentialScope(organizationId, userId) },
-    select: { id: true, name: true, type: true, authConfig: true, allowedDomains: true, userId: true, lastUsedAt: true, updatedAt: true },
+    where: { id, ...credentialScope(organizationId) },
+    select: { id: true, name: true, type: true, authConfig: true, allowedDomains: true, lastUsedAt: true, updatedAt: true },
   })
   if (!row) throw new ApiError('Credential not found', 404, 'NOT_FOUND')
   return row
@@ -39,26 +39,24 @@ const shape = (row: {
   type: string
   authConfig: unknown
   allowedDomains: string[]
-  userId: string | null
 }) => ({
   id: row.id,
   name: row.name,
   type: row.type,
   allowedDomains: row.allowedDomains,
-  personal: row.userId !== null,
   config: redactCredential(row.type, row.authConfig),
 })
 
 export const GET = withAuthenticatedApi(async (request, auth) => {
   const id = idFrom(request.nextUrl.pathname)
   if (!id) throw new ApiError('Credential id is required')
-  return { success: true, credential: shape(await ownedCredential(id, auth.organizationId, auth.dbUser.id)) }
+  return { success: true, credential: shape(await ownedCredential(id, auth.organizationId)) }
 }, { requires: 'member' })
 
 export const PUT = withAuthenticatedApi(async (request, auth) => {
   const id = idFrom(request.nextUrl.pathname)
   if (!id) throw new ApiError('Credential id is required')
-  const existing = await ownedCredential(id, auth.organizationId, auth.dbUser.id)
+  const existing = await ownedCredential(id, auth.organizationId)
   const input = updateSchema.parse(await request.json().catch(() => ({})))
   const allowedDomains = input.allowedDomains ? normalizeAllowedDomains(input.allowedDomains) : undefined
   if (input.allowedDomains && !allowedDomains?.length) throw new ApiError('Allowed domains must be valid hostnames.', 400, 'INVALID_ALLOWED_DOMAINS')
@@ -76,10 +74,10 @@ export const PUT = withAuthenticatedApi(async (request, auth) => {
 
   if (input.name && input.name !== existing.name) {
     const clash = await prisma.credential.findFirst({
-      where: { organizationId: auth.organizationId, userId: auth.dbUser.id, name: input.name, id: { not: id } },
+      where: { organizationId: auth.organizationId, name: input.name, isActive: true, id: { not: id } },
       select: { id: true },
     })
-    if (clash) throw new ApiError('A credential with that name already exists.', 409, 'DUPLICATE_NAME')
+    if (clash) throw new ApiError('A credential with that name already exists in this workspace.', 409, 'DUPLICATE_NAME')
   }
 
   await prisma.credential.updateMany({
@@ -102,13 +100,13 @@ export const PUT = withAuthenticatedApi(async (request, auth) => {
     resourceId: id,
     detail: { name: input.name ?? existing.name, type },
   })
-  return { success: true, credential: shape(await ownedCredential(id, auth.organizationId, auth.dbUser.id)) }
+  return { success: true, credential: shape(await ownedCredential(id, auth.organizationId)) }
 }, { requires: 'member' })
 
 export const DELETE = withAuthenticatedApi(async (request, auth) => {
   const id = idFrom(request.nextUrl.pathname)
   if (!id) throw new ApiError('Credential id is required')
-  const existing = await ownedCredential(id, auth.organizationId, auth.dbUser.id)
+  const existing = await ownedCredential(id, auth.organizationId)
   await prisma.credential.deleteMany({ where: { id, organizationId: auth.organizationId } })
   invalidateOAuth2Token(id)
   await recordAudit({

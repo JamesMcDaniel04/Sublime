@@ -48,7 +48,6 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
     const resolved = await resolveHttpCredential({
       credentialId,
       organizationId: auth.organizationId,
-      userId: auth.dbUser.id,
       requestUrl: prepared.url,
       assertUrlAllowed: assertPublicUrl,
     })
