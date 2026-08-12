@@ -634,3 +634,34 @@ test('nodeLabel never renders as undefined for unknown ops or node types', () =>
     assert.ok(label.length > 0)
   }
 })
+
+test('a deactivated step suppresses its config errors — except inline secrets', async () => {
+  const { validateFlowGraph } = await import('../validate')
+  const graph = {
+    nodes: [
+      { id: 'trigger', type: 'trigger' as const, data: { trigger: { type: 'manual' } } },
+      // Half-configured but deactivated: must not block publish (n8n parity).
+      { id: 'off', type: 'tool' as const, data: { label: 'Off tool', connectionId: '', toolName: '', disabled: true } },
+      { id: 'ok', type: 'http' as const, data: { label: 'Live', method: 'GET' as const, url: 'https://api/x' } },
+    ],
+    edges: [
+      { id: 'e0', source: 'trigger', target: 'off' },
+      { id: 'e1', source: 'off', target: 'ok' },
+    ],
+  }
+  const result = validateFlowGraph(graph)
+  assert.equal(result.errors.some((issue) => issue.nodeId === 'off'), false, 'deactivated step raised errors')
+
+  // …but a literal inline secret is a leak in the stored graph whether or not
+  // the step runs — still a hard error.
+  const leaky = {
+    ...graph,
+    nodes: graph.nodes.map((node) =>
+      node.id === 'off'
+        ? { id: 'off', type: 'http' as const, data: { method: 'GET' as const, url: 'https://api/x', auth: { type: 'bearer' as const, token: 'sk_live_abc' }, disabled: true } }
+        : node,
+    ),
+  }
+  const leakyResult = validateFlowGraph(leaky)
+  assert.equal(leakyResult.errors.some((issue) => issue.code === 'INLINE_AUTH_SECRET' && issue.nodeId === 'off'), true)
+})

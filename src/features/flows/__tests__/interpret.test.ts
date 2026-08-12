@@ -1429,3 +1429,112 @@ test('disabled and mocked action nodes do not invoke their adapters', async () =
   assert.equal(calls, 0)
   assert.deepEqual(result.output, { ok: true })
 })
+
+// ── Deactivation across every node kind (feature: per-node activate/deactivate) ──
+
+test('a disabled mid-chain node is skipped and passes its single parent output through', async () => {
+  const graph: FlowGraph = {
+    nodes: [
+      { id: 'trigger', type: 'trigger', data: {} },
+      { id: 'a', type: 'agent', data: { agentId: 'a1', input: 'x' } },
+      { id: 'off', type: 'transform', data: { label: 'Off', fields: [{ name: 'y', value: 'ignored' }], disabled: true } },
+      { id: 'b', type: 'agent', data: { agentId: 'a2', input: 'saw {{step.off.output}}' } },
+    ],
+    edges: [
+      { id: 'e0', source: 'trigger', target: 'a' },
+      { id: 'e1', source: 'a', target: 'off' },
+      { id: 'e2', source: 'off', target: 'b' },
+    ],
+  }
+  const result = await interpretFlow(graph, 'in', { runAgent: stub({ a1: 'ONE' }) })
+  assert.equal(result.status, 'succeeded')
+  const offStep = result.steps.find((s) => s.nodeId === 'off')
+  assert.equal(offStep?.status, 'skipped')
+  // Pass-through: downstream {{step.off.output}} resolves to the parent's output.
+  assert.equal(result.output, 'ran:saw ONE')
+})
+
+test('a disabled condition routes its true branch; a disabled switch routes default', async () => {
+  const graph: FlowGraph = {
+    nodes: [
+      { id: 'trigger', type: 'trigger', data: {} },
+      { id: 'gate', type: 'condition', data: { left: '1', op: 'eq', right: '2', disabled: true } },
+      { id: 'yes', type: 'agent', data: { agentId: 'y', input: 'yes' } },
+      { id: 'no', type: 'agent', data: { agentId: 'n', input: 'no' } },
+      { id: 'route', type: 'switch', data: { cases: [{ id: 'c1', left: 'a', op: 'eq', right: 'a' }], disabled: true } },
+      { id: 'cased', type: 'agent', data: { agentId: 'c', input: 'case' } },
+      { id: 'fallback', type: 'agent', data: { agentId: 'f', input: 'fallback' } },
+    ],
+    edges: [
+      { id: 'e0', source: 'trigger', target: 'gate' },
+      { id: 'e1', source: 'gate', target: 'yes', branch: 'true' },
+      { id: 'e2', source: 'gate', target: 'no', branch: 'false' },
+      { id: 'e3', source: 'yes', target: 'route' },
+      { id: 'e4', source: 'route', target: 'cased', branch: 'c1' },
+      { id: 'e5', source: 'route', target: 'fallback', branch: 'default' },
+    ],
+  }
+  const ran: string[] = []
+  const runAgent: RunAgentFn = async (node) => { ran.push(node.agentId); return { output: node.input } }
+  const result = await interpretFlow(graph, 'in', { runAgent })
+  assert.equal(result.status, 'succeeded')
+  // Condition disabled → 'true' branch: y runs, n pruned. Switch disabled →
+  // 'default': f runs, c pruned — even though its case would have matched.
+  assert.deepEqual(ran.sort(), ['f', 'y'])
+})
+
+test('a disabled container skips its entire body', async () => {
+  const graph: FlowGraph = {
+    nodes: [
+      { id: 'trigger', type: 'trigger', data: {} },
+      { id: 'loop', type: 'loop', data: { over: '{{trigger.input}}', body: ['inner'], disabled: true } },
+      { id: 'inner', type: 'agent', data: { agentId: 'i', input: '{{item}}' } },
+      { id: 'after', type: 'agent', data: { agentId: 'z', input: 'done' } },
+    ],
+    edges: [
+      { id: 'e0', source: 'trigger', target: 'loop' },
+      { id: 'e1', source: 'loop', target: 'after' },
+    ],
+  }
+  const ran: string[] = []
+  const runAgent: RunAgentFn = async (node) => { ran.push(node.agentId); return { output: node.input } }
+  const result = await interpretFlow(graph, ['a', 'b'], { runAgent })
+  assert.equal(result.status, 'succeeded')
+  assert.deepEqual(ran, ['z'], 'loop body must not run; downstream continues')
+  assert.equal(result.steps.find((s) => s.nodeId === 'loop')?.status, 'skipped')
+})
+
+test('a disabled stop node does not stop the flow', async () => {
+  const graph: FlowGraph = {
+    nodes: [
+      { id: 'trigger', type: 'trigger', data: {} },
+      { id: 'halt', type: 'stop', data: { reason: 'nope', disabled: true } },
+      { id: 'after', type: 'agent', data: { agentId: 'z', input: 'alive' } },
+    ],
+    edges: [
+      { id: 'e0', source: 'trigger', target: 'halt' },
+      { id: 'e1', source: 'halt', target: 'after' },
+    ],
+  }
+  const result = await interpretFlow(graph, 'in', { runAgent: stub({}) })
+  assert.equal(result.status, 'succeeded')
+  assert.equal(result.output, 'ran:alive')
+})
+
+test('mockOutput wins over pass-through on a disabled node', async () => {
+  const graph: FlowGraph = {
+    nodes: [
+      { id: 'trigger', type: 'trigger', data: {} },
+      { id: 'a', type: 'agent', data: { agentId: 'a1', input: 'x' } },
+      { id: 'off', type: 'http', data: { method: 'GET', url: 'https://api/x', disabled: true, mockOutput: 'MOCKED' } },
+      { id: 'b', type: 'agent', data: { agentId: 'a2', input: 'saw {{step.off.output}}' } },
+    ],
+    edges: [
+      { id: 'e0', source: 'trigger', target: 'a' },
+      { id: 'e1', source: 'a', target: 'off' },
+      { id: 'e2', source: 'off', target: 'b' },
+    ],
+  }
+  const result = await interpretFlow(graph, 'in', { runAgent: stub({ a1: 'ONE' }) })
+  assert.equal(result.output, 'ran:saw MOCKED')
+})

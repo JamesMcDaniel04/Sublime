@@ -382,3 +382,34 @@ test('exported branched workflow round-trips through the importer with branches 
   const sw = reimported.graph.nodes.find((node) => node.type === 'switch')!
   assert.equal((sw.data as { cases: unknown[] }).cases.length, 2)
 })
+
+test('deactivation round-trips through the n8n target', async () => {
+  const withDisabled: FlowGraph = {
+    nodes: [
+      { id: 'trigger', type: 'trigger', data: { trigger: { type: 'webhook' } } },
+      { id: 'off', type: 'http', data: { label: 'Off call', method: 'GET', url: 'https://api/x', disabled: true } },
+      { id: 'gate', type: 'condition', data: { label: 'Gate', left: 'a', op: 'eq', right: 'a', disabled: true } },
+      { id: 'on', type: 'http', data: { label: 'On call', method: 'GET', url: 'https://api/y' } },
+    ],
+    edges: [
+      { id: 'e0', source: 'trigger', target: 'off' },
+      { id: 'e1', source: 'off', target: 'gate' },
+      { id: 'e2', source: 'gate', target: 'on', branch: 'true' },
+    ],
+  }
+  const workflow = toN8nWorkflow(toPortableFlow({ ...flow, graph: withDisabled }, [], AT))
+  const byName = new Map(workflow.nodes.map((node) => [node.name, node]))
+  assert.equal((byName.get('Off call') as { disabled?: boolean }).disabled, true)
+  assert.equal((byName.get('Gate') as { disabled?: boolean }).disabled, true)
+  assert.equal((byName.get('On call') as { disabled?: boolean }).disabled, undefined)
+
+  const { fromN8nWorkflow } = await import('@/lib/import/n8n')
+  const reimported = fromN8nWorkflow(JSON.parse(JSON.stringify(workflow)))
+  const nodes = reimported.graph.nodes
+  const httpOff = nodes.find((node) => node.type === 'http' && (node.data as { label?: string }).label === 'Off call')
+  const gate = nodes.find((node) => node.type === 'condition')
+  const httpOn = nodes.find((node) => node.type === 'http' && (node.data as { label?: string }).label === 'On call')
+  assert.equal((httpOff?.data as { disabled?: boolean }).disabled, true)
+  assert.equal((gate?.data as { disabled?: boolean }).disabled, true, 'disabled now imports on condition nodes too')
+  assert.equal((httpOn?.data as { disabled?: boolean }).disabled, undefined)
+})
