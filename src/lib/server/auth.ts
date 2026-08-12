@@ -13,9 +13,10 @@ export interface AuthContext {
   userId: string
   organizationId: string
   /**
-   * Effective workspace role. auth-utils.ts normalizes legacy platform users
-   * to ADMIN at the auth boundary, so this is already the effective value —
-   * never re-derive it downstream.
+   * Stored workspace role. This used to be re-derived from createdAt at the
+   * auth boundary; the grandfathered grant is now written to the column itself
+   * (20260812010000_backfill_legacy_admin_role), so the database is the only
+   * source. Never re-derive it downstream.
    */
   role: UserRole
   isAdmin: boolean
@@ -110,6 +111,17 @@ export async function requireAuthContext(): Promise<AuthContext> {
     role,
     isAdmin: role === 'ADMIN',
     plan,
-    actor: { userId: auth.userId, role, plan },
+    actor: {
+      userId: auth.userId,
+      role,
+      plan,
+      // The platform axis. Both halves are read from the request's own rows, so
+      // the tier is re-evaluated every request rather than cached anywhere: a
+      // revoked role or a workspace move takes effect immediately.
+      platformRole: auth.dbUser.platformRole,
+      orgKind: organization?.kind ?? null,
+      // Identity root for the owner grant — the DB columns above can be wrong.
+      email: auth.dbUser.email,
+    },
   }
 }

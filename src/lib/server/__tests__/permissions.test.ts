@@ -23,6 +23,10 @@ const actor = (role: UserRole, plan: Plan): Actor => ({ userId: 'u1', role, plan
  */
 function expected(role: UserRole, plan: Plan, capability: Capability): boolean {
   if (capability === 'goal:read:all') return TEAM_PLANS.includes(plan)
+  // The platform tier is off the workspace axes entirely: no role and no plan
+  // reaches it, so every actor in this matrix — which carries neither a
+  // platformRole nor an org kind — must be denied it.
+  if (capability === 'platform:administer') return false
   return role === 'ADMIN'
 }
 
@@ -42,7 +46,7 @@ test('can() over the full role x plan x capability matrix', () => {
   }
   // Guards against the matrix silently shrinking if CAPABILITIES loses an entry.
   assert.equal(checked, ROLES.length * PLANS.length * CAPABILITIES.length)
-  assert.equal(CAPABILITIES.length, 8)
+  assert.equal(CAPABILITIES.length, 9)
 })
 
 test('restricting a goal is admin-only and not plan-gated', () => {

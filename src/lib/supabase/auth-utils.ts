@@ -1,7 +1,6 @@
 import type { User } from '@supabase/supabase-js'
 import { prisma, systemPrisma } from '@/lib/prisma'
 import { createClient } from '@/lib/supabase/server'
-import { isLegacyPlatformUser } from '@/lib/billing/entitlements'
 
 // An auth identity resolves to a user either directly (users.supabaseId, the
 // first identity) or via a linked user_identities row (any later sign-in

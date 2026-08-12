@@ -13,14 +13,11 @@ export type EntitlementOrganization = {
   grandfatheredAt?: Date | null
 }
 
-export type LegacyPlatformUser = {
-  createdAt: Date
-}
-
-/** Existing test identities are super admins; later invitees are not. */
-export function isLegacyPlatformUser(user: LegacyPlatformUser | null | undefined): boolean {
-  return Boolean(user && user.createdAt.getTime() <= GRANDFATHERED_WORKSPACE_CUTOFF.getTime())
-}
+// isLegacyPlatformUser used to live here: it read a user's createdAt against the
+// cutoff and every caller treated the result as "this person is an ADMIN". The
+// grant is now a written-down role (20260812010000_backfill_legacy_admin_role),
+// so authorization never derives from a timestamp again. The cutoff below still
+// governs BILLING, which is what it was always meant for.
 
 export function isGrandfatheredOrganization(
   organization: EntitlementOrganization | null | undefined,

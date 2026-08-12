@@ -20,6 +20,8 @@
 
 import type { Plan, UserRole } from '@/generated/prisma/client'
 import { capabilitiesForPlan } from '@/lib/billing/capabilities'
+import { isPlatformOwnerEmail } from './platform-owner'
+import { isPlatformOperator } from './platform-roles'
 
 /**
  * The closed set of privileged actions. Closed on purpose: a typo or an
@@ -50,6 +52,12 @@ export type Capability =
    * makes adding the distinction cheap.
    */
   | 'goal:restrict'
+  /**
+   * Operate the PLATFORM, across every tenant: cross-org spend, the user
+   * console, account actions. Granted by the platform axis alone — never by
+   * UserRole, never by plan — see platform-roles.ts.
+   */
+  | 'platform:administer'
 
 export const CAPABILITIES: readonly Capability[] = [
   'goal:create:org',
@@ -60,6 +68,7 @@ export const CAPABILITIES: readonly Capability[] = [
   'resource:takeover',
   'settings:workspace',
   'goal:restrict',
+  'platform:administer',
 ] as const
 
 /**
@@ -67,17 +76,27 @@ export const CAPABILITIES: readonly Capability[] = [
  * construct an actor literally and callers can't accidentally depend on
  * unrelated user fields.
  *
- * `role` is the EFFECTIVE role: auth-utils.ts normalizes legacy platform users
- * to ADMIN at the auth boundary, and this module deliberately does not
- * re-derive that (doing so would drop legacy super-admins).
+ * `role` is the stored workspace role. It used to be re-derived from createdAt
+ * at the auth boundary; that grant is now written to the column itself, so what
+ * the database says is what applies.
  *
  * `plan` is the EFFECTIVE plan from entitlementPlanFor(), not organization.plan,
  * so grandfathered workspaces keep what they were promised.
+ *
+ * The platform fields are OPTIONAL, and their absence means "no platform
+ * standing". That default is what makes every existing caller and test — all of
+ * which construct an actor without them — continue to mean exactly what it did.
  */
 export type Actor = {
   userId: string
   role: UserRole
   plan: Plan
+  /** `users.platformRole`; null/absent for everyone outside the platform team. */
+  platformRole?: string | null
+  /** `organizations.kind` for the workspace this request is scoped to. */
+  orgKind?: string | null
+  /** Identity root for the owner grant. See platform-owner.ts. */
+  email?: string | null
 }
 
 /** Capabilities that require a plan entitlement regardless of role. */
@@ -106,11 +125,28 @@ const ADMIN_ONLY: ReadonlySet<Capability> = new Set<Capability>([
  * the Team plan gets it; an admin on Individual does not.
  */
 export function can(actor: Actor, capability: Capability): boolean {
+  // The platform axis answers only its own capability, and answers it alone:
+  // no workspace ADMIN and no plan can reach it, and holding it grants nothing
+  // else. Checked first because neither of the two rules below applies to it.
+  if (capability === 'platform:administer') return hasPlatformTier(actor)
+
   // Plan first — see the module header. Reordering these two lines would let
   // an admin bypass billing, so the order is load-bearing and covered by a test.
   if (!planAllows(actor.plan, capability)) return false
   if (ADMIN_ONLY.has(capability)) return actor.role === 'ADMIN'
   return true
+}
+
+/**
+ * The platform tier: the owner by identity, everyone else by the person-and-
+ * workspace union in platform-roles.ts.
+ *
+ * The owner branch exists so the tier survives its own database being wrong —
+ * a cleared column or a bad migration must not lock the platform's owners out
+ * of the console they would need to fix it.
+ */
+function hasPlatformTier(actor: Actor): boolean {
+  return isPlatformOwnerEmail(actor.email) || isPlatformOperator(actor.platformRole, actor.orgKind)
 }
 
 /** Convenience for the common branch. Kept here so 'ADMIN' has one home. */
@@ -146,8 +182,14 @@ export function canManageBillingByRole(role: UserRole): boolean {
  * is a support ticket.
  *
  * Returns null when the capability is granted.
+ *
+ * A denied platform capability reports 'role': it is not something a workspace
+ * can buy, so telling anyone to upgrade would be false. Callers that surface
+ * this to a customer should say nothing more specific than "not available" —
+ * confirming the platform console exists is itself a disclosure.
  */
 export function denialReason(actor: Actor, capability: Capability): 'plan' | 'role' | null {
+  if (capability === 'platform:administer') return hasPlatformTier(actor) ? null : 'role'
   if (!planAllows(actor.plan, capability)) return 'plan'
   if (ADMIN_ONLY.has(capability) && actor.role !== 'ADMIN') return 'role'
   return null

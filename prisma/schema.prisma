@@ -11,6 +11,12 @@ model Organization {
   id                   String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   name                 String
   slug                 String    @unique
+  /// What this workspace IS to us: 'internal' | 'partner' | 'customer'.
+  /// Half of the platform-tier grant — an operator only holds the tier while
+  /// they are in an internal workspace, so moving them revokes it with no flag
+  /// to clear. Defaults to 'customer', which is the safe answer for every row
+  /// that already exists. See src/lib/server/platform-roles.ts.
+  kind                 String    @default("customer")
   // Workspace avatar shown in the org switcher — a small data URL (client
   // resizes to 128px before upload) so no external storage is required.
   logoUrl              String?
@@ -97,6 +103,10 @@ model User {
   name                  String?
   imageUrl              String?
   role                  UserRole  @default(MEMBER)
+  /// Platform tier, spanning workspaces: null | 'staff' | 'operator'. Separate
+  /// from `role`, which is org-scoped — see src/lib/server/platform-roles.ts.
+  /// Only meaningful together with the organization's `kind`.
+  platformRole          String?
   organizationId        String?   @db.Uuid
   isActive              Boolean   @default(true)
   lastSeenAt            DateTime? @db.Timestamptz(6)
@@ -954,6 +964,9 @@ model FlowRun {
   observations FlowLearningObservation[]
 
   @@index([flowId, startedAt])
+  // Workspace-wide execution log (GET /api/flows/runs): newest runs for one
+  // tenant without scanning every flow's history.
+  @@index([organizationId, startedAt])
   @@index([status, wakeAt])
   @@index([status, queuedAt])
   @@index([status, leaseExpiresAt])

@@ -104,6 +104,26 @@ export function flowRunVisibilityScope(userId: string, flowOwnerId: string | nul
     : { userId }
 }
 
+/**
+ * The same invariant expressed WITHOUT a known flow, for the workspace-wide run
+ * history (`GET /api/flows/runs`), which spans flows the caller may not own.
+ *
+ * Widening across flows must not widen across people: a run is still yours to
+ * see only if you started it. The second branch is the ownerless fallback from
+ * flowRunVisibilityScope, re-expressed as a relation filter so a legacy/system
+ * run surfaces to the flow's owner and to nobody else.
+ *
+ * Combine with `organizationId` at the call site, as ever.
+ */
+export function workspaceFlowRunScope(userId: string) {
+  return {
+    OR: [
+      { userId },
+      { userId: null, flow: { userId } },
+    ],
+  }
+}
+
 // NOTE: the old `agentVisibilityScope` / `flowVisibilityScope` helpers are gone.
 // They were ambiguous — `agentVisibilityScope` was even used as the owner guard
 // on flow publish/delete/trigger-secret — and a single "visibility" rule cannot
