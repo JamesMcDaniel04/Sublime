@@ -42,6 +42,9 @@ export function serializeFlow(flow: {
     // you" rail on the flows list page.
     suggested: metadata.suggested === true,
     errorFlowId: typeof metadata.errorFlowId === 'string' ? metadata.errorFlowId : null,
+    // Imported-credential bulk bind (persisted at import time): the builder
+    // surfaces groups whose member steps still lack a credential.
+    importedCredentialGroups: Array.isArray(metadata.importedCredentialGroups) ? metadata.importedCredentialGroups : [],
     stepCount,
     version: flow.version ?? 1,
     published,

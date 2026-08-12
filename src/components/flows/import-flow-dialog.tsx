@@ -36,7 +36,7 @@ type ImportReport = {
  * real header/query names, never secret values. Built conditionally so an
  * absent suggestion can't override the picker's hostname-derived defaults.
  */
-function groupDraftSeed(group: CredentialGroup): Partial<CredentialDraft> | undefined {
+export function groupDraftSeed(group: CredentialGroup): Partial<CredentialDraft> | undefined {
   const seed: Partial<CredentialDraft> = {}
   if (group.sourceDisplayName) seed.name = `${group.sourceDisplayName} (imported)`
   if (group.suggestedHeaderName) seed.headerName = group.suggestedHeaderName

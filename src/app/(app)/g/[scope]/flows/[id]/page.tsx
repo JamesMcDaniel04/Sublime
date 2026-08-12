@@ -56,6 +56,8 @@ import type { ReactFlowInstance } from '@xyflow/react'
 import { JamButton } from '@/components/flows/jam-button'
 import type { StepStatus } from '@/components/flows/step-card'
 import { SuggestedImprovementBanner } from '@/components/intelligence/suggested-improvement-banner'
+import { ImportedCredentialGroupsBanner } from '@/components/flows/imported-credential-groups-banner'
+import type { CredentialGroup } from '@/lib/import/types'
 import { getCachedJson, invalidateCachedJson } from '@/lib/client/use-cached-json'
 import { useRunEvents } from '@/lib/client/use-run-events'
 
@@ -324,6 +326,8 @@ function FlowBuilder() {
   const [visibility, setVisibility] = useState<string>('private')
   const [errorFlowId, setErrorFlowId] = useState('')
   const [improvementSuggestions, setImprovementSuggestions] = useState<{ id: string; title: string; content: string }[]>([])
+  // Imported-credential bulk bind (persisted at import; see the banner component).
+  const [importedCredentialGroups, setImportedCredentialGroups] = useState<CredentialGroup[]>([])
   const [dismissingSuggestionId, setDismissingSuggestionId] = useState<string | null>(null)
   // Optimistic-concurrency base: the flow's updatedAt as of load/last save.
   const baseUpdatedAtRef = useRef<string | undefined>(undefined)
@@ -511,6 +515,7 @@ function FlowBuilder() {
         setVisibility(typeof flow.visibility === 'string' ? flow.visibility : 'private')
         const loadedErrorFlowId = typeof flow.errorFlowId === 'string' ? flow.errorFlowId : ''
         setErrorFlowId(loadedErrorFlowId)
+        setImportedCredentialGroups(Array.isArray(flow.importedCredentialGroups) ? flow.importedCredentialGroups : [])
         setAvailableFlows(flowsData.flows.map((entry: { id: string; name: string; published?: boolean }) => ({ id: entry.id, name: entry.name, published: Boolean(entry.published) })))
         setSavedSnapshot(JSON.stringify({ name: flow.name, description: flow.description || '', graph: g, errorFlowId: loadedErrorFlowId }))
         baseUpdatedAtRef.current = flow.updatedAt
@@ -1820,6 +1825,28 @@ function FlowBuilder() {
             dismissingId={dismissingSuggestionId}
           />
         </div>
+      )}
+
+      {!viewingVersion && importedCredentialGroups.length > 0 && (
+        <ImportedCredentialGroupsBanner
+          groups={importedCredentialGroups}
+          graph={graph}
+          onBind={(group, credentialId, credentialType) => {
+            // Local graph mutation: the bind rides the builder's normal save,
+            // undo, and Jam machinery instead of a bypassing direct PUT.
+            const members = new Set(group.nodeIds)
+            commitGraph({
+              ...graph,
+              nodes: graph.nodes.map((node) =>
+                members.has(node.id) && node.type === 'http'
+                  ? ({ ...node, data: { ...node.data, authMode: 'generic', credentialType, credentialId } } as FlowNode)
+                  : node,
+              ),
+            })
+            const count = graph.nodes.filter((node) => members.has(node.id) && node.type === 'http').length
+            toast.success(`Credential attached to ${count} step${count === 1 ? '' : 's'} — save the flow to apply.`)
+          }}
+        />
       )}
 
       {viewingVersion && (
