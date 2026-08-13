@@ -41,6 +41,7 @@ import {
 } from './side-effect-ledger'
 import { assertLiteralOriginForConnectionAuth, resolveHttpConnectionToken } from './http-auth'
 import { resolveHttpCredential } from '@/lib/credentials/resolve'
+import { resolveHttpAuthRef } from '@/lib/flows/http-auth-ref'
 import { applyCredentialPlan } from '@/lib/credentials/apply'
 import { shouldPersistInterpreterStep } from './run-step-persistence'
 import { prepareToolArgs } from './tool-args'
@@ -1002,14 +1003,14 @@ export async function runFlowExecution(
       // it as the Authorization header — unless the user set their own, which
       // wins. The token lives only in the outbound request, never in the
       // persisted step input/output or logs.
-      const httpConnectionId = typeof node.config.connectionId === 'string' ? node.config.connectionId.trim() : ''
-      const httpCredentialId = typeof node.config.credentialId === 'string' ? node.config.credentialId.trim() : ''
-      const httpAuthMode = typeof node.config.authMode === 'string' ? node.config.authMode : undefined
-      // A vault credential wins over a predefined connection only when the node
-      // explicitly says so; otherwise infer from whichever field is populated,
-      // preserving every pre-vault graph's behaviour.
-      const useGeneric = httpAuthMode === 'generic' || (!httpAuthMode && !httpConnectionId && Boolean(httpCredentialId))
-      if (httpAuthMode !== 'none' && useGeneric && httpCredentialId) {
+      // Which stored credential authenticates this request. Shared with the
+      // credentials inventory and the audit row below (http-auth-ref.ts) so
+      // all three agree by construction.
+      const httpAuthRef = resolveHttpAuthRef(node.config)
+      const httpConnectionId = httpAuthRef.kind === 'connection' ? httpAuthRef.connectionId : ''
+      const httpCredentialId = httpAuthRef.kind === 'credential' ? httpAuthRef.credentialId : ''
+      const useGeneric = httpAuthRef.kind === 'credential'
+      if (useGeneric && httpCredentialId) {
         const resolvedCredential = await resolveHttpCredential({
           credentialId: httpCredentialId,
           organizationId: job.organizationId,
@@ -1023,7 +1024,7 @@ export async function runFlowExecution(
         // Names only — so an off-origin redirect can strip exactly what the
         // credential added, whatever header it chose to use.
         request.credentialHeaders = Object.keys(resolvedCredential.plan.headers ?? {})
-      } else if (httpAuthMode !== 'none' && httpConnectionId) {
+      } else if (httpConnectionId) {
         // The token goes wherever the URL points, so the origin must be
         // author-written — templated hosts would let upstream data (webhook
         // payloads, LLM output) steer the token to an arbitrary public host.
@@ -1159,6 +1160,16 @@ export async function runFlowExecution(
         tool: `${httpMethod} ${request.url}`,
         resourceType: 'http',
         payload: redactHttpStepInput(node.config),
+        // WHICH stored credential authenticated the call. Without this, "rotate
+        // this key, now show me everything it touched" is answerable only from
+        // the current graph — it cannot be answered for a flow that has since
+        // been edited, which is exactly when the question gets asked. An id,
+        // never a secret.
+        detail: {
+          ...(httpAuthRef.kind === 'credential' ? { credentialId: httpAuthRef.credentialId } : {}),
+          ...(httpAuthRef.kind === 'connection' ? { connectionId: httpAuthRef.connectionId } : {}),
+          authenticated: httpAuthRef.kind !== 'none',
+        },
       })
       await finish({ status: 'succeeded', output })
       return { output }

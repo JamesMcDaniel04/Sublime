@@ -23,6 +23,7 @@ import { decryptSecret, encryptSecret } from '@/lib/crypto/secrets'
 import { exchangeCode, safeReturnToPath } from '@/lib/mcp/oauth-authcode'
 import { scanConnection } from '@/lib/intelligence/connection-scan'
 import { recordUserEvent } from '@/lib/behavior/record-event'
+import { recordConnectionAudit } from '@/lib/connections/audit'
 import { OAUTH_COOKIE } from '../cookie'
 
 interface OAuthCookiePayload {
@@ -37,6 +38,8 @@ interface OAuthCookiePayload {
   connectionId?: string
   returnTo?: string
   userId?: string
+  /** Scope requested at consent; set by the start route for the audit row. */
+  scope?: string
 }
 
 function redirect(request: NextRequest, query: string, clearCookie = false) {
@@ -127,6 +130,20 @@ export async function GET(request: NextRequest) {
         context: { provider: created.name },
       })
     }
+
+    // An authcode grant is the highest-value event on the MCP plane: it lands
+    // a live access+refresh token pair. Audited before the redirect so a
+    // failed scan or a closed tab cannot lose the record.
+    await recordConnectionAudit({
+      organizationId: payload.organizationId,
+      actorUserId: payload.userId ?? null,
+      action: 'connection.granted',
+      plane: 'mcp',
+      provider: payload.name,
+      connectionId: connectionRef,
+      scopes: payload.scope ? payload.scope.split(/[\s,]+/).filter(Boolean) : null,
+      extra: { serverUrl: payload.serverUrl, authType: 'oauth2', flow: 'authcode', reauthorized: Boolean(payload.connectionId) },
+    })
 
     // Fire-and-forget usage scan now that the connection is authorized.
     // `after` (Next 15) keeps this alive past the redirect response.

@@ -5,6 +5,7 @@
  */
 import { prisma } from '@/lib/prisma'
 import { decryptSecret, encryptSecret } from '@/lib/crypto/secrets'
+import { recordConnectionAudit } from '@/lib/connections/audit'
 import type { GoogleOAuthService } from './oauth'
 
 export const GOOGLE_NATIVE_PROVIDER = 'google-native'
@@ -18,7 +19,7 @@ export async function upsertGoogleConnection(input: {
   refreshToken: string
 }): Promise<{ id: string }> {
   const refreshTokenEnc = encryptSecret(input.refreshToken)
-  return prisma.$transaction(async (tx) => {
+  const result = await prisma.$transaction(async (tx) => {
     const record = await tx.googleOAuthConnection.upsert({
       where: {
         organizationId_userId_service_accountEmail: {
@@ -53,6 +54,23 @@ export async function upsertGoogleConnection(input: {
     })
     return { id: record.id }
   })
+
+  // Audited HERE rather than in the callback route so that every writer of a
+  // Google grant — current or future — is recorded without having to remember.
+  // A re-auth records another grant row on purpose: re-consent can WIDEN
+  // scopes, and an auditor needs the scope set as of each grant.
+  await recordConnectionAudit({
+    organizationId: input.organizationId,
+    actorUserId: input.userId,
+    action: 'connection.granted',
+    plane: 'google',
+    provider: input.service,
+    connectionId: result.id,
+    accountLabel: input.accountEmail,
+    scopes: input.scopes,
+  })
+
+  return result
 }
 
 /** Org scope is REQUIRED (tenant guard): callers always know the org. */
@@ -83,7 +101,7 @@ export async function markGoogleConnectionError(input: { organizationId: string;
   ])
 }
 
-export async function deleteGoogleConnection(input: { organizationId: string; id: string }) {
+export async function deleteGoogleConnection(input: { organizationId: string; id: string; actorUserId?: string | null }) {
   const record = await prisma.googleOAuthConnection.findFirst({
     where: { id: input.id, organizationId: input.organizationId },
   })
@@ -94,6 +112,16 @@ export async function deleteGoogleConnection(input: { organizationId: string; id
     }),
     prisma.googleOAuthConnection.deleteMany({ where: { id: record.id, organizationId: input.organizationId } }),
   ])
+  await recordConnectionAudit({
+    organizationId: input.organizationId,
+    actorUserId: input.actorUserId ?? record.userId,
+    action: 'connection.revoked',
+    plane: 'google',
+    provider: record.service,
+    connectionId: record.id,
+    accountLabel: record.accountEmail,
+  })
+
   let refreshToken: string | null = null
   try {
     refreshToken = decryptSecret(record.refreshTokenEnc)

@@ -160,9 +160,10 @@ if (!TEST_DB) {
       assert.ok(row, 'same-org member could not see the workspace credential')
       assert.equal(JSON.stringify(listed).includes(SECRET), false, 'workspace list leaked the secret value')
 
-      // Readable, editable, resolvable — and finally deletable — by the teammate.
+      // Readable and USABLE by the teammate — that is what "workspace
+      // resource" means, and it is what keeps keys out of personal
+      // environments.
       assert.equal((await get(created.credential.id)).status, 200)
-      assert.equal((await put(created.credential.id, { name: 'Renamed by teammate' })).status, 200)
       const { resolveCredential } = await import('@/lib/credentials/resolve')
       const plan = await resolveCredential({
         credentialId: created.credential.id,
@@ -170,7 +171,12 @@ if (!TEST_DB) {
         requestUrl: 'https://api.example.com/x',
       })
       assert.equal(plan.headers?.authorization, `Bearer ${SECRET}`)
-      assert.equal((await del(created.credential.id)).status, 200)
+
+      // But MUTATING a credential someone else added is a cross-owner act:
+      // gated on resource:takeover and audited, like any other member's work.
+      // Shared use is not shared authority — see credential-takeover.test.ts.
+      assert.equal((await put(created.credential.id, { name: 'Renamed by teammate' })).status, 403)
+      assert.equal((await del(created.credential.id)).status, 403)
     } finally {
       installTestAuth(seeded.auth)
     }

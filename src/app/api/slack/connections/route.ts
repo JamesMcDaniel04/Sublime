@@ -2,6 +2,7 @@ import { z } from 'zod'
 import { Prisma } from '@/generated/prisma/client'
 import { prisma } from '@/lib/prisma'
 import { ApiError, withAuthenticatedApi } from '@/lib/server/api-handler'
+import { recordConnectionAudit } from '@/lib/connections/audit'
 import { encryptSecretJson, serializeSlackConnection, slackAuthTest } from '@/lib/slack/connections'
 
 const createSchema = z.object({
@@ -41,6 +42,17 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
     create: { organizationId: auth.organizationId, userId: auth.dbUser.id, teamId: identity.teamId, ...secrets },
     update: secrets,
   })
+  await recordConnectionAudit({
+    organizationId: auth.organizationId,
+    actorUserId: auth.dbUser.id,
+    action: 'connection.granted',
+    plane: 'slack',
+    provider: 'slack',
+    connectionId: connection.id,
+    accountLabel: identity.teamName,
+    extra: { teamId: identity.teamId, botUserId: identity.botUserId },
+  })
+
   return { success: true, connection: serializeSlackConnection(connection) }
 }, { requires: 'member' })
 
@@ -52,5 +64,17 @@ export const DELETE = withAuthenticatedApi(async (request, auth) => {
   if (!existing) throw new ApiError('Slack connection not found', 404, 'NOT_FOUND')
   await prisma.slackThreadSession.deleteMany({ where: { organizationId: auth.organizationId, bindingId: existing.id } })
   await prisma.slackWorkspaceConnection.delete({ where: { id: existing.id, organizationId: auth.organizationId, userId: auth.dbUser.id } })
+
+  await recordConnectionAudit({
+    organizationId: auth.organizationId,
+    actorUserId: auth.dbUser.id,
+    action: 'connection.revoked',
+    plane: 'slack',
+    provider: 'slack',
+    connectionId: existing.id,
+    accountLabel: existing.teamName,
+    extra: { teamId: existing.teamId },
+  })
+
   return { success: true }
 }, { requires: 'member' })

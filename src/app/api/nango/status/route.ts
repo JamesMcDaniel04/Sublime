@@ -11,6 +11,7 @@ import { triggerAutoBackfills } from '@/lib/activity/auto-backfill'
 import { fromNangoProviderKey } from '@/lib/connectors/registry'
 import { apiLogger } from '@/lib/logger'
 import { recordUserEvent } from '@/lib/behavior/record-event'
+import { recordConnectionAudit } from '@/lib/connections/audit'
 import type { AuthContext } from '@/lib/server/auth'
 import { GOOGLE_NATIVE_PROVIDER, mirroredConnectionStatus, type ConnectionStatus } from '@/lib/server/nango-status'
 
@@ -139,6 +140,21 @@ async function reconcileNangoConnectionStatus(auth: AuthContext) {
   // One transaction instead of one awaited database round-trip per account.
   if (upserts.length > 0) await prisma.$transaction(upserts)
 
+  // Audit the GRANT on the same transition the scan uses — Nango's consent
+  // happens in its own hosted flow, so this poll is the first moment our side
+  // learns access exists. Gated on the transition, not on the poll, so a
+  // status refresh every 30s cannot flood the log with duplicate grants.
+  for (const { connectionId, providerConfigKey, userId } of newlyConnected) {
+    await recordConnectionAudit({
+      organizationId: auth.organizationId,
+      actorUserId: userId,
+      action: 'connection.granted',
+      plane: 'nango',
+      provider: providerConfigKey,
+      connectionId,
+    })
+  }
+
   // Purge-on-disconnect (Task 5, Fix B2): a connection that vanished from
   // Nango without going through the explicit DELETE route below (removed
   // directly in the Nango dashboard, expired, etc.) must still purge its
@@ -160,6 +176,16 @@ async function reconcileNangoConnectionStatus(auth: AuthContext) {
       organizationId: auth.organizationId, userId: auth.dbUser.id,
       kind: 'connection_removed', resourceType: 'connection', resourceId: row.providerConfigKey,
       context: { provider: row.providerConfigKey, plane: 'nango', reason: 'vanished' },
+    })
+    // Access that disappeared outside our UI is still access that ended, and
+    // an auditor reading only our DELETE route would show it as still live.
+    await recordConnectionAudit({
+      organizationId: auth.organizationId,
+      actorUserId: auth.dbUser.id,
+      action: 'connection.revoked',
+      plane: 'nango',
+      provider: row.providerConfigKey,
+      extra: { reason: 'vanished' },
     })
   }
   const staleCapabilities = [

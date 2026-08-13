@@ -60,6 +60,12 @@ export type ToolBinding = {
   client: McpToolClient
   /** Per-tool approval override (agent HTTP endpoints with requireApproval). */
   requireApproval?: boolean
+  /**
+   * WHICH stored credential/connection this tool authenticates with, recorded
+   * on the audit row so a key rotation can enumerate what the key touched.
+   * A reference (flow connection id or vault credential id) — never a secret.
+   */
+  credentialRef?: string
 }
 
 /** A tool as a plane reports it (description already defaulted per plane). */

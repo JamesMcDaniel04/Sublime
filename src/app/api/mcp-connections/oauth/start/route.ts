@@ -121,6 +121,9 @@ export const GET = withAuthenticatedApi(async (request, auth) => {
         connectionId,
         returnTo,
         userId: auth.dbUser.id,
+        // Carried through so the callback can record WHICH access was granted
+        // in its audit row — the token response does not return the scope.
+        scope,
       }),
     )
 

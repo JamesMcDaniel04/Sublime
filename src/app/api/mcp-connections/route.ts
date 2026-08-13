@@ -13,6 +13,7 @@ import { assertPublicUrl, SsrfError } from '@/lib/net/ssrf'
 import { cacheDelete } from '@/lib/cache'
 import { scanConnection, purgeConnectionLearnings } from '@/lib/intelligence/connection-scan'
 import { recordUserEvent } from '@/lib/behavior/record-event'
+import { recordConnectionAudit } from '@/lib/connections/audit'
 import { assertIntegrationCapacity } from '@/lib/billing/enforce'
 
 // Mirror of execute-agent's toolDiscoveryCacheKey (org-scoped) — kept in sync
@@ -159,6 +160,26 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
     context: { provider: connection.provider ?? connection.name },
   })
 
+  // recordUserEvent feeds behavioural intelligence and is not an audit trail:
+  // it is org-scoped analytics, not the immutable who-granted-what record an
+  // auditor reads. Both, deliberately.
+  await recordConnectionAudit({
+    organizationId: auth.organizationId,
+    actorUserId: auth.dbUser.id,
+    action: 'connection.granted',
+    plane: 'mcp',
+    provider: connection.provider ?? connection.name,
+    connectionId: connection.id,
+    scopes: data.scopes ? data.scopes.split(/[\s,]+/).filter(Boolean) : null,
+    extra: {
+      serverUrl: connection.serverUrl,
+      authType: connection.authType,
+      // Which vault credential backs this connection — a reference, not a
+      // secret, and the join an auditor needs when rotating that credential.
+      ...(data.credentialId ? { credentialId: data.credentialId } : {}),
+    },
+  })
+
   // Fire-and-forget usage scan (api-key/none connections are already fully
   // authorized at create time — oauth2 connections through this endpoint are
   // set up via the separate oauth start/callback flow, which scans on its own
@@ -168,9 +189,16 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
     const userId = auth.dbUser.id
     const connectionRef = connection.id
     const connectionName = connection.name
-    after(() =>
-      scanConnection({ organizationId, userId, plane: 'mcp', connectionRef, connectionName }).catch(() => undefined),
-    )
+    // `after` throws outside a real request scope; an unguarded call turns a
+    // successful create into a 500 (the same guard every other connection
+    // route already carries).
+    const runScan = () =>
+      scanConnection({ organizationId, userId, plane: 'mcp', connectionRef, connectionName }).catch(() => undefined)
+    try {
+      after(runScan)
+    } catch {
+      void runScan()
+    }
   }
 
   return { success: true, connection: serializeConnection(connection) }
@@ -229,6 +257,25 @@ export const PUT = withAuthenticatedApi(async (request, auth) => {
     },
   })
 
+  // A credential/URL edit changes WHERE org data goes and WHAT authenticates
+  // it — the same class of change as the grant itself, so it is audited too.
+  await recordConnectionAudit({
+    organizationId: auth.organizationId,
+    actorUserId: auth.dbUser.id,
+    action: 'connection.updated',
+    plane: 'mcp',
+    provider: connection.provider ?? connection.name,
+    connectionId: connection.id,
+    extra: {
+      serverUrl: connection.serverUrl,
+      authType: connection.authType,
+      serverUrlChanged: Boolean(body.serverUrl && body.serverUrl !== existing.serverUrl),
+      // Whether a secret was REPLACED is auditable; the secret itself is not.
+      authSecretRotated: body.apiKey !== undefined || body.clientSecret !== undefined,
+      ...(body.credentialId ? { credentialId: body.credentialId } : {}),
+    },
+  })
+
   // Bust cached tool discovery so a changed serverUrl/auth is picked up now,
   // not after the TTL.
   await cacheDelete(toolDiscoveryCacheKey(auth.organizationId, existing.serverUrl))
@@ -276,6 +323,16 @@ export const DELETE = withAuthenticatedApi(async (request, auth) => {
     context: { provider: existing.provider ?? existing.name },
   })
 
+  await recordConnectionAudit({
+    organizationId: auth.organizationId,
+    actorUserId: auth.dbUser.id,
+    action: 'connection.revoked',
+    plane: 'mcp',
+    provider: existing.provider ?? existing.name,
+    connectionId: existing.id,
+    extra: { serverUrl: existing.serverUrl, authType: existing.authType },
+  })
+
   // Best-effort purge of this connection's scan-derived learnings (Task
   // 4.5) — never blocks the disconnect response; purgeConnectionLearnings
   // already logs its own failures, `.catch` here is belt-and-suspenders.
@@ -284,9 +341,13 @@ export const DELETE = withAuthenticatedApi(async (request, auth) => {
   // reasoning as the scanConnection call in POST above).
   const organizationId = auth.organizationId
   const connectionId = existing.id
-  after(() =>
-    purgeConnectionLearnings({ organizationId, plane: 'mcp', connectionRef: connectionId }).catch(() => undefined),
-  )
+  const runPurge = () =>
+    purgeConnectionLearnings({ organizationId, plane: 'mcp', connectionRef: connectionId }).catch(() => undefined)
+  try {
+    after(runPurge)
+  } catch {
+    void runPurge()
+  }
 
   return { success: true }
 }, { requires: 'member' })

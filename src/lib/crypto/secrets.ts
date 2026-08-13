@@ -14,6 +14,11 @@ import crypto from 'crypto'
 
 let _warned = false
 
+/** Derive the 32-byte AES key from arbitrary key material. */
+function deriveKey(raw: string): Buffer {
+  return crypto.createHash('sha256').update(raw).digest()
+}
+
 function getDerivedKey(): Buffer | null {
   const raw = process.env.ENCRYPTION_KEY
   if (!raw) {
@@ -29,7 +34,7 @@ function getDerivedKey(): Buffer | null {
     return null
   }
   // Derive a 32-byte key regardless of input format/length
-  return crypto.createHash('sha256').update(raw).digest()
+  return deriveKey(raw)
 }
 
 /**
@@ -59,6 +64,35 @@ export function timingSafeEqualHex(a: string, b: string): boolean {
 }
 
 // ── Encryption ────────────────────────────────────────────────────────────
+
+/**
+ * Encrypt under EXPLICIT key material rather than the ambient env var.
+ *
+ * Key rotation needs both keys live in one process — the ambient reader can
+ * only ever hold one — so rotation goes through these two functions. They are
+ * the same AES-256-GCM construction, just with the key passed in.
+ */
+export function encryptSecretWithKey(plaintext: string, keyMaterial: string): string {
+  const iv = crypto.randomBytes(12)
+  const cipher = crypto.createCipheriv('aes-256-gcm', deriveKey(keyMaterial), iv)
+  const ciphertext = Buffer.concat([cipher.update(plaintext, 'utf8'), cipher.final()])
+  return ['v1', iv.toString('base64'), cipher.getAuthTag().toString('base64'), ciphertext.toString('base64')].join(':')
+}
+
+/** Decrypt under explicit key material. Throws when the key does not open it. */
+export function decryptSecretWithKey(payload: string, keyMaterial: string): string {
+  if (payload.startsWith('b64:')) return Buffer.from(payload.slice(4), 'base64').toString('utf8')
+  if (!payload.startsWith('v1:')) throw new Error(`Unknown secret payload format: ${payload.slice(0, 10)}`)
+
+  const [, ivB64, tagB64, ctB64] = payload.split(':')
+  if (!ivB64 || !tagB64 || !ctB64) throw new Error('Malformed v1 encrypted secret payload')
+
+  const decipher = crypto.createDecipheriv('aes-256-gcm', deriveKey(keyMaterial), Buffer.from(ivB64, 'base64'))
+  decipher.setAuthTag(Buffer.from(tagB64, 'base64'))
+  // GCM's auth tag makes this throw on the wrong key rather than returning
+  // garbage — which is what lets rotation tell "not mine" from "corrupted".
+  return Buffer.concat([decipher.update(Buffer.from(ctB64, 'base64')), decipher.final()]).toString('utf8')
+}
 
 export function encryptSecret(plaintext: string): string {
   const key = getDerivedKey()

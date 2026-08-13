@@ -5,6 +5,7 @@ import { nangoApiError } from '@/lib/nango/errors'
 import { ApiError, withAuthenticatedApi } from '@/lib/server/api-handler'
 import { purgeConnectionLearnings } from '@/lib/intelligence/connection-scan'
 import { recordUserEvent } from '@/lib/behavior/record-event'
+import { recordConnectionAudit } from '@/lib/connections/audit'
 import { capabilityForProviderConfigKey, capabilitiesToPurgeOnDisconnect, type DeliveryCapability } from '@/lib/nango/delivery'
 
 export const runtime = 'nodejs'
@@ -55,6 +56,20 @@ export const DELETE = withAuthenticatedApi(async (request, auth) => {
     kind: 'connection_removed', resourceType: 'connection', resourceId: integrationId,
     context: { provider: integrationId, plane: 'nango', count: matching.length },
   })
+
+  // One revoke row per underlying connection, not one per request: an auditor
+  // reconciles grants and revocations by connection id, and a single
+  // "disconnected the integration" row would leave N grants looking live.
+  for (const connection of matching) {
+    await recordConnectionAudit({
+      organizationId,
+      actorUserId: auth.dbUser.id,
+      action: 'connection.revoked',
+      plane: 'nango',
+      provider: integrationId,
+      connectionId: connection.connection_id,
+    })
+  }
 
   // Best-effort purge of this capability's scan-derived learnings (Task 5,
   // Fix B2) — never blocks the disconnect response. Reconcile first: another

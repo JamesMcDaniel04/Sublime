@@ -19,6 +19,7 @@
  * current schema) — a malformed graph contributes nothing rather than throwing.
  */
 import { parseFlowToolConnectionId } from '@/lib/flows/tool-connection-id'
+import { resolveHttpAuthRef } from '@/lib/flows/http-auth-ref'
 
 export type FlowRef = { id: string; name: string }
 
@@ -70,15 +71,13 @@ export function collectFlowCredentialRefs(
         }
 
         if (type === 'http') {
-          const connectionId = cleanString(fields.connectionId)
-          const credentialId = cleanString(fields.credentialId)
-          const authMode = typeof fields.authMode === 'string' ? fields.authMode : undefined
-          if (authMode === 'none') continue
-          // Mirrors execute-flow.ts: generic explicitly, or inferred when no
-          // mode is stored and ONLY the credential field is populated.
-          const useGeneric = authMode === 'generic' || (!authMode && !connectionId && Boolean(credentialId))
-          if (useGeneric && credentialId) addRef(credentials, credentialId, ref)
-          else if (connectionId && manageableConnectionId(connectionId)) addRef(connections, connectionId, ref)
+          // Shared with execute-flow.ts and the runtime audit trail, so this
+          // inventory cannot drift from what execution actually uses.
+          const authRef = resolveHttpAuthRef(fields)
+          if (authRef.kind === 'credential') addRef(credentials, authRef.credentialId, ref)
+          else if (authRef.kind === 'connection' && manageableConnectionId(authRef.connectionId)) {
+            addRef(connections, authRef.connectionId, ref)
+          }
         }
       }
     }

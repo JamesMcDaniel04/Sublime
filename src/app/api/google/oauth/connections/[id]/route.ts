@@ -19,7 +19,7 @@ export const DELETE = withAuthenticatedApi(async (request, auth) => {
   const id = decodeURIComponent(request.nextUrl.pathname.split('/').at(-1) ?? '')
   if (!id) throw new ApiError('Connection id is required')
 
-  const deleted = await deleteGoogleConnection({ organizationId: auth.organizationId, id })
+  const deleted = await deleteGoogleConnection({ organizationId: auth.organizationId, id, actorUserId: auth.dbUser.id })
   if (!deleted) throw new ApiError('Connected account not found', 404, 'NOT_FOUND')
   if (deleted.refreshToken) await revokeToken(deleted.refreshToken)
 

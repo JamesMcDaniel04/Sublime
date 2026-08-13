@@ -2,10 +2,14 @@
  * /api/cron/retention — daily pruning of unbounded-growth tables.
  *
  * Deletes agent executions older than RETENTION_DAYS (default 90).
- * Deleting an execution cascades its workflow steps/events/messages. Audit
- * events are intentionally NOT pruned (append-only for compliance). Capped per
+ * Deleting an execution cascades its workflow steps/events/messages. Capped per
  * run so a backlog is worked down over successive days rather than in one huge
  * transaction.
+ *
+ * Audit events are append-only for compliance and are pruned on their OWN,
+ * much longer clock (AUDIT_RETENTION_DAYS, default 365, floored at 90) — they
+ * outlive the executions they describe. They previously had no sweep at all,
+ * which is unbounded growth rather than a retention policy.
  *
  * Auth (fail closed): requires Authorization: Bearer <CRON_SECRET>.
  */
@@ -18,6 +22,7 @@ import { removeRetiredFromGraph } from '@/lib/rag/indexer'
 import { removeUserEventNodesFromGraph } from '@/lib/behavior/index-user-event'
 import { MAX_STALE_DAYS } from '@/lib/behavior/eligibility'
 import { getQueue, QUEUE_NAMES, workersEnabled } from '@/lib/queue/config'
+import { auditRetentionDays } from '@/lib/audit'
 
 export const runtime = 'nodejs'
 export const maxDuration = 300
@@ -263,8 +268,21 @@ export async function GET(request: Request) {
     // Postgres under the normal retention policy.
     const deadLettersPruned = await cleanDeadLetterQueues()
 
-    apiLogger.info('cron/retention complete', { days, executionsDeleted, knowledgePromoted, transcriptsPruned, workflowEventsDeleted, userEventsDeleted, patternsExpired, reEmbedded, encryptionBackfill, expiredKnowledgeDeleted, deadLettersPruned })
-    return Response.json({ success: true, days, executionsDeleted, knowledgePromoted, transcriptsPruned, workflowEventsDeleted, userEventsDeleted, patternsExpired, reEmbedded, encryptionBackfill, expiredKnowledgeDeleted, deadLettersPruned })
+    // audit_events: the compliance record. Swept LAST and on its own clock
+    // (a year by default, floored at 90 days) because it outlives everything
+    // it describes — an auditor reading it months later still needs the row
+    // even though the execution it references was pruned at 90 days.
+    // Uncapped by CAP on purpose: a partial sweep of an append-only log just
+    // means the table keeps growing, and this table is small per row.
+    const auditDays = auditRetentionDays(process.env.AUDIT_RETENTION_DAYS)
+    const auditCutoff = new Date(Date.now() - auditDays * 24 * 60 * 60 * 1000)
+    // systemPrisma: global retention sweep — prunes across all orgs by design (CRON_SECRET-gated).
+    const auditEventsDeleted = (await systemPrisma.auditEvent.deleteMany({
+      where: { createdAt: { lt: auditCutoff } },
+    })).count
+
+    apiLogger.info('cron/retention complete', { days, executionsDeleted, knowledgePromoted, transcriptsPruned, workflowEventsDeleted, userEventsDeleted, patternsExpired, reEmbedded, encryptionBackfill, expiredKnowledgeDeleted, deadLettersPruned, auditEventsDeleted, auditDays })
+    return Response.json({ success: true, days, executionsDeleted, knowledgePromoted, transcriptsPruned, workflowEventsDeleted, userEventsDeleted, patternsExpired, reEmbedded, encryptionBackfill, expiredKnowledgeDeleted, deadLettersPruned, auditEventsDeleted, auditDays })
   } catch (error) {
     apiLogger.error('cron/retention failed', { error: error instanceof Error ? error.message : String(error) })
     return Response.json({ success: false, error: 'Internal server error' }, { status: 500 })

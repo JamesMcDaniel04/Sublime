@@ -61,6 +61,24 @@ export async function recordAudit(input: AuditInput): Promise<void> {
   }
 }
 
+/**
+ * How long audit rows are kept.
+ *
+ * Deliberately much longer than the operational sweeps (executions 90d,
+ * workflow events 30d): the audit log is the artifact an auditor reads MONTHS
+ * after an incident, when the run rows it describes are long gone. A year by
+ * default, and never less than the floor — a mistyped env var must not be able
+ * to quietly shred the compliance record.
+ */
+export const AUDIT_RETENTION_FLOOR_DAYS = 90
+const AUDIT_RETENTION_DEFAULT_DAYS = 365
+
+export function auditRetentionDays(configured: string | undefined): number {
+  const parsed = Number(configured)
+  if (!configured || !Number.isFinite(parsed)) return AUDIT_RETENTION_DEFAULT_DAYS
+  return Math.max(AUDIT_RETENTION_FLOOR_DAYS, Math.floor(parsed))
+}
+
 /** Serialize audit rows to CSV for export. */
 export function auditRowsToCsv(
   rows: Array<{

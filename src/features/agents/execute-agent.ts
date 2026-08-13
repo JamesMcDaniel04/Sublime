@@ -5,6 +5,7 @@ import { getQueue, QUEUE_NAMES, workersEnabled } from '@/lib/queue/config'
 import { inlineExecution } from '@/lib/queue/execution-mode'
 import { apiLogger } from '@/lib/logger'
 import { recordAudit } from '@/lib/audit'
+import { resolveHttpAuthRef } from '@/lib/flows/http-auth-ref'
 import { agentHttpToolDefinition, agentHttpToolsFromMetadata } from '@/lib/agents/http-tools'
 import { AgentHttpToolClient } from '@/lib/agents/http-tools-run'
 import { retrieveContext, renderContext } from '@/lib/rag/retrieve'
@@ -158,6 +159,14 @@ const WRITE_RESERVE = 16
  * place the cap/priority policy lives — previously each plane capped inline, so
  * write tools (loaded last) were silently dropped once reads filled 64.
  */
+/** The stored credential/connection an agent HTTP tool authenticates with. */
+function agentHttpCredentialRef(config: unknown): string | undefined {
+  const ref = resolveHttpAuthRef((config ?? {}) as Record<string, unknown>)
+  if (ref.kind === 'credential') return ref.credentialId
+  if (ref.kind === 'connection') return ref.connectionId
+  return undefined
+}
+
 function materializeTools(picked: DiscoveredTool[]): { tools: ToolDefinition[]; bindings: Map<string, ToolBinding> } {
   const tools: ToolDefinition[] = []
   const bindings = new Map<string, ToolBinding>()
@@ -265,7 +274,7 @@ async function loadTools(
         name: toolName(prefix, tool.name),
         description: tool.description,
         inputSchema: (tool.inputSchema as Record<string, unknown>) || { type: 'object', properties: {} },
-        binding: { provider: group.provider, serverUrl: group.serverUrl, toolName: tool.name, client: group.client },
+        binding: { provider: group.provider, serverUrl: group.serverUrl, toolName: tool.name, client: group.client, credentialRef: group.id },
         isWrite: group.isWrite,
       })
     }
@@ -706,6 +715,9 @@ export async function runAgentExecution(
         serverUrl: '',
         toolName: definition.name,
         client: new AgentHttpToolClient(httpTool, { organizationId, userId }),
+        // Agent HTTP tools persist the same config shape as a flow http step,
+        // so the same rule decides what authenticates them.
+        ...(agentHttpCredentialRef(httpTool.config) ? { credentialRef: agentHttpCredentialRef(httpTool.config) } : {}),
         ...(httpTool.config.requireApproval === true ? { requireApproval: true } : {}),
       })
     }
@@ -1055,6 +1067,9 @@ export async function runAgentExecution(
               tool: held.toolName,
               resourceType: heldBinding.provider,
               payload: held.input,
+              // Which stored credential authenticated the call — the join a
+              // key rotation needs. A reference, never a secret.
+              ...(heldBinding.credentialRef ? { detail: { credentialRef: heldBinding.credentialRef } } : {}),
             })
             content = serializeToolResult(result)
           } catch (error) {
@@ -1318,6 +1333,7 @@ export async function runAgentExecution(
             tool: call.name,
             resourceType: binding.provider,
             payload: call.input,
+            ...(binding.credentialRef ? { detail: { credentialRef: binding.credentialRef } } : {}),
           })
           results.push({ toolCallId: call.id, content: serializeToolResult(result) })
         } catch (error) {
