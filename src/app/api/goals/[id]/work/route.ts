@@ -5,6 +5,7 @@ import type { Disposition, Outcome } from '@/lib/goals/work-transitions'
 import { getSeedByKey } from '@/lib/templates/catalogue'
 import { goalReadWhere } from '@/lib/server/goal-scope'
 import { serializeWorkForNonMember } from '@/lib/goals/work-serializer'
+import { memberDisplayName } from '@/lib/server/member-display'
 
 export const runtime = 'nodejs'
 
@@ -106,7 +107,7 @@ export const GET = withAuthenticatedApi(async (request, auth) => {
     select: { id: true, name: true, email: true },
   })
   const memberName = new Map(
-    members.map((member) => [member.id, member.name ?? member.email ?? 'Teammate'] as const),
+    members.map((member) => [member.id, memberDisplayName(member)] as const),
   )
 
   const stats = computeWorkStats(

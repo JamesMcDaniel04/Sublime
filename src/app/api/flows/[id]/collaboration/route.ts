@@ -12,6 +12,7 @@ import {
   patchChangesTopology,
 } from '@/lib/flows/collaboration'
 import { appendMutation, hasAppliedMutation } from '@/lib/flows/mutation-log'
+import { memberDisplayName } from '@/lib/server/member-display'
 
 export const runtime = 'nodejs'
 
@@ -69,7 +70,7 @@ export const GET = withAuthenticatedApi(async (request, auth) => {
     topic: channelTopic(flow.id, auth.organizationId, flow.collaborationAccessRevision),
     actor: {
       userId: auth.dbUser.id,
-      name: auth.dbUser.name || auth.dbUser.email || 'Teammate',
+      name: memberDisplayName(auth.dbUser),
     },
     graph: flowGraphSchema.parse(flow.graph),
     revision: flow.collaborationRevision,

@@ -9,6 +9,7 @@ import { CREDENTIAL_TYPES, type CredentialType } from '@/lib/credentials/types'
 import { normalizeAllowedDomains } from '@/lib/credentials/plan'
 import { loadVerifications } from '@/lib/connections/record-verification'
 import { credentialVerificationKey, toVerification } from '@/lib/connections/verification'
+import { memberDisplayName } from '@/lib/server/member-display'
 
 export const runtime = 'nodejs'
 
@@ -84,7 +85,7 @@ export const GET = withAuthenticatedApi(async (_request, auth) => {
       name: row.name,
       type: row.type,
       allowedDomains: row.allowedDomains,
-      createdBy: row.user ? { id: row.user.id, name: row.user.name ?? row.user.email } : null,
+      createdBy: row.user ? { id: row.user.id, name: memberDisplayName(row.user) } : null,
       lastUsedAt: row.lastUsedAt,
       updatedAt: row.updatedAt,
       verification: toVerification(verifications.get(credentialVerificationKey(row.id))),

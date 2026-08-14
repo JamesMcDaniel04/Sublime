@@ -6,6 +6,7 @@ import { selectVisibleTemplates } from '@/lib/intelligence/template-visibility'
 import { SEED_CATALOGUE, serializeSeed } from '@/lib/templates/catalogue'
 import { sortByPersonaFit } from '@/lib/templates/relevance'
 import { loadTemplateAdoptionScores, sortByAdoption } from '@/lib/templates/adoption'
+import { memberDisplayName } from '@/lib/server/member-display'
 
 const templateSchema = z.object({
   name: z.string().min(1),
@@ -148,7 +149,9 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
     ...(data.maxTurns !== undefined ? { maxTurns: data.maxTurns } : {}),
     ...(data.outputFields ? { outputFields: data.outputFields } : {}),
     ...(data.schedule ? { schedule: data.schedule } : {}),
-    authorName: auth.dbUser.name || auth.dbUser.email || '',
+    // Was the publisher's raw email when no display name was set — stamped
+    // onto a template visible to the whole workspace.
+    authorName: memberDisplayName(auth.dbUser),
     ...(data.departments ? { departments: data.departments } : {}),
     ...(data.requiredIntegrations ? { requiredIntegrations: data.requiredIntegrations } : {}),
     ...(data.recommendedIntegrations ? { recommendedIntegrations: data.recommendedIntegrations } : {}),

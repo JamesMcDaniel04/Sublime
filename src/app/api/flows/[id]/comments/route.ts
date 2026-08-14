@@ -4,6 +4,7 @@ import { ApiError, withAuthenticatedApi } from '@/lib/server/api-handler'
 import { flowReadScope } from '@/lib/server/visibility'
 import { notify } from '@/lib/notifications/service'
 import { extractMentions } from '@/lib/flows/comment-mentions'
+import { memberDisplayName } from '@/lib/server/member-display'
 
 export const runtime = 'nodejs'
 
@@ -70,7 +71,7 @@ function serializeComment(comment: CommentWithAuthor, selfId: string) {
     body: comment.body,
     resolvedAt: comment.resolvedAt?.toISOString() ?? null,
     createdAt: comment.createdAt.toISOString(),
-    author: { id: comment.user.id, name: comment.user.name || comment.user.email || 'Teammate' },
+    author: { id: comment.user.id, name: memberDisplayName(comment.user) },
     mine: comment.user.id === selfId,
   }
 }
@@ -155,7 +156,7 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
   participants.delete(auth.dbUser.id)
   for (const userId of mentioned) participants.delete(userId)
 
-  const authorName = auth.dbUser.name || auth.dbUser.email || 'A teammate'
+  const authorName = memberDisplayName(auth.dbUser)
   await Promise.all([
     ...[...mentioned].map((userId) => notify({
       organizationId: auth.organizationId,

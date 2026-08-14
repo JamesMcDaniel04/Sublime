@@ -21,7 +21,19 @@ export const GET = withAuthenticatedApi(async (_request, auth) => {
     members,
     invitations,
   }
-}, { requires: 'member' })
+  // ADMIN ONLY. This returns the workspace's people directory: every member's
+  // email, role, isActive, createdAt and lastSeenAt, plus every pending
+  // invitation. `lastSeenAt` is activity surveillance and the invitation list
+  // says who is being hired — neither is a member's business.
+  //
+  // It was 'member' because the Members settings tab renders for everyone. The
+  // tab now hides for non-admins AND this refuses them, because hiding a tab
+  // is presentation, not authorization — the same reasoning already written
+  // against the Insights tab in settings/page.tsx.
+  //
+  // Pickers that legitimately need to name a colleague use
+  // /api/organizations/members, which returns ids and display names only.
+}, { requires: 'member:manage' })
 
 export const POST = withAuthenticatedApi(async (request, auth) => {
   const input = inviteSchema.parse(await request.json()); const email = input.email.trim().toLowerCase()

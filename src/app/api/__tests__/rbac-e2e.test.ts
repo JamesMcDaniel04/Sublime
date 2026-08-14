@@ -45,6 +45,54 @@ if (TEST_DB) {
     }
   }
 
+  describe('user directory', () => {
+    test('a MEMBER is refused the workspace member roster', async () => {
+      // The roster carries every colleague's email, role, isActive, createdAt
+      // and lastSeenAt, plus every pending invitation. It was 'member' because
+      // the settings tab rendered for everyone.
+      await withSeeded({ role: 'MEMBER' }, async () => {
+        const response = await (await import('../settings/members/route')).GET(req('/api/settings/members'))
+        assert.equal(response.status, 403)
+      })
+    })
+
+    test('an ADMIN still gets the roster', async () => {
+      // The refusal above is worthless if it also broke the feature.
+      await withSeeded({ role: 'ADMIN' }, async () => {
+        const response = await (await import('../settings/members/route')).GET(req('/api/settings/members'))
+        assert.equal(response.status, 200)
+        const body = await response.json()
+        assert.ok(Array.isArray(body.members), 'admin should receive the roster')
+      })
+    })
+
+    test('the people picker withholds email from a MEMBER but not from an ADMIN', async () => {
+      // The picker has to stay usable — a member still needs to name a
+      // colleague to invite them — so this asserts the SHAPE changes, not that
+      // the endpoint closes.
+      await withSeeded({ role: 'MEMBER' }, async () => {
+        const response = await (await import('../organizations/members/route')).GET(req('/api/organizations/members'))
+        assert.equal(response.status, 200)
+        const body = await response.json()
+        assert.ok(body.members.length > 0, 'picker returned nobody')
+        for (const member of body.members) {
+          assert.equal(member.email, undefined, 'a member received a colleague email address')
+          assert.ok(member.id && member.name, 'picker still needs an id and a label')
+          assert.ok(!String(member.name).includes('@'), 'display name leaked a full address')
+        }
+      })
+
+      await withSeeded({ role: 'ADMIN' }, async () => {
+        const response = await (await import('../organizations/members/route')).GET(req('/api/organizations/members'))
+        const body = await response.json()
+        // Key PRESENCE, not a string value: seedTestOrg creates users without
+        // an email, so asserting on the value would test the fixture rather
+        // than the authorization branch.
+        assert.ok(body.members.every((m: any) => 'email' in m), 'admin lost the email field they administer with')
+      })
+    })
+  })
+
   describe('role gates', () => {
     test('a MEMBER is refused the workspace audit export', async () => {
       await withSeeded({ role: 'MEMBER' }, async () => {

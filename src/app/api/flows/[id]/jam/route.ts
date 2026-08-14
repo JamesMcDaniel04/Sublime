@@ -2,6 +2,7 @@ import { z } from 'zod'
 import { ApiError, withAuthenticatedApi } from '@/lib/server/api-handler'
 import { prisma } from '@/lib/prisma'
 import { notify } from '@/lib/notifications/service'
+import { memberDisplayName } from '@/lib/server/member-display'
 
 export const runtime = 'nodejs'
 
@@ -89,7 +90,7 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
     userId,
     type: 'flow.jam.invite',
     level: 'action',
-    title: `${auth.dbUser.name || auth.dbUser.email || 'A teammate'} invited you to a Flow Jam`,
+    title: `${memberDisplayName(auth.dbUser)} invited you to a Flow Jam`,
     body: `Build “${flow.name}” together in real time.`,
     // The in-app row deep-links off executionId (flow notifications overload it
     // to carry the flow id); `link` only drives the web-push URL. Set both so

@@ -29,6 +29,8 @@ import { InsightsTab } from './tabs/insights'
 import type { Invitation, Member, OrgSettings, Profile } from './tabs/types'
 
 const TAB_VALUES = ['profile', 'appearance', 'security', 'members', 'workspace', 'billing', 'insights']
+/** Tabs whose CONTENT is workspace-directory or workspace-analytics data. */
+const ADMIN_ONLY_TABS = ['members', 'insights']
 
 export default function SettingsPage() {
   const [profile, setProfile] = useState<Profile | null>(null)
@@ -62,11 +64,15 @@ export default function SettingsPage() {
         response.json().catch(() => ({})), memberResponse.json().catch(() => ({})), orgResponse.json().catch(() => ({})),
       ])
       if (!response.ok || !data.success) throw new Error(data.error || 'Could not load your profile.')
-      if (!memberResponse.ok || !memberData.success) throw new Error(memberData.error || 'Could not load workspace members.')
+      // NOT an error path. /api/settings/members is admin-only (member:manage),
+      // so a plain member gets a 403 here by design. Throwing would take the
+      // whole settings page down for everyone who is not an admin.
+      const roster = memberResponse.ok && memberData.success
       if (!orgResponse.ok || !orgData.success) throw new Error(orgData.error || 'Could not load workspace settings.')
       setProfile(data.profile)
       setSavedProfileName(data.profile.name || '')
-      setMembers(memberData.members); setInvitations(memberData.invitations || [])
+      setMembers(roster ? memberData.members : [])
+      setInvitations(roster ? memberData.invitations || [] : [])
       setOrgSettings((orgData.organizations?.[0]?.settings || {}) as OrgSettings)
       setOrgPlan(orgData.organizations?.[0]?.plan || 'TRIAL')
       setGrandfathered(Boolean(orgData.organizations?.[0]?.grandfatheredAt))
@@ -109,11 +115,18 @@ export default function SettingsPage() {
         <Skeleton className="h-40 max-w-2xl rounded-xl" />
       </div>
     ) : (
-    <Tabs defaultValue={initialTab}><TabsList className="flex h-auto max-w-full flex-wrap justify-start">
+    // A member deep-linking to ?tab=members (or ?tab=insights) would otherwise
+    // land on a tab that no longer renders, leaving a blank panel. Tabs mounts
+    // only after `load()` resolves, so isAdmin is already accurate here.
+    <Tabs defaultValue={!isAdmin && ADMIN_ONLY_TABS.includes(initialTab) ? 'profile' : initialTab}><TabsList className="flex h-auto max-w-full flex-wrap justify-start">
       <TabsTrigger value="profile"><UserRound className="mr-1.5 h-3.5 w-3.5" />Profile</TabsTrigger>
       <TabsTrigger value="appearance"><Palette className="mr-1.5 h-3.5 w-3.5" />Appearance</TabsTrigger>
       <TabsTrigger value="security"><ShieldCheck className="mr-1.5 h-3.5 w-3.5" />Security</TabsTrigger>
-      <TabsTrigger value="members"><Users className="mr-1.5 h-3.5 w-3.5" />Members</TabsTrigger>
+      {/* Admin-only, matching the Insights trigger below. The tab body lists
+          every member's email, role and pending invitations — workspace
+          directory data. /api/settings/members refuses a MEMBER independently,
+          so this is presentation, not the control. */}
+      {isAdmin && <TabsTrigger value="members"><Users className="mr-1.5 h-3.5 w-3.5" />Members</TabsTrigger>}
       <TabsTrigger value="workspace"><Building2 className="mr-1.5 h-3.5 w-3.5" />Workspace</TabsTrigger>
       <TabsTrigger value="billing"><CreditCard className="mr-1.5 h-3.5 w-3.5" />Billing</TabsTrigger>
       {/* Hidden for members — presentation only; /api/settings/insights
@@ -144,9 +157,11 @@ export default function SettingsPage() {
       <TabsContent value="security" className="mt-6 space-y-6">
         <SecurityTab initialEmail={profile?.email || ''} />
       </TabsContent>
-      <TabsContent value="members" className="mt-6">
-        <MembersTab isAdmin={isAdmin} members={members} invitations={invitations} onReload={load} />
-      </TabsContent>
+      {isAdmin && (
+        <TabsContent value="members" className="mt-6">
+          <MembersTab isAdmin={isAdmin} members={members} invitations={invitations} onReload={load} />
+        </TabsContent>
+      )}
       <TabsContent value="workspace" className="mt-6">
         <WorkspaceTab
           isAdmin={isAdmin}

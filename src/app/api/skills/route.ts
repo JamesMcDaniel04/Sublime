@@ -4,6 +4,7 @@ import { ApiError, withAuthenticatedApi } from '@/lib/server/api-handler'
 import { listSkills } from '@/lib/skills/compose'
 import { capabilitiesForPlan } from '@/lib/billing/capabilities'
 import { entitlementPlanFor } from '@/lib/billing/entitlements'
+import { memberDisplayName } from '@/lib/server/member-display'
 
 const skillSchema = z.object({
   name: z.string().min(1).max(80),
@@ -85,7 +86,8 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
     data: {
       ...data,
       visibility,
-      authorName: auth.dbUser.name || auth.dbUser.email || '',
+      // Was the publisher's raw email when no display name was set.
+      authorName: memberDisplayName(auth.dbUser),
       organizationId: auth.organizationId,
       userId: auth.dbUser.id,
     },
