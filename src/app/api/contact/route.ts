@@ -6,6 +6,7 @@ import { getAuthWithUser } from '@/lib/supabase/auth-utils'
 import { capabilitiesForPlan } from '@/lib/billing/capabilities'
 import { entitlementPlanFor } from '@/lib/billing/entitlements'
 import { contactInbox, sendRawEmail } from '@/lib/email/send'
+import { assertHumanToken, TurnstileError } from '@/lib/security/turnstile'
 
 export const dynamic = 'force-dynamic'
 // Comfortably above the 30s Resend deadline so the timeout error path (a
@@ -22,6 +23,10 @@ const contactSchema = z.object({
   // success response and no email — no signal that they were caught. Any
   // content must therefore VALIDATE (a max-length 400 would be the signal).
   website: z.string().max(2000).optional().default(''),
+  // Solved Turnstile token. Optional in the schema because the field is absent
+  // entirely when Turnstile is unconfigured; assertHumanToken decides whether
+  // an absent token is acceptable.
+  captchaToken: z.string().max(4000).optional(),
 })
 
 const REASON_LABELS: Record<z.infer<typeof contactSchema>['reason'], string> = {
@@ -55,9 +60,21 @@ export async function POST(request: NextRequest) {
   if (!parsed.success) {
     return NextResponse.json({ success: false, error: 'Please fill in your name, a valid email, and a message.' }, { status: 400 })
   }
-  const { name, email, company, reason, message, website } = parsed.data
+  const { name, email, company, reason, message, website, captchaToken } = parsed.data
 
   if (website) return NextResponse.json({ success: true })
+
+  // After the honeypot on purpose: a caught bot must keep getting the same
+  // quiet success. Telling it "captcha failed" is the one response that would
+  // teach it what to fix.
+  try {
+    await assertHumanToken(captchaToken, ip)
+  } catch (error) {
+    if (error instanceof TurnstileError) {
+      return NextResponse.json({ success: false, error: error.message, code: 'CAPTCHA_FAILED' }, { status: 400 })
+    }
+    throw error
+  }
 
   const apiKey = process.env.RESEND_API_KEY
   if (!apiKey) {

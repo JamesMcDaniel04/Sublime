@@ -18,8 +18,13 @@ function appOrigin(): string {
 type SupabaseContext = {
   user: User | null
   loading: boolean
-  signIn: (email: string, password: string) => ReturnType<typeof supabase.auth.signInWithPassword>
-  signUp: (email: string, password: string, options?: { data?: Record<string, unknown>; next?: string }) => ReturnType<typeof supabase.auth.signUp>
+  // captchaToken: solved Turnstile token, verified by SUPABASE (not by this
+  // app) because these calls go browser → Supabase directly and never touch a
+  // route handler. Undefined when Turnstile is unconfigured, which Supabase
+  // accepts as long as its own CAPTCHA setting is off — so the two must be
+  // enabled together. See src/lib/security/turnstile.ts.
+  signIn: (email: string, password: string, options?: { captchaToken?: string }) => ReturnType<typeof supabase.auth.signInWithPassword>
+  signUp: (email: string, password: string, options?: { data?: Record<string, unknown>; next?: string; captchaToken?: string }) => ReturnType<typeof supabase.auth.signUp>
   signOut: () => Promise<void>
 }
 
@@ -112,9 +117,10 @@ export function SupabaseProvider({ children }: { children: React.ReactNode }) {
   const value = useMemo<SupabaseContext>(() => ({
     user,
     loading,
-    signIn: (email, password) => supabase.auth.signInWithPassword({
+    signIn: (email, password, options) => supabase.auth.signInWithPassword({
       email: email.trim().toLowerCase(),
       password,
+      ...(options?.captchaToken ? { options: { captchaToken: options.captchaToken } } : {}),
     }),
     signUp: (email, password, options) => {
       // Prefer the configured production URL so confirmation links never point
@@ -128,6 +134,7 @@ export function SupabaseProvider({ children }: { children: React.ReactNode }) {
         options: {
           data: options?.data,
           emailRedirectTo: `${appOrigin()}/auth/callback${nextParam}`,
+          ...(options?.captchaToken ? { captchaToken: options.captchaToken } : {}),
         },
       })
     },

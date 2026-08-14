@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { ArrowRight } from 'lucide-react'
+import { TurnstileWidget, turnstileEnabled } from '@/components/auth/turnstile-widget'
 
 const REASONS = [
   { value: 'enterprise', label: 'Sales & enterprise' },
@@ -35,6 +36,10 @@ export function ContactForm() {
   const [website, setWebsite] = useState('')
   const [status, setStatus] = useState<'idle' | 'sending' | 'sent'>('idle')
   const [error, setError] = useState('')
+  const [captchaToken, setCaptchaToken] = useState<string | null>(null)
+  // Single-use token: a refused submission spends it, so remount for a fresh
+  // challenge rather than letting the retry fail on a consumed one.
+  const [captchaNonce, setCaptchaNonce] = useState(0)
 
   const submit = async (event: React.FormEvent) => {
     event.preventDefault()
@@ -44,7 +49,7 @@ export function ContactForm() {
       const response = await fetch('/api/contact', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, email, company, reason, message, website }),
+        body: JSON.stringify({ name, email, company, reason, message, website, captchaToken: captchaToken ?? undefined }),
       })
       const data = await response.json().catch(() => ({}))
       if (response.ok && data.success) {
@@ -52,10 +57,14 @@ export function ContactForm() {
       } else {
         setStatus('idle')
         setError(data.error || 'We could not send your message. Please email us at hello@trysublime.io.')
+        setCaptchaToken(null)
+        setCaptchaNonce((nonce) => nonce + 1)
       }
     } catch {
       setStatus('idle')
       setError('We could not send your message. Please email us at hello@trysublime.io.')
+      setCaptchaToken(null)
+      setCaptchaNonce((nonce) => nonce + 1)
     }
   }
 
@@ -136,9 +145,12 @@ export function ContactForm() {
         autoComplete="off"
         aria-hidden="true"
       />
+      <div className="mt-6">
+        <TurnstileWidget key={captchaNonce} onToken={setCaptchaToken} />
+      </div>
       <button
         type="submit"
-        disabled={status === 'sending'}
+        disabled={status === 'sending' || (turnstileEnabled() && !captchaToken)}
         className="group mt-6 inline-flex items-center gap-2 bg-foreground px-6 py-3 text-[14px] font-medium text-background transition-colors hover:bg-foreground/90 disabled:opacity-60"
       >
         {status === 'sending' ? 'Sending…' : 'Send message'}

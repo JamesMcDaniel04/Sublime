@@ -52,3 +52,31 @@ test('rapid submissions from one IP are rate limited', async () => {
   const other = await post(body(), '203.0.113.10')
   assert.notEqual(other.status, 429)
 })
+
+test('with Turnstile configured, a submission without a captcha token is refused', async () => {
+  // The missing-token branch short-circuits before any network call, so this
+  // asserts the gate without reaching Cloudflare.
+  delete process.env.RESEND_API_KEY
+  process.env.TURNSTILE_SECRET_KEY = 'test-secret'
+  try {
+    const res = await post(body(), '203.0.113.11')
+    assert.equal(res.status, 400)
+    const payload = await res.json()
+    assert.equal(payload.code, 'CAPTCHA_FAILED')
+  } finally {
+    delete process.env.TURNSTILE_SECRET_KEY
+  }
+})
+
+test('the honeypot still wins over the captcha, so caught bots learn nothing', async () => {
+  // A honeypot hit must stay silent even when the captcha would have refused
+  // it — revealing "captcha failed" tells the bot exactly what to fix.
+  delete process.env.RESEND_API_KEY
+  process.env.TURNSTILE_SECRET_KEY = 'test-secret'
+  try {
+    const res = await post(body({ website: 'http://spam' }), '203.0.113.12')
+    assert.equal(res.status, 200)
+  } finally {
+    delete process.env.TURNSTILE_SECRET_KEY
+  }
+})

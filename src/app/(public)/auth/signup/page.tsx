@@ -11,6 +11,7 @@ import { useRouter } from 'next/navigation'
 import { toast } from 'sonner'
 import { safeReturnToPath } from '@/lib/auth/redirect'
 import { GoogleSignInButton } from '@/components/auth/google-signin-button'
+import { TurnstileWidget, turnstileEnabled } from '@/components/auth/turnstile-widget'
 
 export default function SignUpPage() {
   const [email, setEmail] = useState('')
@@ -21,6 +22,10 @@ export default function SignUpPage() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
+  const [captchaToken, setCaptchaToken] = useState<string | null>(null)
+  // Single-use token: a rejected signup consumes it, so the widget is remounted
+  // on failure to hand the user a fresh challenge instead of a spent one.
+  const [captchaNonce, setCaptchaNonce] = useState(0)
   
   const { signUp } = useSupabase()
   const router = useRouter()
@@ -45,6 +50,7 @@ export default function SignUpPage() {
     try {
       // Include organization data in user metadata
       const { data, error } = await signUp(email, password, {
+        captchaToken: captchaToken ?? undefined,
         data: {
           first_name: firstName,
           last_name: lastName,
@@ -55,6 +61,8 @@ export default function SignUpPage() {
       
       if (error) {
         setError(error.message)
+        setCaptchaToken(null)
+        setCaptchaNonce((nonce) => nonce + 1)
         toast.error(error.message)
       } else if (data?.user) {
         const successMessage = 'Check your email for the confirmation link!'
@@ -162,7 +170,13 @@ export default function SignUpPage() {
                   minLength={12}
                 />
               </div>
-              <Button type="submit" className="w-full bg-foreground text-background hover:bg-foreground/90" loading={loading}>
+              <TurnstileWidget key={captchaNonce} onToken={setCaptchaToken} />
+              <Button
+                type="submit"
+                className="w-full bg-foreground text-background hover:bg-foreground/90"
+                loading={loading}
+                disabled={turnstileEnabled() && !captchaToken}
+              >
                 {loading ? 'Creating account…' : 'Create account'}
               </Button>
             </form>

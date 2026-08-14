@@ -12,6 +12,7 @@ import { toast } from 'sonner'
 import { safeReturnToPath } from '@/lib/auth/redirect'
 import { createClient } from '@/lib/supabase/client'
 import { GoogleSignInButton } from '@/components/auth/google-signin-button'
+import { TurnstileWidget, turnstileEnabled } from '@/components/auth/turnstile-widget'
 import { primeBootstrap } from '@/lib/client/snapshot'
 
 export default function LoginPage() {
@@ -21,6 +22,11 @@ export default function LoginPage() {
   const [error, setError] = useState('')
   const [mfa, setMfa] = useState<{ factorId: string; challengeId: string } | null>(null)
   const [mfaCode, setMfaCode] = useState('')
+  const [captchaToken, setCaptchaToken] = useState<string | null>(null)
+  // Turnstile tokens are single-use. A failed sign-in consumes the token, so
+  // without a remount the retry fails on a spent token rather than the real
+  // reason — bumping this key gives the user a fresh challenge.
+  const [captchaNonce, setCaptchaNonce] = useState(0)
   
   const { signIn, user, loading: authLoading } = useSupabase()
   const router = useRouter()
@@ -72,11 +78,14 @@ export default function LoginPage() {
     setError('')
 
     try {
-      const { data, error } = await signIn(email, password)
-      
+      const { data, error } = await signIn(email, password, { captchaToken: captchaToken ?? undefined })
+
       if (error) {
         setError(error.message)
         toast.error(error.message)
+        // Spend the challenge alongside the attempt it authorized.
+        setCaptchaToken(null)
+        setCaptchaNonce((nonce) => nonce + 1)
       } else if (data?.user) {
         const supabase = createClient()
         const assurance = await supabase.auth.mfa.getAuthenticatorAssuranceLevel()
@@ -175,7 +184,15 @@ export default function LoginPage() {
                   required
                 />
               </div>
-              <Button type="submit" className="w-full bg-foreground text-background hover:bg-foreground/90" loading={loading}>
+              <TurnstileWidget key={captchaNonce} onToken={setCaptchaToken} />
+              <Button
+                type="submit"
+                className="w-full bg-foreground text-background hover:bg-foreground/90"
+                loading={loading}
+                // Only gates when Turnstile is actually configured; unset site
+                // key renders no widget and leaves the button as it was.
+                disabled={turnstileEnabled() && !captchaToken}
+              >
                 {loading ? 'Signing in…' : 'Sign in'}
               </Button>
               <div className="text-right">

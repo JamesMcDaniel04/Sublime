@@ -7,19 +7,25 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { AuthShell } from '@/components/auth/auth-shell'
+import { TurnstileWidget, turnstileEnabled } from '@/components/auth/turnstile-widget'
 
 export default function ForgotPasswordPage() {
   const [email, setEmail] = useState('')
   const [loading, setLoading] = useState(false)
   const [sent, setSent] = useState(false)
+  const [captchaToken, setCaptchaToken] = useState<string | null>(null)
 
   async function submit(event: React.FormEvent) {
     event.preventDefault()
     setLoading(true)
     const origin = process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, '') || window.location.origin
     // Always show the same result to avoid disclosing whether an account exists.
+    // Password recovery is the classic email-bomb surface: unauthenticated,
+    // sends mail on demand, and deliberately reveals nothing about the outcome.
+    // The captcha is what stops a script from walking an address list.
     await createClient().auth.resetPasswordForEmail(email.trim().toLowerCase(), {
       redirectTo: `${origin}/auth/callback?next=/auth/update-password`,
+      ...(captchaToken ? { captchaToken } : {}),
     })
     setSent(true)
     setLoading(false)
@@ -49,7 +55,13 @@ export default function ForgotPasswordPage() {
             <Label htmlFor="email">Email</Label>
             <Input id="email" type="email" autoComplete="email" required value={email} onChange={(e) => setEmail(e.target.value)} />
           </div>
-          <Button className="w-full bg-foreground text-background hover:bg-foreground/90" type="submit" loading={loading}>
+          <TurnstileWidget onToken={setCaptchaToken} />
+          <Button
+            className="w-full bg-foreground text-background hover:bg-foreground/90"
+            type="submit"
+            loading={loading}
+            disabled={turnstileEnabled() && !captchaToken}
+          >
             Send reset link
           </Button>
           <div className="border-t border-border pt-4 text-center">

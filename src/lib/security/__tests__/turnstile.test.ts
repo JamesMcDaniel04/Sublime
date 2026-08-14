@@ -30,7 +30,7 @@ test('rejects a token Cloudflare refuses', async () => {
 
 test('accepts a token Cloudflare validates', async () => {
   process.env.TURNSTILE_SECRET_KEY = 'secret'
-  await assertHumanToken('good-token', '1.2.3.4', ok)
+  await assert.doesNotReject(() => assertHumanToken('good-token', '1.2.3.4', ok))
 })
 
 test('forwards the secret, token and remote ip to the siteverify endpoint', async () => {
