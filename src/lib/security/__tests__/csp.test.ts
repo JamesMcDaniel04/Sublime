@@ -11,6 +11,15 @@ test('production scripts require a per-request nonce', () => {
   assert.doesNotMatch(script ?? '', /unsafe-eval/)
 })
 
+test('Turnstile is reachable as both a script and a frame host', () => {
+  // The widget is a script that renders a cross-origin iframe. Allowing one
+  // without the other yields a silently blank challenge, so assert both.
+  const csp = contentSecurityPolicy('abc123', false)
+  const directive = (name: string) => csp.split('; ').find((entry) => entry.startsWith(name)) ?? ''
+  assert.match(directive('script-src'), /https:\/\/challenges\.cloudflare\.com/)
+  assert.match(directive('frame-src'), /https:\/\/challenges\.cloudflare\.com/)
+})
+
 test('development permits eval for the Next debugger but still blocks arbitrary inline scripts', () => {
   const script = contentSecurityPolicy('dev123', true).split('; ').find((directive) => directive.startsWith('script-src'))
   assert.match(script ?? '', /unsafe-eval/)
