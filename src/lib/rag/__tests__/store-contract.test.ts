@@ -148,3 +148,62 @@ test('expand refuses foreign-org and other-rep-private seeds', async () => {
   // The owner can still traverse from their own private seed.
   assert.deepEqual((await store.expand('org1', 'repB', ['privB'], 1)).map((n) => n.id), ['n2'])
 })
+
+// ── Cross-tenant id collisions ─────────────────────────────────────────────
+//
+// Node ids are NOT all derived from database UUIDs. src/lib/rag/indexer.ts
+// mints `tool:slack`, `capability:slack:post_message`, `actor:slack:U0123` and
+// `entity:salesforce:Account:001xx` — strings that are byte-identical across
+// every tenant that connects the same provider or sees the same external
+// record. Keying storage on the id alone therefore makes one workspace's
+// indexing silently overwrite another's graph.
+
+test('two orgs may hold the same node id without clobbering each other', async () => {
+  const store = new MemoryGraphStore()
+  // The literal collision: both workspaces connect Slack.
+  await store.upsertNodes([node('tool:slack', 'org1', 'tool', [1, 0], 'org1 slack')])
+  await store.upsertNodes([node('tool:slack', 'org2', 'tool', [1, 0], 'org2 slack')])
+
+  const org1 = await store.search('org1', null, [1, 0], 5)
+  const org2 = await store.search('org2', null, [1, 0], 5)
+
+  assert.equal(org1.length, 1, "org1 lost its node to org2's write")
+  assert.equal(org1[0].node.text, 'org1 slack')
+  assert.equal(org2.length, 1)
+  assert.equal(org2[0].node.text, 'org2 slack')
+})
+
+test('edges cannot attach to another org node that shares an id', async () => {
+  const store = new MemoryGraphStore()
+  await store.upsertNodes([
+    node('run:1', 'org1', 'run', [1, 0], 'org1 run'),
+    node('tool:slack', 'org1', 'tool', [0, 1], 'org1 slack'),
+    node('tool:slack', 'org2', 'tool', [0, 1], 'org2 slack'),
+    node('secret:2', 'org2', 'run', [0.5, 0.5], 'org2 secret run'),
+  ])
+  await store.upsertEdges([
+    { organizationId: 'org1', from: 'run:1', to: 'tool:slack', rel: 'used' },
+    // org2 wires its OWN slack node to its own data.
+    { organizationId: 'org2', from: 'tool:slack', to: 'secret:2', rel: 'used' },
+  ])
+
+  // Two hops from org1's run reaches org1's slack node and stops. If the two
+  // slack nodes were one shared node, the walk would continue into org2.
+  const reached = await store.expand('org1', null, ['run:1'], 2)
+  assert.deepEqual(reached.map((n) => n.id).sort(), ['tool:slack'])
+  assert.ok(reached.every((n) => n.organizationId === 'org1'))
+})
+
+test('deleting one org node leaves the other org copy intact', async () => {
+  const store = new MemoryGraphStore()
+  await store.upsertNodes([
+    node('tool:slack', 'org1', 'tool', [1, 0], 'org1 slack'),
+    node('tool:slack', 'org2', 'tool', [1, 0], 'org2 slack'),
+  ])
+  await store.deleteNodes('org1', ['tool:slack'])
+
+  assert.equal((await store.search('org1', null, [1, 0], 5)).length, 0)
+  const survivors = await store.search('org2', null, [1, 0], 5)
+  assert.equal(survivors.length, 1, "org2's node was deleted by org1's delete")
+  assert.equal(survivors[0].node.text, 'org2 slack')
+})

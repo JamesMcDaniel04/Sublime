@@ -1,8 +1,9 @@
 /**
  * Neo4j GraphRagStore adapter.
  *
- * Nodes are stored as `(:Entity {id, organizationId, type, text, embedding,
- * props, updatedAt})`; edges as typed relationships. Vector search uses a
+ * Nodes are stored as `(:Entity {key, id, organizationId, type, text, embedding,
+ * props, updatedAt})`, uniquely keyed by `key` = tenantNodeKey(org, id) so two
+ * workspaces can hold the same logical id; edges as typed relationships. Vector search uses a
  * Neo4j vector index when present, falling back to org-scoped cosine scoring.
  * `expand` is a variable-length undirected traversal.
  *
@@ -11,7 +12,7 @@
  */
 
 import { cosineSimilarity, EMBEDDING_DIM } from './embeddings'
-import { nodeVisibleTo, type GraphEdge, type GraphNode, type GraphRagStore, type NodeType, type NodeVisibility, type SearchHit } from './store'
+import { nodeVisibleTo, tenantNodeKey, type GraphEdge, type GraphNode, type GraphRagStore, type NodeType, type NodeVisibility, type SearchHit } from './store'
 
 const VECTOR_INDEX = 'entity_embedding'
 
@@ -81,8 +82,37 @@ export class Neo4jGraphStore implements GraphRagStore {
   }
 
   private async ensureIndexes(driver: Driver): Promise<void> {
+    // ── Tenant-key migration ────────────────────────────────────────────────
+    //
+    // `id` used to be the storage key, under a GLOBAL uniqueness constraint.
+    // But ids are not all UUIDs — indexer.ts mints `tool:slack`,
+    // `capability:slack:post_message` and `actor:slack:U0123`, which are
+    // identical across every workspace connecting the same provider. Two orgs
+    // therefore MERGEd into one node and the later write took ownership of it,
+    // silently removing the node from the earlier org's results.
+    //
+    // Nodes are now keyed by `key` = tenantNodeKey(organizationId, id).
+    //
+    // The three steps must run in this order. Backfilling after creating the
+    // constraint would fail on the nulls; dropping the old constraint after
+    // creating the new one is harmless but leaves a window where the global
+    // id-uniqueness rule still rejects a legitimate second-tenant write.
+    //
+    // Runs on driver construction, so once per process. After the first pass
+    // the backfill matches nothing — it is a label scan that returns no rows,
+    // which is the price of not having a migration runner for Neo4j.
     await driver.executeQuery(
-      'CREATE CONSTRAINT entity_id IF NOT EXISTS FOR (e:Entity) REQUIRE e.id IS UNIQUE',
+      `MATCH (e:Entity)
+       WHERE e.key IS NULL AND e.organizationId IS NOT NULL
+       SET e.key = e.organizationId + '::' + e.id`,
+    ).catch(() => undefined)
+
+    // Must be dropped: while it exists, two tenants cannot hold the same id at
+    // all, so the collision this migration fixes would simply become an error.
+    await driver.executeQuery('DROP CONSTRAINT entity_id IF EXISTS').catch(() => undefined)
+
+    await driver.executeQuery(
+      'CREATE CONSTRAINT entity_key IF NOT EXISTS FOR (e:Entity) REQUIRE e.key IS UNIQUE',
     ).catch(() => undefined)
     await driver.executeQuery(
       `CREATE VECTOR INDEX ${VECTOR_INDEX} IF NOT EXISTS FOR (e:Entity) ON (e.embedding)
@@ -95,12 +125,13 @@ export class Neo4jGraphStore implements GraphRagStore {
     const driver = await this.driver()
     await driver.executeQuery(
       `UNWIND $rows AS row
-       MERGE (e:Entity { id: row.id })
-       SET e.organizationId = row.organizationId, e.type = row.type, e.text = row.text,
+       MERGE (e:Entity { key: row.key })
+       SET e.id = row.id, e.organizationId = row.organizationId, e.type = row.type, e.text = row.text,
            e.props = row.props, e.embedding = row.embedding, e.updatedAt = row.updatedAt,
            e.ownerUserId = row.ownerUserId, e.visibility = row.visibility`,
       {
         rows: nodes.map((n) => ({
+          key: tenantNodeKey(n.organizationId, n.id),
           id: n.id, organizationId: n.organizationId, type: n.type, text: n.text,
           props: JSON.stringify(n.props ?? {}), embedding: n.embedding, updatedAt: n.updatedAt ?? new Date().toISOString(),
           ownerUserId: n.ownerUserId ?? null, visibility: n.visibility ?? 'shared',
@@ -123,11 +154,20 @@ export class Neo4jGraphStore implements GraphRagStore {
     }
     for (const [rel, group] of byRel) {
       await driver.executeQuery(
+        // Endpoints are matched by TENANT KEY. Matching on the bare id let an
+        // edge attach to whichever tenant happened to own a colliding node,
+        // which is how a traversal could leave its own workspace.
         `UNWIND $rows AS row
-         MATCH (a:Entity { id: row.from }), (b:Entity { id: row.to })
+         MATCH (a:Entity { key: row.fromKey }), (b:Entity { key: row.toKey })
          MERGE (a)-[r:${rel}]->(b)
          SET r.organizationId = row.organizationId`,
-        { rows: group.map((edge) => ({ from: edge.from, to: edge.to, organizationId: edge.organizationId })) },
+        {
+          rows: group.map((edge) => ({
+            fromKey: tenantNodeKey(edge.organizationId, edge.from),
+            toKey: tenantNodeKey(edge.organizationId, edge.to),
+            organizationId: edge.organizationId,
+          })),
+        },
       )
     }
   }

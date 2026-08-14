@@ -9,14 +9,15 @@
  */
 
 import { cosineSimilarity } from './embeddings'
-import { nodeVisibleTo, type GraphEdge, type GraphNode, type GraphRagStore, type SearchHit } from './store'
+import { nodeVisibleTo, tenantNodeKey, type GraphEdge, type GraphNode, type GraphRagStore, type SearchHit } from './store'
 
 export class MemoryGraphStore implements GraphRagStore {
+  /** Keyed by tenantNodeKey — see the note there on colliding node ids. */
   private nodes = new Map<string, GraphNode>()
   private edges: GraphEdge[] = []
 
   async upsertNodes(nodes: GraphNode[]): Promise<void> {
-    for (const node of nodes) this.nodes.set(node.id, node)
+    for (const node of nodes) this.nodes.set(tenantNodeKey(node.organizationId, node.id), node)
   }
 
   async upsertEdges(edges: GraphEdge[]): Promise<void> {
@@ -45,9 +46,10 @@ export class MemoryGraphStore implements GraphRagStore {
     // ids partly derive from execution input, so a foreign-tenant or
     // other-rep-private id must not anchor the traversal.
     const validSeeds = nodeIds.filter((id) => {
-      const node = this.nodes.get(id)
-      if (!node) return false
-      return node.organizationId === organizationId && nodeVisibleTo(node, viewerUserId)
+      // Looking up by tenant key is itself the org scope: a foreign-tenant id
+      // simply does not resolve, so it can never anchor the traversal.
+      const node = this.nodes.get(tenantNodeKey(organizationId, id))
+      return node ? nodeVisibleTo(node, viewerUserId) : false
     })
     const seen = new Set(validSeeds)
     let frontier = new Set(validSeeds)
@@ -68,10 +70,10 @@ export class MemoryGraphStore implements GraphRagStore {
     const result: GraphNode[] = []
     for (const id of seen) {
       if (nodeIds.includes(id)) continue // return only the newly-reached neighbors
-      const node = this.nodes.get(id)
+      const node = this.nodes.get(tenantNodeKey(organizationId, id))
       // Only return neighbors the viewer may see — a private node owned by
       // another rep is never surfaced, even if reachable by an edge.
-      if (node && node.organizationId === organizationId && nodeVisibleTo(node, viewerUserId)) result.push(node)
+      if (node && nodeVisibleTo(node, viewerUserId)) result.push(node)
     }
     return result
   }
@@ -79,10 +81,8 @@ export class MemoryGraphStore implements GraphRagStore {
   async deleteNodes(organizationId: string, ids: string[]): Promise<void> {
     if (ids.length === 0) return
     const idSet = new Set(ids)
-    for (const id of ids) {
-      const node = this.nodes.get(id)
-      if (node && node.organizationId === organizationId) this.nodes.delete(id)
-    }
+    // Deleting by tenant key cannot reach another org's same-id node.
+    for (const id of ids) this.nodes.delete(tenantNodeKey(organizationId, id))
     this.edges = this.edges.filter(
       (e) => !(e.organizationId === organizationId && (idSet.has(e.from) || idSet.has(e.to))),
     )
@@ -90,10 +90,11 @@ export class MemoryGraphStore implements GraphRagStore {
 
   async deleteByOwner(organizationId: string, ownerUserId: string): Promise<void> {
     const removed = new Set<string>()
-    for (const [id, node] of this.nodes) {
+    for (const [key, node] of this.nodes) {
       if (node.organizationId === organizationId && node.ownerUserId === ownerUserId) {
-        this.nodes.delete(id)
-        removed.add(id)
+        this.nodes.delete(key)
+        // Edges reference LOGICAL ids, not storage keys.
+        removed.add(node.id)
       }
     }
     this.edges = this.edges.filter(
@@ -102,7 +103,7 @@ export class MemoryGraphStore implements GraphRagStore {
   }
 
   async clear(organizationId: string): Promise<void> {
-    for (const [id, node] of this.nodes) if (node.organizationId === organizationId) this.nodes.delete(id)
+    for (const [key, node] of this.nodes) if (node.organizationId === organizationId) this.nodes.delete(key)
     this.edges = this.edges.filter((e) => e.organizationId !== organizationId)
   }
 }

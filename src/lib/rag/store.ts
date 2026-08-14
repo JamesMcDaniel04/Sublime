@@ -63,6 +63,28 @@ export function nodeVisibleTo(
   return node.ownerUserId != null && node.ownerUserId === viewerUserId
 }
 
+/**
+ * The storage key for a node: its tenant plus its logical id.
+ *
+ * Node ids are NOT all database UUIDs. src/lib/rag/indexer.ts mints
+ * `tool:slack`, `capability:slack:post_message`, `actor:slack:U0123` and
+ * `entity:salesforce:Account:001xx` — strings that are byte-identical across
+ * every workspace that connects the same provider or sees the same external
+ * record. Storing by id alone therefore made one workspace's indexing overwrite
+ * another's node: whoever wrote last owned it, and the other org's copy simply
+ * disappeared from their search results.
+ *
+ * Both store implementations key on this, and both use THIS function, so
+ * MemoryGraphStore and Neo4jGraphStore cannot drift apart on the one property
+ * that keeps tenants separate — the same reason nodeVisibleTo above is shared.
+ *
+ * `organizationId` is a UUID (Prisma `@db.Uuid`), so it contains no `::` and
+ * the encoding is unambiguous.
+ */
+export function tenantNodeKey(organizationId: string, id: string): string {
+  return `${organizationId}::${id}`
+}
+
 export type EdgeRelation =
   | 'about_account'
   | 'about_opportunity'
