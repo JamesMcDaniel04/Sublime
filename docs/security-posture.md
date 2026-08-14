@@ -30,6 +30,34 @@ Implementation plan: `docs/superpowers/plans/2026-08-13-security-gap-closure.md`
 | 19 | Force HTTPS | HSTS preload, `upgrade-insecure-requests`, https-only SSRF guard | `next.config.js`, `src/lib/net/ssrf.ts` | `src/lib/net/__tests__/` |
 | 20 | Scan dependencies | Blocking `audit:prod`, nightly sweep, Dependabot with 7-day cooldown | `.github/{workflows/ci.yml,dependabot.yml}` | CI `vulnerabilities` job |
 
+## Second pass — 2026-08-14
+
+A seven-item review of concerns the generic checklist above cannot express,
+because they are specific to running an agent platform.
+
+| Item | Control | Implemented in | Guarded by |
+|---|---|---|---|
+| Rate limit AI endpoints | All 12 LLM routes limited per-user AND per-org; token budget metered on all 13 LLM paths as the backstop for the fail-open limiter | `src/lib/server/api-handler.ts`, `src/lib/usage/budget.ts` | `src/app/api/__tests__/llm-route-guards.test.ts` |
+| Prompt injection | `wrapUntrusted` on retrieved context **and tool output**; write-plane approval deny-by-default for new agents | `src/lib/llm/guardrails.ts`, `src/lib/agents/tool-result.ts`, `src/features/agents/approval.ts` | `src/lib/agents/__tests__/tool-result.test.ts`, `src/app/api/__tests__/behavior-e2e.test.ts` |
+| Secrets server-side | No server env read in any `'use client'` file | `src/lib/env.ts` | — (see Open items) |
+| Auth on protected routes | Mandatory `requires` + structural walk of every route | `src/lib/server/api-handler.ts` | `src/app/api/__tests__/route-permissions.test.ts` |
+| No debug/admin endpoints | None exist; the one operator endpoint uses a timing-safe `CRON_SECRET` and fails closed | `src/app/api/system/behavior/route.ts` | `src/app/api/__tests__/route-permissions.test.ts` |
+| No stack traces to users | Generic 500 + code; zero `.stack` in any response path | `src/lib/server/api-handler.ts` | `src/lib/server/__tests__/body-limit.test.ts` |
+| Attack alerting | Every security event logged; threshold-crossing emails one alert per kind per hour | `src/lib/security/alerts.ts` | `src/lib/security/__tests__/alerts.test.ts` |
+| Third-party data egress | `redactSecrets` on the LLM transcript **and** every outbound Sentry event | `src/lib/observability/sentry.ts` | `src/lib/observability/__tests__/sentry-scrub.test.ts` |
+
+Why the last two needed adding at all:
+
+- **Sentry reports errors; a successful attack does not throw.** A 429 is a
+  normal response and a credential read is a feature, so the entire signal lives
+  in the *rate* of ordinary responses — the one thing error tracking cannot see.
+  Hence a separate event path rather than more `captureError` calls.
+- **Tool output was the unfenced inflow.** The fenced blocks (RAG, knowledge,
+  memories) are comparatively static — someone in the workspace uploaded them.
+  Tool results are a Slack message body, an MCP server response, a fetched page:
+  the content an outside attacker can most easily author, and the content that
+  was arriving unfenced.
+
 ## Baselines as of 2026-08-13
 
 - `npm audit` (production and full): **0 vulnerabilities**.
