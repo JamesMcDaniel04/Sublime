@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { inlineImageDataUrl } from '@/lib/security/inline-image'
 import { prisma } from '@/lib/prisma'
 import { ApiError, withAuthenticatedApi } from '@/lib/server/api-handler'
 import { isValidScanExclusionEntry } from '@/lib/intelligence/scan-exclusions'
@@ -53,12 +54,7 @@ const settingsPatchSchema = z.object({
 
 const patchSchema = z.object({
   name: z.string().trim().min(1, 'Workspace name cannot be empty.').max(80).optional(),
-  logoUrl: z
-    .string()
-    .max(LOGO_MAX_LENGTH, 'Image is too large — please use a smaller file.')
-    .regex(/^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/=]+$/, 'Unsupported image format.')
-    .nullable()
-    .optional(),
+  logoUrl: inlineImageDataUrl(LOGO_MAX_LENGTH).nullable().optional(),
   settings: settingsPatchSchema.optional(),
   // Add/remove verbs for the per-connection learning opt-out. Unlike the
   // legacy full-array `settings.scanExclusions` form, a verb applies against

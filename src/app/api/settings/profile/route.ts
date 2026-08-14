@@ -7,13 +7,17 @@ import { invalidateDbUserCache } from '@/lib/supabase/auth-utils'
 import { ApiError } from '@/lib/server/api-handler'
 import { teardownOrganization } from '@/lib/org-teardown'
 import { assertNotLastAdmin } from '@/lib/server/last-admin'
+import { inlineImageDataUrl } from '@/lib/security/inline-image'
 
 const updateSchema = z.object({
   name: z.string().trim().min(1).max(100),
   // Avatars are stored inline as small data URLs (same approach as the org
   // logo, which allows 300k) — 2048 chars couldn't fit any real image and
   // forced the client to compress avatars into mush.
-  imageUrl: z.string().url().max(300_000).nullable().optional(),
+  // Was z.string().url(), which accepts `javascript:` (a valid URL) and any
+  // external host. The workspace logo was already locked to an inline data
+  // URL; this is the same control, now shared so the two cannot drift.
+  imageUrl: inlineImageDataUrl(300_000).nullable().optional(),
 })
 
 export const GET = withAuthenticatedApi(async (_request, auth) => ({

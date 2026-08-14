@@ -3,6 +3,8 @@ import { prisma } from '@/lib/prisma'
 import { ApiError, withAuthenticatedApi } from '@/lib/server/api-handler'
 import { agentReadScope, agentWriteScope } from '@/lib/server/visibility'
 import { ingestKnowledgeFile, UnsupportedFileError } from '@/lib/knowledge/ingest'
+import { MalwareDetectedError, scanUpload } from '@/lib/security/scan-upload'
+import { FileSignatureError } from '@/lib/security/file-signature'
 
 export const runtime = 'nodejs'
 
@@ -70,6 +72,17 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
   if (file.size > MAX_UPLOAD_BYTES) throw new ApiError('File is too large (max 10 MB).', 413, 'TOO_LARGE')
 
   const buffer = Buffer.from(await file.arrayBuffer())
+
+  // Before ingestion: the extractor hands these bytes to pdf-parse or mammoth
+  // in-process, so scanning has to happen while the file is still just bytes.
+  // No-ops unless UPLOAD_SCANNER_URL is configured.
+  try {
+    await scanUpload(buffer, file.name || 'upload')
+  } catch (error) {
+    if (error instanceof MalwareDetectedError) throw new ApiError(error.message, 422, 'MALWARE_DETECTED', error)
+    throw error
+  }
+
   try {
     const document = await ingestKnowledgeFile({
       organizationId: auth.organizationId,
@@ -82,6 +95,10 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
     return { success: true, document }
   } catch (error) {
     if (error instanceof UnsupportedFileError) throw new ApiError(error.message, 415, 'UNSUPPORTED_TYPE')
+    // Bytes that contradict the declared type: a rejected upload, not a
+    // corrupt one. Distinguishing them tells a user who picked the wrong file
+    // something they can act on.
+    if (error instanceof FileSignatureError) throw new ApiError(error.message, 415, 'UNSUPPORTED_TYPE', error)
     throw error
   }
   // Each upload fans out into chunking + embedding generation — throttled so a

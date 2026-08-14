@@ -1,6 +1,8 @@
 import { ApiError, withAuthenticatedApi } from '@/lib/server/api-handler'
 import { extractText, isSupported } from '@/lib/knowledge/extract'
 import { rateLimit } from '@/lib/ratelimit'
+import { MalwareDetectedError, scanUpload } from '@/lib/security/scan-upload'
+import { FileSignatureError } from '@/lib/security/file-signature'
 
 export const runtime = 'nodejs'
 
@@ -31,10 +33,24 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
   }
 
   const buffer = Buffer.from(await file.arrayBuffer())
+
+  // Before extraction: pdf-parse and mammoth parse these bytes in-process, so
+  // the scan has to happen while the file is still just bytes. No-ops unless
+  // UPLOAD_SCANNER_URL is configured.
+  try {
+    await scanUpload(buffer, filename)
+  } catch (error) {
+    if (error instanceof MalwareDetectedError) throw new ApiError(error.message, 422, 'MALWARE_DETECTED', error)
+    throw error
+  }
+
   let text: string
   try {
     text = await extractText(buffer, mimeType, filename)
   } catch (error) {
+    // A signature mismatch is a rejected upload, not a corrupt one — say which,
+    // so a user who picked the wrong file gets a message they can act on.
+    if (error instanceof FileSignatureError) throw new ApiError(error.message, 415, 'UNSUPPORTED_TYPE', error)
     throw new ApiError('Could not read this file — it may be corrupted.', 422, 'EXTRACTION_FAILED', error)
   }
   if (!text) throw new ApiError('No text found in this file.', 422, 'EMPTY_FILE')

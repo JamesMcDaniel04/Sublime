@@ -30,3 +30,23 @@ test('chunkText returns one chunk for short text, many for long', () => {
   assert.ok(chunks.length >= 3)
   assert.ok(chunks.every((c) => c.length <= 1200))
 })
+
+test('extractText refuses bytes that contradict the declared type', async () => {
+  // The OR-allowlist let anything named .pdf reach pdf-parse. isSupported()
+  // still says yes here (the name matches); extractText is where the bytes get
+  // the final word.
+  const zipBytes = Buffer.concat([Buffer.from([0x50, 0x4b, 0x03, 0x04]), Buffer.alloc(32)])
+  assert.equal(isSupported('application/pdf', 'evil.pdf'), true)
+  await assert.rejects(() => extractText(zipBytes, 'application/pdf', 'evil.pdf'), /does not look like a PDF/)
+})
+
+test('extractText refuses binary bytes declared as plain text', async () => {
+  await assert.rejects(
+    () => extractText(Buffer.from([0x00, 0xff, 0xfe, 0x03]), 'text/plain', 'notes.txt'),
+    /does not look like text/,
+  )
+})
+
+test('extractText refuses an empty upload', async () => {
+  await assert.rejects(() => extractText(Buffer.alloc(0), 'text/plain', 'empty.txt'), /empty/)
+})
