@@ -2,7 +2,7 @@
  * ENCRYPTION_KEY rotation and plaintext-exposure report.
  *
  * Before this existed, rotating ENCRYPTION_KEY bricked every stored secret:
- * `v1:` payloads are AES-256-GCM under a key derived from that env var, and
+ * `v2:`/`v1:` payloads are AES-256-GCM under a key derived from that env var, and
  * nothing could re-encrypt them. "Rotate the keys" — the first thing anyone
  * does after a credential incident — was therefore not a supported operation.
  *
@@ -60,7 +60,7 @@ const prisma = new PrismaClient({
 type Totals = { rows: number; rotated: number; upgraded: number; failed: number }
 
 async function report(): Promise<void> {
-  console.log('Stored-secret report (v1 = encrypted, b64 = reversible base64, NOT encryption)\n')
+  console.log('Stored-secret report (v2/v1 = encrypted, b64 = reversible base64, NOT encryption)\n')
   let totalB64 = 0
 
   for (const target of TARGETS) {
@@ -69,7 +69,7 @@ async function report(): Promise<void> {
       console.log(`  ${target.model.padEnd(26)} SKIPPED (no such model)`)
       continue
     }
-    const counts = { v1: 0, b64: 0 }
+    const counts = { v2: 0, v1: 0, b64: 0 }
     let cursor: string | undefined
     for (;;) {
       const rows = await delegate.findMany({
@@ -82,6 +82,7 @@ async function report(): Promise<void> {
       for (const row of rows) {
         for (const column of target.columns) {
           const found = countCiphertextsDeep(row[column])
+          counts.v2 += found.v2
           counts.v1 += found.v1
           counts.b64 += found.b64
         }
@@ -91,7 +92,12 @@ async function report(): Promise<void> {
     }
     totalB64 += counts.b64
     const flag = counts.b64 > 0 ? '  ⚠ REVERSIBLE' : ''
-    console.log(`  ${target.model.padEnd(26)} v1=${String(counts.v1).padEnd(6)} b64=${String(counts.b64).padEnd(6)}${flag}`)
+    // v2 must appear here. Reporting only v1 would print "v1=0 b64=0" for a
+    // fully-rotated table, which reads as "no secrets stored" rather than
+    // "every secret is on the current derivation".
+    console.log(
+      `  ${target.model.padEnd(26)} v2=${String(counts.v2).padEnd(6)} v1=${String(counts.v1).padEnd(6)} b64=${String(counts.b64).padEnd(6)}${flag}`,
+    )
   }
 
   console.log(

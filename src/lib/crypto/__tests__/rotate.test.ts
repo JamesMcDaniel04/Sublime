@@ -14,7 +14,10 @@ test('a value encrypted under one key decrypts under that key and not another', 
 })
 
 test('classify distinguishes real encryption from the reversible base64 fallback', () => {
-  assert.equal(classifyCiphertext(encryptSecretWithKey('x', OLD)), 'v1')
+  // New writes use the v2 envelope; v1 stays classified so rotation can still
+  // find and migrate rows written before the derivation was upgraded.
+  assert.equal(classifyCiphertext(encryptSecretWithKey('x', OLD)), 'v2')
+  assert.equal(classifyCiphertext('v1:aXY=:dGFn:Y3Q='), 'v1')
   assert.equal(classifyCiphertext('b64:' + Buffer.from('x').toString('base64')), 'b64')
   assert.equal(classifyCiphertext('not a secret'), 'plaintext')
 })
@@ -47,7 +50,7 @@ test('the base64 fallback is upgraded to real encryption during rotation', () =>
   const { value: rotated, upgraded } = rotateCiphertextsDeep(stored, OLD, NEW)
   assert.equal(upgraded, 1)
   const token = (rotated as { token: string }).token
-  assert.equal(classifyCiphertext(token), 'v1')
+  assert.equal(classifyCiphertext(token), 'v2')
   assert.equal(decryptSecretWithKey(token, NEW), 'sk-was-plaintext')
 })
 
@@ -80,5 +83,24 @@ test('counting reports the fallback rows that still need upgrading', () => {
     bad: 'b64:' + Buffer.from('b').toString('base64'),
     plain: 'hello',
   }
-  assert.deepEqual(countCiphertextsDeep(stored), { v1: 1, b64: 1 })
+  assert.deepEqual(countCiphertextsDeep(stored), { v2: 1, v1: 0, b64: 1 })
+})
+
+test('a v1 row is migrated onto the v2 derivation by rotation', async () => {
+  // The reason classifyCiphertext must know about v1 forever: rotation is how
+  // rows written under the old derivation move to the new one. A v1 payload
+  // that rotation did not recognise would be skipped and reported as success.
+  const crypto = await import('node:crypto')
+  const key = crypto.createHash('sha256').update(OLD).digest()
+  const iv = crypto.randomBytes(12)
+  const cipher = crypto.createCipheriv('aes-256-gcm', key, iv, { authTagLength: 16 })
+  const ct = Buffer.concat([cipher.update('legacy', 'utf8'), cipher.final()])
+  const legacy = ['v1', iv.toString('base64'), cipher.getAuthTag().toString('base64'), ct.toString('base64')].join(':')
+
+  assert.equal(classifyCiphertext(legacy), 'v1')
+  const { value: rotated, rotated: count } = rotateCiphertextsDeep({ token: legacy }, OLD, NEW)
+  assert.equal(count, 1)
+  const token = (rotated as { token: string }).token
+  assert.equal(classifyCiphertext(token), 'v2')
+  assert.equal(decryptSecretWithKey(token, NEW), 'legacy')
 })

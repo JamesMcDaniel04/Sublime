@@ -18,5 +18,12 @@ export function contentSecurityPolicy(nonce: string, development = false): strin
     "connect-src 'self' https://*.supabase.co wss://*.supabase.co https://*.sentry.io https://*.ingest.sentry.io https://vercel.live wss://ws-us3.pusher.com https://api.nango.dev wss://api.nango.dev",
     'frame-src https://vercel.live https://connect.nango.dev https://challenges.cloudflare.com',
     'upgrade-insecure-requests',
+    // Both spellings on purpose: report-uri is deprecated but still the only
+    // one Safari honours, report-to is the Reporting API successor (and needs
+    // the Reporting-Endpoints response header set alongside it, in
+    // src/middleware.ts). Without a sink the policy can only be tightened by
+    // guesswork — you ship a change and learn from a support ticket.
+    'report-uri /api/security/csp-report',
+    'report-to csp-endpoint',
   ].join('; ')
 }

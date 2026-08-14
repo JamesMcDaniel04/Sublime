@@ -8,8 +8,9 @@
  * complete right up until it isn't.
  *
  * So rotation walks a value deeply and rewrites any STRING that is a
- * ciphertext (`v1:` or `b64:`). A new secret field is covered the day it is
- * written, with no registry to update.
+ * ciphertext (`v2:`, `v1:` or `b64:`). A new secret field is covered the day it
+ * is written, with no registry to update. Rewrites always emit the CURRENT
+ * envelope, so rotating also migrates v1 rows onto the v2 derivation.
  *
  * Two invariants make it safe to run against production:
  *   - Never destroy what it cannot read. A value that does not open under the
@@ -19,10 +20,15 @@
  */
 import { decryptSecretWithKey, encryptSecretWithKey } from './secrets'
 
-export type CiphertextKind = 'v1' | 'b64' | 'plaintext'
+export type CiphertextKind = 'v2' | 'v1' | 'b64' | 'plaintext'
 
 /** What a stored string IS: real encryption, the reversible fallback, or neither. */
 export function classifyCiphertext(value: string): CiphertextKind {
+  // v2 MUST be listed here. A ciphertext this function does not recognise is
+  // classified 'plaintext' and skipped by the walk below — so a missing case
+  // means rows silently stay under the OLD key while rotation reports success,
+  // which is the worst possible outcome for a rotation tool.
+  if (value.startsWith('v2:')) return 'v2'
   if (value.startsWith('v1:')) return 'v1'
   if (value.startsWith('b64:')) return 'b64'
   return 'plaintext'
@@ -89,9 +95,15 @@ export function rotateCiphertextsDeep(value: unknown, oldKey: string, newKey: st
   return { value: walk(value), ...tally }
 }
 
-/** Count ciphertexts by kind — the `b64` tally is the plaintext-exposure report. */
-export function countCiphertextsDeep(value: unknown): { v1: number; b64: number } {
-  const counts = { v1: 0, b64: 0 }
+/**
+ * Count ciphertexts by kind.
+ *
+ * The `b64` tally is the plaintext-exposure report; the `v1` tally is the
+ * how-much-is-still-on-the-old-derivation report, which goes to zero as
+ * rotation re-writes rows into the v2 envelope.
+ */
+export function countCiphertextsDeep(value: unknown): { v2: number; v1: number; b64: number } {
+  const counts = { v2: 0, v1: 0, b64: 0 }
 
   const walk = (node: unknown): void => {
     if (typeof node === 'string') {

@@ -41,6 +41,7 @@ const DIFFERENTLY_AUTHENTICATED: ReadonlyArray<{ route: string; mechanism: strin
   { route: 'slack/events/[bindingId]', mechanism: 'Slack request signature' },
   { route: 'system/behavior', mechanism: 'internal system endpoint' },
   { route: 'health', mechanism: 'public liveness probe' },
+  { route: 'security/csp-report', mechanism: 'unauthenticated browser report sink; browsers post CSP violations without credentials. Rate limited per IP, size capped, logs only — reads no tenant data and writes nothing' },
   { route: 'email/unsubscribe', mechanism: 'signed HMAC unsubscribe token' },
 ]
 

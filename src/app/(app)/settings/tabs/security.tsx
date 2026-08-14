@@ -15,6 +15,20 @@ import { Input } from '@/components/ui/input'
 
 type Factor = { id: string; friendly_name?: string; status: string }
 
+/**
+ * Render Supabase's TOTP QR as an image rather than injected HTML.
+ *
+ * `totp.qr_code` is SVG markup from the Supabase API. It was previously passed
+ * to dangerouslySetInnerHTML — the only such sink in the codebase. The source
+ * is trusted, so this was never an active vulnerability; removing it means the
+ * claim "we have zero HTML injection points" is greppable rather than
+ * qualified, and an SVG loaded through <img> cannot execute script even if the
+ * upstream response were ever attacker-influenced.
+ */
+function qrSource(qr: string): string {
+  return qr.startsWith('data:') ? qr : `data:image/svg+xml;utf8,${encodeURIComponent(qr)}`
+}
+
 export function SecurityTab({ initialEmail }: Readonly<{ initialEmail: string }>) {
   const supabase = createClient()
   const [email, setEmail] = useState(initialEmail)
@@ -66,7 +80,8 @@ export function SecurityTab({ initialEmail }: Readonly<{ initialEmail: string }>
       <Card className="max-w-2xl"><CardHeader><CardTitle>Password</CardTitle></CardHeader><CardContent className="flex flex-col gap-3 sm:flex-row"><Input type="password" autoComplete="new-password" placeholder="At least 12 characters" value={password} onChange={(e) => setPassword(e.target.value)} /><Button onClick={changePassword}>Change password</Button></CardContent></Card>
       <Card className="max-w-2xl"><CardHeader><CardTitle>Two-factor authentication</CardTitle></CardHeader><CardContent className="space-y-4">
         {factors.map((factor) => <div key={factor.id} className="flex items-center justify-between rounded-md border p-3"><span className="text-sm">{factor.friendly_name || 'Authenticator app'} · {factor.status}</span><Button variant="outline" onClick={() => removeMfa(factor.id)}>Remove</Button></div>)}
-        {enrollment ? <div className="space-y-3"><div className="w-48" dangerouslySetInnerHTML={{ __html: enrollment.qr }} /><p className="text-sm text-muted-foreground">Scan the code, then enter the six-digit verification code.</p><div className="flex gap-3"><Input inputMode="numeric" autoComplete="one-time-code" value={code} onChange={(e) => setCode(e.target.value)} /><Button onClick={verifyMfa}>Verify</Button></div></div> : <Button variant="outline" onClick={enrollMfa}>Add authenticator</Button>}
+        {enrollment ? <div className="space-y-3">{/* eslint-disable-next-line @next/next/no-img-element */}
+          <img className="w-48" alt="Two-factor setup QR code" src={qrSource(enrollment.qr)} /><p className="text-sm text-muted-foreground">Scan the code, then enter the six-digit verification code.</p><div className="flex gap-3"><Input inputMode="numeric" autoComplete="one-time-code" value={code} onChange={(e) => setCode(e.target.value)} /><Button onClick={verifyMfa}>Verify</Button></div></div> : <Button variant="outline" onClick={enrollMfa}>Add authenticator</Button>}
       </CardContent></Card>
       <Card className="max-w-2xl"><CardHeader><CardTitle>Sessions</CardTitle></CardHeader><CardContent><Button variant="outline" onClick={async () => { const { error } = await supabase.auth.signOut({ scope: 'others' }); if (error) toast.error(error.message); else toast.success('Other sessions signed out') }}>Sign out other sessions</Button></CardContent></Card>
     </>

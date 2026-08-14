@@ -74,11 +74,13 @@ if (TEST_DB) {
 
     const after1 = await prisma.knowledgeChunk.findFirst({ where: { id: plaintextRow.id, organizationId: ids.org } })
     assert.equal(after1.content, '', 'plaintext must be blanked')
-    assert.ok(after1.contentEncrypted?.startsWith('v1:'), 'must be real AES-256-GCM')
+    // v2 is the current envelope; v1 rows written before the HKDF upgrade are
+    // still valid AES-256-GCM, so accept either rather than pinning the version.
+    assert.match(after1.contentEncrypted ?? '', /^v[12]:/, 'must be real AES-256-GCM')
     assert.equal(decryptSecret(after1.contentEncrypted), 'legacy plaintext body')
 
     const after2 = await prisma.knowledgeChunk.findFirst({ where: { id: b64Row.id, organizationId: ids.org } })
-    assert.ok(after2.contentEncrypted?.startsWith('v1:'), 'b64 must upgrade to AES-256-GCM')
+    assert.match(after2.contentEncrypted ?? '', /^v[12]:/, 'b64 must upgrade to AES-256-GCM')
     assert.equal(decryptSecret(after2.contentEncrypted), 'b64 fallback body')
 
     // An empty-content, never-encrypted row has nothing to converge — left alone.

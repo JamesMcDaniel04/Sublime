@@ -24,6 +24,34 @@ production release, verify these settings in the Supabase Auth dashboard:
 - Test signup-disabled, recovery, email change, MFA enrollment/challenge,
   suspension, logout-all-sessions, and expired-link behavior before release.
 
-The CSP currently permits inline scripts/styles for Next.js compatibility.
-Move to request nonces and remove `unsafe-inline`/`unsafe-eval` after validating
-all application and third-party scripts under the nonce-based policy.
+Run `npm run check:auth` to verify the settings above that are machine-checkable.
+It reports signup and email-confirmation state from the anon key alone, and
+CAPTCHA, leaked-password protection, password length and the auth rate limits
+when `SUPABASE_ACCESS_TOKEN` is set. It exits 0 when it cannot run, so it is
+safe anywhere.
+
+Enable Turnstile in **both** places or it protects nothing: the Supabase Auth
+dashboard (signup, login and recovery go browser → Supabase, so only Supabase
+can verify those tokens) and `NEXT_PUBLIC_TURNSTILE_SITE_KEY` /
+`TURNSTILE_SECRET_KEY` here. `check:auth` fails specifically on the mismatch
+where our keys are set but Supabase's CAPTCHA is off, because that combination
+renders a challenge nobody verifies.
+
+Set `UPLOAD_SCANNER_URL` in any deployment that accepts files from untrusted
+users. Uploaded bytes reach `pdf-parse` and `mammoth` in-process.
+
+## Content-Security-Policy status
+
+`src/lib/security/csp.ts` uses a per-request nonce for scripts; `unsafe-eval` is
+development-only and `unsafe-inline` is not present in `script-src`. Violations
+report to `/api/security/csp-report`.
+
+What genuinely remains is `style-src 'unsafe-inline'`, which Next's inline style
+injection still requires during dynamic rendering. Removing it needs a
+styled-nonce audit of every component and belongs in its own change.
+
+Note that the CSP is load-bearing rather than defence-in-depth here: the
+Supabase session cookie cannot be `httpOnly`, because `@supabase/ssr` shares one
+cookie with `createBrowserClient`, which reads it from `document.cookie`. The
+CSP is what carries that exposure. See `SESSION_COOKIE_OPTIONS` in
+`src/lib/supabase/config.ts`.

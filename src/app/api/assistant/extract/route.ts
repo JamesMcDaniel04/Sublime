@@ -57,4 +57,9 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
 
   const truncated = text.length > MAX_TEXT_CHARS
   return { success: true, filename, text: truncated ? text.slice(0, MAX_TEXT_CHARS) : text, truncated }
-}, { requires: 'member' })
+}, {
+  requires: 'member',
+  // MAX_UPLOAD_BYTES is 10 MB; multipart framing and the base64-free binary
+  // body still need headroom above it, and the per-file check is the real gate.
+  maxBodyBytes: 12 * 1024 * 1024,
+})

@@ -11,6 +11,10 @@ export async function middleware(request: NextRequest) {
   const securedRequest = new NextRequest(request, { headers: requestHeaders })
   const response = await updateSession(securedRequest)
   response.headers.set('Content-Security-Policy', csp)
+  // Names the group the CSP's `report-to csp-endpoint` directive refers to.
+  // Without this header the modern Reporting API has nowhere to deliver, and
+  // only the deprecated report-uri path works.
+  response.headers.set('Reporting-Endpoints', 'csp-endpoint="/api/security/csp-report"')
   return response
 }
 

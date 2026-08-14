@@ -103,7 +103,12 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
   }
   // Each upload fans out into chunking + embedding generation — throttled so a
   // scripted loop can't turn the embedding pipeline into a cost hole.
-}, { requires: 'member', rateLimit: { feature: 'knowledge-upload', perUser: 20 } })
+}, {
+  requires: 'member',
+  rateLimit: { feature: 'knowledge-upload', perUser: 20 },
+  // Matches the 10 MB MAX_UPLOAD_BYTES with multipart headroom.
+  maxBodyBytes: 12 * 1024 * 1024,
+})
 
 // DELETE — remove a knowledge document (and its chunks, via cascade).
 export const DELETE = withAuthenticatedApi(async (request, auth) => {

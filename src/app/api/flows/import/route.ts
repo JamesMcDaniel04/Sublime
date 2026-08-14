@@ -399,4 +399,10 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
       credentialGroups: imported.credentialGroups ?? [],
     },
   }
-}, { requires: 'member', rateLimit: { feature: 'flow-import', perUser: 20, windowSeconds: 60 } })
+}, {
+  requires: 'member',
+  rateLimit: { feature: 'flow-import', perUser: 20, windowSeconds: 60 },
+  // The `document` field is capped at MAX_IMPORT_BYTES (2 MB) by the schema;
+  // JSON escaping can inflate the wire size above the raw document.
+  maxBodyBytes: 3 * 1024 * 1024,
+})

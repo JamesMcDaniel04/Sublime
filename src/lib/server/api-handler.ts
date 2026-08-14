@@ -54,6 +54,38 @@ export type RouteAccess = {
     perOrg?: number
     windowSeconds?: number
   }
+  /**
+   * Largest request body this route accepts, in bytes. Defaults to
+   * DEFAULT_MAX_BODY_BYTES.
+   *
+   * Next's App Router applies no body limit to route handlers, so before this
+   * the only ceiling was Vercel's 4.5 MB platform cap — and nothing at all on
+   * the worker. Routes that legitimately receive more (file uploads, flow
+   * imports) raise it explicitly, which keeps the large surfaces countable
+   * instead of making the default generous enough to cover them.
+   */
+  maxBodyBytes?: number
+}
+
+/**
+ * One megabyte. Every JSON route in this codebase is far below it — the
+ * largest legitimate payloads are a 300 KB inline avatar and a 100 KB CA
+ * certificate.
+ */
+export const DEFAULT_MAX_BODY_BYTES = 1024 * 1024
+
+/**
+ * Whether a request DECLARES more than the budget.
+ *
+ * Content-Length is the client's claim, so this is not a hard ceiling — a
+ * chunked or lying request slips past it. It is the cheap check that rejects
+ * the honest-but-oversized case for one header read, before auth does a
+ * Supabase round-trip on a body we were never going to accept. The real
+ * ceiling stays the platform's.
+ */
+export function declaredBodyTooLarge(request: NextRequest, maxBytes: number): boolean {
+  const declared = Number(request.headers.get('content-length') ?? '')
+  return Number.isFinite(declared) && declared > maxBytes
 }
 
 async function checkRouteRateLimit(
@@ -107,6 +139,17 @@ export function withAuthenticatedApi(handler: AuthenticatedHandler, access: Rout
       return response
     }
     try {
+      // Before auth on purpose: rejecting an oversized body costs one header
+      // read, whereas requireAuthContext() is a Supabase round-trip we would
+      // be spending on a request we are about to refuse anyway.
+      if (declaredBodyTooLarge(request, access.maxBodyBytes ?? DEFAULT_MAX_BODY_BYTES)) {
+        authFinishedAt = performance.now()
+        return withTiming(NextResponse.json(
+          { success: false, error: 'Request body is too large.', code: 'TOO_LARGE' },
+          { status: 413 },
+        ))
+      }
+
       const auth = await requireAuthContext()
       authFinishedAt = performance.now()
 
