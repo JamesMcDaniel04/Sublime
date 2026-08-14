@@ -16,6 +16,7 @@
     "lint": "eslint .",
     "check": "npm run typecheck && npm run lint && npm run audit:prod && npm run build",
     "audit:prod": "npm audit --omit=dev --audit-level=moderate",
+    "check:auth": "node scripts/check-auth-hardening.mjs",
     "bundle:check": "node scripts/check-bundle-budget.mjs",
     "db:generate": "prisma generate",
     "db:push": "prisma db push",

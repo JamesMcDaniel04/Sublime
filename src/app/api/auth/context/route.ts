@@ -7,4 +7,10 @@ export const GET = withAuthenticatedApi(async (_request, auth) => ({
     organizationId: auth.organizationId,
     role: auth.dbUser.role,
   },
-}), { requires: 'member' })
+}), {
+  requires: 'member',
+  // Session-bootstrap routes are what an authenticated attacker loops to probe
+  // or to make the Supabase Auth round-trip repeatedly on our behalf. Generous
+  // enough for normal navigation, bounded enough to stop a script.
+  rateLimit: { feature: 'auth-context', perUser: 120 },
+})

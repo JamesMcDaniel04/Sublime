@@ -34,4 +34,7 @@ export const GET = withAuthenticatedApi(async (_request, auth) => {
       },
     },
   }
-}, { requires: 'member' })
+}, {
+  requires: 'member',
+  rateLimit: { feature: 'bootstrap', perUser: 120 },
+})
