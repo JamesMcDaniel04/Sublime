@@ -1,0 +1,56 @@
+# Dependency updates.
+#
+# `npm run audit:prod` gates CI and reports 0 vulnerabilities today, but it only
+# runs on push and pull_request — a CVE published against an unchanged
+# dependency surfaces at the next commit, which on a quiet week could be days.
+# The nightly sweep in ci.yml catches those; this keeps the tree current so
+# there is less to catch.
+version: 2
+
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: '06:00'
+    open-pull-requests-limit: 5
+    # Wait a week before proposing a freshly published version. The npm attack
+    # that matters here is account takeover followed by a malicious release —
+    # those get yanked within days, and a cooldown means we were never in the
+    # window. Costs a week of latency on updates nobody is waiting on.
+    cooldown:
+      default-days: 7
+    # Minor and patch bumps arrive as ONE reviewable PR. Fifty individual PRs
+    # is the reliable way to get a team to stop reading any of them.
+    groups:
+      minor-and-patch:
+        update-types:
+          - minor
+          - patch
+    ignore:
+      # Pinned deliberately in package.json overrides — a Dependabot bump here
+      # would fight the pin every week. Revisit when the pin is lifted.
+      - dependency-name: sharp
+        versions: ['>=0.36.0']
+      # React and its types move as a set with Next; bump them together by hand.
+      - dependency-name: react
+        update-types: ['version-update:semver-major']
+      - dependency-name: react-dom
+        update-types: ['version-update:semver-major']
+    labels:
+      - dependencies
+
+  # Keeps the pinned action versions in ci.yml from rotting, which is the usual
+  # reason people stop pinning them at all.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: '06:00'
+    cooldown:
+      default-days: 7
+    labels:
+      - dependencies
+      - ci

@@ -1,0 +1,62 @@
+# Secret scanning configuration.
+#
+# The 2026-08-13 audit found git history clean — only `.env.example` was ever
+# committed. Clean but UNGUARDED was the finding: no pre-commit hook, no CI
+# scanner, and `.env.local` / `.env.production.local` sitting in the working
+# tree protected by nothing except .gitignore. This is what keeps it clean.
+#
+# Baseline verified with gitleaks 8.30.1 over all 1309 commits: 8 matches, every
+# one a fixture or prose false positive, each allow-listed below by its exact
+# value. A real secret still fails the scan.
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Known-fake credentials that exist BECAUSE we test secret redaction"
+# src/lib/llm/guardrails.ts scrubs credentials out of model output and
+# src/lib/agents/tool-result.ts scrubs them out of tool results. Both need
+# realistically-shaped inputs to assert against.
+#
+# Allow-listed by exact value rather than by path: allow-listing all of
+# `__tests__` would mean a genuinely leaked secret pasted into a test file never
+# fails the scan, which is the outcome this file exists to prevent.
+regexes = [
+  '''sk-ant-api03-abcdefghijklmnop1234''',
+  '''sk_live_abcdefghijklmnop1234''',
+  '''AKIAIOSFODNN7EXAMPLE''',
+  '''xoxb-1234567890-abcdefghij''',
+  '''ghp_abcdefghijklmnopqrstuvwxyz123456''',
+  '''Bearer abcdefghijklmnopqrstuvwxyz0123456789''',
+  # Decodes to {"alg":"HS256"}.{"sub":"1234"} with a placeholder signature.
+  '''eyJhbGciOiJIUzI1NiJ9\.eyJzdWIiOiIxMjM0In0\.abcdefghijklmnop''',
+  # Slack's own documented example signing secret (note the yyyzzz filler).
+  '''8f742231b10e8888abcd99yyyzzz85a5''',
+  '''test-signing-secret-1234''',
+]
+
+[[allowlists]]
+description = "generic-api-key matches a test TITLE, not an assignment"
+# The literal text is `rejects a tampered body, wrong secret, missing/garbled
+# headers` — the rule reads `secret, missing...` as a key/value pair. Scoped to
+# the phrase rather than the file so a real key in the same file still fails.
+targetRules = ["generic-api-key"]
+# regexTarget = "line" because the default target is the extracted secret,
+# which here is a fragment of the sentence and matches nothing recognisable.
+regexTarget = "line"
+regexes = [
+  '''rejects a tampered body, wrong secret, missing/garbled headers''',
+]
+
+[[allowlists]]
+description = "curl-auth-user matches the English phrase 'curl -d defaults to...'"
+targetRules = ["curl-auth-user"]
+paths = [
+  '''src/lib/flows/__tests__/curl-import\.test\.ts''',
+]
+
+[[allowlists]]
+description = "Lockfile integrity hashes are high-entropy by construction, not secrets"
+paths = [
+  '''package-lock\.json''',
+]

@@ -10,9 +10,18 @@ on:
     branches: [main, master, 'feat/**']
   pull_request:
     branches: [main, master]
+  # `npm run audit:prod` only ever ran on push and pull_request, so a CVE
+  # published against a dependency we had not touched surfaced at the next
+  # commit — days later on a quiet week. The nightly sweep below closes that
+  # window without making every push slower.
+  schedule:
+    - cron: '17 6 * * *'
 
 jobs:
   check:
+    # The full matrix is for changes. Nightly runs only need the vulnerability
+    # and secret sweeps, which are the two things that go stale on their own.
+    if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -52,6 +61,7 @@ jobs:
       - run: npm run build
 
   browser:
+    if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -96,7 +106,7 @@ jobs:
   # blocker the way `check`'s structural tests are.
   eval:
     runs-on: ubuntu-latest
-    if: ${{ secrets.ANTHROPIC_API_KEY != '' }}
+    if: ${{ github.event_name != 'schedule' && secrets.ANTHROPIC_API_KEY != '' }}
     continue-on-error: true
     env:
       ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
@@ -113,6 +123,7 @@ jobs:
   # schema.prisma matches the migrations exactly (no drift) — the guard that
   # ends hand-applied production SQL.
   migrations:
+    if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -145,3 +156,59 @@ jobs:
           --from-url "$DATABASE_URL"
           --to-schema-datamodel prisma/schema.prisma
           --exit-code
+
+  # Dependencies rot on their own schedule, not ours. audit:prod stays the
+  # blocking gate (0 vulnerabilities as of 2026-08-13); the full audit is
+  # informational because a dev-only advisory should surface without wedging
+  # every push.
+  vulnerabilities:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - name: Production dependencies (blocking)
+        run: npm run audit:prod
+      - name: All dependencies including dev (informational)
+        continue-on-error: true
+        run: npm audit
+
+  # Secret scanning and SAST. Git history was clean at the 2026-08-13 audit but
+  # nothing kept it that way: no pre-commit hook, no scanner, and .env.local /
+  # .env.production.local in the working tree behind nothing but .gitignore.
+  security:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # gitleaks scans history, not just the tip — a secret committed and
+          # then "removed" in a later commit is still in the pack file.
+          fetch-depth: 0
+
+      - name: Scan git history for secrets
+        env:
+          GITLEAKS_VERSION: 8.30.1
+        run: |
+          set -euo pipefail
+          curl -sSfL -o gitleaks.tar.gz \
+            "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          tar xzf gitleaks.tar.gz gitleaks
+          ./gitleaks git . --config=.gitleaks.toml --redact --exit-code 1
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      # Pinned: an unpinned SAST tool changes what "passing" means without a
+      # commit. Non-blocking for now — a new ruleset on a mature codebase needs
+      # a triage pass before it can gate merges. Flip to blocking once the
+      # baseline in docs/security-posture.md is at zero.
+      - name: Static analysis (informational)
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          pip install --quiet semgrep==1.173.0
+          semgrep --config=p/default --severity=ERROR --error --quiet --metrics=off .
