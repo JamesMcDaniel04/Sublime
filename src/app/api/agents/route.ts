@@ -176,7 +176,21 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
         allowFlows: data.allowFlows === true,
         flowIds: data.flowIds ?? [],
         autoAnswerFromMemory: data.autoAnswerFromMemory !== false,
-        requireApproval: data.requireApproval === true,
+        // Deny-by-default for NEW agents (`!== false`, not `=== true`).
+        //
+        // approval.ts already gates two things unconditionally: Postgres writes,
+        // and non-GET http.request — "an exfiltration primitive for
+        // prompt-injected instructions", in its own words. Every OTHER write
+        // plane (Slack, email, all nango:* delivery) was gated only if the
+        // author opted in, so a default agent could be steered by injected
+        // content into mailing or DMing its retrieved context somewhere.
+        // Sending is an exfiltration channel too.
+        //
+        // Scoped to creation on purpose: existing agents keep whatever they
+        // have. Flipping them would move live automations to
+        // waiting_for_input with no warning, which is a migration decision an
+        // operator makes, not a default.
+        requireApproval: data.requireApproval !== false,
         alwaysStrategize: data.alwaysStrategize === true,
         maxTurns: data.maxTurns ?? 16,
         ...(data.outputFields?.length ? { outputFields: data.outputFields, responseFormat: 'structured' } : {}),

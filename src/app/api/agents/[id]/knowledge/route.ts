@@ -4,6 +4,7 @@ import { ApiError, withAuthenticatedApi } from '@/lib/server/api-handler'
 import { agentReadScope, agentWriteScope } from '@/lib/server/visibility'
 import { ingestKnowledgeFile, UnsupportedFileError } from '@/lib/knowledge/ingest'
 import { MalwareDetectedError, scanUpload } from '@/lib/security/scan-upload'
+import { recordSecurityEvent } from '@/lib/security/alerts'
 import { FileSignatureError } from '@/lib/security/file-signature'
 
 export const runtime = 'nodejs'
@@ -79,7 +80,17 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
   try {
     await scanUpload(buffer, file.name || 'upload')
   } catch (error) {
-    if (error instanceof MalwareDetectedError) throw new ApiError(error.message, 422, 'MALWARE_DETECTED', error)
+    if (error instanceof MalwareDetectedError) {
+      // Threshold is 1: a confirmed hit means somebody deliberately uploaded
+      // something, which is always worth knowing the same day.
+      recordSecurityEvent({
+        kind: 'malware.detected',
+        source: auth.dbUser.id,
+        organizationId: auth.organizationId,
+        detail: { verdict: error.message },
+      })
+      throw new ApiError(error.message, 422, 'MALWARE_DETECTED', error)
+    }
     throw error
   }
 

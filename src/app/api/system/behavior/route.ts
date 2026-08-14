@@ -13,6 +13,7 @@
  */
 import { timingSafeEqual } from 'node:crypto'
 import { z } from 'zod'
+import { apiLogger } from '@/lib/logger'
 import { systemPrisma } from '@/lib/prisma'
 import { inferUserBehaviorPatterns } from '@/lib/behavior/infer-user-patterns'
 import { sweepUnindexedUserEvents } from '@/lib/behavior/index-user-event'
@@ -83,8 +84,15 @@ export async function POST(request: Request) {
       }
     }
   } catch (error) {
+    apiLogger.error('system/behavior failed', {
+      error: error instanceof Error ? error.message : String(error),
+    })
     return Response.json(
-      { success: false, error: error instanceof Error ? error.message : 'behavior operation failed' },
+      // Generic to the caller, detailed to the logs. The caller here holds
+      // CRON_SECRET so this is not a confidentiality boundary, but it is the
+      // one operator endpoint echoing raw error text and there is no reason
+      // for it to be the exception.
+      { success: false, error: 'behavior operation failed' },
       { status: 500 },
     )
   }

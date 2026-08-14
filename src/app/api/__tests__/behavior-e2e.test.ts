@@ -76,6 +76,39 @@ if (TEST_DB) {
     assert.equal((event.context as any).name, 'QA Capture Agent')
   })
 
+  test('a new agent requires approval for write-plane tools by default', async () => {
+    // approval.ts gates Postgres writes and non-GET http.request unconditionally,
+    // but every other write plane (Slack, email, nango:* delivery) was gated only
+    // when the author opted in — so a default agent could be steered by injected
+    // content into mailing its retrieved context somewhere. Sending is an
+    // exfiltration channel too. New agents are therefore opt-OUT, not opt-in.
+    const res = await (await import('../agents/route')).POST(
+      post('/api/agents', { title: 'QA Default Approval', instructions: 'Do a thing.' }),
+    )
+    assert.equal(res.status, 200)
+    const body = await res.json()
+    const { readAgentMetadata } = await import('@/lib/agents/metadata')
+    const created = await prisma.agentTask.findFirst({
+      where: { id: body.agent.id, organizationId },
+      select: { metadata: true },
+    })
+    assert.equal(readAgentMetadata(created?.metadata).requireApproval, true)
+  })
+
+  test('an author can still opt out explicitly', async () => {
+    const res = await (await import('../agents/route')).POST(
+      post('/api/agents', { title: 'QA Opted Out', instructions: 'Do a thing.', requireApproval: false }),
+    )
+    assert.equal(res.status, 200)
+    const body = await res.json()
+    const { readAgentMetadata } = await import('@/lib/agents/metadata')
+    const created = await prisma.agentTask.findFirst({
+      where: { id: body.agent.id, organizationId },
+      select: { metadata: true },
+    })
+    assert.equal(readAgentMetadata(created?.metadata).requireApproval, false)
+  })
+
   test('tenant-guard sweep: connector sync persists rows through the guarded client', async () => {
     // Regression for the tenant-guard bug CLASS: syncAgentConnectors ran an
     // unscoped AgentConnector.deleteMany, the guard rejected it, and the

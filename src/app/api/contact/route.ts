@@ -7,6 +7,7 @@ import { capabilitiesForPlan } from '@/lib/billing/capabilities'
 import { entitlementPlanFor } from '@/lib/billing/entitlements'
 import { contactInbox, sendRawEmail } from '@/lib/email/send'
 import { assertHumanToken, TurnstileError } from '@/lib/security/turnstile'
+import { recordSecurityEvent } from '@/lib/security/alerts'
 
 export const dynamic = 'force-dynamic'
 // Comfortably above the 30s Resend deadline so the timeout error path (a
@@ -71,6 +72,9 @@ export async function POST(request: NextRequest) {
     await assertHumanToken(captchaToken, ip)
   } catch (error) {
     if (error instanceof TurnstileError) {
+      // One failure is a human on a flaky connection. A burst of them is a bot
+      // farm working the form, and that is the shape worth waking someone for.
+      recordSecurityEvent({ kind: 'captcha.failed', source: ip, detail: { route: 'contact' } })
       return NextResponse.json({ success: false, error: error.message, code: 'CAPTCHA_FAILED' }, { status: 400 })
     }
     throw error

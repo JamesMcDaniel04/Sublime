@@ -5,6 +5,7 @@ import { captureError } from '@/lib/observability/sentry'
 import { rateLimit } from '@/lib/ratelimit'
 import { AuthContextError, requireAuthContext, type AuthContext } from './auth'
 import { denialReason, type Capability } from './permissions'
+import { recordSecurityEvent } from '@/lib/security/alerts'
 
 export class ApiError extends Error {
   constructor(
@@ -158,6 +159,15 @@ export function withAuthenticatedApi(handler: AuthenticatedHandler, access: Rout
       if (access.rateLimit) {
         const limited = await checkRouteRateLimit(auth, access.rateLimit)
         if (limited) {
+          // A 429 is a normal response, which is exactly why nothing noticed
+          // these before: they never reach Sentry and never fail a request.
+          // The volume IS the signal.
+          recordSecurityEvent({
+            kind: 'rate_limit.exceeded',
+            source: auth.dbUser.id,
+            organizationId: auth.organizationId,
+            detail: { feature: access.rateLimit.feature, path: request.nextUrl.pathname },
+          })
           return withTiming(NextResponse.json(
             { success: false, error: 'Too many requests — please slow down.', code: 'RATE_LIMITED' },
             { status: 429, headers: { 'Retry-After': String(Math.ceil(limited.retryAfterMs / 1000)) } },
@@ -171,6 +181,15 @@ export function withAuthenticatedApi(handler: AuthenticatedHandler, access: Rout
     } catch (error) {
       if (authFinishedAt === startedAt) authFinishedAt = performance.now()
       if (error instanceof AuthContextError) {
+        // 401 only. A 403 is an authenticated member hitting a plan or role
+        // boundary — routine product friction, not someone probing.
+        if (error.status === 401) {
+          recordSecurityEvent({
+            kind: 'auth.failed',
+            source: request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || 'unknown',
+            detail: { path: request.nextUrl.pathname, code: error.code },
+          })
+        }
         return withTiming(NextResponse.json(
           { success: false, error: error.message, code: error.code },
           { status: error.status },
