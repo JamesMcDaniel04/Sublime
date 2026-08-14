@@ -89,8 +89,8 @@ export function TestPanel({
                 )
               })}
               <div className="border-t border-border pt-3">
-                <label className={labelClass}>Raw payload</label>
-                <textarea
+                <label className={labelClass} htmlFor="raw-payload">Raw payload</label>
+                <textarea id="raw-payload"
                   rows={6}
                   className={`${fieldClass} min-h-[120px] resize-y font-mono text-xs`}
                   value={value}
@@ -102,8 +102,8 @@ export function TestPanel({
             </>
           ) : (
             <div>
-              <label className={labelClass}>Run input</label>
-              <textarea
+              <label className={labelClass} htmlFor="run-input">Run input</label>
+              <textarea id="run-input"
                 rows={6}
                 className={`${fieldClass} min-h-[120px] resize-y font-mono text-xs`}
                 value={value}

@@ -40,8 +40,8 @@ function DataBody({
   return (
     <div className="space-y-4">
       <div className="grid gap-2">
-        <label className={labelClass}>Operation</label>
-        <select value={op} onChange={(event) => setOp(event.target.value as DataOp)} className={controlClass}>
+        <label className={labelClass} htmlFor="operation">Operation</label>
+        <select id="operation" value={op} onChange={(event) => setOp(event.target.value as DataOp)} className={controlClass}>
           {DATA_OPS.map((entry) => (
             <option key={entry} value={entry}>
               {DATA_OP_LABELS[entry]}

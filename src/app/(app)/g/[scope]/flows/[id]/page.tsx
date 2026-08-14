@@ -37,7 +37,7 @@ const DagCanvas = dynamic(() => import('@/components/flows/dag-canvas').then((m)
   ),
 })
 import { ShareControl } from '@/components/share-control'
-import { cn } from '@/lib/utils'
+import { cn, scrollBehavior } from '@/lib/utils'
 import { startCanvasPan } from '@/components/flows/canvas-pan'
 import { CanvasRail } from '@/components/flows/canvas-rail'
 import type { ToolCatalog } from '@/components/flows/tool-catalog-type'
@@ -748,7 +748,7 @@ function FlowBuilder() {
   const jumpToNode = useCallback((nodeId: string) => {
     if (viewingVersion) return
     setSelectedId(nodeId)
-    document.querySelector(`[data-node-id="${nodeId}"]`)?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    document.querySelector(`[data-node-id="${nodeId}"]`)?.scrollIntoView({ behavior: scrollBehavior(), block: 'center' })
   }, [viewingVersion])
   const inputFields = useMemo(() => triggerInputFields(graph), [graph])
 
@@ -2081,13 +2081,13 @@ function FlowBuilder() {
           onFit={() => {
             setZoom(1)
             setCanvasPan({ x: 0, y: 0 })
-            canvasScrollRef.current?.scrollTo({ top: 0, behavior: 'smooth' })
+            canvasScrollRef.current?.scrollTo({ top: 0, behavior: scrollBehavior() })
           }}
           onAutoFormat={() => {
             setSelectedId(null)
             setZoom(1)
             setCanvasPan({ x: 0, y: 0 })
-            canvasScrollRef.current?.scrollTo({ top: 0, behavior: 'smooth' })
+            canvasScrollRef.current?.scrollTo({ top: 0, behavior: scrollBehavior() })
             toast.success('Workflow formatted.')
           }}
           onCollapseAll={() => setSelectedId(null)}

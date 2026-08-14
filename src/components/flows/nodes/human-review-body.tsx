@@ -59,8 +59,8 @@ function HumanReviewBody({
         <FieldPreview value={node.data.message ?? ''} ctx={previewContext} />
       </div>
       <div className="grid gap-2">
-        <label className={labelClass}>Assigned to</label>
-        <select
+        <label className={labelClass} htmlFor="assigned-to">Assigned to</label>
+        <select id="assigned-to"
           value={node.data.assigneeUserId ?? ''}
           onChange={(event) => update({ ...node, data: { ...node.data, assigneeUserId: event.target.value || undefined } })}
           className={controlClass}

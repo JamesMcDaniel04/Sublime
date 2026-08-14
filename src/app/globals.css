@@ -26,7 +26,7 @@
   --secondary: 0 0% 96%;
   --secondary-foreground: 0 0% 9%;
   --muted: 0 0% 96%;
-  --muted-foreground: 0 0% 45%;
+  --muted-foreground: 0 0% 43%;   /* 4.94:1 on white, 4.65:1 on --muted (was 4.36:1 there) */
   --accent: 0 0% 96%;
   --accent-foreground: 0 0% 9%;
   --destructive: 345 72% 51%;
@@ -37,12 +37,15 @@
      on white surfaces, where the landing values fail contrast. */
   --success: 142 72% 29%;
   --success-foreground: 0 0% 100%;
-  --warning: 32 95% 38%;
+  --warning: 32 95% 35%;             /* 4.8:1 on white (was 4.11:1 — under AA) */
   --warning-foreground: 0 0% 100%;
   --info: 200 98% 34%;
   --info-foreground: 0 0% 100%;
   --border: 0 0% 90%;
-  --input: 0 0% 90%;
+  /* WCAG 1.4.11 (3:1) applies to this one: on a white page with a white field
+     fill, the border is the ONLY thing identifying the control. --border below
+     stays light on purpose — card hairlines are decoration, not boundaries. */
+  --input: 0 0% 58%;                 /* 3.04:1 on white (was 1.25:1) */
   --ring: 215 16% 47%;
   --radius: 0.375rem;
 }
@@ -84,7 +87,7 @@
      border floating on a grey card is a gradient; #262626 against true black
      is an edge. */
   --border: 0 0% 15%;                /* #262626 */
-  --input: 0 0% 20%;                 /* #333333 — fields need a self-evident edge */
+  --input: 0 0% 35%;                 /* #595959 — 3.01:1 on the canvas; #333 was 1.66:1 */
   --ring: 0 0% 83%;                  /* white focus ring */
 
   /* The type helpers (.h1–.h4, .eyebrow, .mono-label) read these directly from

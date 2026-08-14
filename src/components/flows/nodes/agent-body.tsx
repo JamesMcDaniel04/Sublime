@@ -106,8 +106,8 @@ function AgentBody({
             />
           </div>
           <div className="grid gap-2">
-            <label className={labelClass}>Model</label>
-            <select
+            <label className={labelClass} htmlFor="model">Model</label>
+            <select id="model"
               value={node.data.model ?? ''}
               onChange={(event) => update({ ...node, data: { ...node.data, model: event.target.value || undefined } })}
               className={cn(controlClass, 'w-full sm:w-64')}
@@ -163,8 +163,8 @@ function AgentBody({
       </div>
       <div className="grid gap-2">
         <div className="flex items-center justify-between">
-          <label className={labelClass}>Agent response</label>
-          <select
+          <label className={labelClass} htmlFor="agent-response">Agent response</label>
+          <select id="agent-response"
             value={responseFormat}
             onChange={(event) =>
               update({ ...node, data: { ...node.data, responseFormat: event.target.value === 'structured' ? 'structured' : undefined } })

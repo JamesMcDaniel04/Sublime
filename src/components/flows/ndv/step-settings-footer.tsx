@@ -21,8 +21,8 @@ export function StepSettingsFooter({
   const { blockActive, unblockActive } = tokenWiring
   return (
     <div className="grid gap-1.5">
-      <label className={labelClass}>Notes (optional)</label>
-      <input
+      <label className={labelClass} htmlFor="notes-optional">Notes (optional)</label>
+      <input id="notes-optional"
         value={(node.data as { note?: string }).note ?? ''}
         placeholder="Why this step exists, gotchas, links…"
         onFocus={blockActive}

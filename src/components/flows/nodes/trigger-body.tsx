@@ -216,8 +216,8 @@ function TriggerBody({
   return (
     <div className="space-y-4">
       <div className="grid gap-2">
-        <label className={labelClass}>Trigger type</label>
-        <select
+        <label className={labelClass} htmlFor="trigger-type">Trigger type</label>
+        <select id="trigger-type"
           className={controlClass}
           value={type}
           onChange={(event) => {
@@ -238,8 +238,8 @@ function TriggerBody({
       {type === 'schedule' && (
         <div className="space-y-3">
           <div className="grid gap-2">
-            <label className={labelClass}>Frequency</label>
-            <select className={controlClass} value={schedule.type ?? 'daily'} onChange={(event) => setSchedule({ type: event.target.value })}>
+            <label className={labelClass} htmlFor="frequency">Frequency</label>
+            <select id="frequency" className={controlClass} value={schedule.type ?? 'daily'} onChange={(event) => setSchedule({ type: event.target.value })}>
               {FREQUENCIES.map((frequency) => (
                 <option key={frequency.value} value={frequency.value}>
                   {frequency.label}
@@ -249,29 +249,29 @@ function TriggerBody({
           </div>
           {['daily', 'weekly', 'once'].includes(schedule.type ?? 'daily') && (
             <div className="grid gap-2">
-              <label className={labelClass}>Time (HH:MM)</label>
-              <input className={controlClass} value={schedule.time ?? '09:00'} placeholder="09:00" onChange={(event) => setSchedule({ time: event.target.value })} />
+              <label className={labelClass} htmlFor="time-hh-mm">Time (HH:MM)</label>
+              <input id="time-hh-mm" className={controlClass} value={schedule.time ?? '09:00'} placeholder="09:00" onChange={(event) => setSchedule({ time: event.target.value })} />
             </div>
           )}
           {schedule.type === 'once' && (
             <div className="grid gap-2">
-              <label className={labelClass}>Date (YYYY-MM-DD)</label>
-              <input className={controlClass} value={schedule.runAt ?? ''} placeholder="2026-07-15" onChange={(event) => setSchedule({ runAt: event.target.value })} />
+              <label className={labelClass} htmlFor="date-yyyy-mm-dd">Date (YYYY-MM-DD)</label>
+              <input id="date-yyyy-mm-dd" className={controlClass} value={schedule.runAt ?? ''} placeholder="2026-07-15" onChange={(event) => setSchedule({ runAt: event.target.value })} />
             </div>
           )}
           {schedule.type === 'cron' && (
             <div className="grid gap-2">
-              <label className={labelClass}>Cron expression</label>
-              <input className={cn(controlClass, 'font-mono')} value={schedule.cron ?? ''} placeholder="0 9 * * 1-5" onChange={(event) => setSchedule({ cron: event.target.value })} />
+              <label className={labelClass} htmlFor="cron-expression">Cron expression</label>
+              <input id="cron-expression" className={cn(controlClass, 'font-mono')} value={schedule.cron ?? ''} placeholder="0 9 * * 1-5" onChange={(event) => setSchedule({ cron: event.target.value })} />
             </div>
           )}
           <div className="grid gap-2">
-            <label className={labelClass}>Timezone</label>
-            <input className={controlClass} value={schedule.timezone ?? 'UTC'} placeholder="America/Denver" onChange={(event) => setSchedule({ timezone: event.target.value })} />
+            <label className={labelClass} htmlFor="timezone">Timezone</label>
+            <input id="timezone" className={controlClass} value={schedule.timezone ?? 'UTC'} placeholder="America/Denver" onChange={(event) => setSchedule({ timezone: event.target.value })} />
           </div>
           <div className="grid gap-2">
-            <label className={labelClass}>Run input for scheduled runs (optional)</label>
-            <textarea
+            <label className={labelClass} htmlFor="run-input-for-scheduled-runs-optional">Run input for scheduled runs (optional)</label>
+            <textarea id="run-input-for-scheduled-runs-optional"
               rows={2}
               className={cn(controlClass, 'h-auto min-h-[64px] resize-y py-2')}
               value={trigger.input ?? ''}
@@ -291,8 +291,8 @@ function TriggerBody({
       {type === 'signal' && (
         <div className="space-y-3">
           <div className="grid gap-2">
-            <label className={labelClass}>Signal name</label>
-            <input
+            <label className={labelClass} htmlFor="signal-name">Signal name</label>
+            <input id="signal-name"
               className={controlClass}
               list={`known-signals-${node.id}`}
               value={trigger.signal ?? ''}
@@ -319,8 +319,8 @@ function TriggerBody({
         return (
           <div className="space-y-3">
             <div className="grid gap-2">
-              <label className={labelClass}>Connection</label>
-              <select
+              <label className={labelClass} htmlFor="connection">Connection</label>
+              <select id="connection"
                 className={controlClass}
                 value={source.connectionId ?? ''}
                 onChange={(event) => setSource({ connectionId: event.target.value || undefined, toolName: undefined })}
@@ -332,8 +332,8 @@ function TriggerBody({
               </select>
             </div>
             <div className="grid gap-2">
-              <label className={labelClass}>Read action to poll</label>
-              <select
+              <label className={labelClass} htmlFor="read-action-to-poll">Read action to poll</label>
+              <select id="read-action-to-poll"
                 className={controlClass}
                 value={source.toolName ?? ''}
                 disabled={!connection}
@@ -444,8 +444,8 @@ function TriggerBody({
         <div className="space-y-3">
           {slackBindings.length > 0 && (
             <div className="grid gap-2">
-              <label className={labelClass}>Slack workspace</label>
-              <select
+              <label className={labelClass} htmlFor="slack-workspace">Slack workspace</label>
+              <select id="slack-workspace"
                 className={controlClass}
                 value={slackBinding?.id ?? ''}
                 onChange={(event) => setTrigger({ ...trigger, bindingId: event.target.value || undefined })}
@@ -474,8 +474,8 @@ function TriggerBody({
           </div>
           {(trigger.events ?? []).includes('slash_command') && (
             <div className="grid gap-2">
-              <label className={labelClass}>Slash command</label>
-              <input className={cn(controlClass, 'font-mono')} value={trigger.command ?? ''} placeholder="/deploy" onChange={(event) => setTrigger({ ...trigger, command: event.target.value || undefined })} />
+              <label className={labelClass} htmlFor="slash-command">Slash command</label>
+              <input id="slash-command" className={cn(controlClass, 'font-mono')} value={trigger.command ?? ''} placeholder="/deploy" onChange={(event) => setTrigger({ ...trigger, command: event.target.value || undefined })} />
             </div>
           )}
           <div className="grid gap-2">
@@ -508,8 +508,8 @@ function TriggerBody({
             <p className="text-xs text-muted-foreground">Loaded from the selected Slack connection. Hold ⌘/Ctrl to select more than one.</p>
           </div>
           <div className="grid gap-2">
-            <label className={labelClass}>Only when the message contains (optional)</label>
-            <input className={controlClass} value={trigger.keyword ?? ''} placeholder="deploy" onChange={(event) => setTrigger({ ...trigger, keyword: event.target.value || undefined })} />
+            <label className={labelClass} htmlFor="only-when-the-message-contains-optional">Only when the message contains (optional)</label>
+            <input id="only-when-the-message-contains-optional" className={controlClass} value={trigger.keyword ?? ''} placeholder="deploy" onChange={(event) => setTrigger({ ...trigger, keyword: event.target.value || undefined })} />
           </div>
           <label className="flex items-center gap-2 text-sm text-muted-foreground">
             <input type="checkbox" checked={trigger.threadMemory === true} onChange={(event) => setTrigger({ ...trigger, threadMemory: event.target.checked || undefined })} />

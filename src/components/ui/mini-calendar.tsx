@@ -108,7 +108,7 @@ export function MiniCalendar({
                 isSelected
                   ? 'bg-primary font-semibold text-primary-foreground'
                   : isDisabled
-                    ? 'cursor-not-allowed text-muted-foreground/40'
+                    ? 'cursor-not-allowed text-muted-foreground'
                     : 'text-foreground hover:bg-accent',
               )}
             >

@@ -18,7 +18,7 @@ const contactSchema = z.object({
   name: z.string().trim().min(1).max(200),
   email: z.string().trim().email().max(320),
   company: z.string().trim().max(200).optional().default(''),
-  reason: z.enum(['enterprise', 'support', 'billing', 'privacy', 'feedback', 'other']),
+  reason: z.enum(['enterprise', 'support', 'billing', 'privacy', 'accessibility', 'feedback', 'other']),
   message: z.string().trim().min(1).max(5000),
   // Honeypot: real users never fill this hidden field. Bots that do get a
   // success response and no email — no signal that they were caught. Any
@@ -35,6 +35,7 @@ const REASON_LABELS: Record<z.infer<typeof contactSchema>['reason'], string> = {
   support: 'Support',
   billing: 'Billing',
   privacy: 'Privacy & security',
+  accessibility: 'Accessibility',
   feedback: 'Feedback',
   other: 'Other',
 }

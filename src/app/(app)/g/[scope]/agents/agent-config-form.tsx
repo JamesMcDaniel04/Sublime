@@ -916,13 +916,13 @@ export function AgentConfigForm({
         </div>
       </div>
       <div>
-        <Label>Description</Label>
-        <Input value={draft.description} onChange={(event) => setDraft({ ...draft, description: event.target.value })} />
+        <Label htmlFor="description">Description</Label>
+        <Input id="description" value={draft.description} onChange={(event) => setDraft({ ...draft, description: event.target.value })} />
       </div>
       <div className="grid grid-cols-2 gap-4">
         <div>
-          <Label>Folder</Label>
-          <Input
+          <Label htmlFor="folder">Folder</Label>
+          <Input id="folder"
             placeholder="e.g. operations"
             value={draft.folder}
             onChange={(event) => setDraft({ ...draft, folder: event.target.value })}
@@ -947,8 +947,8 @@ export function AgentConfigForm({
         </div>
       </div>
       <div>
-        <Label>Instructions</Label>
-        <Textarea rows={8} value={draft.instructions} onChange={(event) => setDraft({ ...draft, instructions: event.target.value })} />
+        <Label htmlFor="instructions">Instructions</Label>
+        <Textarea id="instructions" rows={8} value={draft.instructions} onChange={(event) => setDraft({ ...draft, instructions: event.target.value })} />
       </div>
       <div>
         <Label>Larger goal (optional)</Label>
@@ -966,9 +966,9 @@ export function AgentConfigForm({
         </p>
       </div>
       <div>
-        <Label>Model</Label>
+        <Label htmlFor="model">Model</Label>
         <Select value={draft.model} onValueChange={(model) => setDraft({ ...draft, model })}>
-          <SelectTrigger><SelectValue /></SelectTrigger>
+          <SelectTrigger id="model"><SelectValue /></SelectTrigger>
           <SelectContent>
             {MODELS.map((m) => (
               <SelectItem key={m.id} value={m.id}>
@@ -1349,9 +1349,9 @@ export function AgentConfigForm({
         {draft.schedule.isActive && (
           <div className="space-y-3 border-t pt-3">
             <div>
-              <Label>Cadence</Label>
+              <Label htmlFor="cadence">Cadence</Label>
               <Select value={cadence} onValueChange={(value) => setCadence(value as Cadence)}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectTrigger id="cadence"><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="hourly">Hourly</SelectItem>
                   <SelectItem value="daily">Daily</SelectItem>
@@ -1405,16 +1405,16 @@ export function AgentConfigForm({
 
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               {cadence !== 'hourly' && cadence !== 'custom' && <div>
-                <Label>Time</Label>
-                <Input type="time" value={scheduleTime} onChange={(event) => setScheduleTime(event.target.value)} />
+                <Label htmlFor="time">Time</Label>
+                <Input id="time" type="time" value={scheduleTime} onChange={(event) => setScheduleTime(event.target.value)} />
               </div>}
               <div>
-                <Label>Timezone</Label>
+                <Label htmlFor="timezone">Timezone</Label>
                 <Select
                   value={draft.schedule.timezone}
                   onValueChange={(timezone) => setDraft({ ...draft, schedule: { ...draft.schedule, timezone } })}
                 >
-                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectTrigger id="timezone"><SelectValue /></SelectTrigger>
                   <SelectContent>
                     {/* Keep a browser-detected zone outside the common list selectable. */}
                     {!COMMON_TIMEZONES.includes(draft.schedule.timezone as (typeof COMMON_TIMEZONES)[number]) && draft.schedule.timezone && (

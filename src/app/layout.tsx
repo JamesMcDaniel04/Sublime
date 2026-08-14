@@ -51,6 +51,20 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
   return (
     <html lang="en" suppressHydrationWarning className={`${geist.variable} ${anonymousPro.variable}`}>
       <body>
+        {/* WCAG 2.4.1 Bypass Blocks. Both layouts already render
+            <main id="main-content">; what was missing was the link to it, so a
+            keyboard or switch user tabbed the whole sidebar on every single
+            navigation before reaching content.
+
+            First element in the body so it is the first tab stop. sr-only until
+            focused: visible when it matters, invisible when it doesn't — a
+            permanently visible skip link is the usual reason teams delete it. */}
+        <a
+          href="#main-content"
+          className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-[100] focus:rounded-md focus:border focus:border-border focus:bg-background focus:px-4 focus:py-2 focus:text-sm focus:font-medium focus:text-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+        >
+          Skip to main content
+        </a>
         {/* Chrome and the billing gate belong to the (app) route group; the
             (public) group renders its own bare <main>. The root layout stays
             free of cookies()/DB access — not for static rendering (the CSP

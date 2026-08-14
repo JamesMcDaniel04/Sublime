@@ -31,8 +31,8 @@ function CodeBody({ node, update }: { node: CodeNode; update: (node: FlowNode) =
   return (
     <div className="mx-auto w-full max-w-2xl space-y-4 pb-16">
       <div className="grid gap-2">
-        <label className={labelClass}>Mode</label>
-        <select
+        <label className={labelClass} htmlFor="mode">Mode</label>
+        <select id="mode"
           aria-label="Mode"
           value={mode}
           onChange={(event) => patch(retarget(language, event.target.value as CodeMode))}
@@ -44,8 +44,8 @@ function CodeBody({ node, update }: { node: CodeNode; update: (node: FlowNode) =
       </div>
 
       <div className="grid gap-2">
-        <label className={labelClass}>Language</label>
-        <select
+        <label className={labelClass} htmlFor="language">Language</label>
+        <select id="language"
           aria-label="Language"
           value={language}
           onChange={(event) => patch(retarget(event.target.value as CodeLanguage, mode))}

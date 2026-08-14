@@ -296,17 +296,17 @@ export default function SkillDetailsPage() {
                 <div className="max-h-[65vh] space-y-3 overflow-y-auto pr-1">
                   <div className="grid grid-cols-2 gap-3">
                     <div>
-                      <label className="mb-1 block text-xs font-medium text-muted-foreground">Name</label>
-                      <Input value={editDraft.name} onChange={(e) => setEditDraft({ ...editDraft, name: e.target.value })} />
+                      <label className="mb-1 block text-xs font-medium text-muted-foreground" htmlFor="name">Name</label>
+                      <Input id="name" value={editDraft.name} onChange={(e) => setEditDraft({ ...editDraft, name: e.target.value })} />
                     </div>
                     <div>
-                      <label className="mb-1 block text-xs font-medium text-muted-foreground">Category</label>
-                      <Input value={editDraft.category} onChange={(e) => setEditDraft({ ...editDraft, category: e.target.value })} />
+                      <label className="mb-1 block text-xs font-medium text-muted-foreground" htmlFor="category">Category</label>
+                      <Input id="category" value={editDraft.category} onChange={(e) => setEditDraft({ ...editDraft, category: e.target.value })} />
                     </div>
                   </div>
                   <div>
-                    <label className="mb-1 block text-xs font-medium text-muted-foreground">Who can use this skill?</label>
-                    <select
+                    <label className="mb-1 block text-xs font-medium text-muted-foreground" htmlFor="who-can-use-this-skill">Who can use this skill?</label>
+                    <select id="who-can-use-this-skill"
                       value={editDraft.visibility}
                       onChange={(e) => setEditDraft({ ...editDraft, visibility: e.target.value as SkillDraft['visibility'] })}
                       className="h-9 w-full rounded-md border bg-background px-3 text-sm"
@@ -317,21 +317,21 @@ export default function SkillDetailsPage() {
                     </select>
                   </div>
                   <div>
-                    <label className="mb-1 block text-xs font-medium text-muted-foreground">Description</label>
-                    <Input value={editDraft.description} onChange={(e) => setEditDraft({ ...editDraft, description: e.target.value })} placeholder="One line shown on the card" />
+                    <label className="mb-1 block text-xs font-medium text-muted-foreground" htmlFor="description">Description</label>
+                    <Input id="description" value={editDraft.description} onChange={(e) => setEditDraft({ ...editDraft, description: e.target.value })} placeholder="One line shown on the card" />
                   </div>
                   <div>
-                    <label className="mb-1 block text-xs font-medium text-muted-foreground">Skill instructions (composed into the agent prompt)</label>
-                    <Textarea rows={8} value={editDraft.instructions} onChange={(e) => setEditDraft({ ...editDraft, instructions: e.target.value })} />
+                    <label className="mb-1 block text-xs font-medium text-muted-foreground" htmlFor="skill-instructions-composed-into-the-age">Skill instructions (composed into the agent prompt)</label>
+                    <Textarea id="skill-instructions-composed-into-the-age" rows={8} value={editDraft.instructions} onChange={(e) => setEditDraft({ ...editDraft, instructions: e.target.value })} />
                   </div>
                   <div className="grid grid-cols-2 gap-3">
                     <div>
-                      <label className="mb-1 block text-xs font-medium text-muted-foreground">Tags (comma-separated)</label>
-                      <Input value={editDraft.tags} onChange={(e) => setEditDraft({ ...editDraft, tags: e.target.value })} placeholder="sales, email" />
+                      <label className="mb-1 block text-xs font-medium text-muted-foreground" htmlFor="tags-comma-separated">Tags (comma-separated)</label>
+                      <Input id="tags-comma-separated" value={editDraft.tags} onChange={(e) => setEditDraft({ ...editDraft, tags: e.target.value })} placeholder="sales, email" />
                     </div>
                     <div>
-                      <label className="mb-1 block text-xs font-medium text-muted-foreground">Integrations (comma-separated)</label>
-                      <Input value={editDraft.integrations} onChange={(e) => setEditDraft({ ...editDraft, integrations: e.target.value })} placeholder="Slack, Sublime MCP" />
+                      <label className="mb-1 block text-xs font-medium text-muted-foreground" htmlFor="integrations-comma-separated">Integrations (comma-separated)</label>
+                      <Input id="integrations-comma-separated" value={editDraft.integrations} onChange={(e) => setEditDraft({ ...editDraft, integrations: e.target.value })} placeholder="Slack, Sublime MCP" />
                     </div>
                   </div>
                 </div>

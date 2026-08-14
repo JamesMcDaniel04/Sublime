@@ -321,8 +321,8 @@ export function McpConnectionDialog({
                 onChange={(credentialId) => set({ credentialId: credentialId ?? '' })}
               />
               <div>
-                <Label>Header name (optional)</Label>
-                <Input
+                <Label htmlFor="header-name-optional">Header name (optional)</Label>
+                <Input id="header-name-optional"
                   value={draft.headerName}
                   onChange={(e) => set({ headerName: e.target.value })}
                   placeholder="Authorization (Bearer) — or e.g. X-API-Key"
@@ -354,16 +354,16 @@ export function McpConnectionDialog({
                 </summary>
                 <div className="mt-3 space-y-3">
                   <div>
-                    <Label>Client ID</Label>
-                    <Input
+                    <Label htmlFor="client-id">Client ID</Label>
+                    <Input id="client-id"
                       value={draft.clientId}
                       onChange={(e) => set({ clientId: e.target.value })}
                       placeholder="your-client-id"
                     />
                   </div>
                   <div>
-                    <Label>Client secret</Label>
-                    <Input
+                    <Label htmlFor="client-secret">Client secret</Label>
+                    <Input id="client-secret"
                       type="password"
                       value={draft.clientSecret}
                       onChange={(e) => set({ clientSecret: e.target.value })}
@@ -381,8 +381,8 @@ export function McpConnectionDialog({
                     )}
                   </div>
                   <div>
-                    <Label>Token URL (optional)</Label>
-                    <Input
+                    <Label htmlFor="token-url-optional">Token URL (optional)</Label>
+                    <Input id="token-url-optional"
                       value={draft.tokenUrl}
                       onChange={(e) => set({ tokenUrl: e.target.value })}
                       placeholder="https://auth.example.com/oauth/token"
@@ -392,8 +392,8 @@ export function McpConnectionDialog({
                     </p>
                   </div>
                   <div>
-                    <Label>Scopes (optional)</Label>
-                    <Input
+                    <Label htmlFor="scopes-optional">Scopes (optional)</Label>
+                    <Input id="scopes-optional"
                       value={draft.scopes}
                       onChange={(e) => set({ scopes: e.target.value })}
                       placeholder="read write"

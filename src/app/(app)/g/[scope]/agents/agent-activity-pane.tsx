@@ -729,7 +729,7 @@ function RunRow({
                   onKeyDown={(event) => event.key === 'Enter' && sendReply()}
                   placeholder="Reply to the agent..."
                 />
-                <Button size="icon" disabled={replying || !reply.trim()} onClick={sendReply}>
+                <Button size="icon" aria-label="Send reply" disabled={replying || !reply.trim()} onClick={sendReply}>
                   {replying ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
                 </Button>
               </div>

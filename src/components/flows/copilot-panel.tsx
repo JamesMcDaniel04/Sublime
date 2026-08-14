@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from 're
 import { Sparkles, Send, AlertTriangle, FlaskConical, Loader2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { streamCopilot } from '@/lib/client/copilot-stream'
-import { cn } from '@/lib/utils'
+import { cn, scrollBehavior } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Markdown } from '@/components/ui/markdown'
 import { ScopedLink } from '@/components/ui/scoped-link'
@@ -142,7 +142,7 @@ export function CopilotPanel({
   }, [flowId, labelForNode])
 
   useEffect(() => {
-    threadRef.current?.scrollTo({ top: threadRef.current.scrollHeight, behavior: 'smooth' })
+    threadRef.current?.scrollTo({ top: threadRef.current.scrollHeight, behavior: scrollBehavior() })
   }, [messages, loading])
 
   const resizeInput = useCallback(() => {

@@ -57,18 +57,54 @@ export function ResizablePanel({
     [min, max, storageKey],
   )
 
+  /** Shared by the keyboard handler and the double-click reset. */
+  const commitWidth = useCallback(
+    (next: number) => {
+      const clamped = Math.min(max, Math.max(min, next))
+      widthRef.current = clamped
+      setWidth(clamped)
+      try {
+        window.localStorage.setItem(storageKey, String(clamped))
+      } catch {
+        /* storage unavailable */
+      }
+    },
+    [max, min, storageKey],
+  )
+
   return (
     <div className="relative shrink-0" style={{ width }}>
       <div
         role="separator"
         aria-orientation="vertical"
-        onMouseDown={onMouseDown}
-        onDoubleClick={() => {
-          widthRef.current = defaultWidth
-          setWidth(defaultWidth)
+        // Keyboard equivalent for the drag. A separator with only onMouseDown is
+        // mouse-only, which leaves keyboard and switch users unable to resize a
+        // core builder panel at all (WCAG 2.1.1). Arrow keys nudge, Shift jumps,
+        // Home restores the default — the standard window-splitter pattern.
+        // A focusable separator IS the ARIA window-splitter pattern — the
+        // rule classifies role="separator" as non-interactive because a plain
+        // separator is, but a resizable one is explicitly focusable per the
+        // spec. Removing the tabIndex would restore the mouse-only defect this
+        // change exists to fix.
+        // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex
+        tabIndex={0}
+        aria-label="Resize panel"
+        aria-valuenow={width}
+        aria-valuemin={min}
+        aria-valuemax={max}
+        onKeyDown={(event) => {
+          const step = event.shiftKey ? 40 : 8
+          // Panel is right-docked: ArrowLeft widens, mirroring the drag.
+          if (event.key === 'ArrowLeft') commitWidth(widthRef.current + step)
+          else if (event.key === 'ArrowRight') commitWidth(widthRef.current - step)
+          else if (event.key === 'Home') commitWidth(defaultWidth)
+          else return
+          event.preventDefault()
         }}
-        title="Drag to resize · double-click to reset"
-        className="absolute left-0 top-0 z-20 h-full w-1.5 -translate-x-1/2 cursor-col-resize transition-colors hover:bg-indigo-300/60"
+        onMouseDown={onMouseDown}
+        onDoubleClick={() => commitWidth(defaultWidth)}
+        title="Drag to resize · double-click to reset · arrow keys when focused"
+        className="absolute left-0 top-0 z-20 h-full w-1.5 -translate-x-1/2 cursor-col-resize transition-colors hover:bg-indigo-300/60 focus-visible:outline-none focus-visible:bg-ring"
       />
       {children}
     </div>

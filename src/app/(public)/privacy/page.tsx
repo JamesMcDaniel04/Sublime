@@ -382,7 +382,7 @@ export default function PrivacyPage() {
                       href={`#${section.id}`}
                       className="group flex items-baseline gap-3 text-[12px] text-muted-foreground hover:text-foreground transition-colors"
                     >
-                      <span className="font-mono text-[11px] text-muted-foreground/60 group-hover:text-foreground/60 transition-colors">
+                      <span className="font-mono text-[11px] text-muted-foreground group-hover:text-foreground transition-colors">
                         {String(i + 1).padStart(2, '0')}
                       </span>
                       {section.title}
@@ -402,7 +402,7 @@ export default function PrivacyPage() {
                 className={`scroll-mt-[88px] ${i > 0 ? 'mt-12 border-t border-border pt-12' : ''}`}
               >
                 <h2 className="flex items-baseline gap-4 text-[20px] font-[500] tracking-[-0.02em] text-foreground">
-                  <span className="font-mono text-[13px] text-muted-foreground/60">
+                  <span className="font-mono text-[13px] text-muted-foreground">
                     {String(i + 1).padStart(2, '0')}
                   </span>
                   {section.title}

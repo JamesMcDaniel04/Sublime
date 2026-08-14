@@ -853,17 +853,17 @@ export function TemplatesExplorer() {
             <div className="max-h-[65vh] space-y-3 overflow-y-auto pr-1">
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="mb-1 block text-xs font-medium text-muted-foreground">Name</label>
-                  <Input value={dialog.name} onChange={(e) => setDialog({ ...dialog, name: e.target.value })} placeholder="e.g. Concise email replies" />
+                  <label className="mb-1 block text-xs font-medium text-muted-foreground" htmlFor="name">Name</label>
+                  <Input id="name" value={dialog.name} onChange={(e) => setDialog({ ...dialog, name: e.target.value })} placeholder="e.g. Concise email replies" />
                 </div>
                 <div>
-                  <label className="mb-1 block text-xs font-medium text-muted-foreground">Category</label>
-                  <Input value={dialog.category} onChange={(e) => setDialog({ ...dialog, category: e.target.value })} />
+                  <label className="mb-1 block text-xs font-medium text-muted-foreground" htmlFor="category">Category</label>
+                  <Input id="category" value={dialog.category} onChange={(e) => setDialog({ ...dialog, category: e.target.value })} />
                 </div>
               </div>
               <div>
-                <label className="mb-1 block text-xs font-medium text-muted-foreground">Description</label>
-                <Input value={dialog.description} onChange={(e) => setDialog({ ...dialog, description: e.target.value })} placeholder="One line shown on the card" />
+                <label className="mb-1 block text-xs font-medium text-muted-foreground" htmlFor="description">Description</label>
+                <Input id="description" value={dialog.description} onChange={(e) => setDialog({ ...dialog, description: e.target.value })} placeholder="One line shown on the card" />
               </div>
               <div>
                 <label className="mb-1 block text-xs font-medium text-muted-foreground">
@@ -873,18 +873,18 @@ export function TemplatesExplorer() {
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="mb-1 block text-xs font-medium text-muted-foreground">Tags (comma-separated)</label>
-                  <Input value={dialog.tags} onChange={(e) => setDialog({ ...dialog, tags: e.target.value })} placeholder="sales, email" />
+                  <label className="mb-1 block text-xs font-medium text-muted-foreground" htmlFor="tags-comma-separated">Tags (comma-separated)</label>
+                  <Input id="tags-comma-separated" value={dialog.tags} onChange={(e) => setDialog({ ...dialog, tags: e.target.value })} placeholder="sales, email" />
                 </div>
                 <div>
-                  <label className="mb-1 block text-xs font-medium text-muted-foreground">Integrations (comma-separated)</label>
-                  <Input value={dialog.integrations} onChange={(e) => setDialog({ ...dialog, integrations: e.target.value })} placeholder="Slack, Sublime MCP" />
+                  <label className="mb-1 block text-xs font-medium text-muted-foreground" htmlFor="integrations-comma-separated">Integrations (comma-separated)</label>
+                  <Input id="integrations-comma-separated" value={dialog.integrations} onChange={(e) => setDialog({ ...dialog, integrations: e.target.value })} placeholder="Slack, Sublime MCP" />
                 </div>
               </div>
               {dialog.kind === 'template' && (
                 <div>
-                  <label className="mb-1 block text-xs font-medium text-muted-foreground">Example output (optional)</label>
-                  <Textarea rows={3} value={dialog.exampleOutput} onChange={(e) => setDialog({ ...dialog, exampleOutput: e.target.value })} placeholder="Illustrative output shown on the detail page" />
+                  <label className="mb-1 block text-xs font-medium text-muted-foreground" htmlFor="example-output-optional">Example output (optional)</label>
+                  <Textarea id="example-output-optional" rows={3} value={dialog.exampleOutput} onChange={(e) => setDialog({ ...dialog, exampleOutput: e.target.value })} placeholder="Illustrative output shown on the detail page" />
                 </div>
               )}
               {dialog.kind === 'template' && (
@@ -892,8 +892,8 @@ export function TemplatesExplorer() {
                   <p className="text-xs font-semibold text-muted-foreground">Advanced</p>
                   <div className="grid grid-cols-2 gap-3">
                     <div>
-                      <label className="mb-1 block text-xs font-medium text-muted-foreground">Kind</label>
-                      <select
+                      <label className="mb-1 block text-xs font-medium text-muted-foreground" htmlFor="kind">Kind</label>
+                      <select id="kind"
                         value={dialog.templateKind}
                         onChange={(e) => setDialog({ ...dialog, templateKind: e.target.value === 'flow' ? 'flow' : 'agent' })}
                         className="h-9 w-full rounded-md border bg-background px-3 text-sm"
@@ -903,26 +903,26 @@ export function TemplatesExplorer() {
                       </select>
                     </div>
                     <div>
-                      <label className="mb-1 block text-xs font-medium text-muted-foreground">Schedule (cron, optional)</label>
-                      <Input value={dialog.scheduleCron} onChange={(e) => setDialog({ ...dialog, scheduleCron: e.target.value })} placeholder="0 14 * * 1" />
+                      <label className="mb-1 block text-xs font-medium text-muted-foreground" htmlFor="schedule-cron-optional">Schedule (cron, optional)</label>
+                      <Input id="schedule-cron-optional" value={dialog.scheduleCron} onChange={(e) => setDialog({ ...dialog, scheduleCron: e.target.value })} placeholder="0 14 * * 1" />
                     </div>
                   </div>
                   <div className="grid grid-cols-2 gap-3">
                     <div>
-                      <label className="mb-1 block text-xs font-medium text-muted-foreground">Required integrations (comma-separated)</label>
-                      <Input value={dialog.requiredIntegrations} onChange={(e) => setDialog({ ...dialog, requiredIntegrations: e.target.value })} placeholder="Slack, HubSpot" />
+                      <label className="mb-1 block text-xs font-medium text-muted-foreground" htmlFor="required-integrations-comma-separated">Required integrations (comma-separated)</label>
+                      <Input id="required-integrations-comma-separated" value={dialog.requiredIntegrations} onChange={(e) => setDialog({ ...dialog, requiredIntegrations: e.target.value })} placeholder="Slack, HubSpot" />
                     </div>
                     <div>
-                      <label className="mb-1 block text-xs font-medium text-muted-foreground">Recommended integrations (comma-separated)</label>
-                      <Input value={dialog.recommendedIntegrations} onChange={(e) => setDialog({ ...dialog, recommendedIntegrations: e.target.value })} placeholder="Gmail" />
+                      <label className="mb-1 block text-xs font-medium text-muted-foreground" htmlFor="recommended-integrations-comma-separated">Recommended integrations (comma-separated)</label>
+                      <Input id="recommended-integrations-comma-separated" value={dialog.recommendedIntegrations} onChange={(e) => setDialog({ ...dialog, recommendedIntegrations: e.target.value })} placeholder="Gmail" />
                     </div>
                   </div>
                 </div>
               )}
               {dialog.kind === 'skill' ? (
                 <div>
-                  <label className="mb-1 block text-xs font-medium text-muted-foreground">Who can use this skill?</label>
-                  <select
+                  <label className="mb-1 block text-xs font-medium text-muted-foreground" htmlFor="who-can-use-this-skill">Who can use this skill?</label>
+                  <select id="who-can-use-this-skill"
                     value={dialog.skillVisibility}
                     onChange={(e) => setDialog({ ...dialog, skillVisibility: e.target.value as AssetDraft['skillVisibility'] })}
                     className="h-9 w-full rounded-md border bg-background px-3 text-sm"

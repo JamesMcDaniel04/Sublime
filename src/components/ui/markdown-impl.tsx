@@ -64,7 +64,12 @@ export function Markdown({ children, className }: { children: string; className?
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
         components={{
-          h1: (props) => <h1 className="mt-5 text-lg font-semibold tracking-tight first:mt-0" {...props} />,
+          /* eslint-disable jsx-a11y/heading-has-content, jsx-a11y/anchor-has-content --
+     These are react-markdown element overrides: content arrives as children
+     through {...props} at render time, so the rule cannot see it. Disabling
+     with the reason rather than adding decorative children, which would put
+     real empty headings into the output. */
+  h1: (props) => <h1 className="mt-5 text-lg font-semibold tracking-tight first:mt-0" {...props} />,
           h2: (props) => <h2 className="mt-5 text-base font-semibold tracking-tight first:mt-0" {...props} />,
           h3: (props) => <h3 className="mt-4 text-sm font-semibold first:mt-0" {...props} />,
           h4: (props) => <h4 className="mt-3 text-sm font-semibold text-muted-foreground first:mt-0" {...props} />,

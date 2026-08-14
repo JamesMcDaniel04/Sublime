@@ -89,7 +89,6 @@ export function SearchableSelect({
             <Search className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
             <input
               autoFocus
-              role="textbox"
               aria-label={`Search ${ariaLabel}`}
               value={query}
               onChange={(event) => setQuery(event.target.value)}

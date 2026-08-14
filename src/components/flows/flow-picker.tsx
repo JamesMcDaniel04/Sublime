@@ -547,7 +547,7 @@ function RowCard({
             onToggleFavorite(row.favoriteId!)
           }}
           aria-label={favorited ? 'Remove from favorites' : 'Add to favorites'}
-          className="absolute right-2 top-2 text-muted-foreground/60 transition-colors hover:text-amber-500"
+          className="absolute right-2 top-2 text-muted-foreground transition-colors hover:text-amber-500"
         >
           <Star className={cn('h-4 w-4', favorited && 'fill-amber-400 text-amber-500')} />
         </button>

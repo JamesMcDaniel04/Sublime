@@ -14,7 +14,7 @@ import { Check, CornerDownRight, Loader2, MapPin, MessageSquareText, Pin, Rotate
 import { Button } from '@/components/ui/button'
 import { jamCursorColor, type JamCanvasSpace } from '@/lib/flows/jam-presence'
 import { splitMentionSegments, type MentionCandidate } from '@/lib/flows/comment-mentions'
-import { cn } from '@/lib/utils'
+import { cn, scrollBehavior } from '@/lib/utils'
 
 export type CommentAnchorPoint = { space: JamCanvasSpace; x: number; y: number }
 
@@ -230,7 +230,7 @@ export function CommentsPanel({
     if (lastFocusScrolledRef.current === focusThreadId) return
     const element = threadRefs.current.get(focusThreadId)
     if (!element) return
-    element.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    element.scrollIntoView({ behavior: scrollBehavior(), block: 'center' })
     lastFocusScrolledRef.current = focusThreadId
   }, [focusThreadId, open, comments.length])
 
@@ -370,7 +370,7 @@ export function CommentsPanel({
           title="Delete"
           disabled={busy}
           onClick={() => void remove(comment.id)}
-          className="hidden h-6 w-6 shrink-0 items-center justify-center rounded text-muted-foreground/60 hover:bg-muted hover:text-rose-500 group-hover/comment:flex"
+          className="hidden h-6 w-6 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-rose-500 group-hover/comment:flex"
         >
           <Trash2 className="h-3.5 w-3.5" />
         </button>

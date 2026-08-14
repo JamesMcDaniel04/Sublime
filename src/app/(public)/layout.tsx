@@ -6,5 +6,5 @@
  * Adds no URL segment: /about is still /about, / is still /.
  */
 export default function PublicLayout({ children }: { children: React.ReactNode }) {
-  return <main id="main-content">{children}</main>
+  return <main id="main-content" tabIndex={-1}>{children}</main>
 }

@@ -46,7 +46,7 @@ export function AppShell({
       <Sidebar />
       <div className="flex flex-1 flex-col overflow-hidden">
         <TrialBanner daysRemaining={trialDaysRemaining} />
-        <main id="main-content" className="sublime-app-main flex-1 overflow-y-auto">
+        <main id="main-content" tabIndex={-1} className="sublime-app-main flex-1 overflow-y-auto">
           {fullscreen ? (
             <ErrorBoundary>{children}</ErrorBoundary>
           ) : (

@@ -13,8 +13,8 @@ function ParallelBody(props: NodeBodyProps) {
     <div className="space-y-3">
       <p className="text-sm text-muted-foreground">Runs {node.data.branches.length || 0} branches side by side.</p>
       <div className="grid gap-1.5">
-        <label className={labelClass}>Join strategy</label>
-        <select
+        <label className={labelClass} htmlFor="join-strategy">Join strategy</label>
+        <select id="join-strategy"
           value={node.data.join ?? ''}
           onChange={(event) => update({ ...node, data: { ...node.data, join: (event.target.value || undefined) as 'object' | 'array' | 'merge' | undefined } })}
           className={controlClass}

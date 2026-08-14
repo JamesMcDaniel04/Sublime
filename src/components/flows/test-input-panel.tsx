@@ -95,8 +95,8 @@ export function TestInputPanel({
           })}
         </div>
         <div>
-          <label className={labelClass}>Raw payload</label>
-          <textarea
+          <label className={labelClass} htmlFor="raw-payload">Raw payload</label>
+          <textarea id="raw-payload"
             rows={8}
             className={`${fieldClass} min-h-[160px] resize-y font-mono text-xs`}
             value={value}

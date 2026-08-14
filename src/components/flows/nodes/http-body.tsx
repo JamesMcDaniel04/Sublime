@@ -189,8 +189,8 @@ function HttpBody({
 
       {curlOpen && (
         <div className="grid gap-2 rounded-lg border border-border bg-muted/30 p-3">
-          <label className={labelClass}>Paste a cURL command</label>
-          <textarea
+          <label className={labelClass} htmlFor="paste-a-curl-command">Paste a cURL command</label>
+          <textarea id="paste-a-curl-command"
             aria-label="cURL command"
             rows={4}
             value={curlText}
@@ -207,8 +207,8 @@ function HttpBody({
       )}
 
       <div className="grid gap-2">
-        <label className={labelClass}>Method</label>
-        <select
+        <label className={labelClass} htmlFor="method">Method</label>
+        <select id="method"
           aria-label="Method"
           value={node.data.method}
           onChange={(event) => patch({ method: event.target.value as HttpNode['data']['method'] })}
@@ -235,8 +235,8 @@ function HttpBody({
       </div>
 
       <div className="grid gap-2">
-        <label className={labelClass}>Authentication</label>
-        <select
+        <label className={labelClass} htmlFor="authentication">Authentication</label>
+        <select id="authentication"
           aria-label="Authentication"
           value={authMode}
           onChange={(event) => {
@@ -318,8 +318,8 @@ function HttpBody({
             </p>
           )}
           <div className="grid gap-2">
-            <label className={labelClass}>Body Content Type</label>
-            <select
+            <label className={labelClass} htmlFor="body-content-type">Body Content Type</label>
+            <select id="body-content-type"
               aria-label="Body Content Type"
               value={bodyMode}
               onChange={(event) => patch({ bodyMode: event.target.value as HttpNode['data']['bodyMode'] })}
@@ -348,8 +348,8 @@ function HttpBody({
           {bodyMode === 'raw' && (
             <>
               <div className="grid gap-2">
-                <label className={labelClass}>Content Type</label>
-                <input
+                <label className={labelClass} htmlFor="content-type">Content Type</label>
+                <input id="content-type"
                   aria-label="Raw body content type"
                   value={node.data.bodyContentType ?? 'text/plain'}
                   onChange={(event) => patch({ bodyContentType: event.target.value })}

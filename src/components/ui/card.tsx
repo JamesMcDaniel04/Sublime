@@ -41,6 +41,9 @@ const CardTitle = React.forwardRef<
   HTMLParagraphElement,
   React.HTMLAttributes<HTMLHeadingElement>
 >(({ className, ...props }, ref) => (
+  // CardTitle is a wrapper: the heading text is passed as children by every
+  // call site, which the rule cannot follow through the component boundary.
+  // eslint-disable-next-line jsx-a11y/heading-has-content
   <h3
     ref={ref}
     className={cn("font-semibold leading-none tracking-tight", className)}

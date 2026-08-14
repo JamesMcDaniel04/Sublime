@@ -107,7 +107,7 @@ export function ProfileTab({
         <div className="flex items-center gap-4">
           {profile.imageUrl ? (
             // eslint-disable-next-line @next/next/no-img-element
-            <img src={profile.imageUrl} alt="Profile photo" className="h-14 w-14 rounded-full border object-cover" />
+            <img src={profile.imageUrl} alt="" className="h-14 w-14 rounded-full border object-cover" />
           ) : (
             <div className="flex h-14 w-14 items-center justify-center rounded-full bg-muted text-lg font-semibold text-muted-foreground" aria-hidden>
               {(profile.name || profile.email || 'U').trim().charAt(0).toUpperCase()}

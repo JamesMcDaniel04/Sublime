@@ -10,6 +10,7 @@ const REASONS = [
   { value: 'support', label: 'Support' },
   { value: 'billing', label: 'Billing' },
   { value: 'privacy', label: 'Privacy & security' },
+  { value: 'accessibility', label: 'Accessibility' },
   { value: 'feedback', label: 'Feedback' },
   { value: 'other', label: 'Other' },
 ]
