@@ -247,6 +247,13 @@ export async function goalImpact(
   })
 }
 
+/** The workspace's AI cost rate (USD per M tokens) — the impact model's own
+ *  setting, exported so run traces price tokens with the same number. */
+export async function costRateFor(organizationId: string): Promise<number> {
+  const settings = await settingsFor(organizationId)
+  return settings.aiCostPerMTokensUsd
+}
+
 export type BatchContribution = {
   goalId: string
   resourceType: string
