@@ -41,11 +41,46 @@ export interface RetrieveOptions {
   rerank?: typeof rerankTexts
 }
 
+/**
+ * Stage-funnel telemetry for one retrieval: how many candidates each pipeline
+ * stage admitted. Recorded on every pack (zeros when retrieval is disabled)
+ * so run traces can show WHY the model knew something — which strategy ran
+ * and what survived each cut.
+ */
+export interface RetrievalTrace {
+  candidates: number
+  afterScoreFloor: number
+  reranked: boolean
+  afterRerank: number
+  graphSeeds: number
+  relatedFound: number
+  relatedKept: number
+  minScore: number
+  topK: number
+  hops: number
+}
+
+export function emptyRetrievalTrace(topK: number, hops: number, minScore: number): RetrievalTrace {
+  return {
+    candidates: 0,
+    afterScoreFloor: 0,
+    reranked: false,
+    afterRerank: 0,
+    graphSeeds: 0,
+    relatedFound: 0,
+    relatedKept: 0,
+    minScore,
+    topK,
+    hops,
+  }
+}
+
 export interface RetrievedContext {
   /** Direct semantic hits, most relevant first. */
   hits: Array<{ id: string; type: string; text: string; score: number; props: Record<string, unknown> }>
   /** Connected neighbors reached by graph expansion. */
   related: Array<{ id: string; type: string; text: string; props: Record<string, unknown> }>
+  trace: RetrievalTrace
 }
 
 const truncate = (text: string, max = 500) => (text.length > max ? `${text.slice(0, max)}…` : text)
@@ -77,12 +112,12 @@ export async function retrieveContext(
   const maxNodes = options.maxNodes ?? 16
   const embed = options.embed ?? embedQuery
   const viewerUserId = options.viewerUserId ?? null
+  const minScore = options.minScore ?? 0.25
 
   if (!ragEnabled() && !options.embed) {
-    return { hits: [], related: [] }
+    return { hits: [], related: [], trace: emptyRetrievalTrace(topK, hops, minScore) }
   }
 
-  const minScore = options.minScore ?? 0.25
   const rerank = options.rerank ?? rerankTexts
   let searchHits: SearchHit[] = []
   try {
@@ -94,9 +129,11 @@ export async function retrieveContext(
     // Retrieval is best-effort — a failed embed/search must not break the caller.
     searchHits = []
   }
+  const candidates = searchHits.length
   // Score floor: below-threshold cosine hits are noise that would seed graph
   // expansion from the wrong neighborhood — drop them before anything else.
   searchHits = searchHits.filter((h) => h.score >= minScore)
+  const afterScoreFloor = searchHits.length
   // Recency-aware ordering: same-relevance facts prefer the fresher node
   // (cosine still reported as `score`; ordering blends a 30-day-half-life
   // decay so stale intel doesn't outrank this week's).
@@ -106,12 +143,15 @@ export async function retrieveContext(
     .map((entry) => entry.hit)
   // Optional Voyage rerank (VOYAGE_RERANK_MODEL): reorder by cross-encoder
   // relevance; below-0.1 rerank scores are dropped as off-topic.
+  let reranked = false
   if (searchHits.length > 1) {
     const ranked = await rerank(options.query, searchHits.map((h) => h.node.text))
     if (ranked) {
+      reranked = true
       searchHits = ranked.filter((row) => row.score >= 0.1).map((row) => searchHits[row.index]).filter(Boolean)
     }
   }
+  const afterRerank = searchHits.length
 
   const seedIds = [...new Set([...(options.seedNodeIds ?? []), ...searchHits.map((h) => h.node.id)])]
   let related: GraphNode[] = []
@@ -134,11 +174,25 @@ export async function retrieveContext(
     related: relatedTrimmed.map((n) => ({
       id: n.id, type: n.type, text: truncate(n.text), props: n.props,
     })),
+    trace: {
+      candidates,
+      afterScoreFloor,
+      reranked,
+      afterRerank,
+      graphSeeds: seedIds.length,
+      relatedFound: related.length,
+      relatedKept: relatedTrimmed.length,
+      minScore,
+      topK,
+      hops,
+    },
   }
 }
 
-/** Render a context pack into compact markdown for a system/user prompt. */
-export function renderContext(context: RetrievedContext): string {
+/** Render a context pack into compact markdown for a system/user prompt.
+ *  Accepts the hits/related subset so budget-trimmed packs (and telemetry-free
+ *  fallbacks) render without carrying a trace. */
+export function renderContext(context: Pick<RetrievedContext, 'hits' | 'related'>): string {
   if (context.hits.length === 0 && context.related.length === 0) return ''
   const lines: string[] = ['## Correlated context (Sales AI, integrations, prior runs)']
   if (context.hits.length) {

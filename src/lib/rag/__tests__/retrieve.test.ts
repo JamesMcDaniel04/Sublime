@@ -66,7 +66,63 @@ test('retrieveContext never throws when the store search fails', async () => {
     deleteNodes: async () => {}, deleteByOwner: async () => {},
   }
   const ctx = await retrieveContext(brokenStore, { organizationId: 'org1', query: 'risk', embed: fakeEmbed })
-  assert.deepEqual(ctx, { hits: [], related: [] })
+  assert.deepEqual(ctx.hits, [])
+  assert.deepEqual(ctx.related, [])
+  assert.equal(ctx.trace.candidates, 0)
+})
+
+// ── Retrieval telemetry (trace) ──────────────────────────────────────────────
+
+const stubStore = (overrides: Partial<Record<'search' | 'expand', (...args: never[]) => unknown>>) =>
+  ({
+    upsertNodes: async () => {},
+    upsertEdges: async () => {},
+    search: async () => [],
+    expand: async () => [],
+    deleteNodes: async () => {},
+    deleteByOwner: async () => {},
+    ...overrides,
+  }) as never
+
+test('trace records the stage funnel through the score floor', async () => {
+  const hit = (id: string, score: number) => ({
+    node: { id, organizationId: 'org1', type: 'signal', text: `t-${id}`, props: {} },
+    score,
+  })
+  const store = stubStore({ search: async () => [hit('a', 0.9), hit('b', 0.5), hit('c', 0.1)] })
+  const ctx = await retrieveContext(store, {
+    organizationId: 'org1', query: 'q', embed: fakeEmbed, rerank: async () => null,
+  })
+  assert.equal(ctx.trace.candidates, 3)
+  assert.equal(ctx.trace.afterScoreFloor, 2) // 0.1 < default 0.25 floor
+  assert.equal(ctx.trace.reranked, false)
+  assert.equal(ctx.trace.afterRerank, 2)
+})
+
+test('trace is zeros (not undefined) when retrieval is disabled', async () => {
+  // No embed injected and no embeddings config in the test env → early return.
+  const ctx = await retrieveContext(stubStore({}), { organizationId: 'org1', query: 'q' })
+  assert.equal(ctx.trace.candidates, 0)
+  assert.equal(ctx.trace.reranked, false)
+  assert.equal(ctx.trace.relatedKept, 0)
+})
+
+test('trace counts graph expansion: found vs kept after maxNodes trim', async () => {
+  const related = Array.from({ length: 20 }, (_, index) => ({
+    id: `r${index}`, organizationId: 'org1', type: 'account', text: `node ${index}`, props: {},
+  }))
+  const store = stubStore({
+    search: async () => [
+      { node: { id: 'hit', organizationId: 'org1', type: 'signal', text: 'hit', props: {} }, score: 0.9 },
+    ],
+    expand: async () => related,
+  })
+  const ctx = await retrieveContext(store, {
+    organizationId: 'org1', query: 'q', embed: fakeEmbed, maxNodes: 5, rerank: async () => null,
+  })
+  assert.equal(ctx.trace.relatedFound, 20)
+  assert.equal(ctx.trace.relatedKept, 5)
+  assert.equal(ctx.trace.graphSeeds, 1)
 })
 
 test('renderContext produces empty string for an empty pack, markdown otherwise', async () => {
