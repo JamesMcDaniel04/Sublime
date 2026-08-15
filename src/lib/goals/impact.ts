@@ -247,6 +247,133 @@ export async function goalImpact(
   })
 }
 
+export type BatchContribution = {
+  goalId: string
+  resourceType: string
+  resourceId: string
+  estimatedMinutesSavedPerRun: number
+  createdAt: Date
+}
+export type BatchFlowRun = { flowId: string; startedAt: Date; finishedAt: Date | null }
+export type BatchAgentRun = {
+  agentTaskId: string | null
+  startedAt: Date
+  inputTokens: number
+  outputTokens: number
+  executionTime: number | null
+}
+export type BatchStats = ContributionRunStats & { estimatedMinutesSavedPerRun: number }
+
+/**
+ * Pure half of the batch loader: bucket pre-fetched run rows per contribution.
+ * The SQL cutoff is the EARLIEST contribution createdAt (one query per store),
+ * so each contribution's own `startedAt > createdAt` must be re-applied here —
+ * a run older than its contribution must not count toward that goal.
+ * Duration/measurability rules stay in flowRunStatsOf / agentRunStatsOf.
+ */
+export function bucketBatchStats(
+  contributions: BatchContribution[],
+  flowRuns: BatchFlowRun[],
+  agentRuns: BatchAgentRun[],
+): Map<string, BatchStats[]> {
+  const buckets = new Map<string, BatchStats[]>()
+  for (const contribution of contributions) {
+    const stats =
+      contribution.resourceType === 'flow'
+        ? flowRunStatsOf(
+            flowRuns.filter(
+              (run) => run.flowId === contribution.resourceId && run.startedAt > contribution.createdAt,
+            ),
+          )
+        : contribution.resourceType === 'agent'
+          ? agentRunStatsOf(
+              agentRuns.filter(
+                (run) => run.agentTaskId === contribution.resourceId && run.startedAt > contribution.createdAt,
+              ),
+            )
+          : { runs: 0, tokens: 0, measuredRunSeconds: { total: 0, avg: null } }
+    const list = buckets.get(contribution.goalId) ?? []
+    list.push({ estimatedMinutesSavedPerRun: contribution.estimatedMinutesSavedPerRun, ...stats })
+    buckets.set(contribution.goalId, list)
+  }
+  return buckets
+}
+
+/**
+ * Batched per-goal impact for the Home strip: flat 3 queries total regardless
+ * of goal/contribution count (vs goalImpact's per-contribution loads). No
+ * pace tier, no datapoint reads. Goals with no contributions get the zero
+ * shape (present, never absent) so the client needn't special-case.
+ */
+export async function goalImpactBatch(
+  organizationId: string,
+  goalIds: string[],
+): Promise<Map<string, ImpactTiers>> {
+  const result = new Map<string, ImpactTiers>()
+  if (goalIds.length === 0) return result
+  const [contributions, settings] = await Promise.all([
+    prisma.goalContribution.findMany({
+      where: { organizationId, goalId: { in: goalIds } },
+      select: {
+        goalId: true,
+        resourceType: true,
+        resourceId: true,
+        estimatedMinutesSavedPerRun: true,
+        createdAt: true,
+      },
+    }),
+    settingsFor(organizationId),
+  ])
+  const flowContributions = contributions.filter((c) => c.resourceType === 'flow')
+  const agentContributions = contributions.filter((c) => c.resourceType === 'agent')
+  const minCreatedAt = (rows: { createdAt: Date }[]) =>
+    rows.reduce((min, row) => (row.createdAt < min ? row.createdAt : min), rows[0]!.createdAt)
+  const [flowRuns, agentRuns] = await Promise.all([
+    flowContributions.length
+      ? prisma.flowRun.findMany({
+          where: {
+            organizationId,
+            flowId: { in: [...new Set(flowContributions.map((c) => c.resourceId))] },
+            status: 'succeeded',
+            startedAt: { gt: minCreatedAt(flowContributions) },
+          },
+          select: { flowId: true, startedAt: true, finishedAt: true },
+        })
+      : [],
+    agentContributions.length
+      ? prisma.agentExecution.findMany({
+          where: {
+            organizationId,
+            agentTaskId: { in: [...new Set(agentContributions.map((c) => c.resourceId))] },
+            completedAt: { not: null },
+            error: null,
+            startedAt: { gt: minCreatedAt(agentContributions) },
+          },
+          select: {
+            agentTaskId: true,
+            startedAt: true,
+            inputTokens: true,
+            outputTokens: true,
+            executionTime: true,
+          },
+        })
+      : [],
+  ])
+  const buckets = bucketBatchStats(contributions, flowRuns, agentRuns)
+  for (const goalId of goalIds) {
+    result.set(
+      goalId,
+      computeImpact({
+        contributions: buckets.get(goalId) ?? [],
+        ...settings,
+        paceBefore: null,
+        paceAfter: null,
+      }),
+    )
+  }
+  return result
+}
+
 export async function orgImpact(
   organizationId: string,
   viewerUserId: string,

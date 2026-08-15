@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { computeImpact, paceDelta } from '../impact'
+import { bucketBatchStats, computeImpact, paceDelta } from '../impact'
 
 const DAY = 24 * 60 * 60 * 1000
 const t0 = new Date('2026-01-01T00:00:00Z')
@@ -87,4 +87,42 @@ test('pure duration stats: unmeasurable flow runs leave the denominator', async 
   assert.equal(agent.measuredRunSeconds.avg, 45)
 
   assert.deepEqual(flowRunStatsOf([]).measuredRunSeconds, { total: 0, avg: null })
+})
+
+test('bucketBatchStats re-applies each contribution own createdAt cutoff', () => {
+  const contributions = [
+    { goalId: 'g1', resourceType: 'flow', resourceId: 'f1', estimatedMinutesSavedPerRun: 30, createdAt: new Date('2026-08-10T00:00:00Z') },
+    { goalId: 'g2', resourceType: 'flow', resourceId: 'f1', estimatedMinutesSavedPerRun: 15, createdAt: new Date('2026-08-01T00:00:00Z') },
+  ]
+  // Run on 08-05: after g2's cutoff, BEFORE g1's — must count for g2 only,
+  // even though the SQL batch cutoff (min createdAt = 08-01) admitted it.
+  const flowRuns = [
+    { flowId: 'f1', startedAt: new Date('2026-08-05T00:00:00Z'), finishedAt: new Date('2026-08-05T00:01:00Z') },
+    { flowId: 'f1', startedAt: new Date('2026-08-11T00:00:00Z'), finishedAt: new Date('2026-08-11T00:02:00Z') },
+  ]
+  const buckets = bucketBatchStats(contributions, flowRuns, [])
+  assert.equal(buckets.get('g1')![0].runs, 1)
+  assert.equal(buckets.get('g2')![0].runs, 2)
+})
+
+test('bucketBatchStats: unfinished flow runs are excluded, agent tokens summed', () => {
+  const contributions = [
+    { goalId: 'g1', resourceType: 'flow', resourceId: 'f1', estimatedMinutesSavedPerRun: 30, createdAt: new Date('2026-08-01T00:00:00Z') },
+    { goalId: 'g1', resourceType: 'agent', resourceId: 'a1', estimatedMinutesSavedPerRun: 10, createdAt: new Date('2026-08-01T00:00:00Z') },
+  ]
+  const flowRuns = [{ flowId: 'f1', startedAt: new Date('2026-08-02T00:00:00Z'), finishedAt: null }]
+  const agentRuns = [
+    { agentTaskId: 'a1', startedAt: new Date('2026-08-02T00:00:00Z'), inputTokens: 1000, outputTokens: 500, executionTime: 4000 },
+    { agentTaskId: 'other', startedAt: new Date('2026-08-02T00:00:00Z'), inputTokens: 9, outputTokens: 9, executionTime: 9 },
+  ]
+  const buckets = bucketBatchStats(contributions, flowRuns, agentRuns)
+  const [flowStats, agentStats] = buckets.get('g1')!
+  assert.equal(flowStats.runs, 0) // no finishedAt → unmeasurable → excluded
+  assert.equal(agentStats.runs, 1)
+  assert.equal(agentStats.tokens, 1500)
+  assert.equal(agentStats.measuredRunSeconds.total, 4)
+})
+
+test('bucketBatchStats: goal with no contributions is absent from the map', () => {
+  assert.equal(bucketBatchStats([], [], []).size, 0)
 })
