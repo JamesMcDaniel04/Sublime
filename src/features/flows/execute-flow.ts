@@ -31,7 +31,7 @@ import { resolveResumeState } from './resume-scan'
 import { buildRouterPrompt, routerBranchSchema, parseRouterChoice } from '@/lib/flows/router'
 import { generateStructured, generateText } from '@/lib/llm/model-runner'
 import { FlowTimeoutError, flowActionRetries, flowActionTimeoutMs, isTransientNetworkError, retryableHttpStatus, runWithRetries } from './action-reliability'
-import { FlowHttpStatusError, performHttpRequest, prepareHttpRequest, redactHttpStepInput, withBearerAuthorization } from './http'
+import { FlowHttpStatusError, performHttpRequest, prepareHttpRequest, redactHttpStepInput, redactHttpStepOutput, withBearerAuthorization } from './http'
 import {
   claimSideEffect,
   completeSideEffect,
@@ -1107,6 +1107,12 @@ export async function runFlowExecution(
               || (error instanceof FlowHttpStatusError && (error.retryable || retryableHttpStatus(error.status)))
             ),
           })
+          // Redact BEFORE anything reads it: the same `output` object is cached
+          // on the side-effect ledger, persisted on the run step, handed to
+          // downstream templates/agents via ctx.step, and audited. Redacting
+          // here (rather than at each sink) is what stops an injected query
+          // credential in output.url from being re-posted past the allowlist.
+          output = redactHttpStepOutput(output)
           const headers = output && typeof output === 'object' && 'headers' in output
             ? (output as { headers?: Record<string, string> }).headers
             : undefined

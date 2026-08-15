@@ -718,7 +718,13 @@ export function redactHttpAuthOption(auth: unknown): unknown {
 
 /**
  * An http step's config as safe to persist: auth header values and the auth
- * option's secrets (password/token/value) redacted, shape preserved.
+ * option's secrets (password/token/value) redacted, plus the same URL /
+ * query / body / cookie stripping the export path applies, shape preserved.
+ *
+ * This is a display/audit/approval copy only — the live request is built from
+ * the raw config in prepareHttpRequest — so it can redact aggressively without
+ * affecting execution. It intentionally covers the SAME fields as the export
+ * redactor (lib/export/portable's sanitizeNode) so the two cannot drift.
  */
 export function redactHttpStepInput(config: Record<string, unknown>): Record<string, unknown> {
   let next = config
@@ -728,6 +734,55 @@ export function redactHttpStepInput(config: Record<string, unknown>): Record<str
   if (isRecord(config.auth)) {
     next = { ...next, auth: redactHttpAuthOption(config.auth) }
   }
+  if (typeof config.url === 'string' && !config.url.includes('{{')) {
+    // A templated URL holds no literal secret (templates cannot read
+    // credentials) and round-tripping it through the URL parser would
+    // percent-encode its `{{...}}` markers — leave it verbatim.
+    next = { ...next, url: redactUrl(config.url) }
+  }
+  if (config.query !== undefined && config.query !== null) {
+    next = { ...next, query: redactDeep(config.query) }
+  }
+  if (config.body !== undefined && config.body !== null) {
+    next = { ...next, body: redactDeep(config.body) }
+  }
+  // A cookie is a credential by definition (prepareHttpRequest copies it
+  // straight into the Cookie request header).
+  if (typeof config.cookie === 'string' && config.cookie !== '') {
+    next = { ...next, cookie: REDACTED }
+  }
+  return next
+}
+
+// Response headers that carry a credential and are virtually never consumed
+// downstream — redacting them closes the echo/set-cookie leak without touching
+// data a later step might legitimately read.
+function redactResponseHeaders(headers: Record<string, string>): Record<string, string> {
+  return Object.fromEntries(
+    Object.entries(headers).map(([key, value]) => {
+      const lower = key.toLowerCase()
+      const isSecret = lower === 'set-cookie' || lower === 'cookie' || isCredentialKey(key)
+      return [key, isSecret ? REDACTED : value]
+    }),
+  )
+}
+
+/**
+ * An http step's OUTPUT as safe to persist AND to hand downstream.
+ *
+ * Unlike the input copy this DOES flow into ctx.step / templates / the agent
+ * transcript, so it is deliberately narrow: it strips only platform-injected
+ * or credential-shaped material — the resolved `url` (an apiKeyQuery credential
+ * is injected into it, and would otherwise be re-postable to any host, past the
+ * domain allowlist) and credential-named / set-cookie response headers. The
+ * response BODY is left intact so legitimate token-fetch-then-use chaining
+ * still works.
+ */
+export function redactHttpStepOutput(output: unknown): unknown {
+  if (!isRecord(output)) return output
+  const next: Record<string, unknown> = { ...output }
+  if (typeof next.url === 'string') next.url = redactUrl(next.url)
+  if (isRecord(next.headers)) next.headers = redactResponseHeaders(next.headers as Record<string, string>)
   return next
 }
 
@@ -767,3 +822,4 @@ import { createHash, createHmac, randomBytes } from 'node:crypto'
 import { DEFAULT_PAGINATION_MAX_PAGES } from '@/lib/flows/graph'
 import type { RuntimeCredentialAuth } from '@/lib/credentials/resolve'
 import { fetchPublicUrl } from '@/lib/net/ssrf'
+import { isCredentialKey, redactDeep, redactUrl, REDACTED } from '@/lib/export/redact'

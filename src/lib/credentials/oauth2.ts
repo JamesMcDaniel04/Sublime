@@ -15,6 +15,7 @@
  * Tokens live in memory only — never logged, never persisted.
  */
 import { createHash } from 'node:crypto'
+import { assertPublicUrl, fetchPublicUrl } from '@/lib/net/ssrf'
 import type { DecryptedCredential, InjectionPlan } from './types'
 
 /**
@@ -73,7 +74,16 @@ export async function oauth2ClientCredentialPlan(
     return { headers: { authorization: cached.authorization } }
   }
 
+  // Optional caller policy (e.g. an allowedDomains scope) runs first...
   await deps.assertUrlAllowed?.(tokenUrl)
+  // ...but the SSRF guard is MANDATORY and independent of it: the token POST
+  // carries the client secret, and several call paths (the MCP/resolveCredential
+  // path in particular) pass no assertUrlAllowed at all. Without this a member
+  // could set tokenUrl to an internal/metadata host and have the server POST
+  // its secret there. Skipped only when a fetchImpl is injected — the same
+  // trusted test seam fetchPublicUrl itself honours. IP-literal targets are
+  // rejected here before any DNS or socket.
+  if (!deps.fetchImpl) await assertPublicUrl(tokenUrl)
   const body = new URLSearchParams({ grant_type: 'client_credentials' })
   if (credential.scope?.trim()) body.set('scope', credential.scope.trim())
   if (credential.audience?.trim()) body.set('audience', credential.audience.trim())
@@ -85,7 +95,11 @@ export async function oauth2ClientCredentialPlan(
     headers.authorization = `Basic ${Buffer.from(`${clientId}:${clientSecret}`).toString('base64')}`
   }
 
-  const response = await (deps.fetchImpl ?? fetch)(tokenUrl, { method: 'POST', headers, body })
+  // Production egress goes through the SSRF-pinned fetch with redirects
+  // refused — a 3xx from the token endpoint must not bounce the secret POST to
+  // an unvalidated host.
+  const doFetch = deps.fetchImpl ?? ((url: string, init: RequestInit) => fetchPublicUrl(url, init))
+  const response = await doFetch(tokenUrl, { method: 'POST', headers, body, redirect: 'error' })
   const payload = await response.json().catch(() => null) as
     { access_token?: unknown; token_type?: unknown; expires_in?: unknown; error_description?: unknown } | null
   if (!response.ok || typeof payload?.access_token !== 'string' || !payload.access_token) {

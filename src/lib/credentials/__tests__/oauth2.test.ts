@@ -102,3 +102,28 @@ test('an incomplete credential explains what is missing', async () => {
     /incomplete/,
   )
 })
+
+test('SSRF guard: a private tokenUrl is refused before any request (no fetchImpl)', async () => {
+  // Production path (no injected fetchImpl) must run the SSRF guard: a member
+  // storing a metadata/internal tokenUrl must not make the server POST its
+  // client secret there. IP literal → no DNS needed.
+  await assert.rejects(
+    oauth2ClientCredentialPlan('cred_ssrf', { ...credential, tokenUrl: 'https://169.254.169.254/token' }),
+    /private or reserved|https/i,
+  )
+})
+
+test('SSRF guard: a non-https tokenUrl is refused (no fetchImpl)', async () => {
+  await assert.rejects(
+    oauth2ClientCredentialPlan('cred_http', { ...credential, tokenUrl: 'http://10.0.0.5/token' }),
+    /https|private or reserved/i,
+  )
+})
+
+test('an injected fetchImpl (test seam) still bypasses the network guard', async () => {
+  // Parity with fetchPublicUrl: injecting fetchImpl is the unit-test seam and
+  // is trusted, so existing token-server tests keep working.
+  const server = tokenServer('tok', 3600)
+  const plan = await oauth2ClientCredentialPlan('cred_seam', credential, { fetchImpl: server.fetchImpl })
+  assert.deepEqual(plan.headers, { authorization: 'Bearer tok-1' })
+})

@@ -338,7 +338,7 @@ test('redactAuthHeaders handles JSON strings and non-JSON strings', () => {
   assert.equal(redactAuthHeaders(undefined), undefined)
 })
 
-test('redactHttpStepInput redacts only the headers field and keeps the rest', () => {
+test('redactHttpStepInput redacts headers, url, query, body and cookie (parity with the export redactor)', () => {
   const config = {
     method: 'POST',
     url: 'https://api.example.com',
@@ -348,14 +348,23 @@ test('redactHttpStepInput redacts only the headers field and keeps the rest', ()
   }
   const safe = redactHttpStepInput(config)
   assert.deepEqual(safe.headers, { authorization: 'redacted', 'x-id': 'a' })
-  assert.equal(safe.url, 'https://api.example.com')
-  assert.equal(safe.body, '{"ok":true}')
+  // A plain URL is normalised by the parser (trailing slash) — matching the
+  // export path, which is the point: the two must not drift.
+  assert.equal(safe.url, 'https://api.example.com/')
+  assert.equal(safe.body, '{"ok":true}') // no credential-named field to strip
   assert.equal(safe.connectionId, 'conn-1')
   // Original config untouched
   assert.deepEqual(config.headers, { authorization: 'Bearer secret', 'x-id': 'a' })
-  // No headers set: config passes through unchanged
-  const bare = { method: 'GET', url: 'https://api.example.com' }
-  assert.deepEqual(redactHttpStepInput(bare), bare)
+
+  // The fields that used to leak through this path now do not.
+  const withSecrets = redactHttpStepInput({
+    url: 'https://u:p@api.example.com/x?api_key=SEKRET',
+    query: '{"access_token":"SEKRET"}',
+    body: { client_secret: 'SEKRET', keep: 1 },
+    cookie: 'sid=SEKRET',
+  })
+  assert.ok(!JSON.stringify(withSecrets).includes('SEKRET'), 'a secret survived redaction')
+  assert.ok(JSON.stringify(withSecrets).includes('"keep":1'), 'non-secret data was lost')
 })
 
 test('responseOutput auto-parses JSON responses and keeps raw body text', async () => {

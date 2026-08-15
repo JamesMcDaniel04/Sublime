@@ -77,6 +77,14 @@ function isBlockedIPv6(ip: string): boolean {
   if (a === '::1' || a === '::') return true
   if (/^fe[89ab]/.test(a)) return true // link-local fe80::/10
   if (a.startsWith('fc') || a.startsWith('fd')) return true // unique-local fc00::/7
+  if (a.startsWith('ff')) return true // multicast ff00::/8
+  // Translation/tunnel prefixes that carry an embedded IPv4 an internal
+  // network may forward — the classifier used to fall through to `false`,
+  // silently permitting them. Prefixes are checked on the WHATWG-canonical
+  // (compressed) form the URL parser produces.
+  if (a.startsWith('64:ff9b:')) return true // NAT64 well-known prefix
+  if (a.startsWith('2002:')) return true // 6to4
+  if (/^2001:(0:|:)/.test(a)) return true // Teredo 2001:0000::/32
   const mapped = mappedIPv4(a)
   if (mapped) return isBlockedIPv4(mapped)
   return false

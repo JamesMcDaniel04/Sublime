@@ -210,7 +210,24 @@ export function decryptSecret(payload: string): string {
     if (!key) {
       throw new Error('ENCRYPTION_KEY is required to decrypt stored secrets but is not set')
     }
-    return decryptSecretWithKey(payload, process.env.ENCRYPTION_KEY as string)
+    try {
+      return decryptSecretWithKey(payload, process.env.ENCRYPTION_KEY as string)
+    } catch (error) {
+      // Rolling rotation: with OLD_ENCRYPTION_KEY set, a row still under the
+      // previous key stays readable while a background pass re-encrypts it —
+      // turning key rotation from a maintenance window into a rolling deploy.
+      // GCM's auth tag makes a wrong key THROW rather than return garbage, so
+      // trying the old key here can never produce a false plaintext.
+      const old = process.env.OLD_ENCRYPTION_KEY
+      if (old) {
+        try {
+          return decryptSecretWithKey(payload, old)
+        } catch {
+          // Neither key opens it — surface the primary-key error below.
+        }
+      }
+      throw error
+    }
   }
 
   throw new Error(`Unknown secret payload format: ${payload.slice(0, 10)}`)

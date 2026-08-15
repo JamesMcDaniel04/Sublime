@@ -44,6 +44,37 @@ test('with ENCRYPTION_KEY set: encrypt/decrypt round-trips', async () => {
   assert.equal(decryptSecret(payload), 'grn_abc123')
 })
 
+test('rolling rotation: OLD_ENCRYPTION_KEY still opens rows written under the old key', async () => {
+  // Deploy new key as ENCRYPTION_KEY + old as OLD_ENCRYPTION_KEY → the running
+  // app reads BOTH while a background rotation re-encrypts rows, so rotation is
+  // a rolling operation instead of a maintenance window.
+  setNodeEnv('production')
+  process.env.ENCRYPTION_KEY = 'old-key-material-0123456789abcdef'
+  const first = await freshSecrets()
+  const oldRow = first.encryptSecret('secret-under-old-key')
+
+  delete process.env.NODE_TEST_CONTEXT
+  process.env.ENCRYPTION_KEY = 'new-key-material-fedcba9876543210'
+  process.env.OLD_ENCRYPTION_KEY = 'old-key-material-0123456789abcdef'
+  const second = await freshSecrets()
+  assert.equal(second.decryptSecret(oldRow), 'secret-under-old-key', 'old-key row unreadable during rotation')
+  // New writes use the new key and still round-trip.
+  const newRow = second.encryptSecret('secret-under-new-key')
+  assert.equal(second.decryptSecret(newRow), 'secret-under-new-key')
+})
+
+test('without OLD_ENCRYPTION_KEY, a row under a different key fails loudly', async () => {
+  setNodeEnv('production')
+  process.env.ENCRYPTION_KEY = 'keyA-material-0123456789abcdef012'
+  const a = await freshSecrets()
+  const row = a.encryptSecret('secret')
+
+  process.env.ENCRYPTION_KEY = 'keyB-material-fedcba9876543210fed'
+  delete process.env.OLD_ENCRYPTION_KEY
+  const b = await freshSecrets()
+  assert.throws(() => b.decryptSecret(row))
+})
+
 test('development without ENCRYPTION_KEY and without opt-in: encryptSecret throws', async () => {
   // "Not production" must not silently mean "not encrypted": a staging or
   // preview deploy that forgot the key should fail its first secret write,

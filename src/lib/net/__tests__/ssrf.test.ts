@@ -32,3 +32,18 @@ test('blocks IPv4-mapped IPv6 (dotted AND hex-canonical form)', async () => {
 test('allows a public IP literal', async () => {
   await allowed('https://8.8.8.8/')
 })
+
+test('blocks exotic IPv6 ranges that reach IPv4 internals via translation', async () => {
+  // NAT64 (64:ff9b::/96) embeds an IPv4 the host may translate; 6to4 (2002::/16)
+  // and Teredo (2001::/32) tunnel to arbitrary v4; ff00::/8 is v6 multicast.
+  // The classifier was silently permissive (return false) for all of these.
+  await blocked('https://[64:ff9b::7f00:1]/')          // NAT64 → 127.0.0.1
+  await blocked('https://[64:ff9b::a9fe:a9fe]/')       // NAT64 → 169.254.169.254 (metadata)
+  await blocked('https://[2002:7f00:1::]/')            // 6to4 → 127.0.0.1
+  await blocked('https://[2001:0:0:0:0:0:7f00:1]/')    // Teredo prefix
+  await blocked('https://[ff02::1]/')                  // IPv6 multicast
+})
+
+test('still allows a normal public IPv6 literal', async () => {
+  await allowed('https://[2606:4700:4700::1111]/') // Cloudflare DNS, global unicast
+})
