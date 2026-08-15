@@ -9,6 +9,7 @@ import { resolveHttpAuthRef } from '@/lib/flows/http-auth-ref'
 import { agentHttpToolDefinition, agentHttpToolsFromMetadata } from '@/lib/agents/http-tools'
 import { AgentHttpToolClient } from '@/lib/agents/http-tools-run'
 import { retrieveContext, renderContext } from '@/lib/rag/retrieve'
+import { buildContextRetrievedPayload, buildKnowledgeRetrievedPayload } from '@/lib/rag/retrieval-event'
 import { createContextAssembler } from '@/lib/context/assemble'
 import { retrieveKnowledge, renderKnowledge } from '@/lib/knowledge/retrieve'
 import { embeddingsConfigured, embedQuery, embedTexts, cosineSimilarity } from '@/lib/rag/embeddings'
@@ -923,12 +924,13 @@ export async function runAgentExecution(
         signalRef?.accountId ? `account:${signalRef.accountId}` : null,
         signalRef?.opportunityId ? `opp:${signalRef.opportunityId}` : null,
       ].filter((id): id is string => Boolean(id))
+      const retrievalQuery = `${agent.objective}\n${data.input ?? ''}`.slice(0, 2000)
       const ragContext = await retrieveContext(getGraphRagStore(), {
         organizationId,
         // Scope correlated context to this rep: shared org data + their own
         // private nodes, never another rep's private book.
         viewerUserId: userId,
-        query: `${agent.objective}\n${data.input ?? ''}`.slice(0, 2000),
+        query: retrievalQuery,
         seedNodeIds,
         ...(strategize ? { topK: STRATEGIZE_RETRIEVAL.topK, hops: STRATEGIZE_RETRIEVAL.hops } : {}),
       })
@@ -941,13 +943,18 @@ export async function runAgentExecution(
         system = `${system}\n\n${wrapUntrusted(rendered)}`
         // Surface the correlated context in the run's activity log so the
         // "brain" is visible: what Sales AI signals / prior runs / related
-        // accounts the agent pulled in before acting.
-        await recordEvent(execution.id, null, 'context.retrieved', {
-          source: 'graph-rag',
-          hits: budgeted.hits.map((h) => ({ type: h.type, text: h.text })),
-          related: budgeted.related.map((r) => ({ type: r.type, text: r.text })),
-          summary: `Pulled ${budgeted.hits.length} correlated fact(s) + ${budgeted.related.length} connected entit(ies) from Sales AI, integrations, and prior runs.`,
-        })
+        // accounts the agent pulled in before acting — and, since the
+        // enrichment (run traces), HOW it was found: strategy, per-hit
+        // scores, the stage funnel, and how much survived the budget.
+        await recordEvent(execution.id, null, 'context.retrieved',
+          buildContextRetrievedPayload({
+            query: retrievalQuery,
+            trace: ragContext.trace,
+            hits: budgeted.hits.map((h) => ({ type: h.type, text: h.text, score: h.score })),
+            related: budgeted.related.map((r) => ({ type: r.type, text: r.text })),
+            offeredHits: ragContext.hits.length,
+            injectedChars: rendered.length,
+          }))
       }
     } catch (error) {
       apiLogger.warn('execute-agent: RAG context skipped', {
@@ -959,21 +966,24 @@ export async function runAgentExecution(
     // Uploaded file knowledge: retrieve the most relevant chunks for this agent
     // and inject them into the system prompt. Best-effort — never blocks a run.
     try {
+      const knowledgeQuery = `${agent.objective}\n${data.input ?? ''}`.slice(0, 2000)
       const knowledgeHits = await retrieveKnowledge({
         organizationId,
         agentId: agent.id,
         userId,
-        query: `${agent.objective}\n${data.input ?? ''}`.slice(0, 2000),
+        query: knowledgeQuery,
       })
       const budgetedKnowledge = contextAssembler.take(knowledgeHits, (h) => h.content, (h) => h.score)
       const knowledgeBlock = renderKnowledge(budgetedKnowledge)
       if (knowledgeBlock) {
         system = `${system}\n\n${wrapUntrusted(knowledgeBlock)}`
-        await recordEvent(execution.id, null, 'knowledge.retrieved', {
-          source: 'retained-knowledge',
-          files: [...new Set(budgetedKnowledge.map((h) => h.filename))],
-          summary: `Pulled ${budgetedKnowledge.length} passage(s) from ${new Set(budgetedKnowledge.map((h) => h.filename)).size} retained source(s).`,
-        })
+        await recordEvent(execution.id, null, 'knowledge.retrieved',
+          buildKnowledgeRetrievedPayload({
+            query: knowledgeQuery,
+            chunks: budgetedKnowledge.map((h) => ({ filename: h.filename, score: h.score })),
+            offered: knowledgeHits.length,
+            injectedChars: knowledgeBlock.length,
+          }))
       }
     } catch (error) {
       apiLogger.warn('execute-agent: knowledge retrieval skipped', {
