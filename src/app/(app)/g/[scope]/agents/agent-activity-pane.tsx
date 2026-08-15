@@ -2,6 +2,9 @@
 
 import { useEffect, useState } from 'react'
 import { ScopedLink as Link } from '@/components/ui/scoped-link'
+// Plain next/link for the workspace-level /traces route — ScopedLink would
+// prepend the goal lens and break the (unscoped) path.
+import NextLink from 'next/link'
 import { toast } from 'sonner'
 import {
   AlertCircle,
@@ -714,6 +717,14 @@ function RunRow({
 
       {expanded && (
         <div className="space-y-4 border-t bg-muted/60 px-4 py-4">
+          <div className="flex justify-end">
+            <NextLink
+              href={`/traces/agent/${activity.id}`}
+              className="text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
+            >
+              View trace →
+            </NextLink>
+          </div>
           {activity.error && (
             <pre className="whitespace-pre-wrap rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">{activity.error}</pre>
           )}

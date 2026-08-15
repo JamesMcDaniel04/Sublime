@@ -4,6 +4,9 @@ import { Fragment, useEffect, useState } from 'react'
 import { useParams } from 'next/navigation'
 import { useScopedRouter } from '@/lib/client/use-scoped-router'
 import { ScopedLink as Link } from '@/components/ui/scoped-link'
+// Plain next/link for the workspace-level /traces route — ScopedLink would
+// prepend the goal lens and break the (unscoped) path.
+import NextLink from 'next/link'
 import { Activity, ChevronRight, RefreshCw, ScrollText, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { Badge } from '@/components/ui/badge'
@@ -347,6 +350,13 @@ export default function FlowActivityPage() {
                     <TableCell className="max-w-xs truncate text-sm text-red-600">{run.error || ''}</TableCell>
                     <TableCell className="text-right">
                       <span className="flex items-center justify-end gap-2">
+                        <NextLink
+                          href={`/traces/flow/${run.id}`}
+                          onClick={(e) => e.stopPropagation()}
+                          className="whitespace-nowrap text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
+                        >
+                          View trace →
+                        </NextLink>
                         <Link
                           href={`/flows/${id}?run=${run.id}`}
                           onClick={(e) => e.stopPropagation()}
