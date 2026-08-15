@@ -1,7 +1,11 @@
 # Home: Goals-in-Flight Mini Tracker
 
-**Date:** 2026-08-13
+**Date:** 2026-08-13 (amended 2026-08-14)
 **Status:** Approved
+
+> **2026-08-14 amendment:** the strip now **replaces** the RecentFlows
+> section instead of stacking above it (explicit product decision: "replace
+> the flows on the home page with the mini goal tracker"). See Placement.
 
 ## Goal
 
@@ -108,7 +112,7 @@ pattern):
 ## UI: `goals-in-flight.tsx`
 
 `src/app/(app)/g/[scope]/dashboard/goals-in-flight.tsx`, a client component
-next to `recent-flows.tsx`.
+replacing `recent-flows.tsx`.
 
 Layout — labelled columns, one row per goal:
 
@@ -140,8 +144,11 @@ Goals in flight                              View all →
 
 ### Placement & visibility
 
-- In the empty-state hero, **above** `<RecentFlows />`, under the same
+- In the empty-state hero, **in place of** `<RecentFlows />`, under the same
   `input.trim() === ''` guard — a drafted message keeps the screen.
+- `recent-flows.tsx`, `src/lib/flows/recent.ts`, and their tests are
+  **deleted** with the swap; nothing else imports them. The Flows page
+  remains the home of flow discovery.
 - Renders **nothing** while goals are loading, on error, when zero active
   goals exist, or when the lens is a single goal (`scope !== ALL_SCOPE`).
   It is a shortcut, not a source of truth; `/goals` owns errors and empties.
