@@ -24,7 +24,7 @@ import { Button } from '@/components/ui/button'
 import { Markdown } from '@/components/ui/markdown'
 import { notifyAgentsChanged } from '@/components/layout/sidebar'
 import { FirstRunGuide } from '@/components/goals/first-run-guide'
-import { RecentFlows } from './recent-flows'
+import { GoalsInFlight } from './goals-in-flight'
 import { useAuth } from '@/hooks/use-auth'
 import { cn } from '@/lib/utils'
 import { getCachedJson } from '@/lib/client/use-cached-json'
@@ -703,9 +703,12 @@ export function HomeAssistant() {
                 </button>
               ))}
             </div>
-            {/* Quick jumps back into recent flow canvases — only while the
-                composer is untouched, so a drafted message keeps the screen. */}
-            {input.trim() === '' && <RecentFlows />}
+            {/* The 3 most recent goals in flight — only while the composer is
+                untouched, so a drafted message keeps the screen. Replaced the
+                recent-flows strip (2026-08-14): Home leads with outcomes, not
+                artifacts. allGoals (not the lens-filtered list): the component
+                makes its own lens decision and renders only under the all lens. */}
+            {input.trim() === '' && <GoalsInFlight goals={allGoals} />}
           </div>
         </div>
       ) : (
