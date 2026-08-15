@@ -547,7 +547,10 @@ model WorkflowEvent {
 // operation; exportable per org for enterprise compliance.
 model AuditEvent {
   id             String   @id @default(cuid())
-  organizationId String   @db.Uuid
+  // Nullable ON PURPOSE: deleting a workspace must not shred its audit trail.
+  // The org FK is SET NULL so rows survive the cascade as orphans a DB
+  // operator can still read (including the organization.deleted row itself).
+  organizationId String?  @db.Uuid
   actorUserId    String?
   actorKind      String   @default("user") // 'user' | 'agent' | 'system'
   action         String // e.g. 'tool.write', 'agent.config_changed'
@@ -562,7 +565,7 @@ model AuditEvent {
   ip             String?
   createdAt      DateTime @default(now())
 
-  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  organization Organization? @relation(fields: [organizationId], references: [id], onDelete: SetNull)
 
   @@index([organizationId, createdAt])
   @@index([organizationId, action])

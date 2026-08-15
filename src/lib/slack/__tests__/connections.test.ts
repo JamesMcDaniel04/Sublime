@@ -1,6 +1,9 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { encryptSecretJson, decryptSecretJson, slackIngressUrl, slackAuthTest, serializeSlackConnection } from '@/lib/slack/connections'
+import { encryptSecretJson, decryptSecretJson, slackIngressUrl, slackAuthTest, slackAuthRevoke, serializeSlackConnection } from '@/lib/slack/connections'
+
+// Secret writes now refuse to run keyless outside test/opt-in environments.
+process.env.ENCRYPTION_KEY = process.env.ENCRYPTION_KEY ?? 'unit-test-key-0123456789abcdef01'
 
 test('encryptSecretJson round-trips through decryptSecretJson', () => {
   const blob = encryptSecretJson('xoxb-secret-token')
@@ -48,4 +51,26 @@ test('serializeSlackConnection redacts secrets', () => {
   assert.equal(out.hasSigningSecret, true)
   assert.ok(!JSON.stringify(out).includes('xoxb'))
   assert.ok(out.ingressUrl.endsWith('/api/slack/events/bind_1'))
+})
+
+test('slackAuthRevoke posts the token to auth.revoke', async () => {
+  // Deleting our row destroys OUR copy of the token, but the grant stays live
+  // in the Slack workspace until auth.revoke is called — a pasted xoxb token
+  // never expires on its own.
+  const calls: { url: string; auth: string | undefined }[] = []
+  const fetchImpl = (async (url: any, init: any) => {
+    calls.push({ url: String(url), auth: init?.headers?.Authorization })
+    return new Response(JSON.stringify({ ok: true, revoked: true }), { status: 200 })
+  }) as typeof fetch
+  await slackAuthRevoke('xoxb-token-to-revoke', fetchImpl)
+  assert.equal(calls.length, 1)
+  assert.equal(calls[0].url, 'https://slack.com/api/auth.revoke')
+  assert.equal(calls[0].auth, 'Bearer xoxb-token-to-revoke')
+})
+
+test('slackAuthRevoke never throws — revocation is best-effort', async () => {
+  const failing = (async () => { throw new Error('network down') }) as unknown as typeof fetch
+  await assert.doesNotReject(() => slackAuthRevoke('xoxb-token', failing))
+  const apiError = (async () => new Response(JSON.stringify({ ok: false, error: 'token_revoked' }), { status: 200 })) as unknown as typeof fetch
+  await assert.doesNotReject(() => slackAuthRevoke('xoxb-token', apiError))
 })

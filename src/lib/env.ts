@@ -34,6 +34,22 @@ function missingModelKey(): string | null {
   return MODEL_KEYS.some((name) => Boolean(process.env[name])) ? null : `one of ${MODEL_KEYS.join(' or ')}`
 }
 
+/**
+ * encryptSecret accepts any non-empty string, so key strength is enforced at
+ * boot instead: AES-256 under a key derived from a short passphrase gives an
+ * offline attacker a trivial guess space, and v1 rows derive with a single
+ * unsalted SHA-256.
+ */
+function assertEncryptionKeyStrength(): void {
+  const key = process.env.ENCRYPTION_KEY
+  if (key && key.length < 32) {
+    throw new Error(
+      'ENCRYPTION_KEY must be at least 32 characters of high-entropy material. ' +
+        'Generate one with: openssl rand -hex 32 — and run scripts/rotate-encryption-key.ts to re-encrypt existing rows.',
+    )
+  }
+}
+
 function throwMissing(missing: string[]): never {
   throw new Error(
     `Missing required environment variables: ${missing.join(', ')}. ` +
@@ -124,6 +140,7 @@ export function assertServerEnv(logger: { warn: (message: string) => void } = co
   if (modelKey) missing.push(modelKey)
   if (missing.length > 0) throwMissing(missing)
 
+  assertEncryptionKeyStrength()
   assertPooledDatabaseUrl(process.env.DATABASE_URL!)
 
   for (const [name, consequence] of RECOMMENDED_FOR_SERVER) {
@@ -161,6 +178,8 @@ export function assertWorkerEnv(logger: { warn: (message: string) => void } = co
   const modelKey = missingModelKey()
   if (modelKey) missing.push(modelKey)
   if (missing.length > 0) throwMissing(missing)
+
+  assertEncryptionKeyStrength()
 
   for (const [name, consequence] of RECOMMENDED_FOR_WORKER) {
     if (!process.env[name]) logger.warn(`env: ${name} is not set — ${consequence}`)

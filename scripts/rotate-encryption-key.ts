@@ -26,27 +26,10 @@
 import { PrismaClient } from '../src/generated/prisma/client'
 import { PrismaPg } from '@prisma/adapter-pg'
 import { countCiphertextsDeep, rotateCiphertextsDeep } from '../src/lib/crypto/rotate'
-
-/**
- * Every column that can hold a ciphertext. Listing the COLUMNS is unavoidable
- * (they are physical), but the walk inside each is shape-based, so a new
- * secret FIELD within one of these blobs is covered automatically.
- */
-const TARGETS: Array<{ model: string; columns: string[] }> = [
-  { model: 'credential', columns: ['authConfig'] },
-  { model: 'mcpConnection', columns: ['authConfig'] },
-  { model: 'postgresConnection', columns: ['authConfig'] },
-  { model: 'integrationSecret', columns: ['authConfig'] },
-  { model: 'googleOAuthConnection', columns: ['refreshTokenEnc'] },
-  { model: 'slackWorkspaceConnection', columns: ['botToken', 'signingSecret'] },
-  { model: 'knowledgeDocument', columns: ['contentEncrypted'] },
-  { model: 'knowledgeChunk', columns: ['contentEncrypted'] },
-  // Webhook trigger secrets ride inside the trigger/metadata blobs.
-  { model: 'flow', columns: ['trigger'] },
-  { model: 'flowVersion', columns: ['trigger'] },
-  // Agent webhook trigger secrets live in AgentTask.metadata.triggerSecretEnc.
-  { model: 'agentTask', columns: ['metadata'] },
-]
+// The target list lives in src/ so rotate-coverage.test.ts can hold it against
+// schema.prisma — a new secret-bearing column fails CI instead of silently
+// skipping rows at the next rotation.
+import { ROTATION_TARGETS as TARGETS } from '../src/lib/crypto/rotate-targets'
 
 const BATCH = 200
 

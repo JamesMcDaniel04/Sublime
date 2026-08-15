@@ -19,7 +19,7 @@ const FULL_PROD_ENV = {
   DIRECT_URL: 'postgresql://u:p@h:5432/db',
   NEXT_PUBLIC_SUPABASE_URL: 'https://x.supabase.co',
   NEXT_PUBLIC_SUPABASE_ANON_KEY: 'anon',
-  ENCRYPTION_KEY: 'k',
+  ENCRYPTION_KEY: '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef',
   CRON_SECRET: 'cron-secret',
   ANTHROPIC_API_KEY: 'sk-ant-x',
   STRIPE_SECRET_KEY: 'sk_test_x',
@@ -36,6 +36,27 @@ test('production with everything set: does not throw', async () => {
   Object.assign(process.env, FULL_PROD_ENV)
   const { assertServerEnv } = await freshEnv()
   assert.doesNotThrow(() => assertServerEnv())
+})
+
+test('production with a short ENCRYPTION_KEY: boot fails naming the key', async () => {
+  // encryptSecret accepts any non-empty string, so key strength has to be
+  // enforced here — a one-character passphrase gives AES-256 no entropy to
+  // work with and an offline attacker a trivial guess.
+  Object.assign(process.env, FULL_PROD_ENV, { ENCRYPTION_KEY: 'short-key' })
+  const { assertServerEnv } = await freshEnv()
+  assert.throws(() => assertServerEnv(), /ENCRYPTION_KEY.*32/)
+})
+
+test('worker env enforces the same ENCRYPTION_KEY strength floor', async () => {
+  Object.assign(process.env, {
+    NODE_ENV: 'production',
+    DATABASE_URL: 'postgresql://u:p@h:5432/db?connection_limit=40',
+    REDIS_URL: 'rediss://h:6379',
+    ENCRYPTION_KEY: 'short-key',
+    ANTHROPIC_API_KEY: 'sk-ant-x',
+  })
+  const { assertWorkerEnv } = await freshEnv()
+  assert.throws(() => assertWorkerEnv(), /ENCRYPTION_KEY.*32/)
 })
 
 test('server env: reports missing readiness vars while optional integrations remain warnings', async () => {
@@ -152,7 +173,7 @@ test('worker env: throws on missing required, passes with them set', async () =>
   Object.assign(process.env, {
     DATABASE_URL: 'postgresql://u:p@h:5432/db?connection_limit=40',
     REDIS_URL: 'rediss://h:6379',
-    ENCRYPTION_KEY: 'k',
+    ENCRYPTION_KEY: '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef',
     ANTHROPIC_API_KEY: 'sk-ant-x',
   })
   const fresh = await freshEnv()
@@ -164,7 +185,7 @@ test('worker env: warns (never throws) when the pool is smaller than worker conc
   Object.assign(process.env, {
     DATABASE_URL: 'postgresql://u:p@h:6543/db?pgbouncer=true&connection_limit=1',
     REDIS_URL: 'rediss://h:6379',
-    ENCRYPTION_KEY: 'k',
+    ENCRYPTION_KEY: '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef',
     ANTHROPIC_API_KEY: 'sk-ant-x',
     AGENT_WORKER_CONCURRENCY: '10',
   })

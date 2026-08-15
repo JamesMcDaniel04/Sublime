@@ -129,7 +129,7 @@ export const DELETE = withAuthenticatedApi(async (request, auth) => {
     select: { supabaseId: true },
   })
   const { teardownOrganization } = await import('@/lib/org-teardown')
-  await teardownOrganization(auth.organizationId)
+  await teardownOrganization(auth.organizationId, { actorUserId: auth.dbUser.id })
   // Every member's cached user→workspace row now points at a dead org; bust
   // them so their next request re-provisions instead of wedging for the TTL.
   const { invalidateDbUserCache } = await import('@/lib/supabase/auth-utils')

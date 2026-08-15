@@ -15,11 +15,15 @@ if (TEST_DB) {
   delete process.env.NEO4J_PASSWORD
 
   let prisma: any
-  let teardownOrganization: (organizationId: string) => Promise<{ nango: number; graphCleared: boolean }>
+  let systemPrisma: any
+  let teardownOrganization: (
+    organizationId: string,
+    options?: { actorUserId?: string | null },
+  ) => Promise<{ nango: number; google: number; slack: number; graphCleared: boolean }>
   const ids: Record<string, string> = {}
 
   before(async () => {
-    ;({ prisma } = await import('@/lib/prisma'))
+    ;({ prisma, systemPrisma } = await import('@/lib/prisma'))
     ;({ teardownOrganization } = await import('@/lib/org-teardown'))
 
     const org = await prisma.organization.create({ data: { name: 'Teardown Org', slug: `teardown-${Date.now()}` } })
@@ -41,6 +45,23 @@ if (TEST_DB) {
       data: { name: 'teardown-flow', organizationId: org.id, status: 'ACTIVE', graph: { nodes: [], edges: [] } },
     })
     ids.flow = flow.id
+
+    // Undecryptable ciphertexts: the google/slack revoke legs must skip their
+    // network calls, not reach Google/Slack from a unit test.
+    const google = await prisma.googleOAuthConnection.create({
+      data: {
+        organizationId: org.id, userId: user.id, service: 'google-mail',
+        accountEmail: 'teardown@example.com', scopes: [], refreshTokenEnc: 'v2:AAAA:AAAA:AAAA:AAAA',
+      },
+    })
+    ids.google = google.id
+    const slack = await prisma.slackWorkspaceConnection.create({
+      data: {
+        organizationId: org.id, userId: user.id, teamId: 'T-teardown', botUserId: 'U-teardown-bot',
+        botToken: { value: 'v2:AAAA:AAAA:AAAA:AAAA' }, signingSecret: { value: 'v2:AAAA:AAAA:AAAA:AAAA' }, status: 'active',
+      },
+    })
+    ids.slack = slack.id
   })
 
   after(async () => {
@@ -69,5 +90,26 @@ if (TEST_DB) {
 
     const flowCount = await prisma.flow.count({ where: { id: ids.flow, organizationId: ids.org } })
     assert.equal(flowCount, 0)
+
+    // Google/Slack legs ran (undecryptable tokens → zero revocations
+    // attempted) and the rows cascaded away with the org.
+    assert.equal(result.google, 0)
+    assert.equal(result.slack, 0)
+    const googleCount = await prisma.googleOAuthConnection.count({ where: { id: ids.google, organizationId: ids.org } })
+    assert.equal(googleCount, 0)
+    const slackCount = await prisma.slackWorkspaceConnection.count({ where: { id: ids.slack, organizationId: ids.org } })
+    assert.equal(slackCount, 0)
+  })
+
+  test('the teardown itself is on the audit record — and the row survives the org delete', async () => {
+    // Workspace deletion is the one admin action that used to erase its own
+    // audit trail: AuditEvent cascaded with the org. The FK is now SET NULL,
+    // so the organization.deleted row (written before the delete) persists as
+    // an orphan a DB operator can still read.
+    const event = await systemPrisma.auditEvent.findFirst({
+      where: { action: 'organization.deleted', resourceId: ids.org },
+    })
+    assert.ok(event, 'workspace deletion wrote no audit row')
+    assert.equal(event.organizationId, null, 'audit row did not survive the cascade (expected SET NULL)')
   })
 }

@@ -1,4 +1,3 @@
-import { timingSafeEqual } from 'crypto'
 import { NextRequest, NextResponse } from 'next/server'
 import { Prisma } from '@/generated/prisma/client'
 import { prisma, systemPrisma } from '@/lib/prisma'
@@ -6,7 +5,7 @@ import { getQueue, QUEUE_NAMES, workersEnabled } from '@/lib/queue/config'
 import { apiLogger } from '@/lib/logger'
 import { runAgentExecution } from '@/features/agents/execute-agent'
 import { inlineExecution } from '@/lib/queue/execution-mode'
-import { hashToken, timingSafeEqualHex } from '@/lib/crypto/secrets'
+import { validateTriggerSecret } from '@/lib/agents/trigger-secret'
 import { rateLimit } from '@/lib/ratelimit'
 import { agentWebhookEventName, agentWebhookInput } from '@/lib/agents/webhook-input'
 import { assertOrganizationBillingActive } from '@/lib/billing/enforce'
@@ -16,21 +15,6 @@ export const runtime = 'nodejs'
 // so internal budgets sized against it overran the real limit and died with
 // no clean error.
 export const maxDuration = 800
-
-function legacyPlaintextMatch(provided: string, expected: string) {
-  const a = Buffer.from(provided)
-  const b = Buffer.from(expected)
-  return a.length === b.length && timingSafeEqual(a, b)
-}
-
-// Validate the presented secret against the stored SHA-256 hash. Falls back to
-// a constant-time plaintext compare for agents whose secret predates hashing.
-function triggerSecretValid(provided: string, metadata: Record<string, unknown>) {
-  const hash = typeof metadata.triggerSecretHash === 'string' ? metadata.triggerSecretHash : null
-  if (hash) return timingSafeEqualHex(hashToken(provided), hash)
-  const legacy = typeof metadata.triggerSecret === 'string' ? metadata.triggerSecret : null
-  return legacy ? legacyPlaintextMatch(provided, legacy) : false
-}
 
 // External trigger for agents (webhooks, API calls, Pipedream event sources).
 // Authenticated by the per-agent secret instead of a Supabase session.
@@ -53,8 +37,19 @@ export async function POST(request: NextRequest) {
     // systemPrisma: session-less webhook trigger (per-agent secret, no org context); agent id is globally unique.
   const agent = await systemPrisma.agentTask.findFirst({ where: { id, status: 'ACTIVE' } })
     const metadata = agent?.metadata && typeof agent.metadata === 'object' ? agent.metadata as Record<string, unknown> : {}
-    if (!agent || !triggerSecretValid(provided, metadata)) {
+    const secretCheck = agent ? validateTriggerSecret(provided, metadata) : { valid: false, upgrade: null }
+    if (!agent || !secretCheck.valid) {
       return NextResponse.json({ success: false, error: 'Invalid trigger secret' }, { status: 401 })
+    }
+
+    // A successful legacy plaintext match upgrades the row in place (hash +
+    // ciphertext, plaintext deleted) so the plaintext population only ever
+    // shrinks. Best-effort: the trigger must not fail over housekeeping.
+    if (secretCheck.upgrade) {
+      // systemPrisma: same session-less path as the lookup above.
+      await systemPrisma.agentTask
+        .update({ where: { id: agent.id }, data: { metadata: secretCheck.upgrade as Prisma.InputJsonValue } })
+        .catch(() => undefined)
     }
 
     // Billing gate before any execution row exists: external callers get an

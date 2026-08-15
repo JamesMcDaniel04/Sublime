@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { ApiError, withAuthenticatedApi } from '@/lib/server/api-handler'
+import { recordAudit } from '@/lib/audit'
 import { rateLimit } from '@/lib/ratelimit'
 import { assertPublicUrl } from '@/lib/net/ssrf'
 import { resolveHttpCredential } from '@/lib/credentials/resolve'
@@ -29,6 +30,27 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
   if (!credentialId) throw new ApiError('Credential id is required')
   const input = inputSchema.parse(await request.json().catch(() => ({})))
   const verificationKey = credentialVerificationKey(credentialId)
+
+  // This is the one place a member can decrypt and FIRE a credential outside
+  // a run — including one a colleague created — so every attempt lands on the
+  // audit record, success or failure. Never awaited-and-checked: recordAudit
+  // swallows its own failures so the check itself is never blocked.
+  const auditAttempt = (outcome: 'verified' | 'failed') => {
+    let host: string | null = null
+    try {
+      host = new URL(input.url).hostname
+    } catch {
+      // Unparseable URL — the attempt is still recorded, just without a host.
+    }
+    void recordAudit({
+      organizationId: auth.organizationId,
+      actorUserId: auth.dbUser.id,
+      action: 'credential.used',
+      resourceType: 'credential',
+      resourceId: credentialId,
+      detail: { context: 'verify', outcome, ...(host ? { host } : {}) },
+    })
+  }
 
   try {
     await assertPublicUrl(input.url)
@@ -70,6 +92,7 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
       connectionId: verificationKey,
       state: 'verified',
     })
+    auditAttempt('verified')
     return { success: true, verification: { state: 'verified', checkedAt: new Date().toISOString() }, status }
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Credential verification failed.'
@@ -79,6 +102,7 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
       state: 'failed',
       error: message,
     })
+    auditAttempt('failed')
     throw new ApiError(message, 400, 'CREDENTIAL_VERIFICATION_FAILED')
   }
 }, { requires: 'member' })

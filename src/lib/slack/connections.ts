@@ -46,6 +46,27 @@ export async function slackAuthTest(
   return { teamId, teamName: typeof body.team === 'string' ? body.team : null, botUserId }
 }
 
+const SLACK_AUTH_REVOKE_URL = 'https://slack.com/api/auth.revoke'
+
+/**
+ * Revoke a bot token at Slack. Best-effort by design — deleting our row
+ * destroys OUR copy, but a pasted xoxb token never expires on its own, so the
+ * grant stays live in the workspace until auth.revoke succeeds. A network
+ * failure must not block the disconnect; Slack admins can always remove the
+ * app from their side.
+ */
+export async function slackAuthRevoke(botToken: string, fetchImpl: typeof fetch = fetch): Promise<void> {
+  try {
+    await fetchImpl(SLACK_AUTH_REVOKE_URL, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${botToken}`, 'Content-Type': 'application/x-www-form-urlencoded' },
+      signal: AbortSignal.timeout(15_000),
+    })
+  } catch {
+    // Ignored: the row is deleted regardless.
+  }
+}
+
 /** Redacted API view — secrets are NEVER included. */
 export function serializeSlackConnection(row: {
   id: string

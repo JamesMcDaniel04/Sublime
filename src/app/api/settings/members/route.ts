@@ -89,6 +89,23 @@ export const PATCH = withAuthenticatedApi(async (request, auth) => {
       detail: change.detail,
     })
   }
+  // Offboarding is revocation, not just lockout: a deactivated member's
+  // personal grants (Google refresh tokens, Nango connections, Slack bot
+  // tokens, personal MCP servers) would otherwise stay live — usable by
+  // anyone reaching them through org-scoped paths. Runs BEFORE the identity
+  // teardown below so an unreachable Supabase can't leave the tokens alive.
+  // Best-effort: each plane audits its own revocations and a provider outage
+  // must not fail the deactivation itself.
+  if (input.isActive === false && member.isActive) {
+    try {
+      const { revokeMemberConnections } = await import('@/lib/connections/offboarding')
+      await revokeMemberConnections({ organizationId: auth.organizationId, userId: member.id, actorUserId: auth.dbUser.id })
+    } catch (error) {
+      const { captureError } = await import('@/lib/observability/sentry')
+      captureError(error, { source: 'members.deactivate.offboarding', userId: member.id })
+    }
+  }
+
   // Session teardown comes AFTER the audit write on purpose. The row above
   // records a change that has already been committed, and signOut reaches an
   // external service that can fail — auditing behind it meant an unreachable

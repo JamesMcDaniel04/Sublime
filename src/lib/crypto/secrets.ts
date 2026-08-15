@@ -65,8 +65,23 @@ function getDerivedKey(): Buffer | null {
     if (process.env.NODE_ENV === 'production') {
       throw new Error('ENCRYPTION_KEY is required in production')
     }
+    // Outside production the fallback is OPT-IN, not ambient: "not production"
+    // must not silently mean "not encrypted" — a staging/preview deploy that
+    // forgot the key should fail its first secret write. Test runs stay
+    // permissive so suites without a key keep working (NODE_TEST_CONTEXT is
+    // set by the Node test runner in every spawned test process).
+    const optIn =
+      process.env.ALLOW_UNENCRYPTED_SECRETS === 'true' ||
+      process.env.NODE_ENV === 'test' ||
+      Boolean(process.env.NODE_TEST_CONTEXT)
+    if (!optIn) {
+      throw new Error(
+        'ENCRYPTION_KEY is not set. Generate one with `openssl rand -hex 32`, ' +
+          'or set ALLOW_UNENCRYPTED_SECRETS=true to accept reversible base64 storage in local development.',
+      )
+    }
     if (!_warned) {
-      console.warn('ENCRYPTION_KEY not set — MCP secrets stored unencrypted')
+      console.warn('ENCRYPTION_KEY not set — secrets stored as reversible base64 (ALLOW_UNENCRYPTED_SECRETS)')
       _warned = true
     }
     return null

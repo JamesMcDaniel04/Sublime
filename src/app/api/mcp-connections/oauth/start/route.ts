@@ -27,6 +27,7 @@ import {
   registerClient,
   safeReturnToPath,
 } from '@/lib/mcp/oauth-authcode'
+import { sanitizeOAuthScope } from '@/lib/mcp/oauth-scope'
 import { OAUTH_COOKIE } from '../cookie'
 
 const COOKIE_MAX_AGE_S = 600 // 10 minutes to complete the login
@@ -38,7 +39,13 @@ export const GET = withAuthenticatedApi(async (request, auth) => {
   const returnToRaw = request.nextUrl.searchParams.get('returnTo')?.trim() || undefined
   // Same-origin paths only — never an absolute URL.
   const returnTo = safeReturnToPath(returnToRaw)
-  const scope = request.nextUrl.searchParams.get('scope')?.trim() || 'claudeai'
+  // Caller-controlled input in a security parameter: pin it to the RFC 6749
+  // scope grammar rather than forwarding free text into the redirect.
+  const rawScope = request.nextUrl.searchParams.get('scope')?.trim()
+  const scope = rawScope ? sanitizeOAuthScope(rawScope) : 'claudeai'
+  if (!scope) {
+    return NextResponse.redirect(new URL('/connections?error=oauth_params', request.nextUrl.origin))
+  }
 
   let effectiveServerUrl = serverUrl
   let effectiveName = name

@@ -3,7 +3,7 @@ import { Prisma } from '@/generated/prisma/client'
 import { prisma } from '@/lib/prisma'
 import { ApiError, withAuthenticatedApi } from '@/lib/server/api-handler'
 import { recordConnectionAudit } from '@/lib/connections/audit'
-import { encryptSecretJson, serializeSlackConnection, slackAuthTest } from '@/lib/slack/connections'
+import { decryptSecretJson, encryptSecretJson, serializeSlackConnection, slackAuthRevoke, slackAuthTest } from '@/lib/slack/connections'
 
 const createSchema = z.object({
   botToken: z.string().min(1),
@@ -62,6 +62,14 @@ export const DELETE = withAuthenticatedApi(async (request, auth) => {
   const id = url.searchParams.get('id') || z.object({ id: z.string().min(1) }).parse(await request.json()).id
   const existing = await prisma.slackWorkspaceConnection.findFirst({ where: { id, organizationId: auth.organizationId, userId: auth.dbUser.id } })
   if (!existing) throw new ApiError('Slack connection not found', 404, 'NOT_FOUND')
+  // Revoke at Slack BEFORE deleting our copy of the token — afterwards the
+  // ciphertext is gone and the grant would stay live in the workspace forever.
+  // Best-effort: an undecryptable or already-dead token must not block removal.
+  try {
+    await slackAuthRevoke(decryptSecretJson(existing.botToken))
+  } catch {
+    // Undecryptable token (rotated key): our copy is unusable anyway.
+  }
   await prisma.slackThreadSession.deleteMany({ where: { organizationId: auth.organizationId, bindingId: existing.id } })
   await prisma.slackWorkspaceConnection.delete({ where: { id: existing.id, organizationId: auth.organizationId, userId: auth.dbUser.id } })
 

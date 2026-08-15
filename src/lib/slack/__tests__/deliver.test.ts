@@ -6,6 +6,8 @@ if (TEST_DB) {
   process.env.DATABASE_URL = TEST_DB
   process.env.DIRECT_URL = TEST_DB
   process.env.NEXT_PUBLIC_APP_URL = 'https://app.test'
+  // Secret writes refuse to run keyless outside test/opt-in environments.
+  process.env.ENCRYPTION_KEY = process.env.ENCRYPTION_KEY ?? 'unit-test-key-0123456789abcdef01'
 
   let prisma: any
   let seeded: any

@@ -57,7 +57,7 @@ export const DELETE = withAuthenticatedApi(async (request, auth) => {
     allowWhenSoleMember: true,
     message: 'Promote another administrator before deleting your account',
   })
-  if (memberCount === 1) await teardownOrganization(auth.organizationId)
+  if (memberCount === 1) await teardownOrganization(auth.organizationId, { actorUserId: auth.dbUser.id })
   else await prisma.user.delete({ where: { id: auth.dbUser.id, organizationId: auth.organizationId } })
   // Bust the auth-path cache before the identity-provider call: even if that
   // cleanup fails, no request may keep resolving to the deleted row.

@@ -44,13 +44,54 @@ test('with ENCRYPTION_KEY set: encrypt/decrypt round-trips', async () => {
   assert.equal(decryptSecret(payload), 'grn_abc123')
 })
 
-test('development without ENCRYPTION_KEY: falls back to reversible b64', async () => {
+test('development without ENCRYPTION_KEY and without opt-in: encryptSecret throws', async () => {
+  // "Not production" must not silently mean "not encrypted": a staging or
+  // preview deploy that forgot the key should fail its first secret write,
+  // not quietly persist reversible base64. NODE_TEST_CONTEXT is deleted to
+  // simulate a real (non-test-runner) process.
   delete process.env.ENCRYPTION_KEY
+  delete process.env.ALLOW_UNENCRYPTED_SECRETS
+  delete process.env.NODE_TEST_CONTEXT
+  setNodeEnv('development')
+  const { encryptSecret } = await freshSecrets()
+  assert.throws(() => encryptSecret('dev-secret'), /ENCRYPTION_KEY/)
+})
+
+test('development without ENCRYPTION_KEY: explicit opt-in restores the b64 fallback', async () => {
+  delete process.env.ENCRYPTION_KEY
+  process.env.ALLOW_UNENCRYPTED_SECRETS = 'true'
   setNodeEnv('development')
   const { encryptSecret, decryptSecret } = await freshSecrets()
   const payload = encryptSecret('dev-secret')
   assert.match(payload, /^b64:/)
   assert.equal(decryptSecret(payload), 'dev-secret')
+})
+
+test('NODE_ENV=test without ENCRYPTION_KEY: fallback stays available for suites', async () => {
+  delete process.env.ENCRYPTION_KEY
+  delete process.env.ALLOW_UNENCRYPTED_SECRETS
+  setNodeEnv('test')
+  const { encryptSecret } = await freshSecrets()
+  assert.match(encryptSecret('test-secret'), /^b64:/)
+})
+
+test('production ignores the opt-in flag entirely', async () => {
+  delete process.env.ENCRYPTION_KEY
+  process.env.ALLOW_UNENCRYPTED_SECRETS = 'true'
+  delete process.env.NODE_TEST_CONTEXT
+  setNodeEnv('production')
+  const { encryptSecret } = await freshSecrets()
+  assert.throws(() => encryptSecret('top-secret'), /ENCRYPTION_KEY is required in production/)
+})
+
+test('legacy b64 rows stay READABLE without the opt-in flag', async () => {
+  // The gate is on writes. Rows written before the gate must keep decrypting
+  // (with or without a key) so existing dev databases don't brick.
+  delete process.env.ENCRYPTION_KEY
+  delete process.env.ALLOW_UNENCRYPTED_SECRETS
+  setNodeEnv('development')
+  const { decryptSecret } = await freshSecrets()
+  assert.equal(decryptSecret('b64:' + Buffer.from('old-row').toString('base64')), 'old-row')
 })
 
 // ── v2 envelope: HKDF with a per-secret salt ───────────────────────────────
