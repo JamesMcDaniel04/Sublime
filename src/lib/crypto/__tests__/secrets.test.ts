@@ -60,6 +60,7 @@ test('development without ENCRYPTION_KEY and without opt-in: encryptSecret throw
 test('development without ENCRYPTION_KEY: explicit opt-in restores the b64 fallback', async () => {
   delete process.env.ENCRYPTION_KEY
   process.env.ALLOW_UNENCRYPTED_SECRETS = 'true'
+  delete process.env.NODE_TEST_CONTEXT // the flag, not the test runner, must be what opts in
   setNodeEnv('development')
   const { encryptSecret, decryptSecret } = await freshSecrets()
   const payload = encryptSecret('dev-secret')
