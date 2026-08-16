@@ -30,6 +30,7 @@ import type { EvalJsFn, FlowContext } from './context'
 import { resolveResumeState } from './resume-scan'
 import { buildRouterPrompt, routerBranchSchema, parseRouterChoice } from '@/lib/flows/router'
 import { generateStructured, generateText } from '@/lib/llm/model-runner'
+import { inlineAgentSystem } from '@/lib/llm/guardrails'
 import { FlowTimeoutError, flowActionRetries, flowActionTimeoutMs, isTransientNetworkError, retryableHttpStatus, runWithRetries } from './action-reliability'
 import { FlowHttpStatusError, performHttpRequest, prepareHttpRequest, redactHttpStepInput, redactHttpStepOutput, withBearerAuthorization } from './http'
 import {
@@ -609,7 +610,9 @@ export async function runFlowExecution(
           await finishStep({ status: 'failed', error, finishedAt: new Date() })
           return { error }
         }
-        const text = await generateText({ system: node.prompt ?? '', user: node.input, model: node.model })
+        // The node's prompt is author-supplied and was previously the ENTIRE
+        // system prompt — this generation path had no platform framing at all.
+        const text = await generateText({ system: inlineAgentSystem(node.prompt), user: node.input, model: node.model })
         // generateText returns only text, so the spend is estimated. Without
         // this the inline-agent node was invisible to the run's cap.
         chargeRunBudget(runBudget, estimateTokens(node.prompt, node.input, text))

@@ -1,4 +1,5 @@
 import type { Effort, ModelRunner, ToolDefinition, ToolResult } from '@/lib/llm/model-runner'
+import { redactSecrets, wrapUntrusted, UNTRUSTED_TOOL_OUTPUT } from '@/lib/llm/guardrails'
 
 /**
  * Bounded investigate-then-answer runner shared by the copilot chat routes.
@@ -39,6 +40,27 @@ const RESULT_CLIP = 16_000
 
 function clip(text: string): string {
   return text.length > RESULT_CLIP ? `${text.slice(0, RESULT_CLIP)}… [truncated]` : text
+}
+
+/**
+ * Executor payloads are the copilot's untrusted inflow.
+ *
+ * These read tools return PERSISTED run data — `workflowStep.output`,
+ * `flowRunStep.output` — which the execution path stores unredacted by design.
+ * Whatever an earlier run fetched (a web page, a CRM note, an MCP response)
+ * comes back here verbatim, so this channel needs the same two controls the
+ * agent transcript already applies in serializeToolResult:
+ *
+ *   redact — a token on a step row must not reach the provider a second time.
+ *   fence  — injected instructions in that row must read as data, not orders.
+ *
+ * Order matters. Redact before clipping so a secret can't survive by sitting
+ * across the cut, and fence AFTER clipping so the closing marker is never the
+ * thing that gets truncated — a half-open fence reads as ordinary prompt text
+ * and silently undoes the control.
+ */
+function untrustedResult(value: unknown): string {
+  return wrapUntrusted(clip(redactSecrets(JSON.stringify(value ?? null))), UNTRUSTED_TOOL_OUTPUT)
 }
 
 async function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
@@ -102,6 +124,9 @@ export async function runCopilotLoop(opts: {
     for (const call of turn.toolCalls) {
       const tool = toolsByName.get(call.name)
       if (!tool || hops >= maxReadCalls) {
+        // Authored here, not by an executor: this is the loop instructing the
+        // model, so it stays unfenced — fencing our own control message would
+        // tell the model to ignore it.
         results.push({
           toolCallId: call.id,
           content: JSON.stringify({
@@ -115,11 +140,13 @@ export async function runCopilotLoop(opts: {
       emit({ type: 'tool', name: call.name, label: tool.label(call.input) })
       try {
         const value = await withTimeout(tool.execute(call.input), EXECUTOR_TIMEOUT_MS)
-        results.push({ toolCallId: call.id, content: clip(JSON.stringify(value ?? null)), isError: false })
+        results.push({ toolCallId: call.id, content: untrustedResult(value), isError: false })
       } catch (error) {
+        // An executor failure can quote an upstream response body, so the
+        // message is untrusted on the same terms as a successful result.
         results.push({
           toolCallId: call.id,
-          content: JSON.stringify({ error: error instanceof Error ? error.message : String(error) }),
+          content: untrustedResult({ error: error instanceof Error ? error.message : String(error) }),
           isError: true,
         })
       }

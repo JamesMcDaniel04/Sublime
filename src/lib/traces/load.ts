@@ -7,6 +7,7 @@
  */
 import { prisma } from '@/lib/prisma'
 import type { ProcessEvent, ProcessToolStep } from '@/lib/agents/process-feed'
+import { redactDeep } from '@/lib/export/redact'
 
 /** Same bounds as GET /api/workflows/executions: newest N, re-sorted ascending. */
 const EVENT_LIMIT = 500
@@ -53,14 +54,29 @@ export function toProcessEvents(rows: WorkflowEventRow[]): ProcessEvent[] {
   return rows.map((row) => ({ id: row.id, kind: row.kind, payload: row.payload, ts: row.ts.toISOString() }))
 }
 
+/**
+ * Redact where the row is SERVED, not where it is written.
+ *
+ * The step row is deliberately persisted in full: agent replay keys off
+ * `toolStepKey(node, input)` and re-uses `output` as the cached result
+ * (loadCompletedToolSteps), and a flow resume rebuilds its `completed` map
+ * from `step.output` (resolveResumeState). Redacting at write time would
+ * change the replay hash — re-firing an already-executed write tool — and feed
+ * downstream templates the literal string 'redacted'.
+ *
+ * So the row stays intact for the engine, and every path that hands it to a
+ * PERSON redacts on the way out. Name-based (`redactDeep`), matching exports:
+ * a key that names a credential is redacted wherever it appears, however deep,
+ * including inside JSON-encoded strings.
+ */
 export function toProcessSteps(rows: WorkflowStepRow[]): ProcessToolStep[] {
   return rows.map((row) => ({
     id: row.id,
     node: row.node,
     status: row.status,
-    input: row.input,
-    output: row.output,
-    error: row.error,
+    input: redactDeep(row.input),
+    output: redactDeep(row.output),
+    error: redactDeep(row.error),
     startedAt: row.startedAt?.toISOString() ?? null,
     completedAt: row.completedAt?.toISOString() ?? null,
   }))

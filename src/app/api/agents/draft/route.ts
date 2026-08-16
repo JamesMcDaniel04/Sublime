@@ -5,6 +5,7 @@ import { qwenConfigured } from '@/lib/llm/qwen'
 import { ApiError, withAuthenticatedApi } from '@/lib/server/api-handler'
 import { checkMonthlyTokenBudget, recordTokenUsage } from '@/lib/usage/budget'
 import { createAgentFromDraft, normalizeDraft, type AgentDraft } from '@/features/agents/create-from-draft'
+import { AUTHORING_SAFETY } from '@/lib/llm/guardrails'
 
 // Structured-output calls are bounded at ~100s (structuredCallDeadlineMs);
 // without an explicit maxDuration the platform default can kill the request
@@ -67,6 +68,7 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
     schemaName: 'agent_draft',
     schema: DRAFT_SCHEMA as unknown as Record<string, unknown>,
     system: [
+      AUTHORING_SAFETY,
       'You configure autonomous agents for a team workspace. Turn the user\'s plain-language description into an agent configuration.',
       `Available integrations: ${PROVIDERS.join(', ')}. Include only the ones the task needs; an agent with no integrations is fine.`,
       'Write instructions the agent can follow without further clarification: the goal, the steps, which tools to use, and what to include in the final report. If anything is genuinely ambiguous, instruct the agent to ask the user via its ask_user tool at run time.',

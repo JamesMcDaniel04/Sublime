@@ -14,6 +14,7 @@ import { buildAssistantIntelligence } from '@/features/assistant/intelligence-co
 import { recordUserEvent } from '@/lib/behavior/record-event'
 import { goalGroundingBlock } from '@/lib/goals/grounding'
 import { deriveTitle, serializeMessage } from './shared'
+import { AUTHORING_SAFETY } from '@/lib/llm/guardrails'
 
 export const runtime = 'nodejs'
 export const maxDuration = 120
@@ -29,6 +30,7 @@ export const maxDuration = 120
 const PROVIDERS = [...new Map(BUILTIN_CONNECTORS.map((c) => [c.key.toLowerCase(), c.key])).values()]
 
 const SYSTEM_PROMPT = [
+  AUTHORING_SAFETY,
   'You are the Sublime home assistant for a team workspace. You oversee the workspace: its agents, their recent runs, connected integrations, and flows.',
   'Ground every statement in the provided context. If the context does not contain the answer, say so plainly.',
   'Treat the goals block as declared user intent: use it to prioritize relevant work and call out material risks without inventing progress.',

@@ -7,6 +7,7 @@ import { inputParamsFromGraph, outputFieldsFromGraph, flowToolGroundingLine } fr
 import { flowGraphSchema } from '@/lib/flows/graph'
 import { listEligiblePatterns } from '@/lib/behavior/eligibility'
 import { goalGroundingBlock } from '@/lib/goals/grounding'
+import { AUTHORING_SAFETY } from '@/lib/llm/guardrails'
 
 function toolInputHint(schema: unknown): string {
   if (!schema || typeof schema !== 'object') return ''
@@ -23,6 +24,7 @@ function toolOutputHint(schema: unknown): string {
 }
 
 export const graphRules =
+  `${AUTHORING_SAFETY} ` +
   'You design runnable workflow graphs for Sublime. Return a single JSON object with one property, graphJson: a JSON string containing the flow graph, shaped as {"nodes": [...], "edges": [...]}. ' +
   'Always include one trigger node with id "trigger". Prefer deterministic tool nodes for concrete integration actions and agent nodes for reasoning/writing decisions. ' +
   'Allowed node types: agent, tool, http, code, transform, filter, condition, switch, router, loop, parallel, errorShield, stop, variable, data, humanReview, input, output, subflow. ' +

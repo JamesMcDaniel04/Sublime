@@ -5,6 +5,7 @@ import { flowReadScope } from '@/lib/server/visibility'
 import { loadFlowToolCatalog } from '@/lib/flows/tool-catalog'
 import { riskForNode } from '@/lib/flows/node-test-input'
 import type { FlowGraph } from '@/lib/flows/graph'
+import { redactedExcerpt } from '@/lib/llm/step-excerpt'
 
 /**
  * Read-only lookups the flows copilot may make mid-turn. Executors are scoped
@@ -14,11 +15,9 @@ import type { FlowGraph } from '@/lib/flows/graph'
 
 const short = (id: unknown) => String(id ?? '').slice(0, 8)
 
-function clipText(value: unknown, max: number): string {
-  if (value == null) return ''
-  const text = typeof value === 'string' ? value : JSON.stringify(value)
-  return text.length > max ? `${text.slice(0, max)}… [truncated]` : text
-}
+// Step rows are persisted unredacted for resume; redact on the way to the
+// model. See redactedExcerpt for why this and redactSecrets are both needed.
+const clipText = redactedExcerpt
 
 export const EDIT_FLOW_TOOL: ToolDefinition = {
   name: 'edit_flow',

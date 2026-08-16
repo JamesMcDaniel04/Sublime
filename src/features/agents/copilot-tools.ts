@@ -4,6 +4,7 @@ import type { CopilotTool } from '@/lib/llm/copilot-loop'
 import { agentReadScope } from '@/lib/server/visibility'
 import { loadFlowToolCatalog } from '@/lib/flows/tool-catalog'
 import { readAgentMetadata } from '@/lib/agents/metadata'
+import { redactedExcerpt } from '@/lib/llm/step-excerpt'
 import { loadRunDetail } from './assistant-context'
 
 /**
@@ -14,11 +15,9 @@ import { loadRunDetail } from './assistant-context'
 
 const short = (id: unknown) => String(id ?? '').slice(0, 8)
 
-function clipText(value: unknown, max: number): string {
-  if (value == null) return ''
-  const text = typeof value === 'string' ? value : JSON.stringify(value)
-  return text.length > max ? `${text.slice(0, max)}… [truncated]` : text
-}
+// Step rows are persisted unredacted for replay; redact on the way to the
+// model. See redactedExcerpt for why this and redactSecrets are both needed.
+const clipText = redactedExcerpt
 
 export const PROPOSE_CONFIG_TOOL: ToolDefinition = {
   name: 'propose_config_change',
