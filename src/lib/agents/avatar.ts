@@ -78,3 +78,15 @@ export function avatarSeedFor(agent: { id: string; avatarSeed?: string | null })
   const stored = agent.avatarSeed?.trim()
   return stored ? stored : agent.id
 }
+
+/**
+ * A fresh seed for the "try another look" control.
+ *
+ * Base36 of a random draw plus a counter: two clicks in the same millisecond
+ * must not return the same string, or the re-roll silently does nothing.
+ */
+let rerollCounter = 0
+export function randomAvatarSeed(): string {
+  rerollCounter += 1
+  return `r${Math.random().toString(36).slice(2, 10)}${rerollCounter.toString(36)}`
+}

@@ -18,6 +18,12 @@ export type Agent = {
   specialistArea?: string
   skills: string[]
   icon: string
+  /** Seed for the generated portrait; null means derive it from `id`. */
+  avatarSeed?: string | null
+  /** Generated one-or-two-word role; null until generation has run. */
+  roleLabel?: string | null
+  /** The roster identity this agent works under; null means it stands alone. */
+  workerId?: string | null
   folder: string | null
   visibility: 'shared' | 'private'
   status: string

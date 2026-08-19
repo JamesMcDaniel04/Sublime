@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { computeAgentKpis, hasRunHistory, pickKpiSlots } from '../roster-stats'
+import { computeAgentKpis, hasRunHistory, mergeAgentKpis, pickKpiSlots } from '../roster-stats'
 
 const noContributions: Parameters<typeof computeAgentKpis>[0]['contributions'] = []
 
@@ -167,4 +167,92 @@ test('unknown future statuses are ignored rather than silently scoring as failur
   })
   assert.equal(kpis.successRate, 100)
   assert.equal(kpis.runs, 5)
+})
+
+// ── Workers: one avatar, several agents ────────────────────────────────────
+
+const kpisOf = (runs: number, failed: number, minutes?: number) =>
+  computeAgentKpis({
+    tallies: [
+      { status: 'completed', count: runs },
+      { status: 'failed', count: failed },
+    ],
+    contributions: minutes === undefined
+      ? []
+      : [{ estimatedMinutesSavedPerRun: minutes, estimateEdited: true, createdAt: new Date('2026-01-01') }],
+  })
+
+test('a worker totals the delivered work of every agent under it', () => {
+  const merged = mergeAgentKpis([kpisOf(10, 1), kpisOf(32, 2)])
+  assert.equal(merged.runs, 42)
+  assert.equal(merged.failed, 3)
+})
+
+// Averaging the members' percentages would let an agent with a single lucky run
+// outweigh one with a hundred, and the tile would overstate the worker.
+test("a worker's success rate weights by volume, not by member", () => {
+  const merged = mergeAgentKpis([kpisOf(50, 50), kpisOf(1, 0)])
+  assert.equal(merged.successRate, 50, 'volume-weighted; averaging the rates would give 75')
+})
+
+test('a worker sums hours saved across the agents that have an estimate', () => {
+  const merged = mergeAgentKpis([kpisOf(2, 0, 60), kpisOf(4, 0, 30)])
+  assert.equal(merged.hoursSaved, 4)
+})
+
+test('hours saved stays null only when no agent under the worker is goal-linked', () => {
+  assert.equal(mergeAgentKpis([kpisOf(3, 0), kpisOf(5, 0)]).hoursSaved, null)
+  assert.equal(mergeAgentKpis([kpisOf(3, 0), kpisOf(2, 0, 30)]).hoursSaved, 1)
+})
+
+test('a worker whose agents have never run shows no history', () => {
+  assert.equal(hasRunHistory(mergeAgentKpis([kpisOf(0, 0), kpisOf(0, 0)])), false)
+})
+
+test('an empty worker reports zeroes rather than throwing', () => {
+  const merged = mergeAgentKpis([])
+  assert.equal(merged.runs, 0)
+  assert.equal(merged.successRate, null)
+  assert.equal(merged.hoursSaved, null)
+  assert.equal(hasRunHistory(merged), false)
+})
+
+// ── Attention signals ──────────────────────────────────────────────────────
+// The roster's job is telling a manager where to look. "Blocked on you" is the
+// single most actionable thing a tile can say, so it is counted, not inferred.
+
+test('runs paused on a question are counted so a tile can say it is blocked on you', () => {
+  const kpis = computeAgentKpis({
+    tallies: [
+      { status: 'completed', count: 4 },
+      { status: 'waiting_for_input', count: 2 },
+    ],
+    contributions: noContributions,
+  })
+  assert.equal(kpis.waiting, 2)
+})
+
+test('queued and in-flight runs both count as working, so a tile can show live activity', () => {
+  const kpis = computeAgentKpis({
+    tallies: [
+      { status: 'running', count: 1 },
+      { status: 'pending', count: 3 },
+    ],
+    contributions: noContributions,
+  })
+  assert.equal(kpis.running, 4)
+})
+
+test('a finished agent is neither waiting nor working', () => {
+  const kpis = computeAgentKpis({ tallies: [{ status: 'completed', count: 9 }], contributions: noContributions })
+  assert.equal(kpis.waiting, 0)
+  assert.equal(kpis.running, 0)
+})
+
+test('a worker inherits attention from any agent under it', () => {
+  const blocked = computeAgentKpis({ tallies: [{ status: 'waiting_for_input', count: 1 }], contributions: [] })
+  const busy = computeAgentKpis({ tallies: [{ status: 'running', count: 2 }], contributions: [] })
+  const merged = mergeAgentKpis([blocked, busy])
+  assert.equal(merged.waiting, 1)
+  assert.equal(merged.running, 2)
 })

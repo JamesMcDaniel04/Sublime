@@ -45,6 +45,9 @@ const bodySchema = z
     // Recovery-plan launch_agent action to complete once the resource
     // exists. Server-side so a crashed client leaves the action retryable.
     recoveryActionId: z.string().min(1).optional(),
+    // File the provisioned agent under an existing roster identity instead of
+    // creating a standalone one — one avatar can hold several agents.
+    workerId: z.string().min(1).optional(),
   })
   .refine((body) => Boolean(body.seedKey) !== Boolean(body.templateId), {
     message: 'Provide exactly one of seedKey or templateId',
@@ -96,6 +99,9 @@ type MaterializeSpec = {
   /** Extra agent metadata (skills, goal, output fields…) carried by
    *  DB-authored templates; seeds leave it empty. */
   extraMetadata?: Record<string, unknown>
+  /** Roster identity to file this agent under, so a template joins an existing
+   *  avatar instead of standing up a new one. */
+  workerId?: string | null
 }
 
 /** Create one AgentTask mirroring POST /api/agents' create shape (an ACTIVE, runnable agent). */
@@ -116,6 +122,7 @@ async function materializeAgent(
       agentType: 'CUSTOM',
       description,
       objective: withTemplateOutputStandard(spec.instructions),
+      ...(spec.workerId ? { workerId: spec.workerId } : {}),
       schedule,
       status: 'ACTIVE',
       visibility: 'private',
@@ -229,11 +236,22 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
     goalId,
     suggestionId,
     recoveryActionId,
+    workerId,
   } =
     bodySchema.parse(await request.json())
 
   const organizationId = auth.organizationId
   const userId = auth.dbUser.id
+
+  // Re-authorized server-side like every other client-supplied id here: a
+  // worker from another workspace must never adopt this agent.
+  if (workerId) {
+    const worker = await prisma.agentWorker.findFirst({
+      where: { id: workerId, organizationId },
+      select: { id: true },
+    })
+    if (!worker) throw new ApiError('Worker not found', 404, 'WORKER_NOT_FOUND')
+  }
 
   const seed = seedKey ? getSeedByKey(seedKey) : undefined
   if (seedKey && !seed) throw new ApiError('Template not found', 404, 'SEED_NOT_FOUND')
@@ -524,7 +542,7 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
       const spec = seed ? combinedAgentSpec(seed) : dbRecipe!.spec
       const departments = seed ? seed.departments : dbRecipe!.departments
       const specialistArea = departments?.[0] || departmentsForTools(spec.integrations)[0]
-      const agentId = await materializeAgent(spec, organizationId, userId, schedule, specialistArea)
+      const agentId = await materializeAgent({ ...spec, workerId }, organizationId, userId, schedule, specialistArea)
       await syncAgentConnectors(agentId, organizationId, userId, spec.integrations)
       recordTemplateUsed('agent', agentId)
       await attributeProvision('agent', agentId)
@@ -550,6 +568,7 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
           integrations: [],
           requiredIntegrations,
           extraMetadata: { allowFlows: true, flowIds: [flowResult.flowId] },
+          workerId,
         },
         organizationId,
         userId,

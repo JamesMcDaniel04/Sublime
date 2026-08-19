@@ -29,6 +29,10 @@ export type AgentKpis = {
   recorded: number
   /** Whole percent, or null when nothing has reached a terminal state. */
   successRate: number | null
+  /** Runs paused on a question — the roster's "blocked on you" signal. */
+  waiting: number
+  /** Queued or in flight right now. */
+  running: number
   /** Null when the agent contributes to no goal. */
   minutesSavedPerRun: number | null
   hoursSaved: number | null
@@ -52,6 +56,11 @@ export type KpiSlot = {
 const SUCCESS_STATUS = 'completed'
 const FAILURE_STATUS = 'failed'
 
+/** Paused awaiting a human answer. */
+const WAITING_STATUS = 'waiting_for_input'
+/** Queued and in-flight both read as "working" to someone scanning the roster. */
+const WORKING_STATUSES = new Set(['running', 'pending'])
+
 /**
  * Which goal's estimate to believe when an agent serves several. A human-edited
  * estimate is ground truth (GoalContribution.estimateEdited is set ONLY by a
@@ -72,10 +81,14 @@ export function computeAgentKpis(input: {
   let runs = 0
   let failed = 0
   let recorded = 0
+  let waiting = 0
+  let running = 0
   for (const tally of input.tallies) {
     recorded += tally.count
     if (tally.status === SUCCESS_STATUS) runs += tally.count
     else if (tally.status === FAILURE_STATUS) failed += tally.count
+    else if (tally.status === WAITING_STATUS) waiting += tally.count
+    else if (WORKING_STATUSES.has(tally.status)) running += tally.count
   }
   const judged = runs + failed
   const minutesSavedPerRun = primaryEstimate(input.contributions)
@@ -84,6 +97,8 @@ export function computeAgentKpis(input: {
     failed,
     recorded,
     successRate: judged > 0 ? Math.round((runs / judged) * 100) : null,
+    waiting,
+    running,
     minutesSavedPerRun,
     hoursSaved: minutesSavedPerRun === null ? null : Math.round(((runs * minutesSavedPerRun) / 60) * 100) / 100,
   }
@@ -123,4 +138,43 @@ export function pickKpiSlots(kpis: AgentKpis): [KpiSlot, KpiSlot] {
       value: kpis.successRate,
     },
   ]
+}
+
+/**
+ * Roll several agents' KPIs into the single pair shown on a worker's tile.
+ *
+ * The rate is recomputed from the summed numerator and denominator rather than
+ * averaged across members: averaging would let an agent with one lucky run
+ * count as much as one with a hundred, and overstate the worker.
+ */
+export function mergeAgentKpis(members: AgentKpis[]): AgentKpis {
+  let runs = 0
+  let failed = 0
+  let recorded = 0
+  let waiting = 0
+  let running = 0
+  // Stays null until some member is goal-linked, so a worker with no linked
+  // agents still falls back to the runs slot.
+  let hoursSaved: number | null = null
+  for (const member of members) {
+    runs += member.runs
+    failed += member.failed
+    recorded += member.recorded
+    waiting += member.waiting
+    running += member.running
+    if (member.hoursSaved !== null) hoursSaved = (hoursSaved ?? 0) + member.hoursSaved
+  }
+  const judged = runs + failed
+  return {
+    runs,
+    failed,
+    recorded,
+    successRate: judged > 0 ? Math.round((runs / judged) * 100) : null,
+    waiting,
+    running,
+    // A per-run estimate is an agent-level notion; agents under one worker can
+    // each carry a different one, so there is no honest single value.
+    minutesSavedPerRun: null,
+    hoursSaved: hoursSaved === null ? null : Math.round(hoursSaved * 100) / 100,
+  }
 }

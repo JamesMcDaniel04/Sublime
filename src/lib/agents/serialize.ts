@@ -13,6 +13,7 @@ export function serializeAgent(agent: {
   goal: string | null
   metadata: unknown
   folder: string | null
+  workerId: string | null
   visibility: string
   status: string
   schedule: unknown
@@ -51,6 +52,9 @@ export function serializeAgent(agent: {
     httpTools: Array.isArray(metadata.httpTools) ? metadata.httpTools : [],
     suggestedGoal: metadata.suggestedGoal || null,
     folder: agent.folder || null,
+    // Null = this agent stands alone on the roster rather than working under
+    // a shared avatar.
+    workerId: agent.workerId ?? null,
     visibility: agent.visibility || 'shared',
     status: agent.status.toLowerCase(),
     schedule: agent.schedule,

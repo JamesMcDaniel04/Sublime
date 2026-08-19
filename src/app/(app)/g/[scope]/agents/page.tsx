@@ -6,7 +6,7 @@ import { useScopedRouter } from '@/lib/client/use-scoped-router'
 import { ALL_SCOPE, useScope } from '@/lib/client/scoped-href'
 import { useCachedJson } from '@/lib/client/use-cached-json'
 import { toast } from 'sonner'
-import { AlertCircle, Copy, FileText, List, Loader2, MoreHorizontal, Play, Plus, Settings2, Sparkles, Trash2, X } from 'lucide-react'
+import { AlertCircle, ArrowLeft, Copy, FileText, List, Loader2, MoreHorizontal, Play, Plus, Settings2, Sparkles, Trash2, X } from 'lucide-react'
 import { AgentActivityPane, resultText, type RunMutation } from './agent-activity-pane'
 import dynamic from 'next/dynamic'
 import type { AgentDraft } from './agent-config-form'
@@ -23,6 +23,7 @@ const AgentConfigForm = dynamic(() => import('./agent-config-form').then((m) => 
   ),
 })
 import { AssistantPanel } from './assistant-panel'
+import { AgentRoster } from './agent-roster'
 // Kept out of the Agents tab's initial bundle/fetches — the Templates
 // library carries its own AI-search UI and four data fetches. Loading it
 // eagerly meant /agents always paid for both surfaces at once, even for
@@ -298,21 +299,25 @@ function AgentHQ() {
     }
   }, [loadActivities, selectedAgentId])
 
-  // Land on the most recently updated agent unless a deep link already chose.
-  useEffect(() => {
-    if (loading || selectedAgentId) return
-    if (agents.length) setSelectedAgentId(agents[0].id)
-  }, [loading, agents, selectedAgentId])
+  // Deliberately no auto-selection: with no agent chosen the roster is what
+  // shows, and silently landing on the most recent agent would mean nobody
+  // ever saw their team.
 
   // Deep links from the command palette and sidebar: ?agent=<id|new>, ?run=<id>.
+  // The param is no longer scrubbed — it is what keeps you inside an agent
+  // across a refresh now that the bare URL means "show the roster".
   useEffect(() => {
     const agentParam = searchParams.get('agent')
-    if (!agentParam) return
+    if (!agentParam) {
+      // Browser-back out of an agent lands on the roster.
+      setSelectedAgentId(null)
+      return
+    }
+    if (agentParam === selectedAgentId) return
     if (agentParam === NEW_AGENT) {
       setSelectedAgentId(NEW_AGENT)
       setConfigureOpen(false)
       setFocusRunId(null)
-      router.replace('/agents')
       return
     }
     if (!agents.length) return
@@ -321,8 +326,21 @@ function AgentHQ() {
       setConfigureOpen(false)
       setFocusRunId(null)
     }
-    router.replace('/agents')
-  }, [searchParams, agents, router])
+  }, [searchParams, agents, selectedAgentId])
+
+  // Mirror the selection back into the URL. State stays authoritative — every
+  // create/duplicate/delete path already sets it directly — so this is a
+  // one-way sync out, guarded on equality so the two effects cannot loop.
+  // Entering an agent from the roster PUSHES (Back returns to the roster);
+  // every other transition replaces, so deleting an agent leaves no history
+  // entry pointing at something that no longer exists.
+  useEffect(() => {
+    const current = searchParams.get('agent')
+    if (current === selectedAgentId) return
+    const href = selectedAgentId ? `/agents?agent=${selectedAgentId}` : '/agents'
+    if (current === null && selectedAgentId) router.push(href, { scroll: false })
+    else router.replace(href, { scroll: false })
+  }, [selectedAgentId, searchParams, router])
 
   useEffect(() => {
     const runParam = searchParams.get('run')
@@ -332,12 +350,19 @@ function AgentHQ() {
       setConfigureOpen(false)
       setFocusRunId(activity.id)
     }
+    // Clears ?run= (so this effect stops re-firing) WITHOUT dropping the agent
+    // param, which is now what keeps the workspace open.
+    const clearRunParam = (agentId?: string | null) =>
+      router.replace(agentId ? `/agents?agent=${agentId}` : '/agents', { scroll: false })
     const activity = activities.find((candidate) => candidate.id === runParam)
     if (activity) {
       openRun(activity)
-      router.replace('/agents')
+      clearRunParam(activity.agentTaskId)
       return
     }
+    // Tracked across the async hop: clearing the param without the agent id
+    // would read as "no agent selected" and bounce this run back to the roster.
+    let resolvedAgentId: string | null = null
     fetch(`/api/workflows/executions?executionId=${runParam}`, { cache: 'no-store' })
       .then((response) => response.json())
       .then((data) => {
@@ -345,10 +370,11 @@ function AgentHQ() {
         if (execution) {
           setActivities((current) => current.some((item) => item.id === execution.id) ? current : [execution, ...current])
           openRun(execution)
+          resolvedAgentId = execution.agentTaskId ?? null
         }
       })
       .catch(() => undefined)
-      .finally(() => router.replace('/agents'))
+      .finally(() => clearRunParam(resolvedAgentId))
   }, [searchParams, activities, loading, router])
 
   // Escape closes the Granola meeting picker (keyboard parity with the close button).
@@ -367,6 +393,21 @@ function AgentHQ() {
   const agentActivities = useMemo(
     () => (selectedAgent ? activities.filter((activity) => activity.agentTaskId === selectedAgent.id) : []),
     [activities, selectedAgent],
+  )
+
+  // Which worker the open agent belongs to, if any. Inside a worker the
+  // switcher lists that worker's agents only — you are managing one person's
+  // jobs, not the whole roster.
+  const { data: workerData } = useCachedJson<{ workers?: { id: string; name: string; agentIds: string[] }[] }>('/api/workers')
+  const selectedWorker = useMemo(
+    () => (selectedAgent?.workerId
+      ? workerData?.workers?.find((worker) => worker.id === selectedAgent.workerId) ?? null
+      : null),
+    [selectedAgent?.workerId, workerData?.workers],
+  )
+  const selectableAgents = useMemo(
+    () => (selectedWorker ? agents.filter((agent) => selectedWorker.agentIds.includes(agent.id)) : agents),
+    [selectedWorker, agents],
   )
 
   const hasFailedRun = useMemo(
@@ -676,6 +717,16 @@ function AgentHQ() {
         <div className="min-h-0 flex-1 lg:overflow-y-auto">
           <TemplatesExplorer />
         </div>
+      ) : !selectedAgentId ? (
+        <div className="min-h-0 flex-1 lg:overflow-y-auto">
+          <AgentRoster
+            agents={agents}
+            loading={loading}
+            onOpenAgent={selectAgent}
+            onEditAgent={(id) => { setSelectedAgentId(id); setConfigureOpen(true); setFocusRunId(null) }}
+            onCreateAgent={() => selectAgent(NEW_AGENT)}
+          />
+        </div>
       ) : (
       <>
       {/* lg: rows locked to the viewport (minmax(0,1fr)) — an implicit auto row
@@ -689,14 +740,27 @@ function AgentHQ() {
         <section className="min-w-0 border-b bg-background lg:min-h-0 lg:overflow-y-auto lg:border-b-0 lg:border-r">
           <div className="sticky top-0 z-10 border-b bg-background p-4">
             <div className="flex items-center justify-between gap-2">
+              <Button
+                variant="ghost"
+                size="icon"
+                className="shrink-0"
+                onClick={() => setSelectedAgentId(null)}
+                aria-label="Back to your team"
+                title="Back to your team"
+              >
+                <ArrowLeft className="h-4 w-4" />
+              </Button>
               <div className="min-w-0 flex-1">
-                {agents.length > 0 ? (
+                {selectedWorker && (
+                  <p className="mb-1 truncate text-xs font-medium text-muted-foreground">{selectedWorker.name}</p>
+                )}
+                {selectableAgents.length > 0 ? (
                   <Select value={selectedAgent?.id ?? ''} onValueChange={selectAgent}>
                     <SelectTrigger className="h-9 font-medium" aria-label="Select agent">
                       <SelectValue placeholder="New agent" />
                     </SelectTrigger>
                     <SelectContent>
-                      {agents.map((agent) => (
+                      {selectableAgents.map((agent) => (
                         <SelectItem key={agent.id} value={agent.id}>{agent.title}</SelectItem>
                       ))}
                       {/* Hidden work is always counted. Without this, an agent

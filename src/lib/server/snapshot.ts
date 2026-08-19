@@ -36,6 +36,7 @@ export async function readShellSnapshot(auth: AuthContext) {
         goal: true,
         metadata: true,
         folder: true,
+        workerId: true,
         visibility: true,
         status: true,
         schedule: true,

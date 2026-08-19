@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { AVATAR_PART_COUNTS, avatarPartsFor, avatarSeedFor } from '../avatar'
+import { AVATAR_PART_COUNTS, avatarPartsFor, avatarSeedFor, randomAvatarSeed } from '../avatar'
 
 test('the same seed always yields the same face — an agent identity must never drift between renders', () => {
   const first = avatarPartsFor('agt_marcus')
@@ -49,4 +49,17 @@ test('a missing seed falls back to the agent id, so existing agents need no back
   assert.equal(avatarSeedFor({ id: 'agt_1' }), 'agt_1')
   assert.equal(avatarSeedFor({ id: 'agt_1', avatarSeed: null }), 'agt_1')
   assert.equal(avatarSeedFor({ id: 'agt_1', avatarSeed: '   ' }), 'agt_1')
+})
+
+test('re-rolling produces a fresh seed each time, so the face actually changes', () => {
+  const seeds = new Set(Array.from({ length: 20 }, () => randomAvatarSeed()))
+  assert.ok(seeds.size >= 19, `expected distinct seeds from re-rolls, got ${seeds.size}/20`)
+})
+
+test('a re-rolled seed is itself a legal seed that renders a valid face', () => {
+  const parts = avatarPartsFor(randomAvatarSeed())
+  for (const [name, count] of Object.entries(AVATAR_PART_COUNTS)) {
+    const index = parts[name as keyof typeof parts]
+    assert.ok(Number.isInteger(index) && index >= 0 && index < count, `${name} out of range`)
+  }
 })
