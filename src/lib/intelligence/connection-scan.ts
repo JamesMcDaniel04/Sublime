@@ -21,7 +21,7 @@ import { z } from 'zod'
 import { prisma } from '@/lib/prisma'
 import { apiLogger } from '@/lib/logger'
 import { generateStructured, DEFAULT_SUMMARY_MODEL } from '@/lib/llm/model-runner'
-import { recordTokenUsage } from '@/lib/usage/budget'
+import { meterTokens } from '@/lib/usage/meter'
 import { saveAgentMemory } from '@/lib/memory/agent-memory'
 import { notify } from '@/lib/notifications/service'
 import { indexConnectionScan, indexToolCatalog, removeConnectionScanFromGraph } from '@/lib/rag/indexer'
@@ -342,7 +342,7 @@ export async function scanConnection(params: {
     const raw = await generateStructured({ system, user, schema: USAGE_PROFILE_JSON_SCHEMA, schemaName: 'connection_usage_profile', maxTokens: 1200, model })
     // Rough metering (~chars/4) since generateStructured returns no token
     // usage — here rather than the route so cron-driven scans meter too.
-    void recordTokenUsage(organizationId, Math.ceil((system.length + user.length + (raw?.length ?? 0)) / 4)).catch(() => undefined)
+    void meterTokens({ organizationId: organizationId, tokens: Math.ceil((system.length + user.length + (raw?.length ?? 0)) / 4), path: 'lib/intelligence/connection-scan', estimated: true })
     const profile = parseUsageProfile(raw)
     if (!profile) return { skipped: 'no-profile' }
 

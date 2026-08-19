@@ -3,7 +3,8 @@ import { BUILTIN_CONNECTORS } from '@/lib/connectors/registry'
 import { generateStructured } from '@/lib/llm/model-runner'
 import { qwenConfigured } from '@/lib/llm/qwen'
 import { ApiError, withAuthenticatedApi } from '@/lib/server/api-handler'
-import { checkMonthlyTokenBudget, recordTokenUsage } from '@/lib/usage/budget'
+import { checkMonthlyTokenBudget } from '@/lib/usage/budget'
+import { meterTokens } from '@/lib/usage/meter'
 import { createAgentFromDraft, normalizeDraft, type AgentDraft } from '@/features/agents/create-from-draft'
 import { AUTHORING_SAFETY } from '@/lib/llm/guardrails'
 
@@ -64,7 +65,9 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
   const budget = await checkMonthlyTokenBudget(auth.organizationId)
   if (budget.over) throw new ApiError('Monthly token budget reached for this workspace.', 429, 'BUDGET_EXCEEDED')
 
+  const usage = { total: 0 }
   const text = await generateStructured({
+    onUsage: (u) => { usage.total = u.inputTokens + u.outputTokens },
     schemaName: 'agent_draft',
     schema: DRAFT_SCHEMA as unknown as Record<string, unknown>,
     system: [
@@ -79,7 +82,14 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
 
   if (!text) throw new ApiError('The model returned no draft', 502, 'DRAFT_FAILED')
   // Rough metering (~chars/4) since generateStructured returns no token usage.
-  void recordTokenUsage(auth.organizationId, Math.ceil((description.length + text.length) / 4)).catch(() => undefined)
+  // Real provider usage when the call reported it; the character estimate
+  // only as a fallback, and flagged as estimated when used.
+  void meterTokens({
+    organizationId: auth.organizationId,
+    tokens: usage.total || Math.ceil((description.length + text.length) / 4),
+    path: '/api/agents/draft',
+    estimated: usage.total === 0,
+  })
   const draft = JSON.parse(text) as AgentDraft
 
   if (!create) {

@@ -7,7 +7,8 @@ import { normalizeRoleLabel } from '@/lib/agents/role-label'
 import { DEFAULT_SUMMARY_MODEL, generateStructured } from '@/lib/llm/model-runner'
 import { qwenConfigured } from '@/lib/llm/qwen'
 import { AUTHORING_SAFETY } from '@/lib/llm/guardrails'
-import { checkMonthlyTokenBudget, recordTokenUsage } from '@/lib/usage/budget'
+import { checkMonthlyTokenBudget } from '@/lib/usage/budget'
+import { meterTokens } from '@/lib/usage/meter'
 
 /** One request covers a full roster page; the snapshot itself caps at 300. */
 const MAX_BATCH = 40
@@ -162,7 +163,9 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
     })
     .join('\n')
 
+  const usage = { total: 0 }
   const text = await generateStructured({
+    onUsage: (u) => { usage.total = u.inputTokens + u.outputTokens },
     schemaName: 'agent_role_labels',
     schema: LABELS_SCHEMA as unknown as Record<string, unknown>,
     model: DEFAULT_SUMMARY_MODEL,
@@ -178,7 +181,14 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
     user: `<roster>\n${roster}\n</roster>`,
   })
   if (!text) throw new ApiError('The model returned no labels', 502, 'ROLE_LABELS_FAILED')
-  void recordTokenUsage(auth.organizationId, Math.ceil((roster.length + text.length) / 4)).catch(() => undefined)
+  // Real provider usage when the call reported it; the character estimate
+  // only as a fallback, and flagged as estimated when used.
+  void meterTokens({
+    organizationId: auth.organizationId,
+    tokens: usage.total || Math.ceil((roster.length + text.length) / 4),
+    path: '/api/agents/role-labels',
+    estimated: usage.total === 0,
+  })
 
   const parsed = z
     .object({ roles: z.array(z.object({ index: z.number(), role: z.string() })) })

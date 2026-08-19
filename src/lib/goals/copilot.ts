@@ -411,10 +411,14 @@ export async function draftGoalDashboard(params: {
   now?: Date
   /** Narrow what the model may propose — see copilotDraftSchemaFor. */
   allowedKinds?: readonly GoalKind[]
+  /** Forwarded to the model call so the caller can bill measured tokens
+   *  instead of a character estimate. */
+  onUsage?: (usage: { inputTokens: number; outputTokens: number }) => void
 }): Promise<{ draft: CopilotDraft; notes: string[] }> {
   const generate = params.generate ?? generateStructured
   const allowedKinds = params.allowedKinds ?? GOAL_KIND_VALUES
   const raw = await generate({
+    onUsage: params.onUsage,
     schemaName: 'goal_copilot_draft',
     schema: copilotDraftSchemaFor(allowedKinds),
     system: copilotSystemPrompt(allowedKinds),

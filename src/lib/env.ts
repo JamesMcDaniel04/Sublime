@@ -98,6 +98,7 @@ const RECOMMENDED_FOR_SERVER = [
   ['VAPID_PUBLIC_KEY', 'push notifications will silently never send'],
   ['VAPID_PRIVATE_KEY', 'push notifications will silently never send'],
   ['NEXT_PUBLIC_APP_URL', 'invite/digest deep links will render without a host'],
+  ['SENTRY_DSN', 'errors are unreported — captured exceptions go to console output and nothing alerts'],
 ] as const
 
 const REQUIRED_FOR_PRODUCT_READINESS = [

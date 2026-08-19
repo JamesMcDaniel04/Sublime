@@ -95,6 +95,9 @@ test('server env: a configured Redis backend silences the rate-limit warning', a
     STRIPE_SECRET_KEY: 'sk', STRIPE_WEBHOOK_SECRET: 'whsec', SUPABASE_SERVICE_ROLE_KEY: 'srk',
     RESEND_API_KEY: 're', VAPID_PUBLIC_KEY: 'vp', VAPID_PRIVATE_KEY: 'vk', NEXT_PUBLIC_APP_URL: 'https://app',
     UPSTASH_REDIS_REST_URL: 'https://r.upstash.io', UPSTASH_REDIS_REST_TOKEN: 'tok',
+    // Error reporting joined the recommended set after the 2026-08-19 audit
+    // found production running with no DSN and nothing alerting on it.
+    SENTRY_DSN: 'https://key@o0.ingest.sentry.io/1',
   })
   delete process.env.REDIS_URL
   const warnings: string[] = []

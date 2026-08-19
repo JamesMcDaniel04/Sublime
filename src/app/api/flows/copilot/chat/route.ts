@@ -1,7 +1,8 @@
 import { z } from 'zod'
 import { ApiError, withAuthenticatedApi } from '@/lib/server/api-handler'
 import { recordUserEvent } from '@/lib/behavior/record-event'
-import { checkMonthlyTokenBudget, recordTokenUsage } from '@/lib/usage/budget'
+import { checkMonthlyTokenBudget } from '@/lib/usage/budget'
+import { meterTokens } from '@/lib/usage/meter'
 import { createModelRunner } from '@/lib/llm/model-runner'
 import { runCopilotLoop, type CopilotStreamEvent } from '@/lib/llm/copilot-loop'
 import { sseResponse } from '@/lib/server/sse'
@@ -131,7 +132,7 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
       emit,
     })
     // Real usage summed across the loop's hops — the old chars/4 estimate is gone.
-    void recordTokenUsage(auth.organizationId, loop.usage.inputTokens + loop.usage.outputTokens).catch(() => undefined)
+    void meterTokens({ organizationId: auth.organizationId, tokens: loop.usage.inputTokens + loop.usage.outputTokens, path: '/api/flows/copilot/chat', estimated: false })
 
     // Terminal call → the same sanitize/apply/validate pipeline as before. A
     // pure-Q&A turn (no terminal call) is a no-op edit with the prose as the

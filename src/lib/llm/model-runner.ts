@@ -399,6 +399,14 @@ type StructuredOpts = {
   schemaName: string
   maxTokens?: number
   /**
+   * Real token usage from the provider's final message.
+   *
+   * Callers previously had no way to know what a structured call cost, so every
+   * one of them billed a `chars / 4` approximation. Credits are the product's
+   * unit of price, so the guess was reaching the invoice.
+   */
+  onUsage?: (usage: { inputTokens: number; outputTokens: number }) => void
+  /**
    * Optional model override for this call, e.g. a cheap tier for reflection
    * passes. Only honored on the Claude path (Qwen resolves its own model via
    * QWEN_MODEL); falls back to the existing DEFAULT_AGENT_MODEL behavior when
@@ -493,6 +501,10 @@ async function anthropicWireStructured(opts: StructuredOpts, client: Anthropic, 
     },
   }, { signal: AbortSignal.timeout(structuredCallDeadlineMs()) })
   const response = await stream.finalMessage()
+  opts.onUsage?.({
+    inputTokens: response.usage?.input_tokens ?? 0,
+    outputTokens: response.usage?.output_tokens ?? 0,
+  })
   return response.content
     .filter((block): block is Anthropic.TextBlock => block.type === 'text')
     .map((block) => block.text)

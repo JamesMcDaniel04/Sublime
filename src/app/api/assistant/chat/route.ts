@@ -6,7 +6,8 @@ import { qwenConfigured } from '@/lib/llm/qwen'
 import { ApiError, withAuthenticatedApi } from '@/lib/server/api-handler'
 import { agentReadScope } from '@/lib/server/visibility'
 import { rateLimit } from '@/lib/ratelimit'
-import { checkMonthlyTokenBudget, recordTokenUsage } from '@/lib/usage/budget'
+import { checkMonthlyTokenBudget } from '@/lib/usage/budget'
+import { meterTokens } from '@/lib/usage/meter'
 import { BUILTIN_CONNECTORS } from '@/lib/connectors/registry'
 import { createAgentFromDraft, type AgentDraft } from '@/features/agents/create-from-draft'
 import { buildWorkspaceContext } from '@/features/assistant/workspace-context'
@@ -267,13 +268,16 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
 
   if (!reply) reply = createdAgent ? 'Here is the agent I set up.' : 'No answer returned.'
 
-  // Rough metering (~chars/4): generateStructured returns no token usage.
-  void recordTokenUsage(
-    auth.organizationId,
-    Math.ceil(
+  // Estimated (~chars/4) rather than measured, and flagged as such so the
+  // share of billing that rests on a guess is auditable.
+  void meterTokens({
+    organizationId: auth.organizationId,
+    tokens: Math.ceil(
       (JSON.stringify(context).length + message.length + (attachment?.text.length ?? 0) + reply.length) / 4,
     ),
-  ).catch(() => undefined)
+    path: '/api/assistant/chat',
+    estimated: true,
+  })
 
   const userMessage = await prisma.assistantChatMessage.create({
     data: {

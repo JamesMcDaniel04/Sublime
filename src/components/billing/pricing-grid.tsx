@@ -1,13 +1,21 @@
 import { ArrowRight } from 'lucide-react'
+import { Plan } from '@/generated/prisma/client'
 import { BILLING_PLAN_CATALOG } from '@/lib/billing/catalog'
+import { planFeatureBullets } from '@/lib/billing/plan-features'
 
+/**
+ * Feature bullets are DERIVED from the limits and capabilities the app
+ * enforces (lib/billing/plan-features.ts), never retyped here. They were a
+ * hardcoded list that read neither, so the page could advertise a cap the
+ * enforcer did not apply and nothing failed when the two drifted.
+ */
 export const PRICING_TIERS = [
   {
     name: 'Individual',
     price: BILLING_PLAN_CATALOG.individual.price,
     cadence: '/ month',
     desc: 'For solo builders getting real work out of AI.',
-    features: ['1 seat included', '10,000 credits / month', '5 agents · 5 flows', '1 core specialist area', 'Unlimited knowledge & connections'],
+    features: planFeatureBullets(Plan.STARTER),
     href: '/api/stripe/checkout?plan=individual',
     cta: 'Start 14-day trial',
     featured: false,
@@ -17,7 +25,7 @@ export const PRICING_TIERS = [
     price: BILLING_PLAN_CATALOG.team.price,
     cadence: '/ month',
     desc: 'For teams running shared agents and workflows.',
-    features: ['10 seats included', '50,000 credits / month', '25 agents · 25 flows', 'Every core specialist area', 'Knowledge sync, sharing & history'],
+    features: planFeatureBullets(Plan.PROFESSIONAL),
     href: '/api/stripe/checkout?plan=team',
     cta: 'Start 14-day trial',
     featured: true,
@@ -27,7 +35,7 @@ export const PRICING_TIERS = [
     price: BILLING_PLAN_CATALOG.business.price,
     cadence: '/ month',
     desc: 'For companies scaling AI across departments.',
-    features: ['20 seats included', '200,000 credits / month', 'Unlimited agents & flows', 'Unlimited knowledge & connections', 'Priority support & security scopes'],
+    features: planFeatureBullets(Plan.BUSINESS),
     href: '/api/stripe/checkout?plan=business',
     cta: 'Start 14-day trial',
     featured: false,
@@ -37,7 +45,7 @@ export const PRICING_TIERS = [
     price: 'Custom',
     cadence: '',
     desc: 'For organizations with bespoke security and scale needs.',
-    features: ['Custom seats & credits', 'Unlimited agents, flows & integrations', 'Custom integrations & SLAs', 'Dedicated onboarding'],
+    features: [...planFeatureBullets(Plan.ENTERPRISE), 'Custom integrations & SLAs', 'Dedicated onboarding'],
     href: '/contact?reason=enterprise',
     cta: 'Contact sales',
     featured: false,

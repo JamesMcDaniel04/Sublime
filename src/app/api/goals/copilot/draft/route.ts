@@ -3,7 +3,8 @@ import { ApiError, withAuthenticatedApi } from '@/lib/server/api-handler'
 import { listMetricSourceOptions } from '@/lib/metrics/available-sources'
 import { CopilotDraftError, draftGoalDashboard } from '@/lib/goals/copilot'
 import { rateLimit } from '@/lib/ratelimit'
-import { checkMonthlyTokenBudget, recordTokenUsage } from '@/lib/usage/budget'
+import { checkMonthlyTokenBudget } from '@/lib/usage/budget'
+import { meterTokens } from '@/lib/usage/meter'
 import { apiLogger } from '@/lib/logger'
 
 export const runtime = 'nodejs'
@@ -39,12 +40,20 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
   }
   const sources = await listMetricSourceOptions(auth)
   try {
+    const usage = { total: 0 }
     const { draft, notes } = await draftGoalDashboard({
       description,
       sources,
+      onUsage: (u) => { usage.total = u.inputTokens + u.outputTokens },
     })
-    // Rough metering (~chars/4) since the draft returns no token usage.
-    void recordTokenUsage(auth.organizationId, Math.ceil((description.length + JSON.stringify(draft).length) / 4)).catch(() => undefined)
+    // Real provider usage when the call reported it; the character estimate
+    // only as a fallback, and flagged as estimated when used.
+    void meterTokens({
+      organizationId: auth.organizationId,
+      tokens: usage.total || Math.ceil((description.length + JSON.stringify(draft).length) / 4),
+      path: '/api/goals/copilot/draft',
+      estimated: usage.total === 0,
+    })
     return { success: true, draft, notes }
   } catch (error) {
     if (error instanceof CopilotDraftError) {

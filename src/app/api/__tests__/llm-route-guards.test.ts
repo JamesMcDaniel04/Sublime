@@ -11,9 +11,14 @@
  *    route-access option — both throttle.
  *  - budget: `checkMonthlyTokenBudget(` — routes that spend model tokens
  *    must refuse when the workspace ceiling is reached.
- *  - record: `recordTokenUsage(` — whoever spends must also meter, else the
- *    ceiling is checked against a counter that never moves. Recording may
- *    live in the lib the route calls; the matrix points at that file.
+ *  - record: `meterTokens(` — whoever spends must also meter, else the ceiling
+ *    is checked against a counter that never moves. Recording may live in the
+ *    lib the route calls; the matrix points at that file.
+ *
+ *    meterTokens (lib/usage/meter.ts) is the required chokepoint: it logs a
+ *    dropped write instead of swallowing it. A bare recordTokenUsage call is
+ *    accepted ONLY where the result is awaited and acted on — the agent loop
+ *    reads the running total to enforce the in-run ceiling.
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
@@ -57,6 +62,15 @@ for (const route of ROUTES) {
     const src = read(route.file)
     if (route.rateLimit) assert.ok(hasRateLimit(src), `${route.file}: missing rateLimit`)
     if (route.budget) assert.ok(src.includes('checkMonthlyTokenBudget('), `${route.file}: missing checkMonthlyTokenBudget`)
-    if (route.record) assert.ok(src.includes('recordTokenUsage('), `${route.file}: missing recordTokenUsage`)
+    if (route.record) {
+      const metered = src.includes('meterTokens(')
+        // The agent loop awaits the returned month total to enforce its own cap.
+        || /const \w+ = await recordTokenUsage\(/.test(src)
+      assert.ok(metered, `${route.file}: spends tokens without metering through meterTokens()`)
+      assert.ok(
+        !/void recordTokenUsage\([^)]*\)\.catch\(\(\) => undefined\)/.test(src),
+        `${route.file}: fire-and-forget metering swallows dropped spend — use meterTokens()`,
+      )
+    }
   })
 }

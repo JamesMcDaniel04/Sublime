@@ -8,7 +8,8 @@ import { qwenConfigured } from '@/lib/llm/qwen'
 import { ApiError, withAuthenticatedApi } from '@/lib/server/api-handler'
 import { buildAssistantContext } from '@/features/agents/assistant-context'
 import { buildAgentCopilotTools, PROPOSE_CONFIG_TOOL } from '@/features/agents/copilot-tools'
-import { checkMonthlyTokenBudget, recordTokenUsage } from '@/lib/usage/budget'
+import { checkMonthlyTokenBudget } from '@/lib/usage/budget'
+import { meterTokens } from '@/lib/usage/meter'
 import { saveAgentMemory } from '@/lib/memory/agent-memory'
 import { agentIdFromRequest, requireAgent, deriveTitle, LEGACY_SESSION_ID } from './shared'
 
@@ -208,7 +209,7 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
   // Persist only after the model answered, so a failed call leaves no
   // half-thread behind (the client restores the input for a retry).
   // Real usage summed across the loop's hops — the old chars/4 estimate is gone.
-  void recordTokenUsage(auth.organizationId, loopUsage).catch(() => undefined)
+  void meterTokens({ organizationId: auth.organizationId, tokens: loopUsage, path: '/api/agents/[id]/chat', estimated: false })
 
   const userMessage = await prisma.agentChatMessage.create({
     data: {

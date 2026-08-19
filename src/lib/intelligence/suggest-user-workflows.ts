@@ -9,7 +9,8 @@ import { z } from 'zod'
 import { prisma } from '@/lib/prisma'
 import { apiLogger } from '@/lib/logger'
 import { generateStructured, DEFAULT_SUMMARY_MODEL } from '@/lib/llm/model-runner'
-import { checkMonthlyTokenBudget, recordTokenUsage } from '@/lib/usage/budget'
+import { checkMonthlyTokenBudget } from '@/lib/usage/budget'
+import { meterTokens } from '@/lib/usage/meter'
 import { flowCapacityAvailable } from '@/lib/billing/enforce'
 import { captureError } from '@/lib/observability/sentry'
 import { saveAgentMemory } from '@/lib/memory/agent-memory'
@@ -276,7 +277,7 @@ export async function synthesizeUserSuggestions(
       const raw = await generate({ system, user: userPrompt, schema: USER_SUGGESTION_JSON_SCHEMA, schemaName: 'user_suggestion', maxTokens: 1500, model })
       // Rough metering (~chars/4, same convention as the assistant): the
       // structured runner returns no usage numbers.
-      void recordTokenUsage(organizationId, Math.ceil((system.length + userPrompt.length + raw.length) / 4)).catch(() => undefined)
+      void meterTokens({ organizationId: organizationId, tokens: Math.ceil((system.length + userPrompt.length + raw.length) / 4), path: 'lib/intelligence/suggest-user-workflows', estimated: true })
       const candidate = parseUserSuggestions(raw, new Set(patterns.map((p) => p.slug)))
       if (!candidate) {
         await releaseClaim(userId, previous)

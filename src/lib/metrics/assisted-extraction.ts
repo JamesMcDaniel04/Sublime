@@ -7,7 +7,7 @@
  * charting an invented number. Runs on the cheap summary model.
  */
 import { DEFAULT_SUMMARY_MODEL, generateStructured } from '@/lib/llm/model-runner'
-import { recordTokenUsage } from '@/lib/usage/budget'
+import { meterTokens } from '@/lib/usage/meter'
 import { parseSheetNumber } from './sources/google-sheets'
 
 const MAX_CORPUS_CHARS = 12_000
@@ -65,7 +65,7 @@ export async function extractMetricReading(params: {
 
   // Rough metering (~chars/4) since generateStructured returns no token usage.
   if (params.organizationId) {
-    void recordTokenUsage(params.organizationId, Math.ceil((SYSTEM.length + corpus.length + (raw?.length ?? 0)) / 4)).catch(() => undefined)
+    void meterTokens({ organizationId: params.organizationId, tokens: Math.ceil((SYSTEM.length + corpus.length + (raw?.length ?? 0)) / 4), path: 'lib/metrics/assisted-extraction', estimated: true })
   }
 
   let parsed: { found?: unknown; value?: unknown; confidence?: unknown; evidence?: unknown }
