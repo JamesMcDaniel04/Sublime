@@ -4,6 +4,7 @@ import { prisma } from '@/lib/prisma'
 import { generateStructured } from '@/lib/llm/model-runner'
 import { qwenConfigured } from '@/lib/llm/qwen'
 import { ApiError, withAuthenticatedApi } from '@/lib/server/api-handler'
+import { sseResponse } from '@/lib/server/sse'
 import { agentReadScope } from '@/lib/server/visibility'
 import { rateLimit } from '@/lib/ratelimit'
 import { checkMonthlyTokenBudget } from '@/lib/usage/budget'
@@ -142,184 +143,207 @@ export const GET = withAuthenticatedApi(async (request, auth) => {
 }, { requires: 'member' })
 
 export const POST = withAuthenticatedApi(async (request, auth) => {
-  if (!process.env.ANTHROPIC_API_KEY && !qwenConfigured()) {
-    throw new ApiError('No model provider is configured', 503, 'AI_UNAVAILABLE')
-  }
-  const { message, sessionId: requestedSessionId, attachment, outputStyle } = z
-    .object({
-      message: z.string().min(1).max(4000),
-      sessionId: z.string().optional(),
-      outputStyle: z.enum(['sales', 'csm', 'marketing', 'it']).optional(),
-      attachment: z
-        .object({
-          filename: z.string().min(1).max(200),
-          text: z.string().min(1).max(24_000),
-          truncated: z.boolean().optional(),
-        })
-        .optional(),
-    })
-    .parse(await request.json())
-
-  const limited = await rateLimit(`assistant-chat:${auth.dbUser.id}`, { limit: 30, windowMs: 60_000 })
-  if (!limited.ok) throw new ApiError('Rate limit exceeded', 429, 'RATE_LIMITED')
-  const budget = await checkMonthlyTokenBudget(auth.organizationId)
-  if (budget.over) throw new ApiError('Monthly token budget reached for this workspace. Buy additional credits in Settings → Billing or upgrade your plan.', 429, 'BUDGET_EXCEEDED')
-
-  let session = requestedSessionId
-    ? await prisma.assistantChatSession.findFirst({
-        where: { id: requestedSessionId, organizationId: auth.organizationId, userId: auth.dbUser.id },
+  /**
+   * One assistant turn. Takes an `emit` so the same code serves both the SSE
+   * and the plain-JSON paths — the copilot's shape (api/agents/[id]/chat).
+   *
+   * The reply is a STRUCTURED object, so there are no text deltas to stream
+   * the way the copilot streams them; what streams is progress, which is what
+   * the waiting user actually lacked.
+   */
+  const runTurn = async (emit: (event: object) => void) => {
+    if (!process.env.ANTHROPIC_API_KEY && !qwenConfigured()) {
+      throw new ApiError('No model provider is configured', 503, 'AI_UNAVAILABLE')
+    }
+    const { message, sessionId: requestedSessionId, attachment, outputStyle } = z
+      .object({
+        message: z.string().min(1).max(4000),
+        sessionId: z.string().optional(),
+        outputStyle: z.enum(['sales', 'csm', 'marketing', 'it']).optional(),
+        attachment: z
+          .object({
+            filename: z.string().min(1).max(200),
+            text: z.string().min(1).max(24_000),
+            truncated: z.boolean().optional(),
+          })
+          .optional(),
       })
-    : null
-  if (!session) {
-    session = await prisma.assistantChatSession.create({
-      data: { organizationId: auth.organizationId, userId: auth.dbUser.id, title: deriveTitle(message) },
-    })
-  }
+      .parse(await request.json())
 
-  const [context, intelligence, goals, historyRows] = await Promise.all([
-    buildWorkspaceContext(auth),
-    buildAssistantIntelligence({ organizationId: auth.organizationId, userId: auth.dbUser.id, query: message }),
-    goalGroundingBlock(auth.organizationId, auth.dbUser.id),
-    prisma.assistantChatMessage.findMany({
-      where: { organizationId: auth.organizationId, userId: auth.dbUser.id, sessionId: session.id },
-      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-      take: 20,
-    }),
-  ])
-  const conversation = historyRows.reverse().map((row) => {
-    const metadata =
-      row.metadata && typeof row.metadata === 'object' && !Array.isArray(row.metadata)
-        ? (row.metadata as Record<string, unknown>)
-        : {}
-    const stored = metadata.attachment as { filename?: string; text?: string } | undefined
-    // Re-inline earlier attachments (clipped) so follow-up turns keep the
-    // assignment in view without resending it from the client.
-    const suffix = stored?.text ? `\n\n[Attached ${stored.filename}]\n${stored.text.slice(0, 4000)}` : ''
-    return { role: row.role, content: `${row.content.slice(0, 2000)}${suffix}` }
-  })
+    const limited = await rateLimit(`assistant-chat:${auth.dbUser.id}`, { limit: 30, windowMs: 60_000 })
+    if (!limited.ok) throw new ApiError('Rate limit exceeded', 429, 'RATE_LIMITED')
+    const budget = await checkMonthlyTokenBudget(auth.organizationId)
+    if (budget.over) throw new ApiError('Monthly token budget reached for this workspace. Buy additional credits in Settings → Billing or upgrade your plan.', 429, 'BUDGET_EXCEEDED')
 
-  let reply = ''
-  let draft: z.infer<typeof draftSchema> | null = null
-  let action: z.infer<typeof actionSchema> | null = null
-  try {
-    const text = await generateStructured({
-      schemaName: 'home_assistant_reply',
-      schema: RESPONSE_SCHEMA as unknown as Record<string, unknown>,
-      system: outputStyle ? `${SYSTEM_PROMPT}\n${OUTPUT_STYLE_PROMPTS[outputStyle]}` : SYSTEM_PROMPT,
-      user: JSON.stringify({
-        context,
-        ...(intelligence ? { intelligence } : {}),
-        ...(goals ? { goals } : {}),
-        conversation,
-        question: message,
-        ...(attachment ? { attachment } : {}),
+    let session = requestedSessionId
+      ? await prisma.assistantChatSession.findFirst({
+          where: { id: requestedSessionId, organizationId: auth.organizationId, userId: auth.dbUser.id },
+        })
+      : null
+    if (!session) {
+      session = await prisma.assistantChatSession.create({
+        data: { organizationId: auth.organizationId, userId: auth.dbUser.id, title: deriveTitle(message) },
+      })
+    }
+
+    const [context, intelligence, goals, historyRows] = await Promise.all([
+      buildWorkspaceContext(auth),
+      buildAssistantIntelligence({ organizationId: auth.organizationId, userId: auth.dbUser.id, query: message }),
+      goalGroundingBlock(auth.organizationId, auth.dbUser.id),
+      prisma.assistantChatMessage.findMany({
+        where: { organizationId: auth.organizationId, userId: auth.dbUser.id, sessionId: session.id },
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+        take: 20,
       }),
-      // A draft reply includes complete agent instructions inline — a tight
-      // cap truncates the JSON and turns a valid answer into a parse failure.
-      maxTokens: 8192,
+    ])
+    const conversation = historyRows.reverse().map((row) => {
+      const metadata =
+        row.metadata && typeof row.metadata === 'object' && !Array.isArray(row.metadata)
+          ? (row.metadata as Record<string, unknown>)
+          : {}
+      const stored = metadata.attachment as { filename?: string; text?: string } | undefined
+      // Re-inline earlier attachments (clipped) so follow-up turns keep the
+      // assignment in view without resending it from the client.
+      const suffix = stored?.text ? `\n\n[Attached ${stored.filename}]\n${stored.text.slice(0, 4000)}` : ''
+      return { role: row.role, content: `${row.content.slice(0, 2000)}${suffix}` }
     })
-    const parsed = JSON.parse(text || '{}') as { reply?: unknown; agentDraft?: unknown; action?: unknown }
-    reply = typeof parsed.reply === 'string' ? parsed.reply.trim() : ''
-    draft = draftSchema.nullish().catch(null).parse(parsed.agentDraft ?? null) ?? null
-    action = actionSchema.nullish().catch(null).parse(parsed.action ?? null) ?? null
-  } catch (error) {
-    // Preserve the real cause so the 5xx handler logs/reports it.
-    throw new ApiError('The assistant could not respond. Try again.', 502, 'ASSISTANT_FAILED', error)
-  }
 
-  // Auto-apply: an aligned draft becomes a real agent immediately; the reply
-  // renders a created-agent card with a Run button. A creation failure keeps
-  // the conversation (and the draft's content, via the reply text) intact.
-  let createdAgent: { id: string; title: string; icon: string; description: string } | null = null
-  if (draft) {
+    let reply = ''
+    let draft: z.infer<typeof draftSchema> | null = null
+    let action: z.infer<typeof actionSchema> | null = null
     try {
-      const created = await createAgentFromDraft(draft as AgentDraft, {
+      emit({ type: 'tool', name: 'think', label: 'Reading your workspace' })
+    const text = await generateStructured({
+        schemaName: 'home_assistant_reply',
+        schema: RESPONSE_SCHEMA as unknown as Record<string, unknown>,
+        system: outputStyle ? `${SYSTEM_PROMPT}\n${OUTPUT_STYLE_PROMPTS[outputStyle]}` : SYSTEM_PROMPT,
+        user: JSON.stringify({
+          context,
+          ...(intelligence ? { intelligence } : {}),
+          ...(goals ? { goals } : {}),
+          conversation,
+          question: message,
+          ...(attachment ? { attachment } : {}),
+        }),
+        // A draft reply includes complete agent instructions inline — a tight
+        // cap truncates the JSON and turns a valid answer into a parse failure.
+        maxTokens: 8192,
+      })
+      const parsed = JSON.parse(text || '{}') as { reply?: unknown; agentDraft?: unknown; action?: unknown }
+      reply = typeof parsed.reply === 'string' ? parsed.reply.trim() : ''
+      draft = draftSchema.nullish().catch(null).parse(parsed.agentDraft ?? null) ?? null
+      action = actionSchema.nullish().catch(null).parse(parsed.action ?? null) ?? null
+    } catch (error) {
+      // Preserve the real cause so the 5xx handler logs/reports it.
+      throw new ApiError('The assistant could not respond. Try again.', 502, 'ASSISTANT_FAILED', error)
+    }
+
+    // Auto-apply: an aligned draft becomes a real agent immediately; the reply
+    // renders a created-agent card with a Run button. A creation failure keeps
+    // the conversation (and the draft's content, via the reply text) intact.
+    let createdAgent: { id: string; title: string; icon: string; description: string } | null = null
+    if (draft) {
+      try {
+        emit({ type: 'tool', name: 'create_agent', label: 'Setting up the agent' })
+        const created = await createAgentFromDraft(draft as AgentDraft, {
+          organizationId: auth.organizationId,
+          userId: auth.dbUser.id,
+        })
+        createdAgent = {
+          id: created.agent.id,
+          title: created.draft.title,
+          icon: created.draft.icon,
+          description: created.draft.description,
+        }
+        await recordUserEvent({
+          organizationId: auth.organizationId, userId: auth.dbUser.id,
+          kind: 'agent_created', resourceType: 'agent', resourceId: created.agent.id,
+          context: { via: 'assistant', name: created.draft.title },
+        })
+      } catch {
+        reply = `${reply}\n\nI could not save the agent just now — ask me to create it again.`
+      }
+    }
+
+    // Execute requests: validate the id against this user's visible ACTIVE
+    // agents; the client fires the existing execute endpoint (inline runs can
+    // take minutes — far too long to hold this response open).
+    let validatedAction: { type: 'execute'; agentId: string } | null = null
+    if (action) {
+      const target = await prisma.agentTask.findFirst({
+        where: { id: action.agentId, organizationId: auth.organizationId, status: 'ACTIVE', ...agentReadScope(auth.dbUser.id) },
+        select: { id: true },
+      })
+      if (target) validatedAction = { type: 'execute', agentId: target.id }
+      else reply = `${reply}\n\nI could not find that agent in this workspace, so I did not start a run.`
+    }
+
+    if (!reply) reply = createdAgent ? 'Here is the agent I set up.' : 'No answer returned.'
+
+    // Estimated (~chars/4) rather than measured, and flagged as such so the
+    // share of billing that rests on a guess is auditable.
+    void meterTokens({
+      organizationId: auth.organizationId,
+      tokens: Math.ceil(
+        (JSON.stringify(context).length + message.length + (attachment?.text.length ?? 0) + reply.length) / 4,
+      ),
+      path: '/api/assistant/chat',
+      estimated: true,
+    })
+
+    const userMessage = await prisma.assistantChatMessage.create({
+      data: {
         organizationId: auth.organizationId,
         userId: auth.dbUser.id,
-      })
-      createdAgent = {
-        id: created.agent.id,
-        title: created.draft.title,
-        icon: created.draft.icon,
-        description: created.draft.description,
-      }
-      await recordUserEvent({
-        organizationId: auth.organizationId, userId: auth.dbUser.id,
-        kind: 'agent_created', resourceType: 'agent', resourceId: created.agent.id,
-        context: { via: 'assistant', name: created.draft.title },
-      })
-    } catch {
-      reply = `${reply}\n\nI could not save the agent just now — ask me to create it again.`
+        sessionId: session.id,
+        role: 'user',
+        content: message,
+        ...(attachment ? { metadata: { attachment } as unknown as Prisma.InputJsonValue } : {}),
+      },
+    })
+    await recordUserEvent({
+      organizationId: auth.organizationId, userId: auth.dbUser.id,
+      kind: 'assistant_prompt', resourceType: 'assistant_message', resourceId: userMessage.id,
+      context: { sessionId: userMessage.sessionId },
+    })
+    const assistantMetadata: Record<string, unknown> = {}
+    if (createdAgent) assistantMetadata.createdAgent = createdAgent
+    if (validatedAction) assistantMetadata.action = validatedAction
+    const assistantMessage = await prisma.assistantChatMessage.create({
+      data: {
+        organizationId: auth.organizationId,
+        userId: auth.dbUser.id,
+        sessionId: session.id,
+        role: 'assistant',
+        content: reply,
+        ...(Object.keys(assistantMetadata).length
+          ? { metadata: assistantMetadata as unknown as Prisma.InputJsonValue }
+          : {}),
+      },
+    })
+
+    // Bump the session so it sorts to the top of history. Best-effort.
+    await prisma.assistantChatSession
+      .update({ where: { id: session.id }, data: { title: session.title ?? deriveTitle(message) } })
+      .catch(() => undefined)
+
+    return {
+      success: true,
+      sessionId: session.id,
+      messages: [serializeMessage(userMessage), serializeMessage(assistantMessage)],
     }
   }
 
-  // Execute requests: validate the id against this user's visible ACTIVE
-  // agents; the client fires the existing execute endpoint (inline runs can
-  // take minutes — far too long to hold this response open).
-  let validatedAction: { type: 'execute'; agentId: string } | null = null
-  if (action) {
-    const target = await prisma.agentTask.findFirst({
-      where: { id: action.agentId, organizationId: auth.organizationId, status: 'ACTIVE', ...agentReadScope(auth.dbUser.id) },
-      select: { id: true },
+  // Content negotiation: SSE when the client asks for it, the JSON body
+  // otherwise, so existing callers and tests keep working unchanged.
+  if (request.headers.get('accept')?.includes('text/event-stream')) {
+    return sseResponse(async (emit) => {
+      const payload = await runTurn(emit)
+      emit({ type: 'result', ...payload })
     })
-    if (target) validatedAction = { type: 'execute', agentId: target.id }
-    else reply = `${reply}\n\nI could not find that agent in this workspace, so I did not start a run.`
   }
+  return runTurn(() => undefined)
 
-  if (!reply) reply = createdAgent ? 'Here is the agent I set up.' : 'No answer returned.'
-
-  // Estimated (~chars/4) rather than measured, and flagged as such so the
-  // share of billing that rests on a guess is auditable.
-  void meterTokens({
-    organizationId: auth.organizationId,
-    tokens: Math.ceil(
-      (JSON.stringify(context).length + message.length + (attachment?.text.length ?? 0) + reply.length) / 4,
-    ),
-    path: '/api/assistant/chat',
-    estimated: true,
-  })
-
-  const userMessage = await prisma.assistantChatMessage.create({
-    data: {
-      organizationId: auth.organizationId,
-      userId: auth.dbUser.id,
-      sessionId: session.id,
-      role: 'user',
-      content: message,
-      ...(attachment ? { metadata: { attachment } as unknown as Prisma.InputJsonValue } : {}),
-    },
-  })
-  await recordUserEvent({
-    organizationId: auth.organizationId, userId: auth.dbUser.id,
-    kind: 'assistant_prompt', resourceType: 'assistant_message', resourceId: userMessage.id,
-    context: { sessionId: userMessage.sessionId },
-  })
-  const assistantMetadata: Record<string, unknown> = {}
-  if (createdAgent) assistantMetadata.createdAgent = createdAgent
-  if (validatedAction) assistantMetadata.action = validatedAction
-  const assistantMessage = await prisma.assistantChatMessage.create({
-    data: {
-      organizationId: auth.organizationId,
-      userId: auth.dbUser.id,
-      sessionId: session.id,
-      role: 'assistant',
-      content: reply,
-      ...(Object.keys(assistantMetadata).length
-        ? { metadata: assistantMetadata as unknown as Prisma.InputJsonValue }
-        : {}),
-    },
-  })
-
-  // Bump the session so it sorts to the top of history. Best-effort.
-  await prisma.assistantChatSession
-    .update({ where: { id: session.id }, data: { title: session.title ?? deriveTitle(message) } })
-    .catch(() => undefined)
-
-  return {
-    success: true,
-    sessionId: session.id,
-    messages: [serializeMessage(userMessage), serializeMessage(assistantMessage)],
-  }
 }, { requires: 'member' })
 
 // Records the run the client started off an execute action (or a created-agent

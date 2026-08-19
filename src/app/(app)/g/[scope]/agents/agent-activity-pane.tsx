@@ -6,28 +6,7 @@ import { ScopedLink as Link } from '@/components/ui/scoped-link'
 // prepend the goal lens and break the (unscoped) path.
 import NextLink from 'next/link'
 import { toast } from 'sonner'
-import {
-  AlertCircle,
-  Brain,
-  CheckCircle2,
-  ChevronDown,
-  CircleDashed,
-  HelpCircle,
-  History,
-  Lightbulb,
-  Link as LinkIcon,
-  ListOrdered,
-  Loader2,
-  MessageSquareQuote,
-  Network,
-  Play,
-  Send,
-  Sparkles,
-  Trash2,
-  Wrench,
-  X,
-  XCircle,
-} from 'lucide-react'
+import { AlertCircle, Brain, CheckCircle2, ChevronDown, CircleDashed, HelpCircle, History, Lightbulb, Link as LinkIcon, ListOrdered, Loader2, MessageSquareQuote, Network, Play, Send, ShieldAlert, Sparkles, Trash2, Wrench, X, XCircle } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { EmptyState } from '@/components/ui/empty-state'
@@ -66,6 +45,9 @@ export type RunMutation = { id: string; status?: string; deleted?: boolean }
 // 'pending' must have a bucket: queue-mode executes and webhook triggers create
 // runs as pending, and a status with no group renders NOWHERE — the run the
 // user just fired would be invisible until a worker flips it to running.
+/** The held write call, as the run detail exposes it (features/agents/approval.ts). */
+type PendingApprovalView = { node: string; input?: Record<string, unknown> }
+
 export const groupOrder = ['running', 'pending', 'cancelling', 'waiting_for_input', 'failed', 'cancelled', 'completed'] as const
 
 export const groupLabels: Record<string, string> = {
@@ -588,6 +570,41 @@ function RunRow({
     return () => { cancelled = true; if (timer !== undefined) window.clearTimeout(timer) }
   }, [expanded, activity.id, status, isActive, runEventTick])
 
+  /**
+   * A held write action, when this run paused for approval rather than for an
+   * answer. The runtime resolves it deny-by-default through the same reply
+   * endpoint: only an exact affirmative runs the call. Typing what a person
+   * naturally types ("yes, send it") therefore DENIES, which is why the
+   * decision is offered as buttons instead of relying on free text.
+   */
+  const pendingApproval = (details?.execution?.metadata as { pendingApproval?: PendingApprovalView } | undefined)
+    ?.pendingApproval ?? (activity.metadata as { pendingApproval?: PendingApprovalView } | undefined)?.pendingApproval
+
+  const decideApproval = async (decision: 'approve' | 'deny') => {
+    if (replying) return
+    setReplying(true)
+    try {
+      const response = await fetch(`/api/executions/${activity.id}/reply`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        // "approve" is the exact affirmative the runtime accepts; anything else
+        // is a denial the agent can read and act on.
+        body: JSON.stringify({ message: decision === 'approve' ? 'approve' : 'deny' }),
+      })
+      const data = await response.json().catch(() => ({}))
+      if (!response.ok || data.success === false) {
+        toast.error(data.error || 'Could not record your decision.')
+        return
+      }
+      onChanged()
+      toast.success(decision === 'approve' ? 'Approved — running it now.' : 'Denied — the agent will continue without it.')
+    } catch {
+      toast.error('Could not record your decision — check your connection and try again.')
+    } finally {
+      setReplying(false)
+    }
+  }
+
   const sendReply = async () => {
     if (!reply.trim() || replying) return
     setReplying(true)
@@ -731,8 +748,34 @@ function RunRow({
 
           {status === 'waiting_for_input' && (
             <div className="rounded-lg border border-amber-200 bg-amber-50 p-3">
-              <h4 className="mb-1 flex items-center gap-2 text-sm font-semibold text-amber-900"><HelpCircle className="h-4 w-4" /> Agent needs your input</h4>
-              <p className="mb-3 whitespace-pre-wrap text-sm text-amber-900">{activity.metadata?.pendingQuestion?.question || 'The agent asked a question.'}</p>
+              {pendingApproval ? (
+                <>
+                  <h4 className="mb-1 flex items-center gap-2 text-sm font-semibold text-amber-900">
+                    <ShieldAlert className="h-4 w-4" /> Approve this action
+                  </h4>
+                  <p className="mb-2 text-sm text-amber-900">
+                    This agent wants to run <span className="font-semibold">{pendingApproval.node}</span>, which writes
+                    outside Sublime. Nothing happens until you decide.
+                  </p>
+                  <pre className="mb-3 max-h-40 overflow-auto whitespace-pre-wrap rounded-md border border-amber-200 bg-white/70 p-2 text-xs text-amber-900">
+                    {JSON.stringify(pendingApproval.input ?? {}, null, 2)}
+                  </pre>
+                  <div className="mb-3 flex flex-wrap gap-2">
+                    <Button size="sm" disabled={replying} onClick={() => void decideApproval('approve')}>
+                      {replying ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : null} Approve
+                    </Button>
+                    <Button size="sm" variant="outline" disabled={replying} onClick={() => void decideApproval('deny')}>
+                      Deny
+                    </Button>
+                  </div>
+                  <p className="mb-2 text-xs text-amber-900">Or reply below to deny with a reason the agent can act on.</p>
+                </>
+              ) : (
+                <>
+                  <h4 className="mb-1 flex items-center gap-2 text-sm font-semibold text-amber-900"><HelpCircle className="h-4 w-4" /> Agent needs your input</h4>
+                  <p className="mb-3 whitespace-pre-wrap text-sm text-amber-900">{activity.metadata?.pendingQuestion?.question || 'The agent asked a question.'}</p>
+                </>
+              )}
               <div className="flex gap-2">
                 <Input
                   value={reply}

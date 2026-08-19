@@ -23,6 +23,7 @@ import {
 import { Button } from '@/components/ui/button'
 import { Markdown } from '@/components/ui/markdown'
 import { notifyAgentsChanged } from '@/components/layout/sidebar'
+import { streamCopilot } from '@/lib/client/copilot-stream'
 import { FirstRunGuide } from '@/components/goals/first-run-guide'
 import { GoalsInFlight } from './goals-in-flight'
 import { useAuth } from '@/hooks/use-auth'
@@ -198,6 +199,9 @@ export function HomeAssistant() {
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [input, setInput] = useState('')
   const [sending, setSending] = useState(false)
+  // What the assistant is doing right now, streamed from the server so a
+  // long turn shows progress instead of an idle spinner.
+  const [activity, setActivity] = useState<string | null>(null)
   const [sessionId, setSessionId] = useState<string | null>(null)
   const [sessions, setSessions] = useState<SessionSummary[]>([])
   const [historyOpen, setHistoryOpen] = useState(false)
@@ -363,23 +367,26 @@ export function HomeAssistant() {
       },
     ])
     try {
-      const response = await fetch('/api/assistant/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
+      // Streams progress over SSE, falling back to the plain JSON body
+      // transparently — same helper the agent and flow copilots use.
+      const outcome = await streamCopilot(
+        '/api/assistant/chat',
+        {
           message: content,
           ...(sessionId ? { sessionId } : {}),
           ...(sentAttachment ? { attachment: sentAttachment } : {}),
-        }),
-      })
-      const data = await response.json().catch(() => ({}))
-      if (!response.ok) {
-        toast.error(data.error || 'The assistant is unavailable right now.')
+        },
+        { onTool: (activity) => setActivity(activity.label) },
+      )
+      setActivity(null)
+      if (!outcome.ok) {
+        toast.error(outcome.error)
         setMessages((previous) => previous.filter((message) => message.id !== localId))
         setInput(content)
         setAttachment(sentAttachment)
         return
       }
+      const data = outcome.result
       const returned: ChatMessage[] = Array.isArray(data.messages) ? data.messages : []
       setMessages((previous) => [...previous.filter((message) => message.id !== localId), ...returned])
       if (typeof data.sessionId === 'string') setSessionId(data.sessionId)
@@ -393,6 +400,7 @@ export function HomeAssistant() {
       // Network-level failure (offline, DNS, aborted): mirror the !response.ok
       // path — roll the optimistic message back and restore the composer so
       // the user can retry.
+      setActivity(null)
       toast.error('Could not reach the assistant — check your connection and try again.')
       setMessages((previous) => previous.filter((message) => message.id !== localId))
       setInput(content)
@@ -796,8 +804,13 @@ export function HomeAssistant() {
                 </div>
               ))}
               {sending && (
-                <div className="mr-12 flex items-center gap-2 rounded-xl border bg-card p-3 text-sm text-muted-foreground">
-                  <Loader2 className="h-4 w-4 animate-spin" /> Thinking…
+                <div
+                  className="mr-12 flex items-center gap-2 rounded-xl border bg-card p-3 text-sm text-muted-foreground"
+                  aria-live="polite"
+                >
+                  {/* The streamed step when the server has told us one, so a long
+                      turn reports what it is doing rather than just spinning. */}
+                  <Loader2 className="h-4 w-4 animate-spin" /> {activity ? `${activity}…` : 'Thinking…'}
                 </div>
               )}
             </div>

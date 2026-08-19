@@ -1,4 +1,8 @@
-import { Plan } from '@/generated/prisma/client'
+// Type-only: importing the Prisma enum as a VALUE pulls the generated client
+// (and node:buffer / node:async_hooks) into any client bundle that reaches
+// this module — the pricing grid does. Prisma enums are string-valued, so
+// the literal keys below are identical at runtime and still type-checked.
+import type { Plan } from '@/generated/prisma/client'
 
 /**
  * Per-plan usage limits. Every workspace is treated as an Individual account
@@ -44,9 +48,9 @@ const INDIVIDUAL_LIMITS: PlanLimits = {
 export const PLAN_LIMITS: Record<Plan, PlanLimits> = {
   // Unpaid legacy sentinel. Authentication's billing gate prevents product
   // access until checkout succeeds; these limits only shape plan previews.
-  [Plan.TRIAL]: { ...INDIVIDUAL_LIMITS, label: 'Payment required' },
-  [Plan.STARTER]: INDIVIDUAL_LIMITS,
-  [Plan.PROFESSIONAL]: {
+  TRIAL: { ...INDIVIDUAL_LIMITS, label: 'Payment required' },
+  STARTER: INDIVIDUAL_LIMITS,
+  PROFESSIONAL: {
     label: 'Team',
     seats: 10,
     monthlyCredits: 50_000,
@@ -56,7 +60,7 @@ export const PLAN_LIMITS: Record<Plan, PlanLimits> = {
     maxSpecialistAreas: UNLIMITED,
     maxActiveGoals: 5,
   },
-  [Plan.BUSINESS]: {
+  BUSINESS: {
     label: 'Business',
     seats: 20,
     monthlyCredits: 200_000,
@@ -66,7 +70,7 @@ export const PLAN_LIMITS: Record<Plan, PlanLimits> = {
     maxSpecialistAreas: UNLIMITED,
     maxActiveGoals: 25,
   },
-  [Plan.ENTERPRISE]: {
+  ENTERPRISE: {
     label: 'Enterprise',
     seats: UNLIMITED,
     monthlyCredits: UNLIMITED,
@@ -93,7 +97,7 @@ const OVERRIDABLE_KEYS = ['seats', 'monthlyCredits', 'maxAgents', 'maxFlows', 'm
 
 export function limitsForOrg(plan: Plan, settings: unknown): PlanLimits {
   const base = limitsForPlan(plan)
-  if (plan !== Plan.ENTERPRISE) return base
+  if (plan !== 'ENTERPRISE') return base
   const raw = settings && typeof settings === 'object' && !Array.isArray(settings)
     ? (settings as Record<string, unknown>).customLimits
     : null

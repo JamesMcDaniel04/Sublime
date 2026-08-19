@@ -1,4 +1,4 @@
-import { Plan } from '@/generated/prisma/client'
+import type { Plan } from '@/generated/prisma/client'
 import { PLAN_LIMITS, UNLIMITED } from '@/lib/billing/limits'
 import { capabilitiesForPlan } from '@/lib/billing/capabilities'
 

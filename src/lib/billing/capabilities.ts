@@ -1,4 +1,5 @@
-import { Plan } from '@/generated/prisma/client'
+// Type-only — see the note in ./limits.ts.
+import type { Plan } from '@/generated/prisma/client'
 
 export type SupportTier = 'resources' | 'priority' | 'dedicated'
 
@@ -25,7 +26,7 @@ export type PlanCapabilities = {
 
 /** Product entitlements that are not simple numeric resource caps. */
 export function capabilitiesForPlan(plan: Plan): PlanCapabilities {
-  if (plan === Plan.ENTERPRISE) {
+  if (plan === 'ENTERPRISE') {
     return {
       unlimitedKnowledge: true,
       unlimitedConnectedTools: true,
@@ -40,7 +41,7 @@ export function capabilitiesForPlan(plan: Plan): PlanCapabilities {
       support: 'dedicated',
     }
   }
-  const team = plan === Plan.PROFESSIONAL || plan === Plan.BUSINESS
+  const team = plan === 'PROFESSIONAL' || plan === 'BUSINESS'
   return {
     unlimitedKnowledge: true,
     unlimitedConnectedTools: true,

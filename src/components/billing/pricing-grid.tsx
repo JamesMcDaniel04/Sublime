@@ -1,5 +1,5 @@
 import { ArrowRight } from 'lucide-react'
-import { Plan } from '@/generated/prisma/client'
+import type { Plan } from '@/generated/prisma/client'
 import { BILLING_PLAN_CATALOG } from '@/lib/billing/catalog'
 import { planFeatureBullets } from '@/lib/billing/plan-features'
 
@@ -15,7 +15,7 @@ export const PRICING_TIERS = [
     price: BILLING_PLAN_CATALOG.individual.price,
     cadence: '/ month',
     desc: 'For solo builders getting real work out of AI.',
-    features: planFeatureBullets(Plan.STARTER),
+    features: planFeatureBullets('STARTER' satisfies Plan),
     href: '/api/stripe/checkout?plan=individual',
     cta: 'Start 14-day trial',
     featured: false,
@@ -25,7 +25,7 @@ export const PRICING_TIERS = [
     price: BILLING_PLAN_CATALOG.team.price,
     cadence: '/ month',
     desc: 'For teams running shared agents and workflows.',
-    features: planFeatureBullets(Plan.PROFESSIONAL),
+    features: planFeatureBullets('PROFESSIONAL' satisfies Plan),
     href: '/api/stripe/checkout?plan=team',
     cta: 'Start 14-day trial',
     featured: true,
@@ -35,7 +35,7 @@ export const PRICING_TIERS = [
     price: BILLING_PLAN_CATALOG.business.price,
     cadence: '/ month',
     desc: 'For companies scaling AI across departments.',
-    features: planFeatureBullets(Plan.BUSINESS),
+    features: planFeatureBullets('BUSINESS' satisfies Plan),
     href: '/api/stripe/checkout?plan=business',
     cta: 'Start 14-day trial',
     featured: false,
@@ -45,7 +45,7 @@ export const PRICING_TIERS = [
     price: 'Custom',
     cadence: '',
     desc: 'For organizations with bespoke security and scale needs.',
-    features: [...planFeatureBullets(Plan.ENTERPRISE), 'Custom integrations & SLAs', 'Dedicated onboarding'],
+    features: [...planFeatureBullets('ENTERPRISE' satisfies Plan), 'Custom integrations & SLAs', 'Dedicated onboarding'],
     href: '/contact?reason=enterprise',
     cta: 'Contact sales',
     featured: false,
