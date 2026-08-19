@@ -1,5 +1,6 @@
 import { PrismaClient } from '@/generated/prisma/client'
 import { PrismaPg } from '@prisma/adapter-pg'
+import { poolConfigFromDatabaseUrl } from '@/lib/prisma-pool'
 import { assertOrgScoped } from '@/lib/tenant-guard'
 
 const globalForPrisma = globalThis as unknown as {
@@ -18,6 +19,14 @@ function createPrismaClient() {
     adapter: new PrismaPg({
       get connectionString() {
         return process.env.DATABASE_URL
+      },
+      // Prisma 7 handed pooling to node-postgres, which does not understand
+      // the URL's `connection_limit` — so every process silently took the
+      // driver default of 10 while env.ts went on asserting the configured
+      // value. A getter, like connectionString above, so it resolves at the
+      // same (lazy) moment. See lib/prisma-pool.ts.
+      get max() {
+        return poolConfigFromDatabaseUrl(process.env.DATABASE_URL).max
       },
     }),
     log: process.env.NODE_ENV === 'development' ? ['query', 'error', 'warn'] : ['error'],

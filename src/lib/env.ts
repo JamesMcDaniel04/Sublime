@@ -210,7 +210,7 @@ export function assertWorkerEnv(logger: { warn: (message: string) => void } = co
     )
   } else if (limit === null) {
     logger.warn(
-      `env: DATABASE_URL has no connection_limit — Prisma defaults to cpu*2+1, likely below the worker's total concurrency (${totalConcurrency}). ` +
+      `env: DATABASE_URL has no connection_limit — the pg driver adapter defaults to 10, likely below the worker's total concurrency (${totalConcurrency}). ` +
         `Set connection_limit>=${totalConcurrency} on the worker's DATABASE_URL.`,
     )
   }
