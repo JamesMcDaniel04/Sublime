@@ -46,6 +46,7 @@ model Organization {
 
   users                     User[]
   agents                    AgentTask[]
+  agentWorkers              AgentWorker[]
   executions                AgentExecution[]
   templates                 AgentTemplate[]
   integrations              Integration[]
@@ -117,15 +118,16 @@ model User {
   createdAt             DateTime  @default(now()) @db.Timestamptz(6)
   updatedAt             DateTime  @updatedAt @db.Timestamptz(6)
 
-  organization       Organization?      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  organization       Organization?              @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   executions         AgentExecution[]
   templates          AgentTemplate[]
   integrations       Integration[]
   ownedAgents        AgentTask[]
+  ownedAgentWorkers  AgentWorker[]
   mcpConnections     McpConnection[]
-  flowCollaborations FlowCollaborator[] @relation("FlowCollaboratorUser")
-  flowInvitesSent    FlowCollaborator[] @relation("FlowCollaboratorInviter")
-  flowComments       FlowComment[]      @relation("FlowCommentAuthor")
+  flowCollaborations FlowCollaborator[]         @relation("FlowCollaboratorUser")
+  flowInvitesSent    FlowCollaborator[]         @relation("FlowCollaboratorInviter")
+  flowComments       FlowComment[]              @relation("FlowCommentAuthor")
   identities         UserIdentity[]
   credentials        Credential[]
   integrationSecrets IntegrationSecret[]
@@ -234,6 +236,10 @@ model AgentTask {
   schedule       Json      @default("{}")
   status         String    @default("ACTIVE")
   folder         String?
+  /// The roster identity this agent works under. Null means it stands alone
+  /// and renders as its own tile — which is why no existing agent needed a
+  /// backfill when workers were introduced.
+  workerId       String?
   visibility     String    @default("private")
   organizationId String    @db.Uuid
   userId         String?
@@ -246,6 +252,7 @@ model AgentTask {
 
   organization Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   owner        User?              @relation(fields: [userId], references: [id], onDelete: SetNull)
+  worker       AgentWorker?       @relation(fields: [workerId], references: [id], onDelete: SetNull)
   executions   AgentExecution[]
   chatMessages AgentChatMessage[]
   chatSessions AgentChatSession[]
@@ -254,6 +261,7 @@ model AgentTask {
 
   @@index([organizationId, status])
   @@index([organizationId, userId, status, updatedAt])
+  @@index([workerId])
   @@index([organizationId, visibility, status, updatedAt])
   @@index([userId])
   // Cross-org scans (cron scheduling tick, worker schedule registrar) filter
@@ -261,6 +269,34 @@ model AgentTask {
   // this they sequential-scan the table every 15 minutes / 60 seconds.
   @@index([status])
   @@map("agent_tasks")
+}
+
+/// A person-shaped identity on the roster: one avatar, one role, and the agents
+/// that do the work grouped underneath it. Templates are added TO a worker
+/// rather than each becoming a standalone agent, so a single avatar can hold a
+/// group of agents doing different jobs.
+///
+/// Deliberately thin: it owns presentation identity only. Everything about HOW
+/// work runs stays on AgentTask, so a worker can be renamed, re-skinned, or
+/// deleted without touching a single run.
+model AgentWorker {
+  id             String   @id @default(cuid())
+  organizationId String   @db.Uuid
+  userId         String?
+  name           String
+  /// Seed for the generated portrait (lib/agents/avatar.ts). Null = derive from id.
+  avatarSeed     String?
+  /// Generated one-or-two-word role shown under the name (lib/agents/role-label.ts).
+  roleLabel      String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  owner        User?        @relation(fields: [userId], references: [id], onDelete: SetNull)
+  agents       AgentTask[]
+
+  @@index([organizationId, updatedAt])
+  @@map("agent_workers")
 }
 
 /// Typed binding between an agent and a connector it uses. Replaces matching
@@ -850,7 +886,7 @@ model Flow {
   createdAt                   DateTime @default(now())
   updatedAt                   DateTime @updatedAt
 
-  organization  Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  organization  Organization              @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   runs          FlowRun[]
   versions      FlowVersion[]
   collaborators FlowCollaborator[]
@@ -934,38 +970,39 @@ model FlowVersion {
 }
 
 model FlowRun {
-  id              String    @id @default(cuid())
-  flowId          String
-  status          String    @default("running") // queued | claimed | running | waiting | stopping | stopped | succeeded | failed
-  trigger         Json      @default("{}")
-  input           Json      @default("{}")
-  output          Json?
-  error           String?
-  wakeAt          DateTime?
-  webhookResponse Json?
-  graphSnapshot   Json? // the graph definition this run executed against
-  startedAt       DateTime  @default(now())
-  finishedAt      DateTime?
-  queuedAt        DateTime? @db.Timestamptz(6)
-  claimedAt       DateTime? @db.Timestamptz(6)
-  heartbeatAt     DateTime? @db.Timestamptz(6)
-  leaseExpiresAt  DateTime? @db.Timestamptz(6)
-  workerId        String?
-  queueAttempt    Int       @default(0)
-  waitGeneration  Int       @default(0)
+  id                     String    @id @default(cuid())
+  flowId                 String
+  status                 String    @default("running") // queued | claimed | running | waiting | stopping | stopped | succeeded | failed
+  trigger                Json      @default("{}")
+  input                  Json      @default("{}")
+  output                 Json?
+  error                  String?
+  wakeAt                 DateTime?
+  webhookResponse        Json?
+  graphSnapshot          Json? // the graph definition this run executed against
+  startedAt              DateTime  @default(now())
+  finishedAt             DateTime?
+  queuedAt               DateTime? @db.Timestamptz(6)
+  claimedAt              DateTime? @db.Timestamptz(6)
+  heartbeatAt            DateTime? @db.Timestamptz(6)
+  leaseExpiresAt         DateTime? @db.Timestamptz(6)
+  workerId               String?
+  queueAttempt           Int       @default(0)
+  waitGeneration         Int       @default(0)
   /// SHA-256 of the caller/provider idempotency token. Nullable for legacy or
   /// deliberately non-idempotent manual/test runs.
   idempotencyKey         String?
   idempotencyPayloadHash String?
-  organizationId  String    @db.Uuid
-  userId          String?
+  organizationId         String    @db.Uuid
+  userId                 String?
 
-  flow     Flow                 @relation(fields: [flowId], references: [id], onDelete: Cascade)
-  steps    FlowRunStep[]
-  dispatch FlowDispatchOutbox[]
-  effects  FlowSideEffect[]
+  flow         Flow                      @relation(fields: [flowId], references: [id], onDelete: Cascade)
+  steps        FlowRunStep[]
+  dispatch     FlowDispatchOutbox[]
+  effects      FlowSideEffect[]
   observations FlowLearningObservation[]
 
+  @@unique([organizationId, flowId, idempotencyKey])
   @@index([flowId, startedAt])
   // Workspace-wide execution log (GET /api/flows/runs): newest runs for one
   // tenant without scanning every flow's history.
@@ -973,7 +1010,6 @@ model FlowRun {
   @@index([status, wakeAt])
   @@index([status, queuedAt])
   @@index([status, leaseExpiresAt])
-  @@unique([organizationId, flowId, idempotencyKey])
   @@map("flow_runs")
 }
 
@@ -1033,28 +1069,28 @@ model FlowRunStep {
 /// otherwise an interrupted write is retained as `ambiguous` and requires an
 /// operator decision instead of being submitted a second time.
 model FlowSideEffect {
-  id                 String    @id @default(cuid())
-  organizationId     String    @db.Uuid
-  flowRunId          String
-  flowRunStepId      String
-  effectKey          String    @unique
-  nodeId             String
-  iterationPath      String?
-  kind               String // tool | http
-  provider           String
-  operation          String
-  safety             String // read | idempotent_write | unsafe_write
-  providerKey        String?
-  requestHash        String
-  status             String    @default("claimed") // claimed | succeeded | failed | ambiguous
-  attempts           Int       @default(0)
-  response            Json?
-  providerRequestId  String?
-  lastError           String?
-  startedAt          DateTime  @default(now()) @db.Timestamptz(6)
-  completedAt        DateTime? @db.Timestamptz(6)
-  createdAt          DateTime  @default(now()) @db.Timestamptz(6)
-  updatedAt          DateTime  @updatedAt @db.Timestamptz(6)
+  id                String    @id @default(cuid())
+  organizationId    String    @db.Uuid
+  flowRunId         String
+  flowRunStepId     String
+  effectKey         String    @unique
+  nodeId            String
+  iterationPath     String?
+  kind              String // tool | http
+  provider          String
+  operation         String
+  safety            String // read | idempotent_write | unsafe_write
+  providerKey       String?
+  requestHash       String
+  status            String    @default("claimed") // claimed | succeeded | failed | ambiguous
+  attempts          Int       @default(0)
+  response          Json?
+  providerRequestId String?
+  lastError         String?
+  startedAt         DateTime  @default(now()) @db.Timestamptz(6)
+  completedAt       DateTime? @db.Timestamptz(6)
+  createdAt         DateTime  @default(now()) @db.Timestamptz(6)
+  updatedAt         DateTime  @updatedAt @db.Timestamptz(6)
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   run          FlowRun      @relation(fields: [flowRunId], references: [id], onDelete: Cascade)
@@ -1069,24 +1105,24 @@ model FlowSideEffect {
 /// `evidence` contain structural metadata (node ids/types, timings, status),
 /// never prompts, tool arguments, provider response bodies, or credentials.
 model FlowLearningObservation {
-  id              String    @id @default(cuid())
-  observationKey  String    @unique
-  organizationId  String    @db.Uuid
-  userId           String?
-  flowId           String
-  flowRunId        String
-  nodeId           String?
-  kind             String // run_outcome | step_outcome | recovery
-  subject          String
-  outcome          String // succeeded | failed | stopped | waiting | ambiguous
-  features         Json      @default("{}")
-  evidence         Json      @default("{}")
-  occurredAt       DateTime  @default(now()) @db.Timestamptz(6)
-  createdAt        DateTime  @default(now()) @db.Timestamptz(6)
+  id             String   @id @default(cuid())
+  observationKey String   @unique
+  organizationId String   @db.Uuid
+  userId         String?
+  flowId         String
+  flowRunId      String
+  nodeId         String?
+  kind           String // run_outcome | step_outcome | recovery
+  subject        String
+  outcome        String // succeeded | failed | stopped | waiting | ambiguous
+  features       Json     @default("{}")
+  evidence       Json     @default("{}")
+  occurredAt     DateTime @default(now()) @db.Timestamptz(6)
+  createdAt      DateTime @default(now()) @db.Timestamptz(6)
 
-  organization Organization          @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  flow         Flow                  @relation(fields: [flowId], references: [id], onDelete: Cascade)
-  run          FlowRun               @relation(fields: [flowRunId], references: [id], onDelete: Cascade)
+  organization Organization           @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  flow         Flow                   @relation(fields: [flowId], references: [id], onDelete: Cascade)
+  run          FlowRun                @relation(fields: [flowRunId], references: [id], onDelete: Cascade)
   feedback     FlowLearningFeedback[]
 
   @@index([organizationId, flowId, occurredAt])
@@ -1097,15 +1133,15 @@ model FlowLearningObservation {
 /// Outcome feedback closes the learning loop without rewriting history. It is
 /// append-only and points to the exact observation/evidence being evaluated.
 model FlowLearningFeedback {
-  id              String   @id @default(cuid())
-  observationId   String
-  organizationId  String   @db.Uuid
-  userId           String?
-  source           String // human | downstream | system
-  outcome          String // worked | failed | corrected | accepted | rejected
-  score            Int?
-  note              String?
-  createdAt         DateTime @default(now()) @db.Timestamptz(6)
+  id             String   @id @default(cuid())
+  observationId  String
+  organizationId String   @db.Uuid
+  userId         String?
+  source         String // human | downstream | system
+  outcome        String // worked | failed | corrected | accepted | rejected
+  score          Int?
+  note           String?
+  createdAt      DateTime @default(now()) @db.Timestamptz(6)
 
   observation  FlowLearningObservation @relation(fields: [observationId], references: [id], onDelete: Cascade)
   organization Organization            @relation(fields: [organizationId], references: [id], onDelete: Cascade)
@@ -1118,8 +1154,8 @@ model FlowLearningFeedback {
 /// Database-backed DLQ. Redis is transport, not the source of truth: these
 /// rows survive queue retention/flushes and carry an audited replay lifecycle.
 model QueueDeadLetter {
-  id              String    @id @default(cuid())
-  organizationId  String?   @db.Uuid
+  id               String    @id @default(cuid())
+  organizationId   String?   @db.Uuid
   queue            String
   sourceJobId      String?
   executionType    String // flow | agent | backfill
