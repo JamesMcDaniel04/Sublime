@@ -7,6 +7,7 @@ import { agentHttpToolSchema, MAX_AGENT_HTTP_TOOLS } from '@/lib/agents/http-too
 import { agentOwnerScope, agentReadScope, agentWriteScope, VISIBILITY } from '@/lib/server/visibility'
 import { readAgentMetadata } from '@/lib/agents/metadata'
 import { serializeAgent } from '@/lib/agents/serialize'
+import { ROLE_LABEL_MAX_CHARS, normalizeRoleLabel } from '@/lib/agents/role-label'
 import { indexAgent, removeAgentFromGraph } from '@/lib/rag/indexer'
 import { syncAgentConnectors } from '@/lib/connectors/agent-connectors'
 import { assertAgentCapacity, assertSpecialistAreaCapacity } from '@/lib/billing/enforce'
@@ -66,6 +67,18 @@ const agentSchema = z.object({
   // than retroactively exposing every existing agent to the whole org.
   visibility: z.enum(['private', 'org_viewer', 'org_editor', 'shared']).default('private'),
   icon: z.string().trim().max(8).optional(),
+  // Roster identity. An absent avatarSeed means "derive the portrait from the
+  // agent id", so existing agents already have a stable face.
+  avatarSeed: z.string().trim().max(64).optional(),
+  // Rejected rather than silently trimmed: this field is editable by hand in
+  // agent setup, and a clipped label reads as a rendering bug. An explicit
+  // empty string clears it, which queues the agent for regeneration.
+  roleLabel: z.string().trim().max(60)
+    .refine((value) => value === '' || normalizeRoleLabel(value) !== null, {
+      message: `Role must be one or two words, ${ROLE_LABEL_MAX_CHARS} characters max`,
+    })
+    .transform((value) => (value === '' ? null : normalizeRoleLabel(value)))
+    .nullish(),
   // Lets this agent delegate to other agents via the run_agent tool (pipelines).
   allowSubagents: z.boolean().optional(),
   // Restrict which agents it may run. Empty/omitted = any visible agent.
@@ -229,6 +242,11 @@ export const PUT = withAuthenticatedApi(async (request, auth) => {
   if (body.specialistArea !== undefined || body.integrations !== undefined) {
     await assertSpecialistAreaCapacity(auth.organizationId, specialistArea, existing.id)
   }
+  // What the agent DOES lives in its instructions and title; a model or
+  // schedule change does not alter its job, so it must not cost a regeneration.
+  const roleDescriptionChanged =
+    (body.instructions !== undefined && body.instructions !== existing.objective)
+    || (body.title !== undefined && body.title !== existingMetadata.title)
   const agent = await prisma.agentTask.update({
     where: { id: body.id, organizationId: auth.organizationId },
     data: {
@@ -248,6 +266,13 @@ export const PUT = withAuthenticatedApi(async (request, auth) => {
         ...(body.requiredIntegrations !== undefined && { requiredIntegrations: body.requiredIntegrations }),
         ...(body.skills !== undefined && { skills: body.skills }),
         ...(body.icon !== undefined && { icon: body.icon }),
+        ...(body.avatarSeed !== undefined && { avatarSeed: body.avatarSeed || undefined }),
+        // An explicit label wins. Otherwise, changing WHAT the agent does
+        // invalidates the generated role: a label describing the old job is
+        // worse than none, since the roster regenerates a missing one on load.
+        ...(body.roleLabel !== undefined
+          ? { roleLabel: body.roleLabel ?? undefined }
+          : roleDescriptionChanged ? { roleLabel: undefined } : {}),
         ...(body.allowSubagents !== undefined && { allowSubagents: body.allowSubagents }),
         ...(body.subagentIds !== undefined && { subagentIds: body.subagentIds }),
         ...(body.allowFlows !== undefined && { allowFlows: body.allowFlows }),

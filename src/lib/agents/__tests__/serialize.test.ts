@@ -41,3 +41,37 @@ test('preserves an explicit remembered-answer opt-out', () => {
   assert.equal(agent.maxTurns, 16, 'legacy agents get the runtime default in the editor')
   assert.deepEqual(agent.outputFields, [])
 })
+
+test('carries the roster identity fields — a stored avatar seed and role label', () => {
+  const agent = serializeAgent({
+    id: 'agent-roster-1', description: 'Pipeline agent', objective: 'Chase deals', goal: null,
+    metadata: { title: 'Pipeline agent', avatarSeed: 'seed-7', roleLabel: 'Pipeline Analyst' }, folder: null,
+    visibility: 'shared', status: 'ACTIVE', schedule: {},
+    createdAt: new Date('2026-07-12T00:00:00Z'), lastExecutedAt: null, executionCount: 0,
+  })
+  assert.equal(agent.avatarSeed, 'seed-7')
+  assert.equal(agent.roleLabel, 'Pipeline Analyst')
+})
+
+test('leaves roster identity fields null when unset, so the client falls back to id and department', () => {
+  const agent = serializeAgent({
+    id: 'agent-roster-2', description: 'Plain agent', objective: 'Do a thing', goal: null,
+    metadata: { title: 'Plain agent' }, folder: null,
+    visibility: 'shared', status: 'ACTIVE', schedule: {},
+    createdAt: new Date('2026-07-12T00:00:00Z'), lastExecutedAt: null, executionCount: 0,
+  })
+  assert.equal(agent.avatarSeed, null)
+  assert.equal(agent.roleLabel, null)
+})
+
+// metadata is an unvalidated JSON grab-bag, so the wire boundary is the last
+// place to stop a label that a legacy row or a hand-edited record carries.
+test('a malformed stored role label is dropped at the wire boundary rather than rendered', () => {
+  const agent = serializeAgent({
+    id: 'agent-roster-3', description: 'Odd agent', objective: 'Do a thing', goal: null,
+    metadata: { title: 'Odd agent', roleLabel: '<img src=x onerror=alert(1)>' }, folder: null,
+    visibility: 'shared', status: 'ACTIVE', schedule: {},
+    createdAt: new Date('2026-07-12T00:00:00Z'), lastExecutedAt: null, executionCount: 0,
+  })
+  assert.equal(agent.roleLabel, null)
+})

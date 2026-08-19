@@ -14,6 +14,12 @@ export type AgentMetadata = {
   requiredIntegrations?: string[]
   skills?: string[]
   icon?: string
+  /** Seed for the generated portrait on the roster (lib/agents/avatar.ts).
+   *  Absent means "derive from the agent id", which is why no agent needed a backfill. */
+  avatarSeed?: string
+  /** Generated one-or-two-word role shown under the name on the roster. People name
+   *  agents anything, so the tile describes what it DOES (lib/agents/role-label.ts). */
+  roleLabel?: string
   /** Maximum model/tool turns in one run (guardrail, configurable per agent). */
   maxTurns?: number
   headline?: string

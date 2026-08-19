@@ -1,4 +1,5 @@
 import { readAgentMetadata } from '@/lib/agents/metadata'
+import { normalizeRoleLabel } from '@/lib/agents/role-label'
 import { DEFAULT_AGENT_MODEL } from '@/lib/llm/model-runner'
 
 /**
@@ -32,6 +33,10 @@ export function serializeAgent(agent: {
     requiredIntegrations: metadata.requiredIntegrations || [],
     skills: metadata.skills || [],
     icon: metadata.icon || '',
+    avatarSeed: metadata.avatarSeed?.trim() || null,
+    // Normalized here, not just at write time: metadata is an unvalidated JSON
+    // grab-bag, so this is the last chokepoint before a label reaches a client.
+    roleLabel: normalizeRoleLabel(metadata.roleLabel),
     allowSubagents: (metadata as { allowSubagents?: boolean }).allowSubagents === true,
     subagentIds: ((metadata as { subagentIds?: string[] }).subagentIds ?? []).filter((id) => typeof id === 'string'),
     allowFlows: metadata.allowFlows === true,
