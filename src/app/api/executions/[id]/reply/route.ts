@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { encryptRunText } from '@/lib/agents/run-crypto'
 import { prisma } from '@/lib/prisma'
 import { getQueue, QUEUE_NAMES, workersEnabled } from '@/lib/queue/config'
 import { ApiError, withAuthenticatedApi } from '@/lib/server/api-handler'
@@ -65,7 +66,7 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
   }
 
   await prisma.executionMessage.create({
-    data: { executionId: execution.id, role: 'user', content: message },
+    data: { executionId: execution.id, role: 'user', content: encryptRunText(message) },
   })
 
   if (target === 'flow' && flowStep) {

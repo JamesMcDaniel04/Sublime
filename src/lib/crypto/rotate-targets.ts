@@ -21,4 +21,10 @@ export const ROTATION_TARGETS: ReadonlyArray<{ model: string; columns: string[] 
   { model: 'flowVersion', columns: ['trigger'] },
   // Agent webhook trigger secrets live in AgentTask.metadata.triggerSecretEnc.
   { model: 'agentTask', columns: ['metadata'] },
+  // Agent run data is encrypted IN PLACE (src/lib/agents/run-crypto.ts): the
+  // Json columns hold a ciphertext string instead of the object, and the
+  // content Text column holds a ciphertext string. The shape-based walk rotates
+  // whichever of these is an encrypted string and leaves legacy plaintext alone.
+  { model: 'agentExecution', columns: ['input', 'output', 'transcript', 'plan'] },
+  { model: 'executionMessage', columns: ['content'] },
 ]

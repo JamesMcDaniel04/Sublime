@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { systemPrisma } from '@/lib/prisma'
 import { dispatchFlowExecution } from '@/features/flows/execute-flow'
 import { hashToken, timingSafeEqualHex } from '@/lib/crypto/secrets'
-import { rateLimit } from '@/lib/ratelimit'
+import { recordSecurityEvent } from '@/lib/security/alerts'
+import { readBodyWithLimit, PayloadTooLargeError, webhookAuthFailureEvent, webhookThrottled } from '@/lib/server/webhook-guard'
 
 export const runtime = 'nodejs'
 export const maxDuration = 800
@@ -23,8 +24,9 @@ export async function POST(request: NextRequest) {
   const runId = segments.at(-2) ?? ''
   const flowId = segments.at(-4) ?? ''
 
-  const limited = await rateLimit(`flow-resume:${flowId}`, { limit: 60, windowMs: 60_000 })
-  if (!limited.ok) return NextResponse.json({ success: false, error: 'Too many requests' }, { status: 429 })
+  if (await webhookThrottled(request, { key: 'flow-resume', resourceId: flowId })) {
+    return NextResponse.json({ success: false, error: 'Too many requests' }, { status: 429 })
+  }
 
   // systemPrisma: session-less external callback; flow id is globally unique
   // and the per-flow secret is the credential.
@@ -33,6 +35,7 @@ export async function POST(request: NextRequest) {
   const hash = typeof trigger.webhookSecretHash === 'string' ? trigger.webhookSecretHash : null
   const provided = request.headers.get('x-trigger-secret') || request.headers.get('authorization')?.replace(/^Bearer\s+/i, '') || ''
   if (!flow || !hash || !provided || !timingSafeEqualHex(hashToken(provided), hash)) {
+    recordSecurityEvent(webhookAuthFailureEvent(request, { route: 'flow.resume', resourceId: flowId || 'unknown', reason: !provided ? 'missing_secret' : 'invalid_secret' }))
     return NextResponse.json({ success: false, error: 'Invalid trigger secret' }, { status: 401 })
   }
 
@@ -44,7 +47,13 @@ export async function POST(request: NextRequest) {
   const actingUserId = run.userId ?? flow.userId
   if (!actingUserId) return NextResponse.json({ success: false, error: 'No waiting run found' }, { status: 404 })
 
-  const body = await request.text().catch(() => '')
+  let body: string
+  try {
+    body = await readBodyWithLimit(request)
+  } catch (error) {
+    if (error instanceof PayloadTooLargeError) return NextResponse.json({ success: false, error: 'Request body too large' }, { status: 413 })
+    body = ''
+  }
   const reply = body.trim() || '{}'
   const result = await dispatchFlowExecution({
     flowId: flow.id,

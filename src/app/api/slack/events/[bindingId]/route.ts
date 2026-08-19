@@ -1,12 +1,13 @@
 import { NextRequest, NextResponse, after } from 'next/server'
 import { systemPrisma } from '@/lib/prisma'
 import { apiLogger } from '@/lib/logger'
-import { rateLimit } from '@/lib/ratelimit'
 import { decryptSecretJson } from '@/lib/slack/connections'
 import { verifySlackSignature } from '@/lib/slack/verify'
 import { normalizeSlackEventPayload, normalizeSlackCommandPayload } from '@/lib/slack/payload'
 import { routeSlackEvent } from '@/lib/slack/dispatch'
 import { claimSlackEvent, releaseSlackEvent } from '@/lib/slack/dedup'
+import { recordSecurityEvent } from '@/lib/security/alerts'
+import { PayloadTooLargeError, readBodyWithLimit, webhookAuthFailureEvent, webhookThrottled } from '@/lib/server/webhook-guard'
 
 export const runtime = 'nodejs'
 export const maxDuration = 300
@@ -16,8 +17,14 @@ export const maxDuration = 300
 // indistinguishable from the outside. Distinguishing them (e.g. 404 for
 // "doesn't exist" vs 401 for "exists but bad sig") is a bindingId existence
 // oracle: it would let a caller enumerate valid binding ids by status code
-// alone. Fail closed, identically, every time.
-function unauthorized(): NextResponse {
+// alone. Fail closed, identically, every time. The security signal, unlike the
+// response, records the reason so a signature-forgery flood is not invisible.
+function unauthorized(
+  request: Request,
+  bindingId: string,
+  reason: 'unknown_resource' | 'bad_signature',
+): NextResponse {
+  recordSecurityEvent(webhookAuthFailureEvent(request, { route: 'slack.events', resourceId: bindingId, reason }))
   return NextResponse.json({ ok: false }, { status: 401 })
 }
 
@@ -46,13 +53,21 @@ function runAfterResponse(task: () => Promise<void>): void {
 export async function POST(request: NextRequest) {
   try {
     const bindingId = request.nextUrl.pathname.split('/').at(-1)
-    // Public endpoint — throttle per binding to blunt floods (mirrors flow-trigger).
-    const limited = await rateLimit(`slack-events:${bindingId ?? 'unknown'}`, { limit: 120, windowMs: 60_000 })
-    if (!limited.ok) return NextResponse.json({ ok: false, error: 'Rate limit exceeded' }, { status: 429 })
+    // Public endpoint — throttle per binding AND per caller IP (mirrors flow-trigger).
+    if (await webhookThrottled(request, { key: 'slack-events', resourceId: bindingId ?? 'unknown', perResource: 120 })) {
+      return NextResponse.json({ ok: false, error: 'Rate limit exceeded' }, { status: 429 })
+    }
     if (!bindingId) return NextResponse.json({ ok: false }, { status: 404 })
 
-    // Raw body FIRST — the signature is computed over the exact bytes.
-    const rawBody = await request.text()
+    // Raw body FIRST — the signature is computed over the exact bytes. Bounded:
+    // an unsigned oversized body must be refused before any work.
+    let rawBody: string
+    try {
+      rawBody = await readBodyWithLimit(request)
+    } catch (error) {
+      if (error instanceof PayloadTooLargeError) return NextResponse.json({ ok: false, error: 'Request body too large' }, { status: 413 })
+      rawBody = ''
+    }
 
     // systemPrisma: session-less ingress; the binding row (URL id) is the sole
     // tenant selector — payload team/org claims are never trusted.
@@ -60,7 +75,7 @@ export async function POST(request: NextRequest) {
     // Unknown/inactive binding fails closed with the SAME response as a bad
     // signature (see `unauthorized` above) — never 404. A distinct status
     // here would let a caller enumerate valid binding ids for free.
-    if (!binding) return unauthorized()
+    if (!binding) return unauthorized(request, bindingId, 'unknown_resource')
 
     // A corrupt/malformed signing-secret payload must fail closed, not throw
     // into the outer catch's generic 500 — same posture as every other
@@ -70,7 +85,7 @@ export async function POST(request: NextRequest) {
       signingSecret = decryptSecretJson(binding.signingSecret)
     } catch (error) {
       apiLogger.error('slack ingress: corrupt signing secret', { bindingId: binding.id, error: error instanceof Error ? error.message : String(error) })
-      return unauthorized()
+      return unauthorized(request, bindingId, 'bad_signature')
     }
 
     // Slack signs EVERY request, including url_verification.
@@ -80,7 +95,7 @@ export async function POST(request: NextRequest) {
       signature: request.headers.get('x-slack-signature'),
       signingSecret,
     })
-    if (!verified) return unauthorized()
+    if (!verified) return unauthorized(request, bindingId, 'bad_signature')
 
     const contentType = (request.headers.get('content-type') || '').toLowerCase()
     const isForm = contentType.includes('application/x-www-form-urlencoded')

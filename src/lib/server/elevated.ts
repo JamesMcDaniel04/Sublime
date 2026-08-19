@@ -24,6 +24,7 @@
 import { recordAudit } from '@/lib/audit'
 import { ApiError } from './api-handler'
 import { can } from './permissions'
+import { mfaStepUpRequired } from './mfa'
 import type { AuthContext } from './auth'
 
 /**
@@ -75,6 +76,13 @@ export async function withElevatedAccess<T>(
 ): Promise<T> {
   if (!can(auth.actor, 'resource:takeover')) {
     throw new ApiError('Admin access required', 403, 'FORBIDDEN')
+  }
+
+  // Cross-owner takeover is the highest-leverage admin action, so it is also
+  // where a stolen session does the most damage. Once the acting admin has
+  // enrolled a second factor, this action requires a stepped-up (AAL2) session.
+  if (mfaStepUpRequired(auth.aal, auth.dbUser.mfaEnrolledAt)) {
+    throw new ApiError('Two-factor authentication is required for this action. Sign in again with your second factor.', 403, 'MFA_REQUIRED')
   }
 
   // Recorded BEFORE the action, so an attempt that then throws is still

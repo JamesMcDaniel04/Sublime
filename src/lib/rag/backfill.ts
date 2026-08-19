@@ -11,6 +11,7 @@ import { apiLogger } from '@/lib/logger'
 import { commitGraph, nodeIds, type PendingNode } from './indexer'
 import { ragEnabled } from './get-store'
 import type { GraphEdge } from './store'
+import { decryptRunValue } from '@/lib/agents/run-crypto'
 
 export interface BackfillResult {
   agents: number
@@ -64,7 +65,7 @@ export async function backfillOrganization(organizationId: string): Promise<Back
     nodes.push({
       id: nodeIds.run(execution.id),
       type: 'run',
-      text: clip(`Agent run (${execution.status}). Output: ${safe(execution.output)}`),
+      text: clip(`Agent run (${execution.status}). Output: ${safe(decryptRunValue(execution.output))}`),
       props: { status: execution.status, agentTaskId: execution.agentTaskId },
       ownerUserId: execution.agentTask?.userId ?? null,
       visibility: execution.agentTask?.visibility === 'private' ? 'private' : 'shared',

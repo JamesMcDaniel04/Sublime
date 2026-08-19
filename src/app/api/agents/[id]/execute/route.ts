@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { encryptRunValue } from '@/lib/agents/run-crypto'
 import { prisma } from '@/lib/prisma'
 import { getQueue, QUEUE_NAMES, workersEnabled } from '@/lib/queue/config'
 import { ApiError, withAuthenticatedApi } from '@/lib/server/api-handler'
@@ -53,7 +54,7 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
       agentType: agent.agentType,
       agentTaskId: agent.id,
       status: 'pending',
-      input: { prompt: runInput },
+      input: encryptRunValue({ prompt: runInput }),
       trigger: { type: 'manual' },
       metadata: { title: (agent.metadata as any)?.title || agent.description },
       userId: auth.dbUser.id,

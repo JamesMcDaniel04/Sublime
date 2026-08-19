@@ -37,6 +37,7 @@ import { globalSweepsAllowed } from '@/lib/server/global-sweeps'
 import { paymentRequiredOrgIds } from '@/lib/billing/enforce'
 import { afterResponse } from '@/lib/server/after-response'
 import { mapWithConcurrency } from '@/lib/server/concurrency'
+import { encryptRunValue } from '@/lib/agents/run-crypto'
 
 export const runtime = 'nodejs'
 // 800 is Vercel's actual Pro-plan (fluid) ceiling — 1200 was silently clamped,
@@ -343,7 +344,7 @@ export async function GET(request: Request) {
             agentType: agent.agentType,
             agentTaskId: agent.id,
             status: 'pending',
-            input: { prompt: input },
+            input: encryptRunValue({ prompt: input }),
             trigger: { type: 'schedule' },
             metadata: { title: (metadata.title as string) || agent.description },
             userId: user.id,

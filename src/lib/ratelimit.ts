@@ -18,6 +18,13 @@ export interface RateLimitOptions {
 export interface RateLimitResult {
   ok: boolean
   retryAfterMs?: number
+  /**
+   * The backend was unreachable and this result is the fail-open default.
+   * Ordinary endpoints ignore this (fail-open is the point — a Redis blip must
+   * not take the endpoint down). Detection counting reads it to fail CLOSED:
+   * a limiter that cannot count is a blind detector, which is worth an alert.
+   */
+  degraded?: boolean
 }
 
 export interface RateLimiter {
@@ -98,7 +105,7 @@ function createUpstashRestLimiter(url: string, token: string): RateLimiter {
           ]),
           signal: AbortSignal.timeout(3_000),
         })
-        if (!res.ok) return { ok: true }
+        if (!res.ok) return { ok: true, degraded: true }
         const results = (await res.json()) as Array<{ result?: unknown }>
         const count = Number(results[0]?.result ?? 0)
         if (count > limit) {
@@ -107,7 +114,7 @@ function createUpstashRestLimiter(url: string, token: string): RateLimiter {
         }
         return { ok: true }
       } catch {
-        return { ok: true }
+        return { ok: true, degraded: true }
       }
     },
   }
@@ -129,7 +136,7 @@ function createRedisLimiter(redisUrl: string): RateLimiter {
         return { ok: true }
       } catch {
         // Redis being down must not take the endpoint down with it.
-        return { ok: true }
+        return { ok: true, degraded: true }
       }
     },
   }

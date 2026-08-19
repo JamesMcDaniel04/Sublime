@@ -6,9 +6,11 @@ import { apiLogger } from '@/lib/logger'
 import { runAgentExecution } from '@/features/agents/execute-agent'
 import { inlineExecution } from '@/lib/queue/execution-mode'
 import { validateTriggerSecret } from '@/lib/agents/trigger-secret'
-import { rateLimit } from '@/lib/ratelimit'
 import { agentWebhookEventName, agentWebhookInput } from '@/lib/agents/webhook-input'
 import { assertOrganizationBillingActive } from '@/lib/billing/enforce'
+import { recordSecurityEvent } from '@/lib/security/alerts'
+import { PayloadTooLargeError, readBodyWithLimit, webhookAuthFailureEvent, webhookThrottled } from '@/lib/server/webhook-guard'
+import { encryptRunValue } from '@/lib/agents/run-crypto'
 
 export const runtime = 'nodejs'
 // 800 is Vercel's actual Pro-plan (fluid) ceiling — 1200 was silently clamped,
@@ -21,16 +23,18 @@ export const maxDuration = 800
 export async function POST(request: NextRequest) {
   try {
     const id = request.nextUrl.pathname.split('/').at(-2)
-    // Public endpoint — throttle per agent id to blunt secret-guessing and
-    // trigger floods before any DB work.
-    const limited = await rateLimit(`trigger:${id ?? 'unknown'}`, { limit: 60, windowMs: 60_000 })
-    if (!limited.ok) {
+    // Public endpoint — throttle per agent id AND per caller IP. Keying on the
+    // id alone was both bypassable (fan out across many ids from one origin)
+    // and a DoS lever against one legitimate agent; the IP dimension closes the
+    // fan-out. Either limit tripping rejects.
+    if (await webhookThrottled(request, { key: 'trigger', resourceId: id ?? 'unknown' })) {
       return NextResponse.json({ success: false, error: 'Rate limit exceeded' }, { status: 429 })
     }
     const provided =
       request.headers.get('x-trigger-secret') ||
       (request.headers.get('authorization') || '').replace(/^Bearer\s+/i, '')
     if (!id || !provided) {
+      recordSecurityEvent(webhookAuthFailureEvent(request, { route: 'agent.trigger', resourceId: id ?? 'unknown', reason: 'missing_secret' }))
       return NextResponse.json({ success: false, error: 'Missing trigger secret' }, { status: 401 })
     }
 
@@ -39,6 +43,9 @@ export async function POST(request: NextRequest) {
     const metadata = agent?.metadata && typeof agent.metadata === 'object' ? agent.metadata as Record<string, unknown> : {}
     const secretCheck = agent ? validateTriggerSecret(provided, metadata) : { valid: false, upgrade: null }
     if (!agent || !secretCheck.valid) {
+      // Same 401 whether the agent is unknown or the secret is wrong — no
+      // existence oracle — but the security signal distinguishes them.
+      recordSecurityEvent(webhookAuthFailureEvent(request, { route: 'agent.trigger', resourceId: id, reason: agent ? 'invalid_secret' : 'unknown_resource' }))
       return NextResponse.json({ success: false, error: 'Invalid trigger secret' }, { status: 401 })
     }
 
@@ -63,7 +70,18 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const body = await request.json().catch(() => ({})) as unknown
+    // Bounded read: the whole body is stringified into the model prompt, so an
+    // unbounded json() is a memory- and token-cost lever for any secret holder.
+    let body: unknown
+    try {
+      const raw = await readBodyWithLimit(request)
+      body = raw ? JSON.parse(raw) : {}
+    } catch (error) {
+      if (error instanceof PayloadTooLargeError) {
+        return NextResponse.json({ success: false, error: 'Request body too large' }, { status: 413 })
+      }
+      body = {}
+    }
     // Skills are composed into the system prompt inside runAgentExecution — pass
     // the raw objective so attached skills aren't applied twice.
     const input = agentWebhookInput(body, agent.objective)
@@ -99,7 +117,7 @@ export async function POST(request: NextRequest) {
           agentType: agent.agentType,
           agentTaskId: agent.id,
           status: 'pending',
-          input: { prompt: input },
+          input: encryptRunValue({ prompt: input }),
           trigger: { type: 'webhook', ...(eventName ? { event: eventName } : {}) },
           metadata: { title: (metadata.title as string) || agent.description },
           userId: user.id,

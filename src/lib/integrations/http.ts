@@ -14,6 +14,7 @@
 
 import type { ToolDefinition } from '@/lib/llm/model-runner'
 import { fetchPublicUrl } from '@/lib/net/ssrf'
+import { recordSecurityEvent } from '@/lib/security/alerts'
 
 const HTTP_TIMEOUT_MS = 30_000
 const MAX_RESPONSE_CHARS = 50_000
@@ -23,8 +24,20 @@ function hostMatches(host: string, domain: string): boolean {
   return host === domain || host.endsWith(`.${domain}`)
 }
 
-/** Throws unless the URL's host passes the egress allowlist (no-op when unset). */
-export function assertEgressAllowed(url: string, allowlistEnv = process.env.HTTP_TOOL_ALLOWED_DOMAINS): void {
+/**
+ * Throws unless the URL's host passes the egress allowlist (no-op when unset).
+ *
+ * A denial is a security signal, not just an error: a workflow or agent trying
+ * to reach a host outside the policy is either misconfigured or probing for a
+ * way to exfiltrate. We emit `egress.blocked` (fire-and-forget) so denials are
+ * visible and a burst crosses the alert threshold — the policy is enforced when
+ * set, and observable when it bites.
+ */
+export function assertEgressAllowed(
+  url: string,
+  context: { organizationId?: string; allowlistEnv?: string } = {},
+): void {
+  const allowlistEnv = context.allowlistEnv ?? process.env.HTTP_TOOL_ALLOWED_DOMAINS
   const domains = (allowlistEnv ?? '')
     .split(',')
     .map((d) => d.trim().toLowerCase())
@@ -32,6 +45,12 @@ export function assertEgressAllowed(url: string, allowlistEnv = process.env.HTTP
   if (domains.length === 0) return
   const host = new URL(url).hostname.toLowerCase()
   if (!domains.some((domain) => hostMatches(host, domain))) {
+    recordSecurityEvent({
+      kind: 'egress.blocked',
+      organizationId: context.organizationId,
+      source: context.organizationId,
+      detail: { host, policy: 'allowed-domains' },
+    })
     throw new Error(`HTTP tool egress to "${host}" is not permitted by this workspace's allowed-domains policy.`)
   }
 }

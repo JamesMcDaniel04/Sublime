@@ -198,10 +198,15 @@ export async function getAuthWithUser() {
   // itself, so behavior (and cost) is never worse than getUser(). Consumers
   // only use identity fields (id/email/user_metadata), all present in claims.
   let user: User | null = null
+  // Authenticator Assurance Level from the token ('aal1' | 'aal2'), used to
+  // gate privileged actions behind a stepped-up session. Undefined on the
+  // getUser fallback, which the MFA gate treats as indeterminate (never a lock).
+  let aal: string | undefined
   try {
     const { data } = await supabase.auth.getClaims()
     const claims = data?.claims
     if (claims?.sub) {
+      if (typeof claims.aal === 'string') aal = claims.aal
       user = {
         id: claims.sub,
         email: typeof claims.email === 'string' ? claims.email : undefined,
@@ -229,11 +234,20 @@ export async function getAuthWithUser() {
   // BILLING still derives from the organization and is unaffected.
   const dbUser = await ensureWorkspaceMembership(user)
 
+  // Stamp first proof of a verified second factor. A session at AAL2 can only
+  // exist if the account enrolled and stepped up, so this is a reliable,
+  // self-healing enrollment signal that needs no separate write path from the
+  // enrollment UI. Best-effort and one-time (guarded on null), never blocks.
+  if (aal === 'aal2' && dbUser && !dbUser.mfaEnrolledAt) {
+    void prisma.user.updateMany({ where: { id: dbUser.id, mfaEnrolledAt: null }, data: { mfaEnrolledAt: new Date() } }).catch(() => {})
+  }
+
   return {
     user,
     userId: user.id,
     dbUser,
     organizationId: dbUser?.organizationId ?? null,
+    aal,
   }
 }
 

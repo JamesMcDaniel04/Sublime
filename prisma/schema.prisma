@@ -111,6 +111,11 @@ model User {
   organizationId        String?   @db.Uuid
   isActive              Boolean   @default(true)
   lastSeenAt            DateTime? @db.Timestamptz(6)
+  // Stamped the first time a session proves AAL2 (a verified second factor).
+  // Once set, elevated/admin actions require AAL2 — so a stolen AAL1 session
+  // cannot take over another member's resources. Non-lockout: unset means the
+  // account never enrolled and the gate stays inert. See src/lib/server/mfa.ts.
+  mfaEnrolledAt         DateTime? @db.Timestamptz(6)
   metadata              Json?
   // Suppresses marketing email (onboarding drip, win-back, goal digest).
   // Transactional email (trial-ending, dunning, welcome) always sends.

@@ -26,6 +26,8 @@ export interface AuthContext {
    * written against this field honour what those workspaces were promised.
    */
   plan: Plan
+  /** Session assurance level ('aal1' | 'aal2' | undefined), for MFA step-up gating. */
+  aal?: string
   /** The pure-permission view of this context, for can(). */
   actor: Actor
 }
@@ -111,6 +113,7 @@ export async function requireAuthContext(): Promise<AuthContext> {
     role,
     isAdmin: role === 'ADMIN',
     plan,
+    aal: auth.aal,
     actor: {
       userId: auth.userId,
       role,

@@ -5,6 +5,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { recordAudit } from '@/lib/audit'
 import { assertSeatCapacity } from '@/lib/billing/enforce'
 import { assertNotLastAdmin } from '@/lib/server/last-admin'
+import { mfaStepUpRequired } from '@/lib/server/mfa'
 
 const inviteSchema = z.object({ email: z.string().email(), role: z.enum(['ADMIN', 'MEMBER']).default('MEMBER') })
 
@@ -48,6 +49,12 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
 }, { requires: 'member:manage' })
 
 export const PATCH = withAuthenticatedApi(async (request, auth) => {
+  // Changing roles or deactivating members is a takeover lever (suspend the
+  // real admin, promote yourself). Once the acting admin has enrolled MFA, this
+  // requires a stepped-up session, same policy as cross-owner resource takeover.
+  if (mfaStepUpRequired(auth.aal, auth.dbUser.mfaEnrolledAt)) {
+    throw new ApiError('Two-factor authentication is required for this action. Sign in again with your second factor.', 403, 'MFA_REQUIRED')
+  }
   const input = z.object({ userId: z.string(), role: z.enum(['ADMIN', 'MEMBER']).optional(), isActive: z.boolean().optional() }).parse(await request.json())
   if (input.userId === auth.dbUser.id && (input.role === 'MEMBER' || input.isActive === false)) throw new ApiError('You cannot remove your own administrator access', 409, 'SELF_ADMIN_CHANGE')
   const member = await prisma.user.findFirst({ where: { id: input.userId, organizationId: auth.organizationId } })

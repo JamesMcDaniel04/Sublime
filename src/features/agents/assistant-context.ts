@@ -1,6 +1,7 @@
 import type { AgentTask } from '@/generated/prisma/client'
 import { prisma } from '@/lib/prisma'
 import { readAgentMetadata } from '@/lib/agents/metadata'
+import { decryptRunText, decryptRunValue } from '@/lib/agents/run-crypto'
 import { retrieveContext, renderContext } from '@/lib/rag/retrieve'
 import { retrieveKnowledge, renderKnowledge } from '@/lib/knowledge/retrieve'
 import { getGraphRagStore } from '@/lib/rag/get-store'
@@ -44,7 +45,7 @@ function summarizeRun(execution: ExecutionRow) {
     completedAt: execution.completedAt ? execution.completedAt.toISOString() : null,
     headline: typeof metadata.headline === 'string' ? metadata.headline : null,
     error: clip(execution.error, 1500) || null,
-    output: clip(execution.output, 2000) || null,
+    output: clip(decryptRunValue(execution.output), 2000) || null,
   }
 }
 
@@ -129,7 +130,7 @@ export async function buildAssistantContext(agent: AgentTask, question = '', vie
       })),
     conversation: messages
       .filter((message) => message.executionId === execution.id)
-      .map((message) => ({ role: message.role, content: clip(message.content, 600) })),
+      .map((message) => ({ role: message.role, content: clip(decryptRunText(message.content), 600) })),
   })
 
   const agentMetadata = readAgentMetadata(agent.metadata)
@@ -194,6 +195,6 @@ export async function loadRunDetail(
       output: clip(step.output, 800) || null,
       error: clip(step.error, 800) || null,
     })),
-    conversation: messages.map((message) => ({ role: message.role, content: clip(message.content, 600) })),
+    conversation: messages.map((message) => ({ role: message.role, content: clip(decryptRunText(message.content), 600) })),
   }
 }

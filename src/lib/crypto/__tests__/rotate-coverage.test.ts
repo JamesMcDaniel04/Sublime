@@ -14,11 +14,14 @@ import { ROTATION_TARGETS } from '../rotate-targets'
 /** Column-name shapes that hold ciphertext (or blobs that can contain it). */
 const SECRET_COLUMN = /^(?:\w*Enc|authConfig|botToken|signingSecret|contentEncrypted)$/
 
-/** Blob columns known to carry encrypted fields inside JSON. */
+/** Blob/text columns known to carry ciphertext (JSON blobs, or run data
+ * encrypted in place — see src/lib/agents/run-crypto.ts). */
 const SECRET_BLOB: Record<string, string[]> = {
   Flow: ['trigger'],
   FlowVersion: ['trigger'],
   AgentTask: ['metadata'],
+  AgentExecution: ['input', 'output', 'transcript', 'plan'],
+  ExecutionMessage: ['content'],
 }
 
 function lowerFirst(name: string): string {

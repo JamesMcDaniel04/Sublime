@@ -18,7 +18,7 @@ type Sent = { to: string; subject: string; text: string }
 async function drive(event: SecurityEvent, times: number, send?: (input: Sent) => Promise<void>): Promise<Sent[]> {
   const sent: Sent[] = []
   const sender = send ?? (async (input: Sent) => { sent.push(input) })
-  for (let i = 0; i < times; i += 1) await evaluateSecurityThreshold(event, sender)
+  for (let i = 0; i < times; i += 1) await evaluateSecurityThreshold(event, { send: sender })
   return sent
 }
 

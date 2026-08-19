@@ -1,4 +1,5 @@
 import { prisma } from '@/lib/prisma'
+import { decryptRunText, decryptRunValue } from '@/lib/agents/run-crypto'
 import { withAuthenticatedApi } from '@/lib/server/api-handler'
 import { executionVisibilityScope } from '@/lib/server/visibility'
 
@@ -58,10 +59,20 @@ export const GET = withAuthenticatedApi(async (request, auth) => {
     : [[], [], []]
 
   const items = executions.map((execution) => ({
-    execution,
+    // Run data is encrypted at rest — decrypt input/output/plan (and message
+    // content below) back to their object/text form before serving. Identity
+    // for legacy plaintext rows. Transcript is omitted from this endpoint.
+    execution: {
+      ...execution,
+      input: decryptRunValue(execution.input),
+      output: decryptRunValue(execution.output),
+      plan: decryptRunValue(execution.plan),
+    },
     steps: steps.filter((step) => step.executionId === execution.id),
     events: events.filter((event) => event.executionId === execution.id),
-    messages: messages.filter((message) => message.executionId === execution.id),
+    messages: messages
+      .filter((message) => message.executionId === execution.id)
+      .map((message) => ({ ...message, content: decryptRunText(message.content) })),
   }))
 
   return { success: true, items }

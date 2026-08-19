@@ -23,6 +23,7 @@ import { removeUserEventNodesFromGraph } from '@/lib/behavior/index-user-event'
 import { MAX_STALE_DAYS } from '@/lib/behavior/eligibility'
 import { getQueue, QUEUE_NAMES, workersEnabled } from '@/lib/queue/config'
 import { auditRetentionDays } from '@/lib/audit'
+import { decryptRunValue } from '@/lib/agents/run-crypto'
 
 export const runtime = 'nodejs'
 export const maxDuration = 300
@@ -92,8 +93,8 @@ export async function GET(request: Request) {
           visibility: 'private',
           content: {
             objective: execution.agentTask?.objective,
-            input: execution.input,
-            output: execution.output,
+            input: decryptRunValue(execution.input),
+            output: decryptRunValue(execution.output),
             status: execution.status,
             error: execution.error,
             startedAt: execution.startedAt,
@@ -253,6 +254,7 @@ export async function GET(request: Request) {
     // onto real AES-256-GCM so "encrypted knowledge" holds for pre-cutover
     // data too. Bounded; self-skips when no ENCRYPTION_KEY is configured.
     const encryptionBackfill = await (await import('@/lib/knowledge/encrypt-backfill')).encryptLegacyKnowledge()
+    const runDataBackfill = await (await import('@/lib/agents/encrypt-backfill')).encryptLegacyAgentRuns()
 
     // Explicitly expiring knowledge is the only knowledge the general sweep
     // removes. Workspace-retained documents survive until a user deletes them
@@ -281,8 +283,8 @@ export async function GET(request: Request) {
       where: { createdAt: { lt: auditCutoff } },
     })).count
 
-    apiLogger.info('cron/retention complete', { days, executionsDeleted, knowledgePromoted, transcriptsPruned, workflowEventsDeleted, userEventsDeleted, patternsExpired, reEmbedded, encryptionBackfill, expiredKnowledgeDeleted, deadLettersPruned, auditEventsDeleted, auditDays })
-    return Response.json({ success: true, days, executionsDeleted, knowledgePromoted, transcriptsPruned, workflowEventsDeleted, userEventsDeleted, patternsExpired, reEmbedded, encryptionBackfill, expiredKnowledgeDeleted, deadLettersPruned, auditEventsDeleted, auditDays })
+    apiLogger.info('cron/retention complete', { days, executionsDeleted, knowledgePromoted, transcriptsPruned, workflowEventsDeleted, userEventsDeleted, patternsExpired, reEmbedded, encryptionBackfill, runDataBackfill, expiredKnowledgeDeleted, deadLettersPruned, auditEventsDeleted, auditDays })
+    return Response.json({ success: true, days, executionsDeleted, knowledgePromoted, transcriptsPruned, workflowEventsDeleted, userEventsDeleted, patternsExpired, reEmbedded, encryptionBackfill, runDataBackfill, expiredKnowledgeDeleted, deadLettersPruned, auditEventsDeleted, auditDays })
   } catch (error) {
     apiLogger.error('cron/retention failed', { error: error instanceof Error ? error.message : String(error) })
     return Response.json({ success: false, error: 'Internal server error' }, { status: 500 })

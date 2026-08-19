@@ -27,7 +27,7 @@
  */
 
 import { apiLogger } from '@/lib/logger'
-import { rateLimit } from '@/lib/ratelimit'
+import { rateLimit, type RateLimitResult } from '@/lib/ratelimit'
 import { afterResponse } from '@/lib/server/after-response'
 import { sendRawEmail } from '@/lib/email/send'
 import { redactSecrets } from '@/lib/llm/guardrails'
@@ -37,6 +37,7 @@ export type SecurityEventKind =
   | 'captcha.failed'
   | 'auth.failed'
   | 'malware.detected'
+  | 'egress.blocked'
 
 /**
  * How many events in what window before this is worth waking someone for.
@@ -51,10 +52,36 @@ const THRESHOLDS: Record<SecurityEventKind, { count: number; windowSeconds: numb
   'captcha.failed': { count: 25, windowSeconds: 600 },
   'auth.failed': { count: 50, windowSeconds: 600 },
   'malware.detected': { count: 1, windowSeconds: 3600 },
+  // A workflow or agent repeatedly trying to reach a blocked host is either a
+  // misconfiguration or an exfiltration attempt probing for a way out. A
+  // handful is noise; a burst is worth a look.
+  'egress.blocked': { count: 20, windowSeconds: 600 },
 }
 
 /** At most one email per kind per hour, however long the attack runs. */
 const ALERT_COOLDOWN_MS = 60 * 60 * 1000
+
+/**
+ * Process-local cooldown for the "detection is degraded" alert. It cannot use
+ * the shared limiter for dedup — the shared limiter being down is the very
+ * thing it reports, so its dedup would be degraded too. In-memory means one
+ * alert per process per hour; during a real outage every warm instance sends
+ * at most one, which is the acceptable ceiling.
+ */
+let lastDegradedAlertAt = 0
+
+/** Test seam: reset the process-local degraded-alert cooldown. */
+export function resetSecurityAlertState(): void {
+  lastDegradedAlertAt = 0
+}
+
+export type RateLimiterFn = (key: string, options: { limit: number; windowMs: number }) => Promise<RateLimitResult>
+
+interface EvaluateDeps {
+  send?: AlertSender
+  limiter?: RateLimiterFn
+  now?: () => number
+}
 
 export interface SecurityEvent {
   kind: SecurityEventKind
@@ -99,25 +126,41 @@ export type AlertSender = (input: { to: string; subject: string; text: string })
  * therefore unawaitable by construction — a test driving the public function
  * would be racing the thing it is asserting on.
  */
-export async function evaluateSecurityThreshold(event: SecurityEvent, send: AlertSender = sendRawEmail): Promise<void> {
+export async function evaluateSecurityThreshold(event: SecurityEvent, deps: EvaluateDeps = {}): Promise<void> {
   if (!securityAlertsConfigured()) return
+
+  const send = deps.send ?? sendRawEmail
+  const limiter = deps.limiter ?? rateLimit
+  const now = deps.now ?? Date.now
 
   const threshold = THRESHOLDS[event.kind]
   if (!threshold) return
 
   // The counter IS a rate limiter: "not ok" means this kind has occurred more
   // than `count` times inside the window, which is precisely the condition.
-  const counter = await rateLimit(`secevent:${event.kind}`, {
+  const counter = await limiter(`secevent:${event.kind}`, {
     limit: threshold.count,
     windowMs: threshold.windowSeconds * 1000,
   })
+
+  // Fail closed: a degraded counter means the detector is blind right now.
+  // Alert on THAT (deduped process-locally) rather than the previous silent
+  // under-count.
+  if (counter.degraded) {
+    if (now() - lastDegradedAlertAt >= ALERT_COOLDOWN_MS) {
+      lastDegradedAlertAt = now()
+      await sendDegradedAlert(event, send)
+    }
+    return
+  }
+
   if (counter.ok) return
 
   // Second limiter as the alert de-duplicator: once the threshold is crossed
   // the counter keeps reporting "not ok" for the rest of the window, so
   // without this every subsequent event would send another email — turning a
   // detection into an outage of its own.
-  const mayAlert = await rateLimit(`secalert:${event.kind}`, { limit: 1, windowMs: ALERT_COOLDOWN_MS })
+  const mayAlert = await limiter(`secalert:${event.kind}`, { limit: 1, windowMs: ALERT_COOLDOWN_MS })
   if (!mayAlert.ok) return
 
   await sendAlert(event, threshold, send)
@@ -159,6 +202,45 @@ async function sendAlert(
     // losing the email must not turn a detection into an exception.
     apiLogger.error('security alert email failed', {
       kind: event.kind,
+      error: error instanceof Error ? error.message : String(error),
+    })
+  }
+}
+
+/**
+ * The fail-closed signal: the counting backend is unreachable, so thresholds
+ * cannot be evaluated and attacks in progress would go unnoticed. This is a
+ * distinct alert from a threshold crossing — the action is "check Redis/Upstash",
+ * not "check the attacker".
+ */
+async function sendDegradedAlert(event: SecurityEvent, send: AlertSender): Promise<void> {
+  const to = process.env.SECURITY_ALERT_EMAIL
+  if (!to) return
+
+  apiLogger.error('security: detection degraded', {
+    reason: 'rate-limit backend unreachable — thresholds cannot be evaluated',
+    lastEventKind: event.kind,
+  })
+
+  const text = [
+    'Security detection is DEGRADED.',
+    '',
+    'The shared rate-limit backend (Redis/Upstash) is unreachable, so security',
+    'thresholds cannot be counted and an attack in progress may not raise an',
+    'alert. Endpoints continue to serve (limits fail open by design); only the',
+    'detector is blind.',
+    '',
+    `Environment: ${process.env.VERCEL_ENV || process.env.NODE_ENV || 'unknown'}`,
+    'Action: check the rate-limit backend. Individual events are still in the',
+    'application logs under "security:".',
+    '',
+    'Further degraded-detection alerts are suppressed for one hour per instance.',
+  ].join('\n')
+
+  try {
+    await send({ to, subject: '[Sublime security] detection degraded — counting backend unreachable', text })
+  } catch (error) {
+    apiLogger.error('security degraded alert email failed', {
       error: error instanceof Error ? error.message : String(error),
     })
   }

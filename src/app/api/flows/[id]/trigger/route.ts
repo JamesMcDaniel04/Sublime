@@ -3,7 +3,8 @@ import { prisma, systemPrisma } from '@/lib/prisma'
 import { apiLogger } from '@/lib/logger'
 import { dispatchFlowExecution } from '@/features/flows/execute-flow'
 import { hashToken, timingSafeEqualHex } from '@/lib/crypto/secrets'
-import { rateLimit } from '@/lib/ratelimit'
+import { recordSecurityEvent } from '@/lib/security/alerts'
+import { webhookAuthFailureEvent, webhookThrottled } from '@/lib/server/webhook-guard'
 import { flowInputFromWebhookBody } from '@/lib/flows/input'
 import { ApiError } from '@/lib/server/api-handler'
 import { assertOrganizationBillingActive } from '@/lib/billing/enforce'
@@ -93,9 +94,11 @@ function queryParams(request: NextRequest): Record<string, string | string[]> {
 async function handle(request: NextRequest) {
   try {
     const id = request.nextUrl.pathname.split('/').at(-2)
-    // Public endpoint — throttle per flow id to blunt secret-guessing floods.
-    const limited = await rateLimit(`flow-trigger:${id ?? 'unknown'}`, { limit: 60, windowMs: 60_000 })
-    if (!limited.ok) return NextResponse.json({ success: false, error: 'Rate limit exceeded' }, { status: 429 })
+    // Public endpoint — throttle per flow id AND per caller IP so one origin
+    // cannot fan a secret-guessing sweep across many flow ids.
+    if (await webhookThrottled(request, { key: 'flow-trigger', resourceId: id ?? 'unknown' })) {
+      return NextResponse.json({ success: false, error: 'Rate limit exceeded' }, { status: 429 })
+    }
 
     // systemPrisma: session-less webhook trigger (per-flow secret, no org context); flow id is globally unique.
     // mode=test exists for the pre-publish workflow: point a real upstream at a
@@ -122,6 +125,10 @@ async function handle(request: NextRequest) {
       } catch { provided = '' }
     }
     if (!flow || (authMode !== 'none' && (!hash || !provided || !timingSafeEqualHex(hashToken(provided), hash)))) {
+      let reason: 'unknown_resource' | 'missing_secret' | 'invalid_secret' = 'invalid_secret'
+      if (!flow) reason = 'unknown_resource'
+      else if (!provided) reason = 'missing_secret'
+      recordSecurityEvent(webhookAuthFailureEvent(request, { route: 'flow.trigger', resourceId: id ?? 'unknown', reason }))
       return NextResponse.json({ success: false, error: 'Invalid trigger secret' }, { status: 401 })
     }
     if (trigger.type !== 'webhook') {

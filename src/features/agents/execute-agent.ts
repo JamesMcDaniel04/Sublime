@@ -51,6 +51,8 @@ import { reflectAndRemember } from './reflection'
 import { shouldStrategize, goalSection, goalWorkSection, strategizeSection, STRATEGIZE_RETRIEVAL } from './strategy'
 import { createPlan, applyPlanUpdate, auditPlan, PLAN_TOOLS, type RunPlan, type PlanStepStatus } from './plan-artifact'
 import { isWriteProvider } from '@/lib/connectors/registry'
+import { auditEgressHost } from '@/lib/agents/audit-host'
+import { decryptRunValue, encryptRunText, encryptRunValue } from '@/lib/agents/run-crypto'
 import { approvalQuestion, isApprovalReply, toolNeedsApproval, type PendingApproval } from './approval'
 import { serializeToolResult } from '@/lib/agents/tool-result'
 import { recordToolCallEvents } from '@/lib/behavior/record-event'
@@ -417,6 +419,15 @@ export async function runAgentExecution(
     : null
   if (data.executionId && !queuedExecution) throw new Error('Queued execution does not match this tenant and agent')
 
+  // Decrypt run data at rest back to its object form before any downstream read
+  // (Array.isArray checks, coerceToIR, the plan seed). Identity for legacy
+  // plaintext rows, so this is safe across the rollout. See run-crypto.ts.
+  if (queuedExecution) {
+    const mutable = queuedExecution as { transcript: unknown; plan: unknown }
+    mutable.transcript = decryptRunValue(queuedExecution.transcript)
+    mutable.plan = decryptRunValue(queuedExecution.plan)
+  }
+
   const resuming = Boolean(data.resume)
   if (resuming && !queuedExecution) throw new Error('Resume requested without an execution')
 
@@ -527,8 +538,9 @@ export async function runAgentExecution(
       where: { id: data.continueExecutionId, agentTaskId: agentId, organizationId },
       select: { transcript: true },
     })
-    if (Array.isArray(prior?.transcript) && prior.transcript.length) {
-      transcript = coerceToIR(prior.transcript as unknown[])
+    const priorTranscript = decryptRunValue(prior?.transcript)
+    if (Array.isArray(priorTranscript) && priorTranscript.length) {
+      transcript = coerceToIR(priorTranscript as unknown[])
       runner.appendUserMessage(transcript, data.input || agent.objective)
     } else {
       transcript = runner.start(data.input || agent.objective)
@@ -588,7 +600,7 @@ export async function runAgentExecution(
           agentTaskId: agent.id,
           status: 'running',
           model: runner.model,
-          input: { prompt: data.input || agent.objective },
+          input: encryptRunValue({ prompt: data.input || agent.objective }),
           trigger: { type: 'schedule' },
           metadata: { title: agentMetadata.title || agent.description },
           userId,
@@ -609,7 +621,7 @@ export async function runAgentExecution(
 
   if (!resuming) {
     await prisma.executionMessage.create({
-      data: { executionId: execution.id, role: 'user', content: data.input || agent.objective },
+      data: { executionId: execution.id, role: 'user', content: encryptRunText(data.input || agent.objective) },
     })
   }
 
@@ -631,7 +643,7 @@ export async function runAgentExecution(
     const cancelSummary = 'Run cancelled by the user.'
     if (!alreadyFinalized) {
       await prisma.executionMessage.create({
-        data: { executionId: execution.id, role: 'agent', content: cancelSummary },
+        data: { executionId: execution.id, role: 'agent', content: encryptRunText(cancelSummary) },
       })
       // systemPrisma: id-keyed terminal write on worker job data; execution id was
       // validated against this tenant when execution was loaded/created above.
@@ -640,7 +652,7 @@ export async function runAgentExecution(
         data: {
           status: 'cancelled',
           error: null,
-          transcript: jsonValue(transcript),
+          transcript: jsonValue(encryptRunValue(transcript)),
           inputTokens: { increment: usage.inputTokens },
           outputTokens: { increment: usage.outputTokens },
           executionTime: { increment: Date.now() - segmentStart },
@@ -1068,6 +1080,10 @@ export async function runAgentExecution(
               })
             }
             await recordEvent(execution.id, held.stepId || null, 'approval.approved', { name: held.node })
+            const heldHost = auditEgressHost(held.input, heldBinding.serverUrl)
+            const heldDetail: Record<string, unknown> = {}
+            if (heldBinding.credentialRef) heldDetail.credentialRef = heldBinding.credentialRef
+            if (heldHost) heldDetail.host = heldHost
             await recordAudit({
               organizationId,
               executionId: execution.id,
@@ -1077,9 +1093,9 @@ export async function runAgentExecution(
               tool: held.toolName,
               resourceType: heldBinding.provider,
               payload: held.input,
-              // Which stored credential authenticated the call — the join a
-              // key rotation needs. A reference, never a secret.
-              ...(heldBinding.credentialRef ? { detail: { credentialRef: heldBinding.credentialRef } } : {}),
+              // Which stored credential authenticated the call and which host it
+              // reached — the join a key rotation needs. References, never secrets.
+              ...(Object.keys(heldDetail).length ? { detail: heldDetail } : {}),
             })
             content = serializeToolResult(result)
           } catch (error) {
@@ -1112,16 +1128,17 @@ export async function runAgentExecution(
     // The persisted in-run plan (plan-artifact.ts). Seeded from the row so a
     // resumed run keeps the plan it set before suspending; written back on
     // every change so the artifact survives crashes mid-run.
+    const seededPlan = decryptRunValue(execution.plan)
     let runPlan: RunPlan | null =
-      execution.plan && typeof execution.plan === 'object' && !Array.isArray(execution.plan)
-        ? (execution.plan as unknown as RunPlan)
+      seededPlan && typeof seededPlan === 'object' && !Array.isArray(seededPlan)
+        ? (seededPlan as unknown as RunPlan)
         : null
     const persistPlan = async () => {
       // systemPrisma: id-keyed plan checkpoint on worker job data; execution id
       // was validated against this tenant when it was loaded/created above.
       await systemPrisma.agentExecution.update({
         where: { id: execution.id },
-        data: { plan: jsonValue(runPlan) },
+        data: { plan: jsonValue(encryptRunValue(runPlan)) },
       })
     }
     // Why the run stopped early, if it did — drives the run.capped event and a
@@ -1334,6 +1351,14 @@ export async function runAgentExecution(
           // Immutable audit trail. Write classification derives from the
           // connector registry (isWriteProvider) — nango:*, slack, email, AND
           // the http builtin — never a local regex that can drift from it.
+          // Recover the destination host for the audit detail (payload is
+          // hashed, so the host would otherwise be unrecoverable — see
+          // auditEgressHost). "Rotate this key, show me every host it reached"
+          // is now answerable on the agent plane too, not just flow HTTP.
+          const auditHost = auditEgressHost(call.input, binding.serverUrl)
+          const auditDetail: Record<string, unknown> = {}
+          if (binding.credentialRef) auditDetail.credentialRef = binding.credentialRef
+          if (auditHost) auditDetail.host = auditHost
           await recordAudit({
             organizationId,
             executionId: execution.id,
@@ -1343,7 +1368,7 @@ export async function runAgentExecution(
             tool: call.name,
             resourceType: binding.provider,
             payload: call.input,
-            ...(binding.credentialRef ? { detail: { credentialRef: binding.credentialRef } } : {}),
+            ...(Object.keys(auditDetail).length ? { detail: auditDetail } : {}),
           })
           results.push({ toolCallId: call.id, content: serializeToolResult(result) })
         } catch (error) {
@@ -1418,7 +1443,7 @@ export async function runAgentExecution(
           ...(suggestedAnswer ? { suggestedAnswer: { content: suggestedAnswer.content, memoryId: suggestedAnswer.memoryId } } : {}),
         })
         await prisma.executionMessage.create({
-          data: { executionId: execution.id, role: 'agent', content: pendingAsk.question },
+          data: { executionId: execution.id, role: 'agent', content: encryptRunText(pendingAsk.question) },
         })
         // systemPrisma: id-keyed terminal write on worker job data; execution id was
         // validated against this tenant when execution was loaded/created above.
@@ -1426,7 +1451,7 @@ export async function runAgentExecution(
           where: { id: execution.id },
           data: {
             status: 'waiting_for_input',
-            transcript: jsonValue(transcript),
+            transcript: jsonValue(encryptRunValue(transcript)),
             inputTokens: { increment: usage.inputTokens },
             outputTokens: { increment: usage.outputTokens },
             executionTime: { increment: Date.now() - segmentStart },
@@ -1465,7 +1490,7 @@ export async function runAgentExecution(
         pendingApprovalRequest.collectedResults = results
         const question = approvalQuestion(pendingApprovalRequest.node, pendingApprovalRequest.input)
         await prisma.executionMessage.create({
-          data: { executionId: execution.id, role: 'agent', content: question },
+          data: { executionId: execution.id, role: 'agent', content: encryptRunText(question) },
         })
         await recordEvent(execution.id, pendingApprovalRequest.stepId, 'agent.question', { question, approval: true })
         // systemPrisma: id-keyed terminal write on worker job data; execution id was
@@ -1474,7 +1499,7 @@ export async function runAgentExecution(
           where: { id: execution.id },
           data: {
             status: 'waiting_for_input',
-            transcript: jsonValue(transcript),
+            transcript: jsonValue(encryptRunValue(transcript)),
             inputTokens: { increment: usage.inputTokens },
             outputTokens: { increment: usage.outputTokens },
             executionTime: { increment: Date.now() - segmentStart },
@@ -1517,7 +1542,7 @@ export async function runAgentExecution(
       // was validated against this tenant when execution was loaded/created above.
       await systemPrisma.$executeRaw`
         UPDATE "agent_executions"
-        SET "transcript" = ${JSON.stringify(transcript)}::jsonb,
+        SET "transcript" = ${JSON.stringify(encryptRunValue(transcript))}::jsonb,
             "metadata" = COALESCE("metadata", '{}'::jsonb) || jsonb_build_object('turnCursor', ${turn + 1}::int)
         WHERE "id" = ${execution.id}`
     }
@@ -1570,7 +1595,7 @@ export async function runAgentExecution(
     const headline = await generateHeadline(summary)
 
     await prisma.executionMessage.create({
-      data: { executionId: execution.id, role: 'agent', content: summary },
+      data: { executionId: execution.id, role: 'agent', content: encryptRunText(summary) },
     })
     // Status-guarded terminal write: only a still-running row may be
     // completed. If the reaper (or a cancel that landed after the
@@ -1583,8 +1608,8 @@ export async function runAgentExecution(
       where: { id: execution.id, status: 'running' },
       data: {
         status: 'completed',
-        output: jsonValue(output),
-        transcript: jsonValue(transcript),
+        output: jsonValue(encryptRunValue(output)),
+        transcript: jsonValue(encryptRunValue(transcript)),
         inputTokens: { increment: usage.inputTokens },
         outputTokens: { increment: usage.outputTokens },
         executionTime: { increment: Date.now() - segmentStart },
@@ -1741,7 +1766,7 @@ export async function runAgentExecution(
         status: 'failed',
         // M5 — cap persisted error strings so they can't bloat the row.
         error: message.slice(0, 300),
-        transcript: jsonValue(transcript),
+        transcript: jsonValue(encryptRunValue(transcript)),
         inputTokens: { increment: usage.inputTokens },
         outputTokens: { increment: usage.outputTokens },
         executionTime: { increment: Date.now() - segmentStart },
