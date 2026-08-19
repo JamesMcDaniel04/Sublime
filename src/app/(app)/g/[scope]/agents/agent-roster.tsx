@@ -103,9 +103,16 @@ function RosterTile({
           <button
             type="button"
             onClick={onOpen}
-            className="text-left after:absolute after:inset-0 after:rounded-xl focus:outline-none"
+            // block w-full min-w-0: a <button> is inline-block and sizes to its
+            // content, so the truncate on the span inside had a box exactly as
+            // wide as the text and clipped nothing — the title ran past the card.
+            className="block w-full min-w-0 text-left after:absolute after:inset-0 after:rounded-xl focus:outline-none"
           >
-            <span className="block truncate font-semibold leading-tight">{entry.name}</span>
+            {/* Two lines, not one: agents get long descriptive names ("New Lead
+                → Enrich → Salesforce Opportunity") that a single truncated line
+                renders as "New Lead → …", which identifies nothing. The title
+                attribute carries the full name for the cases that still clip. */}
+            <span className="line-clamp-2 font-semibold leading-tight" title={entry.name}>{entry.name}</span>
           </button>
           <p className="mt-0.5 truncate text-sm text-muted-foreground">{role}</p>
           {entry.kind === 'worker' && (

@@ -5,6 +5,7 @@ import { useSearchParams } from 'next/navigation'
 import { useScopedRouter } from '@/lib/client/use-scoped-router'
 import { ALL_SCOPE, useScope } from '@/lib/client/scoped-href'
 import { useCachedJson } from '@/lib/client/use-cached-json'
+import { NEW_AGENT, initialAgentSelection, syncAgentSelection } from '@/lib/client/agent-selection'
 import { toast } from 'sonner'
 import { AlertCircle, ArrowLeft, Copy, FileText, List, Loader2, MoreHorizontal, Play, Plus, Settings2, Sparkles, Trash2, X } from 'lucide-react'
 import { AgentActivityPane, resultText, type RunMutation } from './agent-activity-pane'
@@ -66,8 +67,6 @@ type GranolaNote = {
   created_at: string | null
 }
 
-/** Sentinel selection meaning "setting up a brand-new agent". */
-const NEW_AGENT = 'new'
 
 /**
  * Fields the serialized agent (from /api/snapshot and /api/agents) carries
@@ -137,7 +136,12 @@ function AgentHQ() {
   const [loading, setLoading] = useState(() => !initialSnapshot)
   const [activityLoadingId, setActivityLoadingId] = useState<string | null>(null)
   const activityLoadedIdsRef = useRef(new Set<string>())
-  const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null)
+  // Seeded from the URL so the right surface paints on the FIRST render.
+  // Reconciling this in an effect instead painted the roster for a frame
+  // before swapping to the workspace — the flash on every agent link.
+  const [selectedAgentId, setSelectedAgentId] = useState<string | null>(
+    () => initialAgentSelection(searchParams.get('agent')),
+  )
   const [configureOpen, setConfigureOpen] = useState(false)
   const [focusRunId, setFocusRunId] = useState<string | null>(null)
   // The run expanded in the left pane, whose output renders in the right pane.
@@ -303,44 +307,37 @@ function AgentHQ() {
   // shows, and silently landing on the most recent agent would mean nobody
   // ever saw their team.
 
-  // Deep links from the command palette and sidebar: ?agent=<id|new>, ?run=<id>.
-  // The param is no longer scrubbed — it is what keeps you inside an agent
-  // across a refresh now that the bare URL means "show the roster".
-  useEffect(() => {
-    const agentParam = searchParams.get('agent')
-    if (!agentParam) {
-      // Browser-back out of an agent lands on the roster.
-      setSelectedAgentId(null)
-      return
-    }
-    if (agentParam === selectedAgentId) return
-    if (agentParam === NEW_AGENT) {
-      setSelectedAgentId(NEW_AGENT)
-      setConfigureOpen(false)
-      setFocusRunId(null)
-      return
-    }
-    if (!agents.length) return
-    if (agents.some((candidate) => candidate.id === agentParam)) {
-      setSelectedAgentId(agentParam)
-      setConfigureOpen(false)
-      setFocusRunId(null)
-    }
-  }, [searchParams, agents, selectedAgentId])
+  const agentIds = useMemo(() => agents.map((agent) => agent.id), [agents])
 
-  // Mirror the selection back into the URL. State stays authoritative — every
-  // create/duplicate/delete path already sets it directly — so this is a
-  // one-way sync out, guarded on equality so the two effects cannot loop.
-  // Entering an agent from the roster PUSHES (Back returns to the roster);
-  // every other transition replaces, so deleting an agent leaves no history
-  // entry pointing at something that no longer exists.
+  // ONE reconciliation between the URL and the selection. Two effects used to
+  // share this job — one adopting the param, one mirroring state back out —
+  // and they could not tell which side had moved, so a cold load raced: the
+  // adopter bailed out waiting for the roster while the mirror stripped the
+  // param the user had deep-linked to. The decision now lives in
+  // lib/client/agent-selection.ts, where it is testable.
+  const lastParamRef = useRef<string | null>(searchParams.get('agent'))
   useEffect(() => {
-    const current = searchParams.get('agent')
-    if (current === selectedAgentId) return
-    const href = selectedAgentId ? `/agents?agent=${selectedAgentId}` : '/agents'
-    if (current === null && selectedAgentId) router.push(href, { scroll: false })
-    else router.replace(href, { scroll: false })
-  }, [selectedAgentId, searchParams, router])
+    const param = searchParams.get('agent')
+    const paramChanged = param !== lastParamRef.current
+    lastParamRef.current = param
+    const action = syncAgentSelection({
+      param,
+      selected: selectedAgentId,
+      knownAgentIds: agentIds,
+      rosterReady: !loading,
+      paramChanged,
+    })
+    if (action.select !== undefined) {
+      setSelectedAgentId(action.select)
+      setConfigureOpen(false)
+      setFocusRunId(null)
+    }
+    if (action.url) {
+      const href = action.url.agentId ? `/agents?agent=${action.url.agentId}` : '/agents'
+      if (action.url.mode === 'push') router.push(href, { scroll: false })
+      else router.replace(href, { scroll: false })
+    }
+  }, [searchParams, selectedAgentId, agentIds, loading, router])
 
   useEffect(() => {
     const runParam = searchParams.get('run')
