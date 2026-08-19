@@ -12,7 +12,6 @@ import {
   ChevronsUpDown,
   Folder,
   Gauge,
-  History,
   ImagePlus,
   ListTree,
   Loader2,
@@ -89,8 +88,9 @@ const navigation = [
   { name: 'Goals', href: '/goals', icon: Target, description: 'The numbers your workspace is accountable to' },
   // Workspace-level, so it deliberately carries no /g/<scope> prefix —
   // scopedNavHref leaves an unscoped path alone (see SCOPED_PREFIXES).
-  { name: 'Activity', href: '/activity', icon: History, description: 'Everything your connected tools did' },
-  { name: 'Traces', href: '/traces', icon: ListTree, description: 'What your agents and flows did, step by step' },
+  // Activity folded in here as a tab (/traces?tab=activity) — runs and tool
+  // history are one question, so they are one destination.
+  { name: 'Traces', href: '/traces', icon: ListTree, description: 'What your agents, flows and connected tools did' },
   { name: 'Agents', href: '/agents', icon: Bot, description: 'Specialized agents serving your goals' },
   { name: 'Flows', href: '/flows', icon: Workflow, description: 'Orchestrate multi-step work' },
   { name: 'Integrations', href: '/integrations', icon: Plug, description: 'Connect the tools you already use' },

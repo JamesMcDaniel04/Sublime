@@ -1,7 +1,9 @@
 'use client'
 
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { Suspense, useCallback, useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
+import dynamic from 'next/dynamic'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { Bot, ListTree, Search, Workflow } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -61,7 +63,7 @@ const fmtTokens = (tokens: { input: number; output: number }): string => {
   return total >= 1_000_000 ? `${(total / 1_000_000).toFixed(1)}M tok` : `${Math.round(total / 1000)}k tok`
 }
 
-export default function TracesPage() {
+function RunsTab() {
   const [traces, setTraces] = useState<TraceRow[]>([])
   const [cursor, setCursor] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
@@ -118,13 +120,6 @@ export default function TracesPage() {
 
   return (
     <div className="space-y-6">
-      <PageHeader
-        eyebrow="Workspace"
-        icon={ListTree}
-        title="Traces"
-        description="Every agent and flow run — the tools they called, the context they retrieved, and what it cost."
-      />
-
       <div className="flex flex-wrap items-center gap-2">
         <div className="flex items-center gap-1" role="group" aria-label="Filter by kind">
           {KIND_FILTERS.map((filter) => (
@@ -232,5 +227,93 @@ export default function TracesPage() {
         </>
       )}
     </div>
+  )
+}
+
+/**
+ * The tool-activity feed carries its own billing fetch, backfill panel and
+ * source list. Loaded only when that tab is opened, so the run stream — the
+ * default view — does not pay for a surface most visits never see. Same
+ * technique the agents page uses for its config form.
+ */
+const TracesActivityTab = dynamic(
+  () => import('./traces-activity-tab').then((m) => m.TracesActivityTab),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="space-y-4" aria-busy="true" aria-label="Loading activity">
+        <Skeleton className="h-48 rounded-xl" />
+        <Skeleton className="h-64 rounded-xl" />
+      </div>
+    ),
+  },
+)
+
+type TraceTab = 'runs' | 'activity'
+
+const TABS: Array<{ key: TraceTab; label: string }> = [
+  { key: 'runs', label: 'Runs' },
+  // "Tool activity", not "Activity": inside a page called Traces, a tab named
+  // Activity reads as a category containing itself.
+  { key: 'activity', label: 'Tool activity' },
+]
+
+/**
+ * Traces is one surface with two streams: what Sublime did (agent and flow
+ * runs) and what the connected tools did (the activity ledger). They were two
+ * sidebar destinations reading two different sources; folding them together
+ * leaves one place to answer "what happened?".
+ *
+ * The open tab lives in the URL so it can be linked and survives a refresh —
+ * `/activity` now redirects to `?tab=activity`.
+ */
+function TracesSurface() {
+  const searchParams = useSearchParams()
+  const router = useRouter()
+  const tab: TraceTab = searchParams.get('tab') === 'activity' ? 'activity' : 'runs'
+
+  return (
+    <div className="space-y-6">
+      <PageHeader
+        eyebrow="Workspace"
+        icon={ListTree}
+        title="Traces"
+        description="Every agent and flow run, and everything your connected tools did — what ran, what it called, and what it cost."
+      />
+      {/* The same segmented control the agents page uses for Agents↔Templates,
+          rather than a Radix Tabs set: plain buttons cost nothing on a route
+          that pulls in no other Radix primitive (measured: +53 kB), and the two
+          surfaces then switch views the same way. */}
+      <div className="flex items-center gap-1 rounded-full bg-muted p-1" role="group" aria-label="Choose a stream">
+        {TABS.map((entry) => (
+          <button
+            key={entry.key}
+            type="button"
+            aria-pressed={tab === entry.key}
+            onClick={() =>
+              router.replace(entry.key === 'activity' ? '/traces?tab=activity' : '/traces', { scroll: false })
+            }
+            className={cn(
+              'rounded-full px-4 py-1.5 text-sm font-medium transition-colors duration-150',
+              tab === entry.key ? 'bg-card text-foreground shadow-1' : 'text-muted-foreground hover:text-foreground',
+            )}
+          >
+            {entry.label}
+          </button>
+        ))}
+      </div>
+
+      {tab === 'activity' ? <TracesActivityTab /> : <RunsTab />}
+    </div>
+  )
+}
+
+export default function TracesPage() {
+  // useSearchParams needs a boundary; the fallback mirrors the loaded layout so
+  // the header does not jump when the tabs arrive.
+  return (
+    <Suspense fallback={<Skeleton className="h-64 rounded-xl" />}>
+      <TracesSurface />
+    </Suspense>
   )
 }
