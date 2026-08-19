@@ -9,6 +9,8 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { Input } from '@/components/ui/input'
+import { AgentAvatar } from '@/components/agents/agent-avatar'
+import { randomAvatarSeed } from '@/lib/agents/avatar'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
@@ -93,6 +95,10 @@ export type AgentDraft = {
   requiredIntegrations: string[]
   skills: string[]
   icon: string
+  /** Seed for the generated roster portrait; empty derives it from the agent id. */
+  avatarSeed?: string
+  /** One-or-two-word role shown on the roster; empty asks for a fresh one. */
+  roleLabel?: string
   folder: string
   visibility: string
   /** Lets this agent delegate to other agents via the run_agent tool. */
@@ -603,6 +609,8 @@ export function AgentConfigForm({
       requiredIntegrations: source.requiredIntegrations || [],
       skills: source.skills || [],
       icon: source.icon || emptyDraft.icon,
+      avatarSeed: source.avatarSeed || '',
+      roleLabel: source.roleLabel || '',
       folder: source.folder || '',
       visibility: normalizeShareValue(source.visibility),
       allowSubagents: source.allowSubagents === true,
@@ -809,6 +817,12 @@ export function AgentConfigForm({
           tags,
           model: draft.model,
           icon: draft.icon,
+          ...(draft.avatarSeed ? { avatarSeed: draft.avatarSeed } : {}),
+          // Sent ONLY when the user actually changed it. Always sending the
+          // current label would defeat the server's invalidation: editing an
+          // agent's instructions is supposed to retire a role that described
+          // the old job (see PUT in api/agents/route.ts).
+          ...(draft.roleLabel !== (editingAgent?.roleLabel ?? '') ? { roleLabel: draft.roleLabel ?? '' } : {}),
           allowSubagents: draft.allowSubagents === true,
           subagentIds: draft.subagentIds ?? [],
           goal: draft.goal,
@@ -908,6 +922,38 @@ export function AgentConfigForm({
 
   return (
     <div className="space-y-4">
+      {/* Roster identity. Only for an agent that already exists — a new one is
+          given its face at creation, from its id. */}
+      {editingAgent?.id && (
+        <div className="flex items-center gap-4 rounded-lg border bg-muted/40 p-3">
+          <AgentAvatar
+            agent={{ id: editingAgent.id, avatarSeed: draft.avatarSeed || null }}
+            size="lg"
+            name={draft.title || 'This agent'}
+          />
+          <div className="min-w-0 flex-1 space-y-2">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setDraft({ ...draft, avatarSeed: randomAvatarSeed() })}
+            >
+              Try another look
+            </Button>
+            <div>
+              <Label htmlFor="role-label">Role</Label>
+              <Input
+                id="role-label"
+                value={draft.roleLabel ?? ''}
+                maxLength={24}
+                placeholder="Written for you when blank"
+                onChange={(event) => setDraft({ ...draft, roleLabel: event.target.value })}
+              />
+              <p className="mt-1 text-xs text-muted-foreground">One or two words, shown under the name on your team page.</p>
+            </div>
+          </div>
+        </div>
+      )}
       <div>
         <Label>Name</Label>
         <div className="flex gap-2">

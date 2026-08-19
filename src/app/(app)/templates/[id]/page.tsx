@@ -7,6 +7,9 @@ import { ArrowLeft, Bot, CalendarClock, Workflow } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { IntegrationChip } from '@/components/integrations/integration-chip'
 import { HtmlPreview, looksLikeHtml } from '@/components/ui/html-preview'
 import { missingIntegrations, connectedSlugSet } from '@/lib/templates/relevance'
@@ -48,6 +51,11 @@ type Template = {
 }
 
 type ProvisionKind = 'agent' | 'flow'
+
+/** Deploy as its own standalone agent — the behaviour before workers existed. */
+const SOLO = 'solo'
+/** Deploy under a brand-new worker, named in the adjacent field. */
+const NEW_WORKER = 'new'
 
 type CatalogConnection = { id: string; name: string }
 
@@ -99,6 +107,12 @@ export default function TemplateDetails() {
   const [loadError, setLoadError] = useState('')
   const [reloadKey, setReloadKey] = useState(0)
   const [deploying, setDeploying] = useState<ProvisionKind | null>(null)
+  // Which roster identity this template joins. A template no longer has to
+  // stand up its own agent — it can become another job for someone already
+  // on the team, so one avatar covers several jobs.
+  const [workers, setWorkers] = useState<{ id: string; name: string }[]>([])
+  const [assignTo, setAssignTo] = useState<string>(SOLO)
+  const [newWorkerName, setNewWorkerName] = useState('')
   const [connected, setConnected] = useState<Set<string>>(new Set())
   const [catalog, setCatalog] = useState<CatalogConnection[]>([])
   // Multi-account workspaces: provider slug → pinned catalog connection id.
@@ -129,6 +143,9 @@ export default function TemplateDetails() {
     getCachedJson<any>('/api/integrations/available', 30_000)
       .then((data) => setConnected(connectedSlugSet(data.tools || [])))
       .catch(() => setConnected(new Set()))
+    getCachedJson<any>('/api/workers', 30_000)
+      .then((data) => setWorkers(Array.isArray(data.workers) ? data.workers : []))
+      .catch(() => setWorkers([]))
     getCachedJson<any>('/api/flows/tool-catalog', 30_000)
       .then((data) => setCatalog(Array.isArray(data.connections) ? data.connections : []))
       .catch(() => setCatalog([]))
@@ -150,6 +167,24 @@ export default function TemplateDetails() {
     if (!template || deploying) return
     setDeploying(targetKind)
     try {
+      // Only agents join a worker; a flow is not a person on the roster.
+      let workerId: string | undefined
+      if (targetKind === 'agent' && assignTo !== SOLO) {
+        if (assignTo === NEW_WORKER) {
+          const created = await fetch('/api/workers', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name: newWorkerName.trim() || template.name }),
+          })
+          const createdBody = await created.json().catch(() => ({}))
+          // Hiring is a separate write, so a failure here must stop the deploy
+          // rather than quietly producing a standalone agent the user did not ask for.
+          if (!created.ok) throw new Error(createdBody.error || 'Could not create that worker.')
+          workerId = createdBody.worker?.id
+        } else {
+          workerId = assignTo
+        }
+      }
       const response = await fetch('/api/templates/provision', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -160,6 +195,7 @@ export default function TemplateDetails() {
           // (server degrades to DRAFT if the graph fails validation).
           activate: targetKind === 'flow',
           ...(Object.keys(accountChoices).length ? { connectionOverrides: accountChoices } : {}),
+          ...(workerId ? { workerId } : {}),
         }),
       })
       const data = await response.json().catch(() => ({}))
@@ -218,13 +254,42 @@ export default function TemplateDetails() {
                 <h1 className="text-2xl font-bold">{template.name}</h1>
                 <p className="mt-2 max-w-3xl text-muted-foreground">{template.description}</p>
               </div>
-              <div className="flex w-full shrink-0 flex-col gap-2 sm:w-auto sm:flex-row">
-                <Button variant="outline" onClick={() => connect('agent')} loading={deploying === 'agent'} disabled={Boolean(deploying) || missing.length > 0}>
-                  <Bot className="mr-1.5 h-4 w-4" />Connect to agent
-                </Button>
-                <Button onClick={() => connect('flow')} loading={deploying === 'flow'} disabled={Boolean(deploying) || missing.length > 0}>
-                  <Workflow className="mr-1.5 h-4 w-4" />Connect to flow
-                </Button>
+              <div className="flex w-full shrink-0 flex-col gap-2 sm:w-auto">
+                <div className="flex items-center gap-2">
+                  <Label htmlFor="assign-worker" className="shrink-0 text-xs font-normal text-muted-foreground">
+                    Agent joins
+                  </Label>
+                  <Select value={assignTo} onValueChange={setAssignTo}>
+                    <SelectTrigger id="assign-worker" className="h-9 sm:w-56">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value={SOLO}>Works alone</SelectItem>
+                      {workers.map((worker) => (
+                        <SelectItem key={worker.id} value={worker.id}>{worker.name}</SelectItem>
+                      ))}
+                      <SelectItem value={NEW_WORKER}>New worker…</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                {assignTo === NEW_WORKER && (
+                  <Input
+                    value={newWorkerName}
+                    maxLength={60}
+                    onChange={(event) => setNewWorkerName(event.target.value)}
+                    placeholder={`Name — defaults to ${template.name}`}
+                    aria-label="New worker name"
+                    className="h-9 sm:w-56"
+                  />
+                )}
+                <div className="flex flex-col gap-2 sm:flex-row">
+                  <Button variant="outline" onClick={() => connect('agent')} loading={deploying === 'agent'} disabled={Boolean(deploying) || missing.length > 0}>
+                    <Bot className="mr-1.5 h-4 w-4" />Connect to agent
+                  </Button>
+                  <Button onClick={() => connect('flow')} loading={deploying === 'flow'} disabled={Boolean(deploying) || missing.length > 0}>
+                    <Workflow className="mr-1.5 h-4 w-4" />Connect to flow
+                  </Button>
+                </div>
               </div>
             </div>
 

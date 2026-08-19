@@ -44,7 +44,45 @@ const STATUS_TITLE: Record<AgentAvatarStatus, string> = {
   idle: 'Idle',
 }
 
-function Hair({ style, color }: { style: number; color: string }) {
+/**
+ * Hair that falls BEHIND the head: length, volume, silhouette.
+ *
+ * Drawn before the face. Rendering these on top instead put long hair over the
+ * ears, where rectangular side panels read as headphone cups rather than hair.
+ */
+function HairBack({ style, color }: { style: number; color: string }) {
+  switch (style) {
+    case 3: // full curls — volume around the skull
+      return (
+        <g fill={color}>
+          <circle cx="34" cy="34" r="13" />
+          <circle cx="50" cy="26" r="14" />
+          <circle cx="66" cy="34" r="13" />
+        </g>
+      )
+    case 5: // ponytail, gathered behind one shoulder
+      return <path d="M64 30c10 2 15 12 13 26-2 8-6 13-11 15 4-10 4-21 0-30z" fill={color} />
+    case 6: // long and straight, past the shoulders
+      return <path d="M26 44c0-15 11-25 24-25s24 10 24 25v38H26z" fill={color} />
+    case 7: // bob, turning in at the jaw
+      return <path d="M25 45c0-16 11-26 25-26s25 10 25 26v11c0 7-5 12-12 12H37c-7 0-12-5-12-12z" fill={color} />
+    case 9: // locs falling either side
+      return (
+        <g fill={color}>
+          <path d="M26 44c0-15 11-25 24-25s24 10 24 25v22H26z" />
+          <circle cx="27" cy="60" r="5" />
+          <circle cx="27" cy="70" r="5" />
+          <circle cx="73" cy="60" r="5" />
+          <circle cx="73" cy="70" r="5" />
+        </g>
+      )
+    default:
+      return null
+  }
+}
+
+/** The cap, fringe and hairline, drawn over the forehead. */
+function HairFront({ style, color }: { style: number; color: string }) {
   switch (style) {
     case 0: // short crop
       return <path d="M29 40c0-13 9-21 21-21s21 8 21 21c0-8-9-11-21-11s-21 3-21 11z" fill={color} />
@@ -52,14 +90,8 @@ function Hair({ style, color }: { style: number; color: string }) {
       return <path d="M30 41c0-12 9-20 20-20s20 8 20 20c-3-6-10-9-20-9s-17 3-20 9z" fill={color} />
     case 2: // side part
       return <path d="M29 41c0-13 9-22 21-22 12 0 19 7 21 17-6-6-14-8-24-6-7 1-13 5-18 11z" fill={color} />
-    case 3: // full curls
-      return (
-        <g fill={color}>
-          <circle cx="36" cy="30" r="11" />
-          <circle cx="50" cy="24" r="12" />
-          <circle cx="64" cy="30" r="11" />
-        </g>
-      )
+    case 3: // curls sit behind; a soft hairline keeps the forehead from floating
+      return <path d="M31 39c3-9 10-14 19-14s16 5 19 14c-5-6-11-9-19-9s-14 3-19 9z" fill={color} />
     case 4: // bun
       return (
         <g fill={color}>
@@ -67,39 +99,10 @@ function Hair({ style, color }: { style: number; color: string }) {
           <path d="M29 40c0-13 9-21 21-21s21 8 21 21c0-8-9-11-21-11s-21 3-21 11z" />
         </g>
       )
-    case 5: // ponytail
-      return (
-        <g fill={color}>
-          <path d="M29 40c0-13 9-21 21-21s21 8 21 21c0-8-9-11-21-11s-21 3-21 11z" />
-          <path d="M69 34c7 3 9 12 7 22-4-4-7-8-9-14z" />
-        </g>
-      )
-    case 6: // long straight
-      return (
-        <g fill={color}>
-          <path d="M29 40c0-13 9-21 21-21s21 8 21 21c0-8-9-11-21-11s-21 3-21 11z" />
-          <path d="M27 38h5v34h-5zM68 38h5v34h-5z" />
-        </g>
-      )
-    case 7: // bob
-      return (
-        <g fill={color}>
-          <path d="M28 42c0-14 10-23 22-23s22 9 22 23c0-9-10-13-22-13s-22 4-22 13z" />
-          <path d="M26 40h6v22h-6zM68 40h6v22h-6z" />
-        </g>
-      )
     case 8: // close shave — the hairline itself is the shape
       return <path d="M32 38c4-5 10-8 18-8s14 3 18 8c-2-11-9-17-18-17s-16 6-18 17z" fill={color} />
-    default: // locs
-      return (
-        <g fill={color}>
-          <path d="M29 40c0-13 9-21 21-21s21 8 21 21c0-8-9-11-21-11s-21 3-21 11z" />
-          <circle cx="28" cy="46" r="4" />
-          <circle cx="28" cy="55" r="4" />
-          <circle cx="72" cy="46" r="4" />
-          <circle cx="72" cy="55" r="4" />
-        </g>
-      )
+    default: // 5, 6, 7, 9 — the length is behind; the front is the same soft cap
+      return <path d="M29 41c0-14 9-22 21-22s21 8 21 22c0-8-9-12-21-12s-21 4-21 12z" fill={color} />
   }
 }
 
@@ -240,17 +243,19 @@ function Portrait({ parts, clipId }: { parts: AvatarParts; clipId: string }) {
       </defs>
       <g clipPath={`url(#${clipId})`}>
         <circle cx="50" cy="50" r="50" fill={BACKDROP[parts.background]} />
-        {/* Neck first so the collar overlaps it. */}
+        {/* Length and volume go down first, so the face and ears sit in front of
+            them — hair drawn over the ears reads as headphones, not hair. */}
+        <HairBack style={parts.hair} color={hair} />
+        {/* Neck before the collar so the garment overlaps it. */}
         <path d="M44 62h12v14H44z" fill={skin} />
         <Attire style={parts.attire} color={ATTIRE[parts.attireColor]} />
-        <ellipse cx="50" cy="45" rx="21" ry="24" fill={skin} />
-        {/* Ears sit behind the hair shapes that cover them. */}
         <circle cx="29" cy="47" r="4" fill={skin} />
         <circle cx="71" cy="47" r="4" fill={skin} />
+        <ellipse cx="50" cy="45" rx="21" ry="24" fill={skin} />
         <Brows style={parts.brows} color={hair} />
         <Eyes style={parts.eyes} />
         <Mouth style={parts.mouth} />
-        <Hair style={parts.hair} color={hair} />
+        <HairFront style={parts.hair} color={hair} />
       </g>
     </svg>
   )
