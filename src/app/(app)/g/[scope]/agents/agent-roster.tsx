@@ -43,17 +43,36 @@ function statusOf(kpis: AgentKpis): AgentAvatarStatus {
   return 'idle'
 }
 
-function KpiRow({ kpis }: { kpis: AgentKpis }) {
-  if (!hasRunHistory(kpis)) {
-    return <p className="text-sm text-muted-foreground">No runs yet</p>
+/** The dot on the portrait. Green is "here and well" — the resting state a
+ *  directory should show — so only the states that need attention take colour. */
+const STATUS_DOT: Record<AgentAvatarStatus, string> = {
+  running: 'bg-horizon-500 animate-pulse',
+  waiting: 'bg-amber-500',
+  failed: 'bg-red-500',
+  idle: 'bg-emerald-500',
+}
+
+/**
+ * The two numbers under the divider.
+ *
+ * Split by a rule rather than spaced apart: two bare numbers side by side read
+ * as one figure, and "27 100%" is a sentence nobody can parse at a glance.
+ */
+function KpiSplit({ kpis }: { kpis: AgentKpis }) {
+  const slots = hasRunHistory(kpis) ? pickKpiSlots(kpis) : null
+  if (!slots) {
+    return (
+      <p className="pt-3 text-center text-xs text-muted-foreground">No runs yet</p>
+    )
   }
-  const slots = pickKpiSlots(kpis)
   return (
-    <dl className="flex items-baseline gap-5">
-      {slots.map((slot) => (
-        <div key={slot.key}>
+    <dl className="grid grid-cols-2 pt-3">
+      {slots.map((slot, index) => (
+        <div key={slot.key} className={cn('text-center', index === 1 && 'border-l border-border/60')}>
           <dd className="text-lg font-semibold leading-tight tabular-nums">{slot.display}</dd>
-          <dt className="text-xs text-muted-foreground">{slot.label}</dt>
+          <dt className="mt-0.5 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+            {slot.label}
+          </dt>
         </div>
       ))}
     </dl>
@@ -72,64 +91,84 @@ function RosterTile({
   const memberCount = entry.kind === 'worker' ? entry.members.length : 1
   const role = entry.roleLabel
     || fallbackRoleLabel(entry.kind === 'agent' ? entry.agent.specialistArea : entry.members[0]?.specialistArea)
+  const status = statusOf(entry.kpis)
   return (
     <div
       className={cn(
-        'group relative flex flex-col gap-4 rounded-xl border bg-card p-5 shadow-1 transition-all duration-200',
+        'group relative flex flex-col rounded-2xl border bg-card p-5 shadow-1 transition-all duration-200',
         'hover:-translate-y-0.5 hover:shadow-lg focus-within:ring-2 focus-within:ring-ring',
       )}
     >
-      {/* Above the stretched link so it stays independently clickable. */}
+      {/* Above the stretched link so it stays independently clickable. Always
+          rendered rather than hover-revealed: a control that only exists on
+          hover does not exist on touch, and is invisible to anyone scanning
+          for it. */}
       <button
         type="button"
         onClick={onConfigure}
         aria-label={`Settings for ${entry.name}`}
         title="Settings"
-        className="absolute right-3 top-3 z-10 rounded-md border bg-card p-1.5 text-muted-foreground opacity-0 shadow-1 transition-opacity duration-150 hover:text-foreground focus:opacity-100 group-hover:opacity-100"
+        className="absolute right-3 top-3 z-10 rounded-md p-1.5 text-muted-foreground/60 transition-colors hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring group-hover:text-muted-foreground"
       >
         <Settings2 className="h-3.5 w-3.5" />
       </button>
 
-      <div className="flex items-start gap-4">
+      {/* The portrait is the card's subject, not a marker beside a name — so it
+          leads, centred and large, the way a directory photo does. */}
+      <div className="relative mx-auto">
         <AgentAvatar
           agent={{ id: entry.id, avatarSeed: entry.avatarSeed }}
-          size="lg"
-          status={statusOf(entry.kpis)}
+          size="xl"
+          shape="tile"
+          status={status}
           badge={entry.kind === 'agent' ? entry.agent.icon || undefined : undefined}
         />
-        <div className="min-w-0 flex-1 pr-6">
-          {/* Stretched link: the whole tile activates this one control, so the
-              card has a single focusable primary action with a real name. */}
-          <button
-            type="button"
-            onClick={onOpen}
-            // block w-full min-w-0: a <button> is inline-block and sizes to its
-            // content, so the truncate on the span inside had a box exactly as
-            // wide as the text and clipped nothing — the title ran past the card.
-            className="block w-full min-w-0 text-left after:absolute after:inset-0 after:rounded-xl focus:outline-none"
-          >
-            {/* Two lines, not one: agents get long descriptive names ("New Lead
-                → Enrich → Salesforce Opportunity") that a single truncated line
-                renders as "New Lead → …", which identifies nothing. The title
-                attribute carries the full name for the cases that still clip. */}
-            <span className="line-clamp-2 font-semibold leading-tight" title={entry.name}>{entry.name}</span>
-          </button>
-          <p className="mt-0.5 truncate text-sm text-muted-foreground">{role}</p>
-          {entry.kind === 'worker' && (
-            <p className="mt-1 text-xs text-muted-foreground">
-              {memberCount} {memberCount === 1 ? 'agent' : 'agents'}
-            </p>
+        <span
+          className={cn(
+            'absolute bottom-1 right-1 h-3.5 w-3.5 rounded-full border-2 border-card',
+            STATUS_DOT[status],
           )}
-        </div>
+          aria-hidden
+        />
       </div>
 
-      <div className="flex items-end justify-between gap-3">
-        <KpiRow kpis={entry.kpis} />
-        {entry.kpis.waiting > 0 && (
-          <span className="relative z-10 rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-900">
-            Needs you
+      <div className="mt-3 min-w-0 text-center">
+        {/* Stretched link: the whole tile activates this one control, so the
+            card has a single focusable primary action with a real name. */}
+        <button
+          type="button"
+          onClick={onOpen}
+          // block w-full min-w-0: a <button> is inline-block and sizes to its
+          // content, so the truncate on the span inside had a box exactly as
+          // wide as the text and clipped nothing — the title ran past the card.
+          className="block w-full min-w-0 focus:outline-none after:absolute after:inset-0 after:rounded-2xl"
+        >
+          {/* Two lines, not one: agents get long descriptive names ("New Lead
+              → Enrich → Salesforce Opportunity") that a single truncated line
+              renders as "New Lead → …", which identifies nothing. */}
+          <span className="line-clamp-2 text-sm font-semibold leading-tight" title={entry.name}>
+            {entry.name}
           </span>
-        )}
+        </button>
+
+        <span className="mt-2 inline-block max-w-full truncate rounded-full bg-muted px-2.5 py-0.5 text-xs font-medium text-muted-foreground">
+          {role}
+        </span>
+
+        {/* Blocked-on-you outranks the roster bookkeeping: when a human is the
+            thing standing between the agent and its work, say so instead of
+            reporting how many agents share the avatar. */}
+        {entry.kpis.waiting > 0 ? (
+          <p className="mt-1.5 text-xs font-medium text-amber-600 dark:text-amber-400">Needs you</p>
+        ) : entry.kind === 'worker' ? (
+          <p className="mt-1.5 text-xs text-muted-foreground">
+            {memberCount} {memberCount === 1 ? 'agent' : 'agents'}
+          </p>
+        ) : null}
+      </div>
+
+      <div className="mt-auto border-t border-border/60 pt-1">
+        <KpiSplit kpis={entry.kpis} />
       </div>
     </div>
   )
@@ -232,7 +271,7 @@ export function AgentRoster({
     return (
       <div className="grid gap-4 p-6 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
         {Array.from({ length: 8 }, (_, index) => (
-          <Skeleton key={index} className="h-44 rounded-xl" />
+          <Skeleton key={index} className="h-[17rem] rounded-2xl" />
         ))}
       </div>
     )
@@ -266,7 +305,7 @@ export function AgentRoster({
         <button
           type="button"
           onClick={onCreateAgent}
-          className="flex min-h-44 flex-col items-center justify-center gap-2 rounded-xl border border-dashed bg-muted/40 p-5 text-muted-foreground transition-colors duration-150 hover:border-foreground/30 hover:text-foreground"
+          className="flex min-h-[17rem] flex-col items-center justify-center gap-2 rounded-2xl border border-dashed bg-muted/40 p-5 text-muted-foreground transition-colors duration-150 hover:border-foreground/30 hover:text-foreground"
         >
           <UserPlus className="h-6 w-6" />
           <span className="text-sm font-medium">Hire an agent</span>

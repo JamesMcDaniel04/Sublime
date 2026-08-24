@@ -198,3 +198,11 @@ body {
     transition-duration: 0.01ms !important;
   }
 }
+
+/* Agent portrait tile tint.
+   The hue is per-portrait DATA (24 of them, see lib/agents/avatar-portraits),
+   so it arrives as two inline custom properties and this pair of rules picks
+   the right one per theme. Doing it here rather than inline means one rule for
+   the whole roster instead of a <style> element per avatar. */
+.agent-tint { background-color: var(--agent-tint-light); }
+.dark .agent-tint { background-color: var(--agent-tint-dark); }
