@@ -36,6 +36,7 @@ import type { MetricSourceOption } from '@/lib/metrics/available-sources'
 import { AgentBundleCard } from '@/components/goals/agent-bundle-card'
 import { GoalAccessCard } from '@/components/goals/goal-access-card'
 import { WorkQueue } from '@/components/goals/workroom/work-queue'
+import { AgentRequestComposer } from '@/components/goals/workroom/agent-request-composer'
 import { VerdictFunnel } from '@/components/goals/verdict-funnel'
 import { connectedSlugSet } from '@/lib/templates/relevance'
 import {
@@ -411,6 +412,9 @@ export function GoalDetail({ goalId }: { goalId: string }) {
       {/* Admin-only; personal goals never render it (ownerUserId already
           restricts them, and the API refuses them with PERSONAL_GOAL). */}
       {!goal.personal && <GoalAccessCard goalId={goalId} />}
+      {/* Directly above the work it produces: asking is the one human-initiated
+          way agent work starts here, so it sits where the results land. */}
+      <AgentRequestComposer goalId={goalId} />
       <WorkQueue goalId={goalId} />
       {/* Next to the work ledger: whether those runs actually moved the goal.
           The stalled-agent notification links here, so this card is what

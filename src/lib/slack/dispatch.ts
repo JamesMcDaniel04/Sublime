@@ -7,6 +7,12 @@ import { findOpenSession, resolveSessionRouting, upsertThreadSession, closeSessi
 import type { NormalizedSlackEvent, SlackTriggerInput } from '@/lib/slack/payload'
 import { ingestActivity } from '@/lib/activity/ingest'
 import { slackActivityFromInput } from '@/lib/activity/sources/slack'
+import { resolveAgentMention } from '@/lib/slack/route-agent'
+import { resolveSlackRequesterUserId } from '@/lib/slack/requester'
+import { decryptSecretJson } from '@/lib/slack/connections'
+import { postSlackMessage } from '@/lib/slack/post'
+import { agentDisplayName } from '@/lib/agents/metadata'
+import { createAgentRequest } from '@/lib/agents/request-dispatch'
 
 export type SlackRouteArgs = {
   bindingId: string
@@ -149,6 +155,112 @@ async function tryThreadContinuation(args: {
 }
 
 /**
+ * Ingress precedence #2: an explicit agent address (`@Riley …`, `Riley: …`,
+ * `ask Riley …`) routes to that agent instead of to flow triggers.
+ *
+ * Runs BEFORE flow matching but only ever fires on an explicit marker
+ * (see route-agent.ts), so a message that does not address an agent by name
+ * falls through with flow behavior completely unchanged.
+ *
+ * Work ordering is deliberate: agent names are matched from a cheap indexed
+ * query FIRST, and the Slack users.info round-trip happens only once a
+ * mention has actually matched. A busy channel must not pay an API call per
+ * message.
+ *
+ * Returns true when the event was fully handled.
+ */
+async function tryAgentMention(args: {
+  bindingId: string
+  organizationId: string
+  input: SlackTriggerInput
+}): Promise<boolean> {
+  const { bindingId, organizationId, input } = args
+  const text = input.text ?? ''
+  if (!text.trim()) return false
+
+  // systemPrisma: session-less ingress; org id came from the verified binding
+  // and every query below is scoped to it.
+  const agents = await systemPrisma.agentTask.findMany({
+    where: { organizationId, status: 'ACTIVE', agentType: { not: 'SYSTEM' } },
+    select: { id: true, description: true, metadata: true, userId: true, visibility: true, agentType: true },
+    take: 500,
+  })
+  if (!agents.length) return false
+
+  const hit = resolveAgentMention(
+    text,
+    agents.map((agent) => ({ id: agent.id, name: agentDisplayName(agent) })),
+  )
+  if (!hit) return false
+
+  const agent = agents.find((candidate) => candidate.id === hit.agentId)
+  if (!agent) return false
+
+  const binding = await systemPrisma.slackWorkspaceConnection.findFirst({
+    where: { id: bindingId, organizationId, status: 'active' },
+  })
+  if (!binding) return false
+  const botToken = decryptSecretJson(binding.botToken)
+
+  // Double-delivery guard, mirroring the per-flow claim below: one physical
+  // message can arrive as both app_mention and message.channels.
+  if (input.ts) {
+    const claimed = await claimSlackEvent(bindingId, `msg:${input.channel}:${input.ts}:agent:${agent.id}`)
+    if (!claimed) return true
+  }
+
+  const origin = slackRunTrigger(bindingId, input).slack
+
+  // SECURITY: the resolved user decides whose credentials the run may reach
+  // (execute-agent loads tools with the run's userId). There is deliberately
+  // NO fallback to the agent's owner — that would let anyone in a Slack
+  // channel drive an agent using the owner's connected accounts.
+  const requesterUserId = await resolveSlackRequesterUserId({
+    organizationId,
+    botToken,
+    slackUserId: input.user ?? '',
+  })
+  if (!requesterUserId) {
+    await postSlackMessage({
+      botToken,
+      channel: input.channel,
+      threadTs: origin.thread_ts,
+      text: "I couldn't match your Slack account to a Sublime user, so I can't run this on your behalf. Ask an admin to check that your Sublime account uses the same email as your Slack profile.",
+    }).catch(() => undefined)
+    return true
+  }
+
+  // Visibility is honored exactly as the in-app route honors it: a private
+  // agent is addressable only by its owner. A name the requester may not
+  // address falls THROUGH rather than replying, so the response is
+  // indistinguishable from "no agent by that name".
+  if (agent.visibility === 'private' && agent.userId !== requesterUserId) return false
+
+  try {
+    await createAgentRequest({
+      organizationId,
+      requestedByUserId: requesterUserId,
+      agent,
+      text: hit.text,
+      origin: 'slack',
+      slack: origin,
+    })
+  } catch (error) {
+    apiLogger.error('slack agent request dispatch failed', {
+      agentId: agent.id,
+      error: error instanceof Error ? error.message : String(error),
+    })
+    await postSlackMessage({
+      botToken,
+      channel: input.channel,
+      threadTs: origin.thread_ts,
+      text: `:warning: I couldn't start that request just now. Please try again shortly.`,
+    }).catch(() => undefined)
+  }
+  return true
+}
+
+/**
  * Route a verified, deduped, non-bot Slack event to matching flows and
  * dispatch each as its own PUBLISHED run. Runs inside after() — best-effort;
  * per-flow failures are logged, never thrown.
@@ -165,6 +277,11 @@ export async function routeSlackEvent(args: SlackRouteArgs): Promise<void> {
   // trigger matching (see tryThreadContinuation). No thread_ts, or a thread
   // with no open session, falls through unchanged.
   if (await tryThreadContinuation({ bindingId, organizationId, input })) return
+
+  // Ingress precedence #2: an explicit agent address wins over flow trigger
+  // matching. Only fires on `@Name` / `Name:` / `ask Name`, so nothing that
+  // matched a flow before matches an agent now.
+  if (await tryAgentMention({ bindingId, organizationId, input })) return
 
   // systemPrisma: session-less ingress continuation — org id came from the
   // binding row, and every query below is scoped to it.

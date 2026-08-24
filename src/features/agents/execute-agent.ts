@@ -58,6 +58,7 @@ import { serializeToolResult } from '@/lib/agents/tool-result'
 import { recordToolCallEvents } from '@/lib/behavior/record-event'
 import { createRunBudget, chargeRunBudget, type RunBudget } from '@/lib/agents/run-budget'
 import { goalGroundingBlock } from '@/lib/goals/grounding'
+import { moveAgentRequest } from '@/lib/agents/request-settle'
 
 export type AgentExecutionJob = {
   executionId?: string
@@ -77,6 +78,11 @@ export type AgentExecutionJob = {
   // threaded loop chain one conversation forward. Only consulted when this is
   // a brand-new run (no executionId/resume) — see the transcript-init branch.
   continueExecutionId?: string
+  // Agent-as-teammate: the AgentRequest a human addressed to this agent. Its
+  // presence is what turns a run into an answer — it adds the request framing
+  // to the system prompt, offers decline_request, and makes every terminal
+  // path settle the request row.
+  requestId?: string
 }
 
 // Sub-agent handoff bounds. Kept conservative: sub-runs execute inline within
@@ -101,6 +107,29 @@ const ASK_USER_TOOL: ToolDefinition = {
       question: { type: 'string', description: 'The question to show the user.' },
     },
     required: ['question'],
+  },
+}
+
+/**
+ * Offered ONLY on runs that answer a human request.
+ *
+ * Declining is a tool rather than a phrase so an out-of-scope ask settles
+ * deterministically — parsing a refusal out of prose would make the request's
+ * status depend on how the model happened to word itself.
+ */
+const DECLINE_REQUEST_TOOL: ToolDefinition = {
+  name: 'decline_request',
+  description:
+    'Decline the request you were asked to do, because it falls outside your standing job. Call this INSTEAD of doing the work. Use ask_user instead if the request is within your job but underspecified.',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      reason: {
+        type: 'string',
+        description: 'One sentence, in plain language, addressed to the requester: what you do, and why this ask sits outside it.',
+      },
+    },
+    required: ['reason'],
   },
 }
 
@@ -396,6 +425,16 @@ export async function runAgentExecution(
   })
   if (!agent) throw new Error('Agent not found or inactive')
 
+  // The human ask this run answers, when there is one. Loaded before the
+  // prompt is built because it frames the whole run; `null` for every
+  // scheduled/webhook/manual run, which is why those see no behavior change.
+  const answeringRequest = data.requestId
+    ? await prisma.agentRequest.findFirst({
+        where: { id: data.requestId, organizationId, agentTaskId: agent.id },
+        select: { id: true, text: true, requestedBy: { select: { name: true } } },
+      })
+    : null
+
   const agentMetadata = metadataOf(agent.metadata)
   // Structured-output contract (same as flow agent steps): an agent whose
   // metadata declares outputFields + responseFormat 'structured' must reply
@@ -601,12 +640,23 @@ export async function runAgentExecution(
           status: 'running',
           model: runner.model,
           input: encryptRunValue({ prompt: data.input || agent.objective }),
-          trigger: { type: 'schedule' },
+          trigger: answeringRequest ? { type: 'request', requestId: answeringRequest.id } : { type: 'schedule' },
           metadata: { title: agentMetadata.title || agent.description },
           userId,
           organizationId,
         },
       }))
+
+  // The request now has a run behind it. Bookkeeping only — no notification,
+  // because nobody needs telling that a job they just filed started.
+  if (answeringRequest) {
+    await moveAgentRequest({
+      requestId: answeringRequest.id,
+      organizationId,
+      to: 'running',
+      executionId: execution.id,
+    }).catch(() => undefined)
+  }
 
   // The execution row now exists: hand its id to the caller. Fire-and-forget
   // and fully fenced — a callback failure (sync or async) must never fail or
@@ -639,6 +689,23 @@ export async function runAgentExecution(
   // falling through to complete/fail. No reflection/indexing runs for a
   // cancelled run — those are for runs that actually produced an outcome
   // worth learning from.
+  /**
+   * Mirror a run pause onto the request that opened it, so the person who
+   * asked is the person the question reaches — in-app and, for a Slack ask,
+   * back in the same thread. Best-effort: a run is already correctly paused
+   * whether or not the mirror lands.
+   */
+  const mirrorRequestPause = async (question: string) => {
+    if (!answeringRequest) return
+    await moveAgentRequest({
+      requestId: answeringRequest.id,
+      organizationId,
+      to: 'waiting',
+      executionId: execution.id,
+      question,
+    }).catch(() => undefined)
+  }
+
   const finalizeCancelled = async (alreadyFinalized: boolean) => {
     const cancelSummary = 'Run cancelled by the user.'
     if (!alreadyFinalized) {
@@ -660,6 +727,16 @@ export async function runAgentExecution(
         },
       })
       await recordEvent(execution.id, null, 'run.cancelled', { reason: 'user_requested' })
+      // Cancelling the run cancels the ask behind it — a request left running
+      // behind a cancelled run would wait for an answer that can never come.
+      if (answeringRequest) {
+        await moveAgentRequest({
+          requestId: answeringRequest.id,
+          organizationId,
+          to: 'cancelled',
+          executionId: execution.id,
+        }).catch(() => undefined)
+      }
       await notify({
         organizationId,
         userId,
@@ -761,7 +838,12 @@ export async function runAgentExecution(
       agent.objective,
       skillIds,
       communitySkills,
-      personaRow?.narrative ? { orgContext: personaRow.narrative } : {},
+      {
+        ...(personaRow?.narrative ? { orgContext: personaRow.narrative } : {}),
+        ...(answeringRequest
+          ? { request: { text: answeringRequest.text, requesterName: answeringRequest.requestedBy?.name ?? null } }
+          : {}),
+      },
     )
     if (structuredFields.length) {
       system += `\n\n${structuredResponseInstruction(structuredFields)}`
@@ -1124,6 +1206,10 @@ export async function runAgentExecution(
     const requireApproval = agentMetadata.requireApproval === true
     const monthlyLimit = budget.limit
     let finalText = ''
+    // Set when the agent judges the request outside its standing job. Ends the
+    // run cleanly: a decline is a correct outcome, so the RUN completes and
+    // only the REQUEST settles as declined.
+    let declinedReason: string | null = null
     let planEmitted = false
     // The persisted in-run plan (plan-artifact.ts). Seeded from the row so a
     // resumed run keeps the plan it set before suspending; written back on
@@ -1157,7 +1243,12 @@ export async function runAgentExecution(
         return await finalizeCancelled(live.status === 'cancelled')
       }
 
-      const turnResult = await runner.next(transcript, system, [...tools, ASK_USER_TOOL], turnEffortFor(turn, startTurn))
+      const turnResult = await runner.next(
+        transcript,
+        system,
+        [...tools, ASK_USER_TOOL, ...(answeringRequest ? [DECLINE_REQUEST_TOOL] : [])],
+        turnEffortFor(turn, startTurn),
+      )
       usage.inputTokens += turnResult.usage.inputTokens
       usage.outputTokens += turnResult.usage.outputTokens
 
@@ -1230,6 +1321,14 @@ export async function runAgentExecution(
             toolCallId: call.id,
             question: String(call.input.question || 'The agent needs your input to continue.'),
           }
+          continue
+        }
+
+        if (call.name === DECLINE_REQUEST_TOOL.name) {
+          declinedReason =
+            String(call.input.reason ?? '').trim() ||
+            'This request falls outside what this agent does.'
+          results.push({ toolCallId: call.id, content: JSON.stringify({ ok: true, declined: true }) })
           continue
         }
 
@@ -1478,6 +1577,7 @@ export async function runAgentExecution(
           agentTaskId: agent.id,
           executionId: execution.id,
         })
+        await mirrorRequestPause(pendingAsk.question)
         return { status: 'waiting_for_input', question: pendingAsk.question, executionId: execution.id }
       }
 
@@ -1527,10 +1627,20 @@ export async function runAgentExecution(
           agentTaskId: agent.id,
           executionId: execution.id,
         })
+        await mirrorRequestPause(question)
         return { status: 'waiting_for_input', question, executionId: execution.id }
       }
 
       runner.appendToolResults(transcript, results)
+
+      // Declining ends the run here rather than at the turn cap. Placed AFTER
+      // the results are appended so the persisted transcript stays a valid,
+      // replayable conversation with no dangling tool_use.
+      if (declinedReason) {
+        await recordEvent(execution.id, null, 'agent.request_declined', { reason: declinedReason })
+        finalText = declinedReason
+        break
+      }
 
       // Durable checkpoint at a clean turn boundary (results appended → the
       // stored transcript is a valid, resumable conversation). A crash/retry
@@ -1578,6 +1688,7 @@ export async function runAgentExecution(
     const planFindings = auditPlan(runPlan, strategize)
     let output: Record<string, unknown> = {
       summary,
+      ...(declinedReason ? { declined: true } : {}),
       ...(cappedReason ? { capped: cappedReason } : {}),
       ...(planFindings.length ? { planFindings } : {}),
     }
@@ -1632,18 +1743,41 @@ export async function runAgentExecution(
         lastResult: jsonValue(output),
       },
     })
-    await notify({
-      organizationId,
-      userId,
-      type: 'agent.completed',
-      level: cappedReason ? 'info' : 'success',
-      title: cappedReason
-        ? `${agentMetadata.title || agent.description} stopped at a limit`
-        : `${agentMetadata.title || agent.description} completed`,
-      body: headline || summary,
-      agentTaskId: agent.id,
-      executionId: execution.id,
-    })
+    // Settle the ask before announcing the run. Durable await (not
+    // fire-and-forget): the request row IS the user-facing outcome here, and a
+    // request left `running` behind a finished run is worse than a slow settle.
+    if (answeringRequest) {
+      await moveAgentRequest({
+        requestId: answeringRequest.id,
+        organizationId,
+        to: declinedReason ? 'declined' : 'completed',
+        executionId: execution.id,
+        ...(declinedReason ? { error: declinedReason } : { result: summary }),
+      }).catch((error) =>
+        apiLogger.error('agent request settle failed', {
+          requestId: answeringRequest.id,
+          executionId: execution.id,
+          error: error instanceof Error ? error.message : String(error),
+        }),
+      )
+    }
+    // A request-answering run already told the requester something better
+    // ("Riley answered your request"); a second generic run notice for the
+    // same event is noise.
+    if (!answeringRequest) {
+      await notify({
+        organizationId,
+        userId,
+        type: 'agent.completed',
+        level: cappedReason ? 'info' : 'success',
+        title: cappedReason
+          ? `${agentMetadata.title || agent.description} stopped at a limit`
+          : `${agentMetadata.title || agent.description} completed`,
+        body: headline || summary,
+        agentTaskId: agent.id,
+        executionId: execution.id,
+      })
+    }
     // Cross-tool ledger flush: await the durable write before advertising
     // completion, while keeping capture failure non-fatal to the agent run.
     await recordToolCallEvents({
@@ -1774,16 +1908,27 @@ export async function runAgentExecution(
       },
     })
     if (failureClaim.count === 0) throw error
-    await notify({
-      organizationId,
-      userId,
-      type: 'agent.error',
-      level: 'error',
-      title: `${agentMetadata.title || agent.description} hit an error`,
-      body: message,
-      agentTaskId: agent.id,
-      executionId: execution.id,
-    })
+    if (answeringRequest) {
+      await moveAgentRequest({
+        requestId: answeringRequest.id,
+        organizationId,
+        to: 'failed',
+        executionId: execution.id,
+        error: message.slice(0, 300),
+      }).catch(() => undefined)
+    }
+    if (!answeringRequest) {
+      await notify({
+        organizationId,
+        userId,
+        type: 'agent.error',
+        level: 'error',
+        title: `${agentMetadata.title || agent.description} hit an error`,
+        body: message,
+        agentTaskId: agent.id,
+        executionId: execution.id,
+      })
+    }
     // Cross-tool ledger flush on the FAILURE path too. Without this, the
     // ledger only ever sees integrations from runs that worked, and any
     // aggregate built on it is survivorship-biased by construction.

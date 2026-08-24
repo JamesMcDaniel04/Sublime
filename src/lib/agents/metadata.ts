@@ -64,3 +64,16 @@ export function readAgentMetadata(value: unknown): AgentMetadata {
     ? (value as AgentMetadata)
     : {}
 }
+
+/**
+ * What to call an agent in a sentence addressed to a human.
+ *
+ * `title` is the name someone gave it; `description` is the fallback the
+ * roster and run notifications have always used. Centralized because the
+ * `metadata.title || description` pair had been rewritten at every call site,
+ * and a request reply that says "undefined finished" is worse than most bugs.
+ */
+export function agentDisplayName(agent: { description?: string | null; metadata?: unknown }): string {
+  const title = readAgentMetadata(agent.metadata).title?.trim()
+  return title || agent.description?.trim() || 'The agent'
+}

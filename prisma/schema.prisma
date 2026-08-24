@@ -47,6 +47,7 @@ model Organization {
   users                     User[]
   agents                    AgentTask[]
   agentWorkers              AgentWorker[]
+  agentRequests             AgentRequest[]
   executions                AgentExecution[]
   templates                 AgentTemplate[]
   integrations              Integration[]
@@ -138,6 +139,7 @@ model User {
   integrationSecrets IntegrationSecret[]
   slackConnections   SlackWorkspaceConnection[]
   goals              Goal[]
+  agentRequests      AgentRequest[]
 
   @@index([organizationId])
   @@map("users")
@@ -263,6 +265,7 @@ model AgentTask {
   chatSessions AgentChatSession[]
   connectors   AgentConnector[]
   memories     AgentMemory[]
+  requests     AgentRequest[]
 
   @@index([organizationId, status])
   @@index([organizationId, userId, status, updatedAt])
@@ -373,6 +376,71 @@ model AgentMemory {
   // `prisma migrate diff` from proposing to drop it as drift.
   @@index([embeddingVec], map: "agent_memories_embedding_vec_hnsw")
   @@map("agent_memories")
+}
+
+/// A piece of work a human addressed to an agent.
+///
+/// Deliberately NOT GoalWork. A GoalWork row is agent-PRODUCED and its
+/// disposition ledger records what a human did with that output; the
+/// assignee there is the person who must act. This table is the opposite
+/// direction — a person asks, the agent answers — and overloading one table
+/// with both would make `disposition` mean two contradictory things and
+/// corrupt the rule learning that reads it.
+///
+/// `text` is the requester's words verbatim. It is the task, never the
+/// agent's job description: the standing `AgentTask.objective` frames the
+/// run and this specifies it, so an agent asked for work outside its
+/// objective declines (see the decline_request tool) rather than silently
+/// becoming a generalist with its owner's credentials.
+model AgentRequest {
+  id             String @id @default(cuid())
+  organizationId String @db.Uuid
+
+  /// SetNull, not Cascade: the ask outlives the person who made it.
+  requestedByUserId String?
+  /// The addressee. A request without one is meaningless, so this cascades.
+  agentTaskId       String
+  /// Set by the goal composer; null for a Slack request in a channel that
+  /// maps to no goal. A goal-bound request can contribute to that goal.
+  goalId            String?
+
+  /// The human's words, verbatim.
+  text String @db.Text
+
+  /// Where the ask came from: 'app' | 'slack'.
+  origin     String @default("app")
+  /// Origin-specific routing. For Slack this is shaped exactly like
+  /// slackRunTrigger()'s `slack` block, so the reply path reads one shape
+  /// regardless of which surface opened the thread.
+  originMeta Json   @default("{}")
+
+  /// pending | running | waiting | completed | failed | declined | cancelled
+  /// Legal moves live in src/lib/agents/request-transitions.ts, not here.
+  status      String  @default("pending")
+  /// The run that answered it. Null until the job is claimed.
+  executionId String?
+  /// The agent's answer, once settled.
+  result      String? @db.Text
+  /// Failure reason, or — for `declined` — why the agent judged the ask
+  /// outside its objective. User-facing text either way.
+  error       String? @db.Text
+
+  createdAt DateTime  @default(now()) @db.Timestamptz(6)
+  settledAt DateTime? @db.Timestamptz(6)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  requestedBy  User?        @relation(fields: [requestedByUserId], references: [id], onDelete: SetNull)
+  agentTask    AgentTask    @relation(fields: [agentTaskId], references: [id], onDelete: Cascade)
+  goal         Goal?        @relation(fields: [goalId], references: [id], onDelete: SetNull)
+
+  /// "My requests", newest first.
+  @@index([organizationId, requestedByUserId, status, createdAt])
+  /// One agent's ask history — what the item-2 profile route will read.
+  @@index([organizationId, agentTaskId, createdAt])
+  @@index([organizationId, goalId])
+  /// The settle path resolves a request from the run that answered it.
+  @@index([executionId])
+  @@map("agent_requests")
 }
 
 // Agent-scoped assistant chat (persistent per agent + user, not per execution).
@@ -1660,6 +1728,7 @@ model Goal {
   work          GoalWork[]
   members       GoalMember[]
   runVerdicts   GoalRunVerdict[]
+  agentRequests AgentRequest[]
 
   @@index([organizationId, status])
   @@index([organizationId, ownerUserId, status])
