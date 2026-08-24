@@ -10,6 +10,10 @@ import { registerAgentSchedules } from '@/lib/workers/agent-schedule-registrar'
 import { initSentry, captureError, flushErrorReporting } from '@/lib/observability/sentry'
 import { executeActivityBackfillJob } from '@/lib/activity/backfill'
 import { flushFlowDispatchOutbox } from '@/lib/queue/flow-outbox'
+import { systemPrisma } from '@/lib/prisma'
+
+/** Health probes must answer fast enough to be a health check, not a query. */
+const HEALTH_DB_TIMEOUT_MS = 4000
 
 class WorkerRuntime {
   private server = Fastify({ logger: true })
@@ -44,24 +48,28 @@ class WorkerRuntime {
   private shuttingDown = false
 
   constructor() {
-    // Real readiness: reflect that the workers are running AND Redis is
-    // reachable. A dead Redis connection means the worker consumes nothing —
-    // returning 503 lets Docker's healthcheck/restart policy recycle it instead
-    // of leaving a silently-dead worker reporting healthy.
+    // Real readiness: the workers are running AND Redis is reachable AND the
+    // database answers. A dead dependency means the worker consumes nothing —
+    // returning 503 lets the platform's healthcheck/restart policy recycle it
+    // instead of leaving a silently-dead worker reporting healthy.
+    //
+    // The DATABASE probe is not optional decoration. On 2026-08-24 the Fly
+    // worker had spent weeks reporting 1/1 passing while every job failed with
+    // `FATAL: tenant/user ... not found` — its DATABASE_URL pointed at a
+    // deleted Supabase project. Workers were "running" and Redis was fine, so
+    // the old two-part check was green the entire time. A health check that
+    // cannot fail the way the system actually fails is worse than none: it
+    // converts an outage into silence.
     this.server.get('/health', async (_request, reply) => {
       const running = this.workers.every((worker) => worker.isRunning())
-      let redis = false
-      try {
-        redis = (await getRedisConnection().ping()) === 'PONG'
-      } catch {
-        redis = false
-      }
-      const healthy = running && redis
+      const [redis, database] = await Promise.all([this.pingRedis(), this.pingDatabase()])
+      const healthy = running && redis && database
       reply.code(healthy ? 200 : 503)
       return {
         status: healthy ? 'healthy' : 'unhealthy',
         workers: Object.fromEntries(this.workerSpecs.map((spec, index) => [spec.queue, this.workers[index].isRunning()])),
         redis,
+        database,
         uptime: process.uptime(),
       }
     })
@@ -73,6 +81,35 @@ class WorkerRuntime {
     // Sentry and to any operator not tailing Render logs.
     this.workers.forEach((worker) => worker.on('error', (error) => captureError(error, { source: 'worker.queue-error' })))
     this.setupShutdown()
+  }
+
+  private async pingRedis(): Promise<boolean> {
+    try {
+      return (await getRedisConnection().ping()) === 'PONG'
+    } catch {
+      return false
+    }
+  }
+
+  /**
+   * Cheapest possible proof that this process can actually reach its database.
+   *
+   * Bounded by its own deadline: an unreachable host can leave a Prisma query
+   * pending far longer than a health check may block, and a check that hangs
+   * reads as "unhealthy" to some probes and "still trying" to others. Racing an
+   * explicit timeout makes the answer deterministic.
+   */
+  private async pingDatabase(): Promise<boolean> {
+    try {
+      const probe = systemPrisma.$queryRaw`SELECT 1`
+      const timeout = new Promise<never>((_resolve, reject) =>
+        setTimeout(() => reject(new Error('database probe timed out')), HEALTH_DB_TIMEOUT_MS).unref(),
+      )
+      await Promise.race([probe, timeout])
+      return true
+    } catch {
+      return false
+    }
   }
 
   private setupShutdown() {
