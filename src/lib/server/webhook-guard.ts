@@ -90,6 +90,9 @@ export async function webhookThrottled(
 export type WebhookRoute =
   | 'flow.trigger'
   | 'flow.resume'
+  // Public form submission: same per-flow secret as flow.trigger, but the
+  // caller is a browser, so the token rides the query string.
+  | 'flow.form'
   | 'agent.trigger'
   | 'slack.events'
 
