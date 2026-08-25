@@ -1,5 +1,10 @@
 # n8n node parity — config panels, composability, and coverage
 
+> **Superseded by `2026-08-24-n8n-deep-parity-audit.md`** — a full-checkout
+> enumeration rather than a hypothesis-driven grep. Kept for its detail; the
+> successor corrects the method and the conclusions.
+
+
 > **Superseded by `2026-08-24-n8n-flow-parity.md`.** This document audits
 > NODES. The question was flow-system parity, and the subsystems it does not
 > examine — execution data model, expression surface, flow settings, platform

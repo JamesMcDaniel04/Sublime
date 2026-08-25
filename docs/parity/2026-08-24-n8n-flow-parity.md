@@ -1,5 +1,10 @@
 # n8n ↔ Sublime: full flow-system parity
 
+> **Superseded by `2026-08-24-n8n-deep-parity-audit.md`** — a full-checkout
+> enumeration rather than a hypothesis-driven grep. Kept for its detail; the
+> successor corrects the method and the conclusions.
+
+
 Date: 2026-08-24 (third pass)
 Reference: `n8n-io/n8n` @ HEAD — `nodes-base`, `@n8n/nodes-langchain`,
 `workflow`, `core`, `cli`
