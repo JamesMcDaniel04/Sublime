@@ -2,6 +2,8 @@ import type { Job } from 'bullmq'
 import { takeUnseen } from './static-store'
 import { flowSettings } from '@/lib/flows/settings'
 import { collectSecretRefs } from '@/lib/secrets/providers'
+import { createBinaryHandle } from '@/lib/binary/handle'
+import { binaryStore } from '@/lib/binary/store'
 import { withSecretRedaction, redactForCurrentRun } from '@/lib/secrets/redaction-scope'
 import { fetchSecrets } from './secret-store'
 import { createHash } from 'crypto'
@@ -1136,6 +1138,24 @@ export async function runFlowExecution(
                 assertUrlAllowed: assertFlowHttpUrlAllowed,
                 signal: controller.signal,
                 maxResponseChars: HTTP_MAX_RESPONSE_CHARS,
+                // Binary responses go to the blob store and the graph carries
+                // a handle. Without this they were base64'd and TRUNCATED into
+                // the run row — bloating it and storing a corrupt file.
+                binary: {
+                  organizationId: job.organizationId,
+                  flowRunId: run.id,
+                  store: async ({ bytes, mimeType, fileName }) => {
+                    const handle = createBinaryHandle({
+                      organizationId: job.organizationId,
+                      flowRunId: run.id,
+                      fileName,
+                      mimeType,
+                      size: bytes.length,
+                    })
+                    await binaryStore().put(job.organizationId, handle.id, bytes, mimeType)
+                    return handle
+                  },
+                },
               })
             } catch (error) {
               if (timedOut) throw new FlowTimeoutError(`HTTP request timed out after ${request.timeoutMs}ms`)

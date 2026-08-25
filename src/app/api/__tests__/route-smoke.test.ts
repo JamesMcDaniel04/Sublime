@@ -142,6 +142,7 @@ if (TEST_DB) {
     { name: 'GET /api/flows/[id]/comments', run: async () => (await import('../flows/[id]/comments/route')).GET(req('/api/flows/no-such-id/comments')) },
     { name: 'GET /api/goals/[id]', run: async () => (await import('../goals/[id]/route')).GET(req('/api/goals/no-such-id')) },
     { name: 'GET /api/flows/[id]/migrate', run: async () => (await import('../flows/[id]/migrate/route')).GET(req('/api/flows/no-such-id/migrate')) },
+    { name: 'GET /api/binary/[id]', run: async () => (await import('../binary/[id]/route')).GET(req('/api/binary/no-such-id')) },
     { name: 'GET /api/traces/agent/[id]', run: async () => (await import('../traces/agent/[id]/route')).GET(req('/api/traces/agent/no-such-id')) },
     { name: 'GET /api/traces/flow/[id]', run: async () => (await import('../traces/flow/[id]/route')).GET(req('/api/traces/flow/no-such-id')) },
     { name: 'GET /api/goals/[id]/datapoints', run: async () => (await import('../goals/[id]/datapoints/route')).GET(req('/api/goals/no-such-id/datapoints')) },

@@ -333,6 +333,11 @@ export type HttpRequestDeps = {
   sleep?: (ms: number) => Promise<void>
   signal?: AbortSignal
   maxResponseChars?: number
+  /**
+   * Where a binary response's bytes go. Absent for previews and validation
+   * passes, which degrade to the bounded inline shape rather than failing.
+   */
+  binary?: BinarySink
 }
 
 const defaultSleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms))
@@ -580,7 +585,7 @@ export async function performHttpRequest(
         url = nextUrl
         continue
       }
-      const nextOutput = await responseOutput(response, request.responseType, deps.maxResponseChars ?? 50_000)
+      const nextOutput = await responseOutput(response, request.responseType, deps.maxResponseChars ?? 50_000, deps.binary)
       const retryCodes = Array.isArray(policy.retryStatusCodes) ? policy.retryStatusCodes.map(Number) : []
       if (retryCodes.includes(nextOutput.status)) {
         throw new FlowHttpStatusError(nextOutput.status, `HTTP ${nextOutput.status}: configured for retry.`, {
@@ -792,11 +797,70 @@ function shouldParseJson(contentType: string, responseType: 'auto' | 'json' | 't
   return contentType.toLowerCase().includes('json') || JSON_RE.test(text.trim())
 }
 
-export async function responseOutput(response: Response, responseType: 'auto' | 'json' | 'text' | 'binary', maxChars = 50_000): Promise<FlowHttpOutput> {
+/**
+ * Where a binary response's bytes go.
+ *
+ * Injected rather than imported so the pure response shaping stays testable
+ * without a store, and so a caller with no binary context (a preview, a
+ * validation pass) degrades to the old inline behaviour instead of failing.
+ */
+export interface BinarySink {
+  organizationId: string
+  flowRunId: string
+  store: (input: { bytes: Buffer; mimeType: string; fileName: string }) => Promise<unknown>
+}
+
+/** The filename a server suggested, or something sane derived from the URL. */
+function suggestedFileName(response: Response): string {
+  const disposition = response.headers.get('content-disposition') ?? ''
+  const match = /filename\*?=(?:UTF-8'')?"?([^";]+)"?/i.exec(disposition)
+  if (match?.[1]) {
+    // Only the basename: a Content-Disposition is attacker-controlled, and a
+    // path in it must never reach a storage key or a download header.
+    const name = decodeURIComponent(match[1]).split(/[\\/]/).pop()?.trim()
+    if (name) return name
+  }
+  try {
+    const name = new URL(response.url).pathname.split('/').filter(Boolean).pop()
+    if (name) return name
+  } catch {
+    // A response with no usable URL still needs a name.
+  }
+  return 'download'
+}
+
+export async function responseOutput(
+  response: Response,
+  responseType: 'auto' | 'json' | 'text' | 'binary',
+  maxChars = 50_000,
+  binary?: BinarySink,
+): Promise<FlowHttpOutput> {
   if (responseType === 'binary') {
     const bytes = Buffer.from(await response.arrayBuffer())
+    const headers = Object.fromEntries(response.headers.entries())
+
+    // The whole file, by reference. Previously the bytes were base64'd and
+    // TRUNCATED into the run row: that bloated every run record AND stored a
+    // corrupt file, so a flow downloading a PDF appeared to succeed and
+    // produced something unopenable.
+    if (binary) {
+      const handle = await binary.store({
+        bytes,
+        mimeType: (headers['content-type'] ?? 'application/octet-stream').split(';')[0].trim(),
+        fileName: suggestedFileName(response),
+      })
+      return {
+        ok: response.ok, status: response.status, statusText: response.statusText,
+        url: response.url, headers,
+        body: handle,
+        bodyText: `[binary ${bytes.length} bytes]`,
+      }
+    }
+
+    // No sink (preview, validation): the old inline shape, which is bounded
+    // and lossy but never reaches a run row.
     const bodyText = bytes.subarray(0, maxChars).toString('base64')
-    return { ok: response.ok, status: response.status, statusText: response.statusText, url: response.url, headers: Object.fromEntries(response.headers.entries()), body: { encoding: 'base64', data: bodyText, size: bytes.length }, bodyText }
+    return { ok: response.ok, status: response.status, statusText: response.statusText, url: response.url, headers, body: { encoding: 'base64', data: bodyText, size: bytes.length, truncated: bytes.length > maxChars }, bodyText }
   }
   const bodyText = (await response.text()).slice(0, maxChars)
   const headers = Object.fromEntries(response.headers.entries())
