@@ -78,6 +78,49 @@ function DataBody({
           />
         </div>
       )}
+      {op === 'limit' && (
+        <div className="grid gap-2">
+          <label className={labelClass} htmlFor={`${node.id}-count`}>Items to keep <span className="text-red-500">*</span></label>
+          <input
+            type="number"
+            min={1}
+            max={10000}
+            value={node.data.count ?? ''}
+            // Mirrors the executor's clamp (data-ops.ts: 1..10000). A control
+            // that accepts a value the executor silently rewrites is worse
+            // than no control — the flow would run with a number the builder
+            // never showed.
+            onChange={(event) => {
+              const raw = Number(event.target.value)
+              const count = Number.isFinite(raw) && raw >= 1 ? Math.min(10000, Math.floor(raw)) : undefined
+              update({ ...node, data: { ...node.data, count } })
+            }}
+            onFocus={blockActive}
+            onBlur={unblockActive}
+            className={controlClass}
+            id={`${node.id}-count`}
+            placeholder="10"
+            aria-label="Items to keep"
+          />
+          <p className="text-xs text-muted-foreground">Keeps the first N items. Defaults to 10.</p>
+        </div>
+      )}
+      {op === 'splitOut' && (
+        <div className="grid gap-2">
+          <label className={labelClass} htmlFor={`${node.id}-splitfield`}>List field <span className="font-normal normal-case text-muted-foreground">(optional)</span></label>
+          <input
+            value={node.data.field ?? ''}
+            onChange={(event) => update({ ...node, data: { ...node.data, field: event.target.value || undefined } })}
+            onFocus={blockActive}
+            onBlur={unblockActive}
+            className={controlClass}
+            id={`${node.id}-splitfield`}
+            placeholder="Leave blank if the input is already a list"
+            aria-label="List field"
+          />
+          <p className="text-xs text-muted-foreground">The list-bearing field to fan out on. Other fields are carried onto each item.</p>
+        </div>
+      )}
       {op === 'parseJson' && (
         <div className="grid gap-2">
           <label className={labelClass}>Schema <span className="font-normal normal-case text-muted-foreground">(optional)</span></label>

@@ -34,7 +34,7 @@ type OptionKey =
   | 'responseType' | 'failOnHttpError' | 'followRedirects' | 'maxRedirects' | 'timeoutMs'
   | 'retries' | 'retryDelayMs' | 'retryStatusCodes' | 'queryArrayFormat' | 'cookie'
   | 'idempotencyKeyHeader'
-  | 'pagination' | 'batch' | 'onError' | 'excludeFromContext' | 'disabled' | 'mockOutput'
+  | 'pagination' | 'batch' | 'onError' | 'excludeFromContext' | 'forEachItem' | 'disabled' | 'mockOutput'
 
 const LABELS: Record<OptionKey, string> = {
   responseType: 'Response format',
@@ -52,6 +52,7 @@ const LABELS: Record<OptionKey, string> = {
   batch: 'Batching',
   onError: 'On error',
   excludeFromContext: 'Agent context',
+  forEachItem: 'Run for each item',
   disabled: 'Execution',
   mockOutput: 'Mock output (JSON)',
 }
@@ -75,6 +76,7 @@ const DEFAULTS: Record<OptionKey, unknown> = {
   batch: { size: 10, delayMs: 1000 },
   onError: 'stop',
   excludeFromContext: true,
+  forEachItem: true,
   disabled: true,
   mockOutput: {},
 }
@@ -82,7 +84,7 @@ const DEFAULTS: Record<OptionKey, unknown> = {
 const ORDER: OptionKey[] = [
   'pagination', 'batch', 'responseType', 'failOnHttpError', 'timeoutMs',
   'retries', 'retryDelayMs', 'retryStatusCodes', 'idempotencyKeyHeader', 'followRedirects', 'maxRedirects',
-  'queryArrayFormat', 'cookie', 'onError', 'excludeFromContext', 'disabled', 'mockOutput',
+  'queryArrayFormat', 'cookie', 'onError', 'excludeFromContext', 'forEachItem', 'disabled', 'mockOutput',
 ]
 
 const numberOr = (value: string, fallback: number) => (value === '' ? fallback : Number(value))
@@ -256,6 +258,9 @@ export function HttpOptionsSection({
       failOnHttpError: [['true', 'Fail the step on 4xx/5xx'], ['false', 'Return the response instead']],
       followRedirects: [['true', 'Follow redirects'], ['false', 'Block redirects']],
       excludeFromContext: [['true', 'Excluded from agent context'], ['false', 'Included in agent context']],
+      // Executed by interpret.ts; http is excluded from the advanced-params
+      // manifest by design, so this panel is where its fan-out has to live.
+      forEachItem: [['true', 'Run once per item'], ['false', 'Run once for the whole list']],
       disabled: [['true', 'Disabled'], ['false', 'Enabled']],
     }
     const options = booleanOptions[key]

@@ -29,12 +29,23 @@ export type AdvancedParamKey =
   // source nodes are included in that aggregate by default.
   | 'includeUpstream'
   | 'excludeFromContext'
+  // n8n-parity per-item fan-out: run this step once per item of the
+  // predecessor's list output. Executed by interpret.ts; it lived in the
+  // schema with no control at all until it was listed here.
+  | 'forEachItem'
 
 const BY_TYPE: Partial<Record<FlowNode['type'], AdvancedParamKey[]>> = {
   agent: ['includeUpstream', 'onError', 'retries', 'timeoutMs', 'disabled', 'mockOutput'],
-  tool: ['excludeFromContext', 'onError', 'retries', 'timeoutMs', 'disabled', 'mockOutput'],
+  tool: ['excludeFromContext', 'forEachItem', 'onError', 'retries', 'timeoutMs', 'disabled', 'mockOutput'],
+  // `code` is deliberately without forEachItem: graph.ts strips the field on a
+  // code node, so offering it would present a control that silently does
+  // nothing. A code step fans out over its own items instead.
   code: ['excludeFromContext', 'onError', 'retries', 'timeoutMs', 'disabled', 'mockOutput'],
   loop: ['concurrency', 'disabled'],
+  // Previously absent, so both fell through to ['disabled'] — which is why
+  // their fan-out had nowhere to live.
+  transform: ['forEachItem', 'disabled'],
+  data: ['forEachItem', 'disabled'],
 }
 
 export function advancedParamKeys(type: FlowNode['type']): AdvancedParamKey[] {

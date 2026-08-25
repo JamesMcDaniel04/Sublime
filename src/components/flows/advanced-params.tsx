@@ -60,6 +60,21 @@ export function AdvancedParamsSection({
         </select>
       )
     }
+    if (key === 'forEachItem') {
+      return (
+        <select
+          className={controlClass}
+          value={data.forEachItem === true ? 'true' : 'false'}
+          // undefined rather than false when off: advancedParamsSetCount
+          // counts explicitly-set keys, so writing `false` would make an
+          // untouched node report a tuned parameter.
+          onChange={(event) => patch({ forEachItem: event.target.value === 'true' ? true : undefined })}
+        >
+          <option value="false">Run once for the whole list</option>
+          <option value="true">Run once per item</option>
+        </select>
+      )
+    }
     if (key === 'onError') {
       return (
         <select
@@ -171,6 +186,7 @@ export function AdvancedParamsSection({
   const LABELS: Record<AdvancedParamKey, string> = {
     includeUpstream: 'Upstream data',
     excludeFromContext: 'Agent context',
+    forEachItem: 'Run for each item',
     onError: 'On error',
     retries: 'Retries',
     timeoutMs: 'Timeout (seconds)',
