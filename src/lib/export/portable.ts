@@ -101,8 +101,14 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === 'object' && !Array.isArray(value))
 }
 
-/** Strip the webhook secret hash + ciphertext — credentials, useless off-platform. */
-function sanitizeTrigger(trigger: unknown): unknown {
+/**
+ * Strip the webhook secret hash + ciphertext — credentials, useless off-platform.
+ *
+ * Exported so the source-control writer reuses THIS redaction rather than a
+ * parallel copy. Two implementations of "what counts as a credential" drift,
+ * and the one that drifts is the one that leaks.
+ */
+export function sanitizeTrigger(trigger: unknown): unknown {
   if (!isRecord(trigger)) return trigger ?? { type: 'manual' }
   const rest = { ...trigger }
   delete rest.webhookSecretHash
@@ -127,7 +133,7 @@ const PORTABLE_CONNECTION_ID = /^(nango:|native:|template:)/
  * that authenticate that way. Each of those is stripped by key name, so the step
  * stays rebuildable while the credential does not travel.
  */
-function sanitizeNode(node: FlowNode): FlowNode {
+export function sanitizeNode(node: FlowNode): FlowNode {
   if (node.type === 'http') {
     const data = { ...node.data } as Record<string, unknown>
     // `redactAuthHeaders` is the same helper that keeps tokens out of persisted
