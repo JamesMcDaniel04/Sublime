@@ -48,6 +48,7 @@ model Organization {
   agents                    AgentTask[]
   agentWorkers              AgentWorker[]
   agentRequests             AgentRequest[]
+  apiKeys                   ApiKey[]
   executions                AgentExecution[]
   templates                 AgentTemplate[]
   integrations              Integration[]
@@ -136,6 +137,7 @@ model User {
   templates          AgentTemplate[]
   integrations       Integration[]
   ownedAgents        AgentTask[]
+  apiKeys            ApiKey[]
   ownedAgentWorkers  AgentWorker[]
   mcpConnections     McpConnection[]
   flowCollaborations FlowCollaborator[]         @relation("FlowCollaboratorUser")
@@ -978,6 +980,54 @@ model WorkspaceVariable {
 /// One row per (flow, key) rather than a blob on Flow: two keys written by
 /// different steps in the same run would otherwise race on one JSON column,
 /// and last-write-wins there means a silently dropped cursor.
+/// A key that authenticates a machine caller against the public API.
+///
+/// The plaintext is shown once and never stored. `prefix` is public by design
+/// — it is how a key is identified in a list and how a presented key finds its
+/// own row — and `hash` is what proves the presenter holds the real thing.
+model ApiKey {
+  id             String    @id @default(cuid())
+  organizationId String    @db.Uuid
+  /// Who issued it. A key acts with WORKSPACE authority, not this person's, so
+  /// this is provenance for the audit trail rather than an authorization input.
+  createdById    String
+  name           String
+  /// Public handle. Unique because it is the lookup key for a presented token.
+  prefix         String    @unique
+  /// sha256 of the whole plaintext key.
+  hash           String
+  /// Closed vocabulary from lib/api-keys/keys.ts. Empty grants nothing.
+  scopes         String[]  @default([])
+  /// Set on use, best-effort — so an unused key can be found and removed.
+  lastUsedAt     DateTime? @db.Timestamptz(6)
+  expiresAt      DateTime? @db.Timestamptz(6)
+  /// Revocation is a tombstone, never a delete: a deleted key leaves an audit
+  /// trail pointing at a row that no longer exists.
+  revokedAt      DateTime? @db.Timestamptz(6)
+  createdAt      DateTime  @default(now()) @db.Timestamptz(6)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  createdBy    User         @relation(fields: [createdById], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+  @@map("api_keys")
+}
+
+/// A single public-API request, for per-key rate limiting and usage reporting.
+model ApiKeyUsage {
+  id        String   @id @default(cuid())
+  apiKeyId  String
+  /// Denormalised so the tenant guard can scope reads without a join.
+  organizationId String @db.Uuid
+  route     String
+  status    Int
+  createdAt DateTime @default(now()) @db.Timestamptz(6)
+
+  @@index([apiKeyId, createdAt])
+  @@index([organizationId, createdAt])
+  @@map("api_key_usage")
+}
+
 model FlowStaticData {
   id             String   @id @default(cuid())
   flowId         String

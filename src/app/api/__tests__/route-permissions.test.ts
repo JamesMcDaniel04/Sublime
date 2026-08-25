@@ -27,6 +27,17 @@ const API_DIR = fileURLToPath(new URL('..', import.meta.url))
  */
 const DIFFERENTLY_AUTHENTICATED: ReadonlyArray<{ route: string; mechanism: string }> = [
   { route: 'stripe/webhook', mechanism: 'Stripe webhook signature' },
+  // The public API. Authenticated by a workspace API key via withPublicApi
+  // (lib/server/public-api-handler.ts), which forces a `scope` declaration the
+  // same way withAuthenticatedApi forces `requires`. Deliberately a separate
+  // wrapper: withAuthenticatedApi is built around a browser session (Supabase
+  // cookie, member row, capability, billing gate) and a machine caller has
+  // none of those — adding "unless it is a key" branches to it is how
+  // authorization bugs get made.
+  { route: 'v1/flows', mechanism: 'workspace API key + flows:read scope' },
+  { route: 'v1/flows/[id]/run', mechanism: 'workspace API key + flows:execute scope; published flows only' },
+  { route: 'v1/runs/[id]', mechanism: 'workspace API key + runs:read scope' },
+  { route: 'v1/agents', mechanism: 'workspace API key + agents:read scope' },
   { route: 'stripe/portal', mechanism: 'session + canManageBillingByRole; plan-exempt so a locked-out workspace can still pay' },
   { route: 'stripe/topup', mechanism: 'session + canManageBillingByRole; plan-exempt so a locked-out workspace can still pay' },
   { route: 'stripe/checkout', mechanism: 'session + canManageBillingByRole; plan-exempt so a locked-out workspace can still pay' },

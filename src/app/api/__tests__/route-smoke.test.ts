@@ -106,6 +106,7 @@ if (TEST_DB) {
     { name: 'GET /api/settings/members/[id]/resources', run: async () => (await import('../settings/members/[id]/resources/route')).GET(req(`/api/settings/members/${memberId}/resources`)) },
     { name: 'GET /api/settings/profile', run: async () => (await import('../settings/profile/route')).GET(req('/api/settings/profile')) },
     { name: 'GET /api/settings/sso', run: async () => (await import('../settings/sso/route')).GET(req('/api/settings/sso')) },
+    { name: 'GET /api/settings/api-keys', run: async () => (await import('../settings/api-keys/route')).GET(req('/api/settings/api-keys')) },
     { name: 'GET /api/goals/impact/batch', run: async () => (await import('../goals/impact/batch/route')).GET(req('/api/goals/impact/batch')) },
     { name: 'GET /api/traces', run: async () => (await import('../traces/route')).GET(req('/api/traces')) },
     { name: 'GET /api/slack/connections', run: async () => (await import('../slack/connections/route')).GET(req('/api/slack/connections')) },
