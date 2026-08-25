@@ -408,6 +408,18 @@ const variableNode = z.object({
 })
 
 /** Pure transforms a data operation step can perform (MS Data Operation parity). */
+/**
+ * The data node's own data keys, read off the Zod schema.
+ *
+ * Exists so the params-coverage test can assert against the SCHEMA rather than
+ * a hand-maintained list — a list copied by hand is exactly what drifts, and
+ * drift here means a field the executor reads with no way to set it.
+ */
+export function dataNodeDataKeys(): string[] {
+  const shape = (dataNode.shape.data as { shape: Record<string, unknown> }).shape
+  return Object.keys(shape).sort()
+}
+
 export const DATA_OPS = ['compose', 'parseJson', 'join', 'csvTable', 'htmlTable', 'slackMessage', 'filterArray', 'select', 'sort', 'limit', 'dedupe', 'splitOut', 'aggregate'] as const
 export type DataOp = (typeof DATA_OPS)[number]
 // Deterministic data-shaping step between other steps: no LLM, no I/O. `input`
