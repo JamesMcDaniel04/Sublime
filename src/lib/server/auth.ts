@@ -4,6 +4,7 @@ import { billingStateFor } from '@/lib/billing/trial'
 import { entitlementPlanFor } from '@/lib/billing/entitlements'
 import type { Actor } from './permissions'
 import { prisma } from '@/lib/prisma'
+import { ssoGateFor } from '@/lib/auth/sso-policy'
 
 type AuthResult = NonNullable<Awaited<ReturnType<typeof getAuthWithUser>>>
 
@@ -100,6 +101,24 @@ export async function requireAuthContext(): Promise<AuthContext> {
       402,
       'PAYMENT_REQUIRED',
     )
+  }
+
+  // SSO enforcement. This CANNOT live in the login form: password sign-in runs
+  // client-side against Supabase, so a client-side check is bypassed by
+  // calling Supabase directly. Every data API flows through here, which makes
+  // this the same chokepoint the billing gate above uses, for the same reason.
+  //
+  // An indeterminate method (no `amr` on the token, i.e. the getUser fallback)
+  // is never treated as a violation — a transient inability to introspect a
+  // token must not become a workspace outage.
+  const ssoGate = ssoGateFor({
+    email: auth.dbUser.email,
+    role: auth.dbUser.role,
+    authMethod: auth.authMethod,
+    organization: organization ? { id: organization.id, settings: organization.settings } : null,
+  })
+  if (!ssoGate.allowed) {
+    throw new AuthContextError(ssoGate.reason ?? 'This workspace requires single sign-on.', 403, 'SSO_REQUIRED')
   }
 
   const role = auth.dbUser.role

@@ -105,6 +105,9 @@ if (TEST_DB) {
     { name: 'GET /api/feedback', run: async () => (await import('../feedback/route')).GET(req('/api/feedback')) },
     { name: 'GET /api/settings/members/[id]/resources', run: async () => (await import('../settings/members/[id]/resources/route')).GET(req(`/api/settings/members/${memberId}/resources`)) },
     { name: 'GET /api/settings/profile', run: async () => (await import('../settings/profile/route')).GET(req('/api/settings/profile')) },
+    { name: 'GET /api/settings/sso', run: async () => (await import('../settings/sso/route')).GET(req('/api/settings/sso')) },
+    { name: 'GET /api/goals/impact/batch', run: async () => (await import('../goals/impact/batch/route')).GET(req('/api/goals/impact/batch')) },
+    { name: 'GET /api/traces', run: async () => (await import('../traces/route')).GET(req('/api/traces')) },
     { name: 'GET /api/slack/connections', run: async () => (await import('../slack/connections/route')).GET(req('/api/slack/connections')) },
     { name: 'GET /api/skills', run: async () => (await import('../skills/route')).GET(req('/api/skills')) },
     { name: 'GET /api/workflows/executions', run: async () => (await import('../workflows/executions/route')).GET(req('/api/workflows/executions')) },
@@ -136,6 +139,8 @@ if (TEST_DB) {
     { name: 'GET /api/flows/[id]/collaboration', run: async () => (await import('../flows/[id]/collaboration/route')).GET(req('/api/flows/no-such-id/collaboration')) },
     { name: 'GET /api/flows/[id]/comments', run: async () => (await import('../flows/[id]/comments/route')).GET(req('/api/flows/no-such-id/comments')) },
     { name: 'GET /api/goals/[id]', run: async () => (await import('../goals/[id]/route')).GET(req('/api/goals/no-such-id')) },
+    { name: 'GET /api/traces/agent/[id]', run: async () => (await import('../traces/agent/[id]/route')).GET(req('/api/traces/agent/no-such-id')) },
+    { name: 'GET /api/traces/flow/[id]', run: async () => (await import('../traces/flow/[id]/route')).GET(req('/api/traces/flow/no-such-id')) },
     { name: 'GET /api/goals/[id]/datapoints', run: async () => (await import('../goals/[id]/datapoints/route')).GET(req('/api/goals/no-such-id/datapoints')) },
     { name: 'GET /api/goals/[id]/contributions', run: async () => (await import('../goals/[id]/contributions/route')).GET(req('/api/goals/no-such-id/contributions')) },
     // An unresolvable connectionRef must be a 400, not a 500: the GA4 picker

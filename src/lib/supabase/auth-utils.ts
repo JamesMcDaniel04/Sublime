@@ -1,6 +1,7 @@
 import type { User } from '@supabase/supabase-js'
 import { prisma, systemPrisma } from '@/lib/prisma'
 import { createClient } from '@/lib/supabase/server'
+import { authMethodFrom } from '@/lib/auth/sso-policy'
 
 // An auth identity resolves to a user either directly (users.supabaseId, the
 // first identity) or via a linked user_identities row (any later sign-in
@@ -202,11 +203,16 @@ export async function getAuthWithUser() {
   // gate privileged actions behind a stepped-up session. Undefined on the
   // getUser fallback, which the MFA gate treats as indeterminate (never a lock).
   let aal: string | undefined
+  // How the session was obtained ('password' | 'sso'), for SSO enforcement.
+  // Undefined on the getUser fallback, which the SSO gate treats as
+  // indeterminate — never a lockout (see lib/auth/sso-policy.ts).
+  let authMethod: 'password' | 'sso' | null = null
   try {
     const { data } = await supabase.auth.getClaims()
     const claims = data?.claims
     if (claims?.sub) {
       if (typeof claims.aal === 'string') aal = claims.aal
+      authMethod = authMethodFrom(claims)
       user = {
         id: claims.sub,
         email: typeof claims.email === 'string' ? claims.email : undefined,
@@ -248,6 +254,7 @@ export async function getAuthWithUser() {
     dbUser,
     organizationId: dbUser?.organizationId ?? null,
     aal,
+    authMethod,
   }
 }
 
