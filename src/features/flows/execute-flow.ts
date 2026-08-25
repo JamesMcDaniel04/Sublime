@@ -155,6 +155,22 @@ function jsonValue(value: unknown) {
   return JSON.parse(JSON.stringify(redactForCurrentRun(value) ?? null))
 }
 
+/**
+ * An error string on its way into the database.
+ *
+ * Errors are String columns, so they never passed through `jsonValue` — which
+ * is where external-secret scrubbing happens for JSON columns. That gap is why
+ * a resolved secret could reach FlowRunStep.error even though every `output`
+ * was clean.
+ *
+ * Redaction comes BEFORE truncation, deliberately. Slicing first could cut a
+ * secret in half at the 300-character boundary, leaving a partial secret that
+ * no longer matches the scrub pattern and therefore survives.
+ */
+function errorText(value: string): string {
+  return (redactForCurrentRun(value) as string).slice(0, 300)
+}
+
 function flowIdempotencyDigest(value: string): string {
   return createHash('sha256').update(value).digest('hex')
 }
@@ -564,7 +580,7 @@ export async function runFlowExecution(
             order: order++,
             status: outcome.status,
             output: jsonValue(outcome.output ?? null),
-            error: outcome.error ? outcome.error.slice(0, 300) : null,
+            error: outcome.error ? errorText(outcome.error) : null,
             iterationPath: outcome.iterationPath?.length ? outcome.iterationPath.join('.') : null,
             startedAt: new Date(),
             finishedAt: new Date(),
@@ -603,7 +619,13 @@ export async function runFlowExecution(
     // finishes, its late write must not resurrect the swept row inside a
     // failed run — the sweep is authoritative.
     const finishStep = async (data: Record<string, unknown>) => {
-      await prisma.flowRunStep.updateMany({ where: { id: step.id, status: 'running' }, data })
+      // Redacted HERE rather than at each caller: four call sites build an
+      // error message for this closure, and scrubbing them one by one is how
+      // the next one gets forgotten.
+      await prisma.flowRunStep.updateMany({
+        where: { id: step.id, status: 'running' },
+        data: typeof data.error === 'string' ? { ...data, error: errorText(data.error) } : data,
+      })
     }
     // Link the agent execution to this step row the moment the execution row
     // exists (not only at the end of the run), so the runs panel can follow
@@ -721,7 +743,13 @@ export async function runFlowExecution(
       },
     })
     const finishStep = async (data: Record<string, unknown>) => {
-      await prisma.flowRunStep.updateMany({ where: { id: step.id, status: 'running' }, data })
+      // Redacted HERE rather than at each caller: four call sites build an
+      // error message for this closure, and scrubbing them one by one is how
+      // the next one gets forgotten.
+      await prisma.flowRunStep.updateMany({
+        where: { id: step.id, status: 'running' },
+        data: typeof data.error === 'string' ? { ...data, error: errorText(data.error) } : data,
+      })
     }
     // Park the parent on this step: persist the child linkage + pause reason,
     // and hand the interpreter a `waiting` result so the whole run parks.
@@ -868,7 +896,7 @@ export async function runFlowExecution(
         data: {
           status: patch.status,
           output: patch.output !== undefined ? jsonValue(patch.output) : undefined,
-          error: patch.error ? patch.error.slice(0, 300) : undefined,
+          error: patch.error ? errorText(patch.error) : undefined,
           finishedAt: new Date(),
         },
       })
@@ -1299,7 +1327,17 @@ export async function runFlowExecution(
       : 'failed'
     // A failed run persists WHY it failed (e.g. the step-timeout message) — the
     // runs API surfaces FlowRun.error, so it must never stay null on failure.
-    const runError = status === 'failed' ? (result.error ?? 'The flow failed.').slice(0, 300) : null
+    //
+    // Redacted HERE, at the source, and not at each place it is written. This
+    // value does not pass through jsonValue (where external-secret scrubbing
+    // otherwise happens), and it reaches seven sinks: the run row, a step row,
+    // a notification, the reflection pass, the run signal, the API response —
+    // and, worst of them, the INPUT of a recovery flow, which would carry a
+    // leaked secret into another run's context. Scrubbing one call site would
+    // have left the other six leaking, so the fix belongs where the string is
+    // built. An error message is a very common place for a secret to surface:
+    // HTTP clients love putting the failing request in the message.
+    const runError = status === 'failed' ? errorText(result.error ?? 'The flow failed.') : null
     await prisma.flowRun.update({
       where: { id: run.id, organizationId: job.organizationId },
       data: {
@@ -1470,7 +1508,10 @@ export async function runFlowExecution(
           signals.emitFlowSignal({
             organizationId: job.organizationId,
             signal: 'flow.completed',
-            payload: { flowId: flow.id, flowName: flow.name, output: result.output },
+            // Redacted explicitly rather than relying on the ALS scope reaching
+            // this dynamically-imported, fire-and-forget continuation: a signal
+            // payload becomes another flow's trigger input.
+            payload: { flowId: flow.id, flowName: flow.name, output: redactForCurrentRun(result.output) },
             sourceFlowId: flow.id,
             sourceRunId: run.id,
             depth: signals.signalDepthOf(job.trigger) + 1,
