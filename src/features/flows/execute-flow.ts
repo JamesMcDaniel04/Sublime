@@ -1,6 +1,9 @@
 import type { Job } from 'bullmq'
 import { takeUnseen } from './static-store'
 import { flowSettings } from '@/lib/flows/settings'
+import { collectSecretRefs } from '@/lib/secrets/providers'
+import { withSecretRedaction, redactForCurrentRun } from '@/lib/secrets/redaction-scope'
+import { fetchSecrets } from './secret-store'
 import { createHash } from 'crypto'
 import { prisma } from '@/lib/prisma'
 import { workersEnabled } from '@/lib/queue/config'
@@ -139,8 +142,17 @@ const HTTP_MAX_RESPONSE_CHARS = 50_000
 // subflows itself).
 const MAX_SUBFLOW_DEPTH = 5
 
+/**
+ * Every value on its way into the database goes through here — step outputs,
+ * run input, errors, webhook responses.
+ *
+ * That makes it the one place external secrets can be scrubbed without
+ * threading a redactor through fifteen call sites and hoping none is ever
+ * added without it. Outside a run that resolved secrets this is exactly what
+ * it always was (see lib/secrets/redaction-scope.ts).
+ */
 function jsonValue(value: unknown) {
-  return JSON.parse(JSON.stringify(value ?? null))
+  return JSON.parse(JSON.stringify(redactForCurrentRun(value) ?? null))
 }
 
 function flowIdempotencyDigest(value: string): string {
@@ -1239,244 +1251,262 @@ export async function runFlowExecution(
       select: { key: true, value: true },
     })).map((row) => [row.key, row.value]),
   )
-  const result = await interpretFlow(graph, input, {
-    startedAt: (run.startedAt ?? new Date()).toISOString(),
-    timezone: settings.timezone,
-    workspaceVars,
-    // Cross-run dedupe, scoped to this flow and this org. Locked inside the
-    // store so two concurrent runs of the same flow cannot both decide the
-    // same rows are new — the double-send dedupe exists to prevent.
-    takeUnseen: (items, idPath) => takeUnseen(job.organizationId, flow.id, items, idPath),
-    runAgent,
-    runAction,
-    runCode,
-    evalJs,
-    runFlow,
-    routeAi,
-    onStep,
-    stepLabels,
-    shouldStop,
-    // resumeKey names the EXACT paused iteration (see resume-scan.ts) — the
-    // interpreter's guards match on it, so dropping it here would silently
-    // downgrade every loop resume to the bare-id fallback (reply lost).
-    ...((resuming || job.mockOutputs) ? { completed: { ...(resuming ? completed : {}), ...(job.mockOutputs ?? {}) }, ...(resuming ? { resumeNodeId, resumeKey, resumeReply: job.reply } : {}) } : {}),
-    ...(job.startNodeId ? { startNodeId: job.startNodeId } : {}),
-    ...(job.onlyNodeId ? { onlyNodeId: job.onlyNodeId } : {}),
-  })
-  await Promise.all(pending) // ensure all container-step rows are written
-  const status = result.status === 'succeeded' ? 'succeeded'
-    : result.status === 'waiting' ? 'waiting'
-    : result.status === 'stopped' ? 'stopped'
-    : 'failed'
-  // A failed run persists WHY it failed (e.g. the step-timeout message) — the
-  // runs API surfaces FlowRun.error, so it must never stay null on failure.
-  const runError = status === 'failed' ? (result.error ?? 'The flow failed.').slice(0, 300) : null
-  await prisma.flowRun.update({
-    where: { id: run.id, organizationId: job.organizationId },
-    data: {
-      status,
-      output: jsonValue(result.output),
-      error: runError,
-      wakeAt: result.waiting?.wakeAt ? new Date(result.waiting.wakeAt) : null,
-      webhookResponse: result.webhookResponse ? jsonValue(result.webhookResponse) : undefined,
-      finishedAt: status === 'waiting' ? null : new Date(),
-      heartbeatAt: new Date(),
-      leaseExpiresAt: null,
-      workerId: null,
-      ...(status === 'waiting' ? { waitGeneration: { increment: 1 } } : {}),
-    },
-  })
-  // Push half of run delivery: the terminal/waiting transition broadcasts on
-  // the org's private Realtime topic so the builder/run panel refresh
-  // instantly instead of waiting out their poll interval. Fire-and-forget —
-  // a lost broadcast costs latency (the poll fallback still lands), never
-  // correctness.
-  broadcastRunEvent(job.organizationId, { kind: 'flow', runId: run.id, status, flowId: flow.id })
-  if (status === 'succeeded') {
-    void import('@/lib/knowledge/capture')
-      .then(({ captureFlowRunKnowledge }) => captureFlowRunKnowledge({
+  // Resolved BEFORE the run starts, and once for the whole run. Fetching per
+  // token would make one secret used in ten steps ten calls to the store, and
+  // would let a rotation mid-run leave two steps disagreeing about the value.
+  //
+  // A store that cannot be reached fails the run rather than yielding empty
+  // strings: an unauthenticated request to a payment API is a worse outcome
+  // than a run that plainly did not start.
+  const secretRefs = collectSecretRefs(graph)
+  const secretValues = await fetchSecrets(secretRefs)
+  const secrets = Object.fromEntries(secretValues)
+
+  // Everything from here to the end of the run — the interpreter AND the
+  // persistence that follows it — writes through jsonValue, so the whole tail
+  // has to be inside the redaction scope. Wrapping only interpretFlow would
+  // leave the final run row unscrubbed, which is the row people actually read.
+  return await withSecretRedaction([...secretValues.values()], async () => {
+    const result = await interpretFlow(graph, input, {
+      startedAt: (run.startedAt ?? new Date()).toISOString(),
+      timezone: settings.timezone,
+      workspaceVars,
+      secrets,
+      // Cross-run dedupe, scoped to this flow and this org. Locked inside the
+      // store so two concurrent runs of the same flow cannot both decide the
+      // same rows are new — the double-send dedupe exists to prevent.
+      takeUnseen: (items, idPath) => takeUnseen(job.organizationId, flow.id, items, idPath),
+      runAgent,
+      runAction,
+      runCode,
+      evalJs,
+      runFlow,
+      routeAi,
+      onStep,
+      stepLabels,
+      shouldStop,
+      // resumeKey names the EXACT paused iteration (see resume-scan.ts) — the
+      // interpreter's guards match on it, so dropping it here would silently
+      // downgrade every loop resume to the bare-id fallback (reply lost).
+      ...((resuming || job.mockOutputs) ? { completed: { ...(resuming ? completed : {}), ...(job.mockOutputs ?? {}) }, ...(resuming ? { resumeNodeId, resumeKey, resumeReply: job.reply } : {}) } : {}),
+      ...(job.startNodeId ? { startNodeId: job.startNodeId } : {}),
+      ...(job.onlyNodeId ? { onlyNodeId: job.onlyNodeId } : {}),
+    })
+    await Promise.all(pending) // ensure all container-step rows are written
+    const status = result.status === 'succeeded' ? 'succeeded'
+      : result.status === 'waiting' ? 'waiting'
+      : result.status === 'stopped' ? 'stopped'
+      : 'failed'
+    // A failed run persists WHY it failed (e.g. the step-timeout message) — the
+    // runs API surfaces FlowRun.error, so it must never stay null on failure.
+    const runError = status === 'failed' ? (result.error ?? 'The flow failed.').slice(0, 300) : null
+    await prisma.flowRun.update({
+      where: { id: run.id, organizationId: job.organizationId },
+      data: {
+        status,
+        output: jsonValue(result.output),
+        error: runError,
+        wakeAt: result.waiting?.wakeAt ? new Date(result.waiting.wakeAt) : null,
+        webhookResponse: result.webhookResponse ? jsonValue(result.webhookResponse) : undefined,
+        finishedAt: status === 'waiting' ? null : new Date(),
+        heartbeatAt: new Date(),
+        leaseExpiresAt: null,
+        workerId: null,
+        ...(status === 'waiting' ? { waitGeneration: { increment: 1 } } : {}),
+      },
+    })
+    // Push half of run delivery: the terminal/waiting transition broadcasts on
+    // the org's private Realtime topic so the builder/run panel refresh
+    // instantly instead of waiting out their poll interval. Fire-and-forget —
+    // a lost broadcast costs latency (the poll fallback still lands), never
+    // correctness.
+    broadcastRunEvent(job.organizationId, { kind: 'flow', runId: run.id, status, flowId: flow.id })
+    if (status === 'succeeded') {
+      void import('@/lib/knowledge/capture')
+        .then(({ captureFlowRunKnowledge }) => captureFlowRunKnowledge({
+          organizationId: job.organizationId,
+          userId: job.userId,
+          flowId: flow.id,
+          flowRunId: run.id,
+          flowName: flow.name,
+          trigger: run.trigger,
+          runInput: input,
+          output: redactForCurrentRun(result.output),
+        }))
+        .catch((error) => apiLogger.warn('flow knowledge capture failed', {
+          flowRunId: run.id,
+          error: error instanceof Error ? error.message : String(error),
+        }))
+    }
+    // Cross-tool ledger flush: which integrations this segment's tool steps
+    // touched, one event per provider. Await it so a completed run cannot race
+    // its durable audit/learning event (or lose it on serverless shutdown), but
+    // keep capture failure non-fatal to the run itself.
+    await recordToolCallEvents({
+      organizationId: job.organizationId,
+      userId: job.userId,
+      executionId: run.id,
+      touched: touchedTools,
+      // The run's terminal verdict. 'waiting' and 'stopped' are not successes:
+      // the segment did not deliver an outcome, and counting them as such would
+      // inflate every integration that appears in long-paused flows.
+      succeeded: status === 'succeeded',
+    }).catch(() => undefined)
+    // A humanReview ("Request information") pause has no adapter: its waiting
+    // FlowRunStep row was persisted by the interpreter's onStep path (the
+    // outcome carries `{ waiting: { kind: 'input', question } }`), so the only
+    // side effect owed here is telling the assignee — or the run owner when no
+    // assignee is set — that the flow is waiting on them. notify never throws
+    // into the run.
+    if (status === 'waiting' && result.waiting) {
+      const waitingNode = graph.nodes.find((node) => node.id === result.waiting?.nodeId)
+      if (waitingNode?.type === 'humanReview') {
+        await notify({
+          organizationId: job.organizationId,
+          userId: waitingNode.data.assigneeUserId?.trim() || run.userId || job.userId,
+          type: 'flow.needs_input',
+          level: 'action',
+          title: `Flow "${flow.name}" needs information`,
+          body: result.waiting.question ? `${result.waiting.question} (run ${run.id})` : `Reply to continue the flow (run ${run.id})`,
+          executionId: flow.id,
+          link: `/flows/${flow.id}/activity`,
+        })
+      }
+    }
+    if (status === 'failed' || status === 'stopped') {
+      // Sweep phantom 'running' rows: a timed-out agent step's adapter promise
+      // was abandoned by the interpreter, so its FlowRunStep would stay stuck
+      // 'running' forever. Close every such row for THIS run. The sweep wins
+      // over the abandoned adapter: its terminal writes are conditional on the
+      // row still being 'running' (finishStep/finish above), so a zombie
+      // completion can never flip a swept step back inside a failed run.
+      // A user-stopped run sweeps the same way, just labeled 'stopped' —
+      // a stop is not a failure. Best-effort — sweep failure must not mask
+      // the run's real outcome.
+      await prisma.flowRunStep
+        .updateMany({
+          where: { flowRunId: run.id, status: 'running' },
+          data: {
+            status: status === 'stopped' ? 'stopped' : 'failed',
+            error: runError ?? 'The flow stopped before this step finished.',
+            finishedAt: new Date(),
+          },
+        })
+        .catch(() => undefined)
+    }
+
+    // Structured, references-only observations are the durable learning input;
+    // reflection consumes those facts and emits reviewable suggestions.
+    await import('@/lib/intelligence/flow-observations')
+      .then(({ recordFlowObservations }) => recordFlowObservations({
         organizationId: job.organizationId,
         userId: job.userId,
         flowId: flow.id,
         flowRunId: run.id,
-        flowName: flow.name,
-        trigger: run.trigger,
-        runInput: input,
-        output: result.output,
+        status,
+        error: runError,
       }))
-      .catch((error) => apiLogger.warn('flow knowledge capture failed', {
+      .catch((error) => apiLogger.warn('flow observation capture failed', { flowRunId: run.id, error: error instanceof Error ? error.message : String(error) }))
+
+    // Best-effort recursive-learning pass: repeated run evidence becomes a
+    // reviewable builder suggestion; it never mutates the published graph.
+    await import('@/lib/intelligence/reflect-flow-run')
+      .then(({ reflectFlowRun }) => reflectFlowRun({ organizationId: job.organizationId, flowId: flow.id, flowRunId: run.id, graph, status, error: runError }))
+      .catch((error) => apiLogger.warn('flow reflection failed', { flowRunId: run.id, error: error instanceof Error ? error.message : String(error) }))
+
+    // Optional workflow-level error handler. It receives a structured failure
+    // envelope, runs the published handler, and is depth-bounded to prevent
+    // handler cycles from recursively dispatching forever.
+    if (status === 'failed' && (job.errorDepth ?? 0) < 3) {
+      const metadata = flow.metadata && typeof flow.metadata === 'object' && !Array.isArray(flow.metadata) ? flow.metadata as Record<string, unknown> : {}
+      const errorFlowId = typeof metadata.errorFlowId === 'string' ? metadata.errorFlowId : ''
+      if (errorFlowId && errorFlowId !== flow.id) {
+        await dispatchFlowExecution({
+          flowId: errorFlowId,
+          organizationId: job.organizationId,
+          userId: job.userId,
+          input: { failedFlowId: flow.id, failedRunId: run.id, error: runError, originalInput: input },
+          usePublished: true,
+          trigger: { type: 'signal', signal: 'flow.failed', sourceFlowId: flow.id },
+          errorDepth: (job.errorDepth ?? 0) + 1,
+          idempotencyKey: `flow-error:${run.id}:${errorFlowId}`,
+        }).catch((error) => apiLogger.error('flow error handler dispatch failed', { flowRunId: run.id, error: error instanceof Error ? error.message : String(error) }))
+      }
+    }
+
+    // Slack reply-to-origin: a run started from Slack reports its outcome back
+    // to the originating channel/thread — succeeded output, a failure notice,
+    // or the pending question when the run pauses (the multi-turn bridge).
+    // run.trigger carries the origin (persisted at dispatch), so resumes reply
+    // too. Fire-and-safe: a Slack outage must never affect the run's outcome.
+    const slackOrigin = slackOriginOf(run.trigger)
+    // No reply for user-stopped runs: the stop was a deliberate in-app action,
+    // not an outcome the Slack originator is waiting on.
+    if (slackOrigin && status !== 'stopped') {
+      await deliverSlackRunReply({
+        organizationId: job.organizationId,
+        flowId: flow.id,
         flowRunId: run.id,
-        error: error instanceof Error ? error.message : String(error),
-      }))
-  }
-  // Cross-tool ledger flush: which integrations this segment's tool steps
-  // touched, one event per provider. Await it so a completed run cannot race
-  // its durable audit/learning event (or lose it on serverless shutdown), but
-  // keep capture failure non-fatal to the run itself.
-  await recordToolCallEvents({
-    organizationId: job.organizationId,
-    userId: job.userId,
-    executionId: run.id,
-    touched: touchedTools,
-    // The run's terminal verdict. 'waiting' and 'stopped' are not successes:
-    // the segment did not deliver an outcome, and counting them as such would
-    // inflate every integration that appears in long-paused flows.
-    succeeded: status === 'succeeded',
-  }).catch(() => undefined)
-  // A humanReview ("Request information") pause has no adapter: its waiting
-  // FlowRunStep row was persisted by the interpreter's onStep path (the
-  // outcome carries `{ waiting: { kind: 'input', question } }`), so the only
-  // side effect owed here is telling the assignee — or the run owner when no
-  // assignee is set — that the flow is waiting on them. notify never throws
-  // into the run.
-  if (status === 'waiting' && result.waiting) {
-    const waitingNode = graph.nodes.find((node) => node.id === result.waiting?.nodeId)
-    if (waitingNode?.type === 'humanReview') {
-      await notify({
-        organizationId: job.organizationId,
-        userId: waitingNode.data.assigneeUserId?.trim() || run.userId || job.userId,
-        type: 'flow.needs_input',
-        level: 'action',
-        title: `Flow "${flow.name}" needs information`,
-        body: result.waiting.question ? `${result.waiting.question} (run ${run.id})` : `Reply to continue the flow (run ${run.id})`,
-        executionId: flow.id,
-        link: `/flows/${flow.id}/activity`,
+        status,
+        output: redactForCurrentRun(result.output),
+        error: runError,
+        question: status === 'waiting' ? result.waiting?.question : undefined,
+        origin: slackOrigin,
+      }).catch((error) => {
+        apiLogger.error('slack run reply failed', { flowRunId: run.id, error: error instanceof Error ? error.message : String(error) })
       })
     }
-  }
-  if (status === 'failed' || status === 'stopped') {
-    // Sweep phantom 'running' rows: a timed-out agent step's adapter promise
-    // was abandoned by the interpreter, so its FlowRunStep would stay stuck
-    // 'running' forever. Close every such row for THIS run. The sweep wins
-    // over the abandoned adapter: its terminal writes are conditional on the
-    // row still being 'running' (finishStep/finish above), so a zombie
-    // completion can never flip a swept step back inside a failed run.
-    // A user-stopped run sweeps the same way, just labeled 'stopped' —
-    // a stop is not a failure. Best-effort — sweep failure must not mask
-    // the run's real outcome.
-    await prisma.flowRunStep
-      .updateMany({
-        where: { flowRunId: run.id, status: 'running' },
-        data: {
-          status: status === 'stopped' ? 'stopped' : 'failed',
-          error: runError ?? 'The flow stopped before this step finished.',
-          finishedAt: new Date(),
-        },
-      })
-      .catch(() => undefined)
-  }
 
-  // Structured, references-only observations are the durable learning input;
-  // reflection consumes those facts and emits reviewable suggestions.
-  await import('@/lib/intelligence/flow-observations')
-    .then(({ recordFlowObservations }) => recordFlowObservations({
-      organizationId: job.organizationId,
-      userId: job.userId,
-      flowId: flow.id,
-      flowRunId: run.id,
-      status,
-      error: runError,
-    }))
-    .catch((error) => apiLogger.warn('flow observation capture failed', { flowRunId: run.id, error: error instanceof Error ? error.message : String(error) }))
-
-  // Best-effort recursive-learning pass: repeated run evidence becomes a
-  // reviewable builder suggestion; it never mutates the published graph.
-  await import('@/lib/intelligence/reflect-flow-run')
-    .then(({ reflectFlowRun }) => reflectFlowRun({ organizationId: job.organizationId, flowId: flow.id, flowRunId: run.id, graph, status, error: runError }))
-    .catch((error) => apiLogger.warn('flow reflection failed', { flowRunId: run.id, error: error instanceof Error ? error.message : String(error) }))
-
-  // Optional workflow-level error handler. It receives a structured failure
-  // envelope, runs the published handler, and is depth-bounded to prevent
-  // handler cycles from recursively dispatching forever.
-  if (status === 'failed' && (job.errorDepth ?? 0) < 3) {
-    const metadata = flow.metadata && typeof flow.metadata === 'object' && !Array.isArray(flow.metadata) ? flow.metadata as Record<string, unknown> : {}
-    const errorFlowId = typeof metadata.errorFlowId === 'string' ? metadata.errorFlowId : ''
-    if (errorFlowId && errorFlowId !== flow.id) {
-      await dispatchFlowExecution({
-        flowId: errorFlowId,
-        organizationId: job.organizationId,
-        userId: job.userId,
-        input: { failedFlowId: flow.id, failedRunId: run.id, error: runError, originalInput: input },
-        usePublished: true,
-        trigger: { type: 'signal', signal: 'flow.failed', sourceFlowId: flow.id },
-        errorDepth: (job.errorDepth ?? 0) + 1,
-        idempotencyKey: `flow-error:${run.id}:${errorFlowId}`,
-      }).catch((error) => apiLogger.error('flow error handler dispatch failed', { flowRunId: run.id, error: error instanceof Error ? error.message : String(error) }))
+    // Fire the flow.completed signal for other flows listening in this org.
+    // Dynamic import: signals.ts imports runFlowExecution statically (it fires
+    // matched flows), so a static import here back to signals.ts would be a
+    // cycle — this keeps the edge one-directional. Fire-and-forget: a signal
+    // emit must never block or fail this run's completion.
+    // PUBLISHED RUNS ONLY: a builder Test/Run of a draft must never chain real
+    // production flows — only scheduled/webhook/signal (published) runs emit.
+    if (status === 'succeeded' && job.usePublished) {
+      void import('./signals')
+        .then((signals) =>
+          signals.emitFlowSignal({
+            organizationId: job.organizationId,
+            signal: 'flow.completed',
+            payload: { flowId: flow.id, flowName: flow.name, output: result.output },
+            sourceFlowId: flow.id,
+            sourceRunId: run.id,
+            depth: signals.signalDepthOf(job.trigger) + 1,
+          }),
+        )
+        .catch(() => undefined)
+      // Run→goal contribution, flow parity: deterministic verdict per linked
+      // goal (work logged during this run's window ⇒ advanced). Published runs
+      // only — a builder Test/Run must not pollute the goal's funnel. Fire and
+      // forget: a verdict hiccup never blocks or fails the run.
+      void import('@/lib/goals/verdicts')
+        .then(({ recordFlowRunVerdicts }) =>
+          recordFlowRunVerdicts({
+            organizationId: job.organizationId,
+            flowId: flow.id,
+            flowRunId: run.id,
+            startedAt: run.startedAt,
+          }),
+        )
+        .catch(() => undefined)
     }
-  }
 
-  // Slack reply-to-origin: a run started from Slack reports its outcome back
-  // to the originating channel/thread — succeeded output, a failure notice,
-  // or the pending question when the run pauses (the multi-turn bridge).
-  // run.trigger carries the origin (persisted at dispatch), so resumes reply
-  // too. Fire-and-safe: a Slack outage must never affect the run's outcome.
-  const slackOrigin = slackOriginOf(run.trigger)
-  // No reply for user-stopped runs: the stop was a deliberate in-app action,
-  // not an outcome the Slack originator is waiting on.
-  if (slackOrigin && status !== 'stopped') {
-    await deliverSlackRunReply({
-      organizationId: job.organizationId,
-      flowId: flow.id,
+    return {
       flowRunId: run.id,
       status,
-      output: result.output,
-      error: runError,
-      question: status === 'waiting' ? result.waiting?.question : undefined,
-      origin: slackOrigin,
-    }).catch((error) => {
-      apiLogger.error('slack run reply failed', { flowRunId: run.id, error: error instanceof Error ? error.message : String(error) })
-    })
-  }
-
-  // Fire the flow.completed signal for other flows listening in this org.
-  // Dynamic import: signals.ts imports runFlowExecution statically (it fires
-  // matched flows), so a static import here back to signals.ts would be a
-  // cycle — this keeps the edge one-directional. Fire-and-forget: a signal
-  // emit must never block or fail this run's completion.
-  // PUBLISHED RUNS ONLY: a builder Test/Run of a draft must never chain real
-  // production flows — only scheduled/webhook/signal (published) runs emit.
-  if (status === 'succeeded' && job.usePublished) {
-    void import('./signals')
-      .then((signals) =>
-        signals.emitFlowSignal({
-          organizationId: job.organizationId,
-          signal: 'flow.completed',
-          payload: { flowId: flow.id, flowName: flow.name, output: result.output },
-          sourceFlowId: flow.id,
-          sourceRunId: run.id,
-          depth: signals.signalDepthOf(job.trigger) + 1,
-        }),
-      )
-      .catch(() => undefined)
-    // Run→goal contribution, flow parity: deterministic verdict per linked
-    // goal (work logged during this run's window ⇒ advanced). Published runs
-    // only — a builder Test/Run must not pollute the goal's funnel. Fire and
-    // forget: a verdict hiccup never blocks or fails the run.
-    void import('@/lib/goals/verdicts')
-      .then(({ recordFlowRunVerdicts }) =>
-        recordFlowRunVerdicts({
-          organizationId: job.organizationId,
-          flowId: flow.id,
-          flowRunId: run.id,
-          startedAt: run.startedAt,
-        }),
-      )
-      .catch(() => undefined)
-  }
-
-  return {
-    flowRunId: run.id,
-    status,
-    output: result.output,
-    error: runError ?? undefined,
-    // The tested node's print()/console.log() lines — only meaningful when
-    // this run targeted a single node, which is when a caller reads them.
-    logs: job.onlyNodeId ? stepLogs[job.onlyNodeId] : undefined,
-    // Pause detail for callers that park on this run (the subflow adapter):
-    // the question a reply must answer, or the wake time of a durable Wait.
-    waiting: status === 'waiting' && result.waiting ? result.waiting : undefined,
-    webhookResponse: result.webhookResponse,
-  }
+      output: redactForCurrentRun(result.output),
+      error: redactForCurrentRun(runError ?? undefined) as string | undefined,
+      // The tested node's print()/console.log() lines — only meaningful when
+      // this run targeted a single node, which is when a caller reads them.
+      logs: job.onlyNodeId ? stepLogs[job.onlyNodeId] : undefined,
+      // Pause detail for callers that park on this run (the subflow adapter):
+      // the question a reply must answer, or the wake time of a durable Wait.
+      waiting: status === 'waiting' && result.waiting ? result.waiting : undefined,
+      webhookResponse: result.webhookResponse,
+    }
+  })
 }
 
 /**

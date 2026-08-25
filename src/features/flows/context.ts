@@ -1,6 +1,7 @@
 import type { ConditionOp } from '@/lib/flows/graph'
 import { clockToken, CLOCK_ROOTS } from '@/lib/flows/clock-tokens'
 import { workspaceVarsToken, WORKSPACE_VAR_ROOT } from '@/lib/flows/workspace-vars'
+import { parseSecretRef, SECRETS_ROOT } from '@/lib/secrets/providers'
 import { safeRegexTest } from '@/lib/security/safe-regex'
 
 /**
@@ -18,6 +19,13 @@ export type FlowContext = {
   // means UTC, deliberately never the server's zone.
   startedAt?: string
   timezone?: string
+  // Secrets resolved from an external store, keyed `<provider>.<path>` and
+  // read via {{secrets.<provider>.<path>}}. Fetched once per run, so one
+  // secret used in ten steps is one call and a rotation mid-run cannot make
+  // two steps disagree. These are REAL secret values living in the context,
+  // unlike vault credentials (injected at the transport edge, never in the
+  // graph) — which is why redactSecrets runs over everything on the way out.
+  secrets?: Record<string, string>
   // Workspace constants, read via {{workspace.<key>}}. Loaded once per run.
   // Distinct from `variables` above, which is FLOW-scoped and written by
   // variable steps — see lib/flows/workspace-vars.ts for why the token roots
@@ -108,6 +116,17 @@ export function readPath(ctx: FlowContext, path: string): unknown {
   // step labelled "now" cannot shadow them. Without startedAt there is no
   // instant to render, and returning undefined keeps the template renderer
   // from writing the string "undefined" into someone's filename.
+  // Reserved before any label lookup: a step labelled "secrets" must not be
+  // able to shadow this root, since shadowing it is exactly how a flow would
+  // make a secret token resolve to a value it controls.
+  //
+  // A miss is undefined rather than the path: rendering the path would leak
+  // where the secret lives, and rendering "undefined" would send that string
+  // somewhere as an API key.
+  if (parts[0] === SECRETS_ROOT) {
+    const ref = parseSecretRef(path.trim())
+    return ref ? ctx.secrets?.[`${ref.provider}.${ref.path}`] : undefined
+  }
   if (parts[0] === WORKSPACE_VAR_ROOT) {
     return workspaceVarsToken(path, ctx.workspaceVars ?? {})
   }

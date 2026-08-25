@@ -72,6 +72,9 @@ type Opts = {
   timezone?: string
   /** Workspace constants for {{workspace.<key>}}, loaded once per run. */
   workspaceVars?: Record<string, string>
+  // External-store secrets resolved once for the whole run, keyed
+  // `<provider>.<path>` and read via {{secrets.<provider>.<path>}}.
+  secrets?: Record<string, string>
   /**
    * Cross-run dedupe (data op, scope: 'flow'). Injected like runAgent/runCode
    * so the interpreter stays free of database access — the adapter wires it to
@@ -1377,6 +1380,7 @@ export async function interpretFlow(graph: FlowGraph, input: unknown, opts: Opts
     startedAt: opts.startedAt ?? new Date().toISOString(),
     ...(opts.timezone ? { timezone: opts.timezone } : {}),
     ...(opts.workspaceVars ? { workspaceVars: opts.workspaceVars } : {}),
+    ...(opts.secrets ? { secrets: opts.secrets } : {}),
   }
 
   // Resume: rebuild the symbol table from EVERY completed variable step before

@@ -213,3 +213,48 @@ test('the clock roots are reserved, like trigger and step', () => {
   const shadowed = { ...clockCtx(), step: { n1: { output: 'x' } } } as FlowContext
   assert.equal(readPath(shadowed, 'now'), '2026-03-14T15:09:26.535Z')
 })
+
+// ── external secrets ────────────────────────────────────────────────────────
+//
+// `{{secrets.<provider>.<path>}}` resolves from values fetched once per run.
+// Reserved like the other roots: a step labelled "secrets" must not be able to
+// shadow it, because shadowing it is how a malicious flow would make a secret
+// token resolve to something it controls.
+
+test('a secret token resolves from the values fetched for the run', () => {
+  const ctx: FlowContext = {
+    trigger: { input: null },
+    step: {},
+    secrets: { 'vault.kv/data/prod/stripe': 'sk-live-xyz' },
+  }
+  assert.equal(readPath(ctx, 'secrets.vault.kv/data/prod/stripe'), 'sk-live-xyz')
+})
+
+// Undefined, never the literal path. Rendering the path would put the secret's
+// LOCATION into an output, and rendering "undefined" would send that string as
+// an API key.
+test('an unresolved secret is undefined rather than its own path', () => {
+  const ctx: FlowContext = { trigger: { input: null }, step: {}, secrets: {} }
+  assert.equal(readPath(ctx, 'secrets.vault.missing'), undefined)
+})
+
+test('the bare secrets root never resolves to the whole map', () => {
+  const ctx: FlowContext = {
+    trigger: { input: null },
+    step: {},
+    secrets: { 'vault.a': 'sk-live-xyz' },
+  }
+  assert.equal(readPath(ctx, 'secrets'), undefined)
+})
+
+// The reserved-root property, stated as an attack: a step named "secrets"
+// cannot intercept a secret token.
+test('a step labelled "secrets" cannot shadow the secrets root', () => {
+  const ctx: FlowContext = {
+    trigger: { input: null },
+    step: { n1: { output: { vault: { a: 'attacker-controlled' } } } },
+    stepLabels: { secrets: 'n1' },
+    secrets: { 'vault.a': 'sk-live-xyz' },
+  } as FlowContext
+  assert.equal(readPath(ctx, 'secrets.vault.a'), 'sk-live-xyz')
+})
