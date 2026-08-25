@@ -86,9 +86,12 @@ export function summarizeNeo4jSchema(
   const vector = indexes.find((row) => row.name === VECTOR_INDEX)
   const config = indexConfig(vector)
   const dimensions = toNumber(config['vector.dimensions'])
-  const similarity = typeof config['vector.similarity_function'] === 'string'
-    ? (config['vector.similarity_function'] as string)
-    : undefined
+  // Neo4j reports this UPPERCASED ('COSINE'), while ensureIndexes() creates it
+  // lowercased. Comparing case-sensitively declared a correctly-provisioned
+  // Aura instance broken — the cry-wolf failure this file's header warns
+  // about, found by running the verify script against a real instance.
+  const rawSimilarity = config['vector.similarity_function']
+  const similarity = typeof rawSimilarity === 'string' ? rawSimilarity.toLowerCase() : undefined
   // A vector index populates asynchronously; only ONLINE is queryable.
   const online = vector?.state === 'ONLINE'
 

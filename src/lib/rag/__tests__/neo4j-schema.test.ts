@@ -115,3 +115,27 @@ test('a lossless Integer dimension is read as its number, not a false mismatch',
   assert.deepEqual(report.problems, [])
   assert.equal(report.ok, true)
 })
+
+// Found by running scripts/verify-neo4j.ts against a real Aura instance: the
+// server reports the similarity function UPPERCASED ('COSINE'), so a
+// case-sensitive comparison declares a correctly-provisioned index broken.
+// This is precisely the cry-wolf failure the header warns about — a
+// verification tool that reports false problems gets ignored within a week.
+test('a similarity function reported as COSINE is accepted, not flagged', () => {
+  const upper = [{
+    ...healthyIndexes[0],
+    options: { indexConfig: { 'vector.dimensions': 1024, 'vector.similarity_function': 'COSINE' } },
+  }]
+  const report = summarizeNeo4jSchema(upper, healthyConstraints, 1024)
+  assert.deepEqual(report.problems, [])
+  assert.equal(report.ok, true)
+})
+
+// The genuinely wrong metric must still be caught, whatever its casing.
+test('a EUCLIDEAN index is still flagged despite the casing fix', () => {
+  const euclid = [{
+    ...healthyIndexes[0],
+    options: { indexConfig: { 'vector.dimensions': 1024, 'vector.similarity_function': 'EUCLIDEAN' } },
+  }]
+  assert.equal(summarizeNeo4jSchema(euclid, healthyConstraints, 1024).ok, false)
+})

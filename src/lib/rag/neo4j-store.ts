@@ -16,15 +16,36 @@ import { nodeVisibleTo, tenantNodeKey, type GraphEdge, type GraphNode, type Grap
 
 const VECTOR_INDEX = 'entity_embedding'
 
-// Bounded driver config, shared by the store and the health ping. The driver
-// defaults (30s connect, 60s acquisition, 100-connection pool) meant a slow
-// Neo4j hung RAG-touching requests for up to a minute, and every lambda
-// instance could theoretically hold 100 connections against a small Aura cap.
-const DRIVER_OPTIONS = {
-  connectionTimeout: 5_000,
-  connectionAcquisitionTimeout: 10_000,
-  maxConnectionPoolSize: 10,
+/**
+ * Bounded driver config, used by both the store and the health ping. The
+ * driver defaults (30s connect, 60s acquisition, 100-connection pool) meant a
+ * slow Neo4j hung RAG-touching requests for up to a minute, and every lambda
+ * instance could theoretically hold 100 connections against a small Aura cap.
+ *
+ * A FUNCTION, not a shared const, and that is load-bearing: `neo4j.driver()`
+ * MUTATES the config object it is handed, writing `encrypted: 'ENCRYPTION_ON'`
+ * and `trust: 'TRUST_SYSTEM_CA_SIGNED_CERTIFICATES'` into it. With a
+ * `neo4j+s://` URI — every Aura instance — encryption is already declared by
+ * the URL scheme, so a second construction from the same object dies with
+ * "Encryption/trust can only be configured either through URL or config, not
+ * both".
+ *
+ * Shared as a const, whichever of neo4jPing() / Neo4jGraphStore.driver() ran
+ * first poisoned the object for the other: one health check, and every
+ * graph-RAG operation in that process failed for the rest of its life —
+ * silently, since every RAG caller catches and degrades. Invisible on an
+ * unencrypted `neo4j://` URI, immediate on Aura.
+ */
+function driverOptionsInternal() {
+  return {
+    connectionTimeout: 5_000,
+    connectionAcquisitionTimeout: 10_000,
+    maxConnectionPoolSize: 10,
+  }
 }
+
+/** Exported for the test that pins the fresh-object property. */
+export const driverOptions = driverOptionsInternal
 
 export function neo4jConfigured(): boolean {
   return Boolean(process.env.NEO4J_URI && process.env.NEO4J_USERNAME && process.env.NEO4J_PASSWORD)
@@ -46,7 +67,7 @@ export async function neo4jPing(): Promise<{ configured: boolean; ok: boolean }>
       pingDriver = neo4j.driver(
         process.env.NEO4J_URI!,
         neo4j.auth.basic(process.env.NEO4J_USERNAME!, process.env.NEO4J_PASSWORD!),
-        DRIVER_OPTIONS,
+        driverOptionsInternal(),
       )
     }
     const deadline = new Promise<never>((_, reject) => setTimeout(() => reject(new Error('neo4j ping timeout')), 3_000))
@@ -72,7 +93,7 @@ export class Neo4jGraphStore implements GraphRagStore {
         const driver = neo4j.driver(
           process.env.NEO4J_URI!,
           neo4j.auth.basic(process.env.NEO4J_USERNAME!, process.env.NEO4J_PASSWORD!),
-          DRIVER_OPTIONS,
+          driverOptionsInternal(),
         ) as unknown as Driver
         await this.ensureIndexes(driver)
         return driver
