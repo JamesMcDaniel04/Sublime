@@ -1,5 +1,11 @@
 # n8n node parity — config panels, composability, and coverage
 
+> **Superseded by `2026-08-24-n8n-flow-parity.md`.** This document audits
+> NODES. The question was flow-system parity, and the subsystems it does not
+> examine — execution data model, expression surface, flow settings, platform
+> — contain larger differences. Kept for the node-level detail, which the
+> successor summarises rather than repeats.
+
 Date: 2026-08-24 (revised same day — see "What the first pass got wrong")
 Reference: `n8n-io/n8n` @ HEAD, sparse clone of `packages/nodes-base` +
 `packages/@n8n/nodes-langchain`
