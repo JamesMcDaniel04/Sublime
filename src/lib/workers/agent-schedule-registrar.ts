@@ -1,4 +1,5 @@
 import type { Queue } from 'bullmq'
+import { agentConfigForRun } from '@/lib/agents/publish'
 import { getQueue, getRedisConnection, QUEUE_NAMES } from '@/lib/queue/config'
 import { prisma, systemPrisma } from '@/lib/prisma'
 
@@ -48,7 +49,9 @@ function scheduleOf(value: unknown): Schedule | null {
 function toCandidates(agents: ScheduledAgent[]): Candidate[] {
   const candidates: Candidate[] = []
   for (const agent of agents) {
-    const schedule = scheduleOf(agent.schedule)
+    // The PUBLISHED schedule when the agent has one: a draft schedule edit
+    // must not re-register the job until it is published.
+    const schedule = scheduleOf(agentConfigForRun(agent).schedule)
     if (!schedule?.isActive) continue
     const repeat = repeatFor(schedule)
     if (!repeat) continue

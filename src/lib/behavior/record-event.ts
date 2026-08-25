@@ -11,7 +11,7 @@ import { apiLogger } from '@/lib/logger'
 import { captureError } from '@/lib/observability/sentry'
 
 export const USER_EVENT_KINDS = [
-  'agent_run_manual', 'agent_created', 'agent_edited',
+  'agent_run_manual', 'agent_created', 'agent_edited', 'agent_published',
   'flow_created', 'flow_edited', 'flow_published', 'flow_run_manual',
   'flow_run_outcome', 'flow_run_feedback',
   'copilot_prompt', 'assistant_prompt',

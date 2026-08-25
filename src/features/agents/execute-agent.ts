@@ -1,6 +1,7 @@
 import type { Job } from 'bullmq'
 import { createHash } from 'node:crypto'
 import { prisma, systemPrisma } from '@/lib/prisma'
+import { agentConfigForRun } from '@/lib/agents/publish'
 import { getQueue, QUEUE_NAMES, workersEnabled } from '@/lib/queue/config'
 import { inlineExecution } from '@/lib/queue/execution-mode'
 import { apiLogger } from '@/lib/logger'
@@ -420,10 +421,17 @@ export async function runAgentExecution(
   // trigger webhook, resume) funnels through here, so an unpaid workspace's
   // automations stop even though these callers never hit requireAuthContext.
   await assertOrganizationBillingActive(organizationId)
-  const agent = await prisma.agentTask.findFirst({
+  const agentRow = await prisma.agentTask.findFirst({
     where: { id: agentId, organizationId, status: 'ACTIVE' },
   })
-  if (!agent) throw new Error('Agent not found or inactive')
+  if (!agentRow) throw new Error('Agent not found or inactive')
+
+  // A run executes the PUBLISHED config when the agent has one, so editing a
+  // production agent no longer changes it mid-flight. An agent that has never
+  // been published resolves to its live columns — today's behaviour, and why
+  // this needed no backfill. Spread over the row so every existing read of
+  // `agent.objective` / `agent.metadata` picks up the resolved value.
+  const agent = { ...agentRow, ...agentConfigForRun(agentRow) } as typeof agentRow
 
   // The human ask this run answers, when there is one. Loaded before the
   // prompt is built because it frames the whole run; `null` for every

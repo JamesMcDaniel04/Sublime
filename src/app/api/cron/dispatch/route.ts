@@ -14,6 +14,7 @@
  */
 
 import { timingSafeEqual } from 'crypto'
+import { agentConfigForRun } from '@/lib/agents/publish'
 import { prisma, systemPrisma } from '@/lib/prisma'
 import { apiLogger } from '@/lib/logger'
 import { runAgentExecution } from '@/features/agents/execute-agent'
@@ -277,7 +278,9 @@ export async function GET(request: Request) {
 
     // Filter to agents whose schedule is currently due
     const allDueAgents = agents.filter((agent) => {
-      const schedule = agent.schedule as unknown as AgentSchedule | null
+      // Published schedule when there is one — a draft edit must not change
+      // when a production agent fires.
+      const schedule = agentConfigForRun(agent).schedule as unknown as AgentSchedule | null
       if (!schedule || typeof schedule !== 'object') return false
       if (!isDue(schedule, agent.lastExecutedAt, now)) return false
       // In worker mode, only 'once' agents are dispatched here; recurring ones

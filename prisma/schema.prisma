@@ -253,6 +253,17 @@ model AgentTask {
   organizationId String    @db.Uuid
   userId         String?
   metadata       Json?
+  /// The config scheduled and triggered runs actually execute.
+  ///
+  /// Mirrors Flow.publishedGraph. NULL means this agent has never been
+  /// published and runs read the live columns — which is exactly today's
+  /// behaviour, so no existing agent changes when this ships. Once an agent
+  /// IS published, edits land on the live columns as a draft and runs keep
+  /// using this snapshot until it is published again.
+  publishedConfig Json?
+  publishedAt     DateTime?
+  /// Bumped on each publish, so a run can record which version produced it.
+  version        Int       @default(1)
   lastExecutedAt DateTime?
   executionCount Int       @default(0)
   lastResult     Json?
