@@ -1,5 +1,6 @@
 import { flowNodeSchema, type FlowGraph, type FlowNode } from '@/lib/flows/graph'
 import { CODE_SNIPPETS } from './code-snippets'
+import { latestVersion } from '@/lib/flows/node-versions'
 
 /** Node types a user can create as a step (everything but the trigger). */
 export type StepType = Exclude<FlowNode['type'], 'trigger'>
@@ -87,6 +88,10 @@ function defaultData(type: FlowNode['type'], extra?: { bodyId?: string; agentId?
 
 function makeNode(graph: FlowGraph, type: StepType, agentId?: string): { node: FlowNode; extraNodes: FlowNode[] } {
   const id = newNodeId(graph)
+  // A node added TODAY is authored against today's behaviour, so it pins the
+  // current version. Without this a brand-new node would be born at version 1
+  // (the absent-means-1 rule) and immediately report itself as outdated.
+  const typeVersion = latestVersion(type)
   // Containers are born with one agent body step so they are runnable.
   if (type === 'loop' || type === 'parallel' || type === 'errorShield' || type === 'repeatUntil') {
     const bodyId = `${id}b1`
@@ -98,9 +103,9 @@ function makeNode(graph: FlowGraph, type: StepType, agentId?: string): { node: F
         input: type === 'loop' ? 'Process this item:\n{{item}}' : 'Use this flow input:\n{{trigger.input}}',
       },
     } as FlowNode
-    return { node: { id, type, data: defaultData(type, { bodyId }) } as FlowNode, extraNodes: [body] }
+    return { node: { id, type, typeVersion, data: defaultData(type, { bodyId }) } as FlowNode, extraNodes: [body] }
   }
-  return { node: { id, type, data: defaultData(type, { agentId }) } as FlowNode, extraNodes: [] }
+  return { node: { id, type, typeVersion, data: defaultData(type, { agentId }) } as FlowNode, extraNodes: [] }
 }
 
 /** Insert a new step of any type immediately after `afterId`, healing the chain. */

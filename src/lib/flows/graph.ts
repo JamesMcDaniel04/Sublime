@@ -2,6 +2,16 @@ import { z } from 'zod'
 import { MERGE_MODES } from '@/lib/flows/merge'
 import { AGENT_RUN_TIMEOUT_MS } from '@/lib/agents/timeouts'
 
+/**
+ * The node-type version this node was authored at.
+ *
+ * Absent means version 1 — every node saved before versioning existed. It is
+ * never defaulted to the LATEST, because that would silently re-interpret
+ * existing flows the moment a v2 shipped, which is the whole thing versioning
+ * prevents. See lib/flows/node-versions.ts.
+ */
+const nodeTypeVersionSchema = z.number().int().min(1).optional()
+
 /** Comparison operators available to a condition node. */
 export const CONDITION_OPS = ['eq', 'neq', 'gt', 'gte', 'lt', 'lte', 'contains', 'matches'] as const
 export type ConditionOp = (typeof CONDITION_OPS)[number]
@@ -50,11 +60,13 @@ export type OutputFieldBinding = z.infer<typeof outputFieldBindingSchema>
 const triggerNode = z.object({
   id: z.string(),
   type: z.literal('trigger'),
+  typeVersion: nodeTypeVersionSchema,
   data: z.object({ trigger: z.any().optional() }),
 })
 const agentNode = z.object({
   id: z.string(),
   type: z.literal('agent'),
+  typeVersion: nodeTypeVersionSchema,
   data: z.object({
     agentId: z.string(),
     label: z.string().optional(),
@@ -93,6 +105,7 @@ export const conditionClauseSchema = z.object({ left: z.string(), op: z.enum(CON
 const conditionNode = z.object({
   id: z.string(),
   type: z.literal('condition'),
+  typeVersion: nodeTypeVersionSchema,
   data: z.object({
     label: z.string().optional(),
     note: z.string().optional(),
@@ -114,6 +127,7 @@ const conditionNode = z.object({
 const stopNode = z.object({
   id: z.string(),
   type: z.literal('stop'),
+  typeVersion: nodeTypeVersionSchema,
   data: z.object({ label: z.string().optional(), reason: z.string().optional(), note: z.string().optional(), disabled: z.boolean().optional() }),
 })
 // Deterministic single MCP tool call against an org connection — no LLM in the
@@ -121,6 +135,7 @@ const stopNode = z.object({
 const toolNode = z.object({
   id: z.string(),
   type: z.literal('tool'),
+  typeVersion: nodeTypeVersionSchema,
   data: z.object({
     label: z.string().optional(),
     note: z.string().optional(),
@@ -262,11 +277,13 @@ export const httpStepDataSchema = z.object({
 const httpNode = z.object({
   id: z.string(),
   type: z.literal('http'),
+  typeVersion: nodeTypeVersionSchema,
   data: httpStepDataSchema,
 })
 const loopNode = z.object({
   id: z.string(),
   type: z.literal('loop'),
+  typeVersion: nodeTypeVersionSchema,
   data: z.object({
     label: z.string().optional(),
     note: z.string().optional(),
@@ -283,6 +300,7 @@ const loopNode = z.object({
 const parallelNode = z.object({
   id: z.string(),
   type: z.literal('parallel'),
+  typeVersion: nodeTypeVersionSchema,
   data: z.object({
     label: z.string().optional(),
     note: z.string().optional(),
@@ -305,6 +323,7 @@ const parallelNode = z.object({
 const codeNode = z.object({
   id: z.string(),
   type: z.literal('code'),
+  typeVersion: nodeTypeVersionSchema,
   data: z.object({
     label: z.string().optional(),
     note: z.string().optional(),
@@ -324,6 +343,7 @@ const codeNode = z.object({
 const transformNode = z.object({
   id: z.string(),
   type: z.literal('transform'),
+  typeVersion: nodeTypeVersionSchema,
   data: z.object({
     label: z.string().optional(),
     note: z.string().optional(),
@@ -343,6 +363,7 @@ const transformNode = z.object({
 const filterNode = z.object({
   id: z.string(),
   type: z.literal('filter'),
+  typeVersion: nodeTypeVersionSchema,
   data: z.object({
     label: z.string().optional(),
     note: z.string().optional(),
@@ -359,6 +380,7 @@ const filterNode = z.object({
 const switchNode = z.object({
   id: z.string(),
   type: z.literal('switch'),
+  typeVersion: nodeTypeVersionSchema,
   data: z.object({
     label: z.string().optional(),
     note: z.string().optional(),
@@ -397,6 +419,7 @@ export const VARIABLE_TYPE_LABELS: Record<VariableType, string> = {
 const variableNode = z.object({
   id: z.string(),
   type: z.literal('variable'),
+  typeVersion: nodeTypeVersionSchema,
   data: z.object({
     label: z.string().optional(),
     note: z.string().optional(),
@@ -437,6 +460,7 @@ export type DataOp = (typeof DATA_OPS)[number]
 const mergeNode = z.object({
   id: z.string(),
   type: z.literal('merge'),
+  typeVersion: nodeTypeVersionSchema,
   data: z.object({
     label: z.string().optional(),
     note: z.string().optional(),
@@ -456,6 +480,7 @@ const mergeNode = z.object({
 const dataNode = z.object({
   id: z.string(),
   type: z.literal('data'),
+  typeVersion: nodeTypeVersionSchema,
   data: z.object({
     label: z.string().optional(),
     note: z.string().optional(),
@@ -490,6 +515,7 @@ const dataNode = z.object({
 const humanReviewNode = z.object({
   id: z.string(),
   type: z.literal('humanReview'),
+  typeVersion: nodeTypeVersionSchema,
   data: z.object({
     label: z.string().optional(),
     note: z.string().optional(),
@@ -505,6 +531,7 @@ const humanReviewNode = z.object({
 const respondWebhookNode = z.object({
   id: z.string(),
   type: z.literal('respondWebhook'),
+  typeVersion: nodeTypeVersionSchema,
   data: z.object({
     label: z.string().optional(),
     note: z.string().optional(),
@@ -521,6 +548,7 @@ const respondWebhookNode = z.object({
 const waitNode = z.object({
   id: z.string(),
   type: z.literal('wait'),
+  typeVersion: nodeTypeVersionSchema,
   data: z.object({
     label: z.string().optional(),
     note: z.string().optional(),
@@ -539,6 +567,7 @@ const waitNode = z.object({
 const repeatUntilNode = z.object({
   id: z.string(),
   type: z.literal('repeatUntil'),
+  typeVersion: nodeTypeVersionSchema,
   data: z.object({
     label: z.string().optional(),
     note: z.string().optional(),
@@ -558,6 +587,7 @@ const repeatUntilNode = z.object({
 const inputNode = z.object({
   id: z.string(),
   type: z.literal('input'),
+  typeVersion: nodeTypeVersionSchema,
   data: z.object({
     label: z.string().optional(),
     note: z.string().optional(),
@@ -571,6 +601,7 @@ const inputNode = z.object({
 const outputNode = z.object({
   id: z.string(),
   type: z.literal('output'),
+  typeVersion: nodeTypeVersionSchema,
   data: z.object({
     label: z.string().optional(),
     note: z.string().optional(),
@@ -585,6 +616,7 @@ const outputNode = z.object({
 const subflowNode = z.object({
   id: z.string(),
   type: z.literal('subflow'),
+  typeVersion: nodeTypeVersionSchema,
   data: z.object({
     label: z.string().optional(),
     note: z.string().optional(),
@@ -604,6 +636,7 @@ const subflowNode = z.object({
 const routerNode = z.object({
   id: z.string(),
   type: z.literal('router'),
+  typeVersion: nodeTypeVersionSchema,
   data: z.object({
     label: z.string().optional(),
     note: z.string().optional(),
@@ -620,6 +653,7 @@ const routerNode = z.object({
 const errorShieldNode = z.object({
   id: z.string(),
   type: z.literal('errorShield'),
+  typeVersion: nodeTypeVersionSchema,
   data: z.object({
     label: z.string().optional(),
     note: z.string().optional(),
