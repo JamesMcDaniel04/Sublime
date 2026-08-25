@@ -44,6 +44,7 @@ import { CanvasRail } from '@/components/flows/canvas-rail'
 import type { ToolCatalog } from '@/components/flows/tool-catalog-type'
 import type { CopilotRequest } from '@/components/flows/copilot-panel'
 import type { FlowRunDetail } from '@/components/flows/run-panel'
+import { FlowIconInput } from '@/components/flows/flow-icon-input'
 import { NodeDetailView, type NodeTestState } from '@/components/flows/ndv/node-detail-view'
 import { downstreamWriteActions, resolveNodeTestInput, topoSortByGraph } from '@/lib/flows/node-test-input'
 import { buildPreviewContext } from '@/lib/flows/preview-context'
@@ -124,6 +125,8 @@ function FlowBuilder() {
   const searchParams = useSearchParams()
 
   const [name, setName] = useState('')
+  const [icon, setIcon] = useState('')
+  const [folder, setFolder] = useState('')
   const [description, setDescription] = useState('')
   const [graph, setGraph] = useState<FlowGraph>(emptyGraph())
   // True when the saved draft differs from the published graph (serialized by
@@ -486,7 +489,7 @@ function FlowBuilder() {
   // Run the user explicitly picked (dropdown or ?run= deep-link). While set,
   // the poll tick refreshes that run's details instead of stealing selection.
   const pinnedRunId = useRef<string | null>(null)
-  const dirty = savedSnapshot !== '' && JSON.stringify({ name, description, graph, errorFlowId }) !== savedSnapshot
+  const dirty = savedSnapshot !== '' && flowSnapshot({ name, description, graph, errorFlowId, icon, folder }) !== savedSnapshot
 
   useEffect(() => {
     let cancelled = false
@@ -512,6 +515,8 @@ function FlowBuilder() {
         }
         const g = flow.graph as FlowGraph
         setName(flow.name)
+        setIcon(flow.icon || '')
+        setFolder(flow.folder || '')
         setDescription(flow.description || '')
         setGraph(g)
         setVersion(flow.version ?? 1)
@@ -523,7 +528,7 @@ function FlowBuilder() {
         setErrorFlowId(loadedErrorFlowId)
         setImportedCredentialGroups(Array.isArray(flow.importedCredentialGroups) ? flow.importedCredentialGroups : [])
         setAvailableFlows(flowsData.flows.map((entry: { id: string; name: string; published?: boolean }) => ({ id: entry.id, name: entry.name, published: Boolean(entry.published) })))
-        setSavedSnapshot(JSON.stringify({ name: flow.name, description: flow.description || '', graph: g, errorFlowId: loadedErrorFlowId }))
+        setSavedSnapshot(flowSnapshot({ name: flow.name, description: flow.description || '', graph: g, errorFlowId: loadedErrorFlowId, icon: flow.icon || '', folder: flow.folder || '' }))
         baseUpdatedAtRef.current = flow.updatedAt
 
         // Agent choices are useful but not authoritative flow data. A failure
@@ -1071,7 +1076,7 @@ function FlowBuilder() {
       const response = await fetch('/api/flows', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id, name, description, ...(graphSyncLive ? {} : { graph }), errorFlowId: errorFlowId || null, baseUpdatedAt: baseUpdatedAtRef.current }),
+        body: JSON.stringify({ id, name, description, icon, folder, ...(graphSyncLive ? {} : { graph }), errorFlowId: errorFlowId || null, baseUpdatedAt: baseUpdatedAtRef.current }),
       })
       const data = await response.json().catch(() => ({}))
       if (!response.ok) {
@@ -1082,13 +1087,13 @@ function FlowBuilder() {
         baseUpdatedAtRef.current = data.flow.updatedAt
       }
       invalidateCachedJson('/api/flows')
-      setSavedSnapshot(JSON.stringify({ name, description, graph, errorFlowId }))
+      setSavedSnapshot(flowSnapshot({ name, description, graph, errorFlowId, icon, folder }))
       if (data.flow) setUnpublishedChanges(Boolean(data.flow.unpublishedChanges))
       return true
     } finally {
       setSaving(false)
     }
-  }, [id, name, description, graph, errorFlowId, loadError, savedSnapshot, graphSyncLive])
+  }, [id, name, description, icon, folder, graph, errorFlowId, loadError, savedSnapshot, graphSyncLive])
 
   const publish = useCallback(
     async (revert = false) => {
@@ -1115,7 +1120,7 @@ function FlowBuilder() {
           // restoreVersion) or the next Save 409s forever.
           if (data.flow.updatedAt) baseUpdatedAtRef.current = data.flow.updatedAt
           setGraph(data.flow.graph)
-          setSavedSnapshot(JSON.stringify({ name, description, graph: data.flow.graph, errorFlowId }))
+          setSavedSnapshot(flowSnapshot({ name, description, graph: data.flow.graph, errorFlowId, icon, folder }))
         }
         setVersion(data.flow?.version ?? version)
         setPublished(Boolean(data.flow?.published))
@@ -1125,7 +1130,7 @@ function FlowBuilder() {
         setPublishing(false)
       }
     },
-    [id, save, validation, version, name, description, errorFlowId],
+    [id, save, validation, version, name, description, errorFlowId, icon, folder],
   )
 
   const unpublish = useCallback(async () => {
@@ -1317,14 +1322,14 @@ function FlowBuilder() {
       if (response.ok && data.flow?.graph) {
         if (data.flow.updatedAt) baseUpdatedAtRef.current = data.flow.updatedAt
         commitGraph(data.flow.graph)
-        setSavedSnapshot(JSON.stringify({ name, description, graph: data.flow.graph, errorFlowId }))
+        setSavedSnapshot(flowSnapshot({ name, description, graph: data.flow.graph, errorFlowId, icon, folder }))
         setViewingVersion(null)
         toast.success(`Restored v${v} into the draft.`)
       } else {
         toast.error(data.error || 'Could not restore that version.')
       }
     },
-    [id, commitGraph, name, description, errorFlowId],
+    [id, commitGraph, name, description, errorFlowId, icon, folder],
   )
 
   const run = useCallback(async (options?: { startNodeId?: string; mockOutputsText?: string }) => {
@@ -1664,6 +1669,21 @@ function FlowBuilder() {
                 {availableFlows.filter((entry) => entry.id !== id && entry.published).map((entry) => <option key={entry.id} value={entry.id}>{entry.name}</option>)}
               </select>
               <p className="max-w-56 text-[11px] leading-4 text-muted-foreground">The published handler receives the failed flow, run, error, and original input after Save.</p>
+              {/* Presentation only, and deliberately inside THIS block rather
+                  than a second one: the wrapper exists to swallow clicks so the
+                  dropdown does not close mid-edit, and a second click-handling
+                  div would be a second non-interactive element doing it. */}
+              <p className="pt-2 text-xs font-medium text-muted-foreground">Icon</p>
+              <FlowIconInput value={icon} onChange={setIcon} />
+              <label className="text-xs font-medium text-muted-foreground" htmlFor="flow-folder">Folder</label>
+              <input
+                id="flow-folder"
+                value={folder}
+                onChange={(event) => setFolder(event.target.value)}
+                placeholder="Ungrouped"
+                className="w-full rounded-md border border-border bg-background px-2 py-1.5 text-xs"
+              />
+              <p className="max-w-56 text-[11px] leading-4 text-muted-foreground">Groups this flow on the Flows list. Folders match regardless of capitalisation.</p>
             </div>
             <DropdownMenuSeparator />
             <DropdownMenuItem onSelect={duplicateFlow}>
@@ -2265,7 +2285,27 @@ function FlowBuilder() {
   )
 }
 
+/**
+ * The fields whose change makes a flow "unsaved".
+ *
+ * ONE definition on purpose. This object was written out by hand at five call
+ * sites, and the moment a field is added, the site that computes `dirty` and
+ * the sites that record the post-save snapshot disagree — which does not
+ * error, it just leaves the flow showing unsaved changes forever.
+ */
+function flowSnapshot(fields: {
+  name: string
+  description: string
+  graph: unknown
+  errorFlowId: string
+  icon: string
+  folder: string
+}): string {
+  return JSON.stringify(fields)
+}
+
 // useSearchParams needs a Suspense boundary — same pattern as the other pages.
+
 export default function FlowBuilderPage() {
   return (
     <Suspense fallback={null}>

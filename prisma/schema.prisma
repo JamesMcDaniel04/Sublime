@@ -946,6 +946,13 @@ model Flow {
   isPublished                 Boolean  @default(false) // = publishedGraph IS NOT NULL
   version                     Int      @default(1) // bumped on each publish
   visibility                  String   @default("private")
+  /// Emoji shown on the flow card. '' = the generic Workflow glyph.
+  /// Bounded and normalized by normalizeFlowIcon (lib/flows/organization.ts).
+  icon                        String   @default("")
+  /// Workbook-style grouping for the list view. '' = ungrouped. Matching is
+  /// case-insensitive at display time (groupFlowsByFolder), so the stored
+  /// casing is presentational only.
+  folder                      String   @default("")
   organizationId              String   @db.Uuid
   userId                      String?
   // Freeform per-flow metadata grab-bag (e.g. behavioral-intelligence provenance).

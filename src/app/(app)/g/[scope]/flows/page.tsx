@@ -23,6 +23,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { TemplateCatalogueCard } from '@/components/templates/template-catalogue-card'
 import { ImportFlowDialog } from '@/components/flows/import-flow-dialog'
 import { FlowCredentialsPanel } from '@/components/flows/flow-credentials-panel'
+import { FlowIcon } from '@/components/flows/flow-icon-input'
+import { groupFlowsByFolder } from '@/lib/flows/organization'
 
 /** Cards per page on the Flows grid. */
 const PAGE_SIZE = 9
@@ -40,6 +42,8 @@ type FlowItem = {
   suggested?: boolean
   unpublishedChanges?: boolean
   sharedWithYou?: boolean
+  icon?: string
+  folder?: string
 }
 
 type SuggestionReadiness = { ready: boolean; totalConnections: number; connectionsNeeded: number }
@@ -143,6 +147,8 @@ function FlowsList() {
   const [creating, setCreating] = useState(false)
   const [dismissingId, setDismissingId] = useState<string | null>(null)
   const [duplicatingId, setDuplicatingId] = useState<string | null>(null)
+  /** null = every folder. '' is a real value here: the ungrouped bucket. */
+  const [folder, setFolder] = useState<string | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<FlowItem | null>(null)
   const [disableTarget, setDisableTarget] = useState<FlowItem | null>(null)
   const [importOpen, setImportOpen] = useState(false)
@@ -273,7 +279,12 @@ function FlowsList() {
     }
   }
 
-  const { pageItems, pageCount, page: current } = paginate(otherFlows, page, PAGE_SIZE)
+  // Folders filter rather than group inline: the grid is paginated, and a
+  // group split across a page boundary reads as two folders with the same
+  // name. Chips keep one folder whole on its own pages.
+  const folderGroups = groupFlowsByFolder(otherFlows)
+  const visibleFlows = folder === null ? otherFlows : (folderGroups.find((g) => g.folder === folder)?.flows ?? [])
+  const { pageItems, pageCount, page: current } = paginate(visibleFlows, page, PAGE_SIZE)
 
   return (
     <div className="space-y-6">
@@ -350,6 +361,29 @@ function FlowsList() {
         ) : null
       ) : (
         <>
+          {folderGroups.length > 1 && (
+            <div className="mb-4 flex flex-wrap gap-1.5">
+              <button
+                type="button"
+                onClick={() => { setFolder(null); setPage(1) }}
+                className={cn('rounded-full border px-3 py-1 text-xs font-medium transition-colors', folder === null ? 'border-foreground/30 bg-muted' : 'border-border text-muted-foreground hover:bg-muted')}
+                aria-pressed={folder === null}
+              >
+                All {otherFlows.length}
+              </button>
+              {folderGroups.map((group) => (
+                <button
+                  key={group.folder || '__ungrouped'}
+                  type="button"
+                  onClick={() => { setFolder(group.folder); setPage(1) }}
+                  className={cn('rounded-full border px-3 py-1 text-xs font-medium transition-colors', folder === group.folder ? 'border-foreground/30 bg-muted' : 'border-border text-muted-foreground hover:bg-muted')}
+                  aria-pressed={folder === group.folder}
+                >
+                  {group.folder || 'Ungrouped'} {group.flows.length}
+                </button>
+              ))}
+            </div>
+          )}
           <div className="stagger-children grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3">
             {pageItems.map((flow) => (
               <Link key={flow.id} href={`/flows/${flow.id}`} className="block">
@@ -402,7 +436,7 @@ function FlowsList() {
                     </div>
                     <div className="flex items-start gap-2.5">
                       <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border bg-muted text-foreground">
-                        <Workflow className="h-[18px] w-[18px]" />
+                        <FlowIcon icon={flow.icon} className="h-[18px] w-[18px]" />
                       </span>
                       <CardTitle className="min-w-0 text-base leading-snug">{flow.name}</CardTitle>
                     </div>

@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { normalizeFlowIcon, normalizeFlowFolder } from '@/lib/flows/organization'
 import { prisma } from '@/lib/prisma'
 import { ApiError, withAuthenticatedApi } from '@/lib/server/api-handler'
 import { recordUserEvent } from '@/lib/behavior/record-event'
@@ -44,6 +45,11 @@ const flowSchema = z.object({
   trigger: triggerSchema.optional(),
   graph: flowGraphSchema.optional(),
   errorFlowId: z.string().min(1).nullable().optional(),
+  // Presentational only. Both are normalized server-side rather than trusted
+  // from the client: the builder is not the only write path (import and
+  // duplicate set them too), and an unbounded 'icon' is just free text.
+  icon: z.string().optional(),
+  folder: z.string().optional(),
 })
 
 function assertNoInlineSecrets(graph: z.infer<typeof flowGraphSchema>) {
@@ -92,6 +98,8 @@ export const GET = withAuthenticatedApi(async (request, auth) => {
         version: true,
         visibility: true,
         metadata: true,
+        icon: true,
+        folder: true,
         userId: true,
         createdAt: true,
         updatedAt: true,
@@ -154,6 +162,10 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
       description: data.description,
       status: data.status,
       visibility: 'private',
+      // Set at create so an imported or template-instantiated flow carries its
+      // icon/folder from the start rather than needing a follow-up PUT.
+      icon: normalizeFlowIcon(data.icon ?? ''),
+      folder: normalizeFlowFolder(data.folder ?? ''),
       trigger: jsonValue(trigger),
       graph: jsonValue(graph),
       organizationId: auth.organizationId,
@@ -243,6 +255,8 @@ export const PUT = withAuthenticatedApi(async (request, auth) => {
       ...(body.name !== undefined && { name: body.name }),
       ...(body.description !== undefined && { description: body.description }),
       ...(body.visibility !== undefined && { visibility: normalizeVisibility(body.visibility) }),
+      ...(body.icon !== undefined && { icon: normalizeFlowIcon(body.icon) }),
+      ...(body.folder !== undefined && { folder: normalizeFlowFolder(body.folder) }),
       ...(body.errorFlowId !== undefined && {
         metadata: jsonValue({
           ...(existing.metadata && typeof existing.metadata === 'object' && !Array.isArray(existing.metadata) ? existing.metadata as Record<string, unknown> : {}),
