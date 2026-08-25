@@ -228,6 +228,45 @@ if (QA_URI) {
     }
   })
 
+  // The schema rules against a REAL server. summarizeNeo4jSchema is unit-tested
+  // over literal rows; this is the leg those tests cannot cover — that a live
+  // instance provisioned by ensureIndexes() actually satisfies them. On a
+  // Community-edition server this is the test that fails, which is the point:
+  // there, the vector index cannot be created and search() silently degrades to
+  // a full label scan.
+  test('a live instance provisioned by ensureReady satisfies the schema rules', async () => {
+    const { summarizeNeo4jSchema } = await import('@/lib/rag/neo4j-schema')
+    const { EMBEDDING_DIM } = await import('@/lib/rag/embeddings')
+
+    // ensureReady must provision WITHOUT writing data — every other public
+    // method short-circuits on empty input before it reaches the driver.
+    const { Neo4jGraphStore } = await import('@/lib/rag/neo4j-store')
+    const fresh = new Neo4jGraphStore()
+    try {
+      await fresh.ensureReady()
+
+      // ensureReady memoizes the driver, so this hands back the same connection
+      // it just provisioned through — no second dial, and it proves ensureReady
+      // really did construct one.
+      const freshDriver = await (fresh as any).driver()
+      const rowsOf = async (query: string) =>
+        (await freshDriver.executeQuery(query)).records.map((r: any) => JSON.parse(JSON.stringify(r.get('row'))))
+      const indexes = await rowsOf(
+        'SHOW INDEXES YIELD name, type, state, labelsOrTypes, properties, options ' +
+          'RETURN { name: name, type: type, state: state, labelsOrTypes: labelsOrTypes, properties: properties, options: options } AS row',
+      )
+      const constraints = await rowsOf(
+        'SHOW CONSTRAINTS YIELD name, type, labelsOrTypes, properties ' +
+          'RETURN { name: name, type: type, labelsOrTypes: labelsOrTypes, properties: properties } AS row',
+      )
+
+      const report = summarizeNeo4jSchema(indexes, constraints, EMBEDDING_DIM)
+      assert.equal(report.ok, true, `schema problems on the live instance:\n  - ${report.problems.join('\n  - ')}`)
+    } finally {
+      await fresh.close()
+    }
+  })
+
 } else {
   test('neo4j live (skipped: QA_NEO4J_URI not set)', { skip: true }, () => {})
 }

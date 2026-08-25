@@ -197,3 +197,71 @@ test('worker env: warns (never throws) when the pool is smaller than worker conc
   assert.doesNotThrow(() => assertWorkerEnv({ warn: (msg: string) => warnings.push(msg) }))
   assert.ok(warnings.some((msg) => msg.includes('connection_limit')), `expected a pool-size warning, got: ${warnings.join(' | ')}`)
 })
+
+// ── Worker graph-RAG env ────────────────────────────────────────────────────
+//
+// The 2026-08-24 gap: the Fly worker ran for weeks with no NEO4J_* and no
+// VOYAGE_API_KEY. Production executes agent runs on that process, so
+// ragEnabled() was false for every run — nothing retrieved, nothing indexed —
+// and nothing anywhere said so. These belong in RECOMMENDED (warn), never in
+// REQUIRED: a worker deploy must not go down over degraded grounding.
+
+const WORKER_BASE = {
+  DATABASE_URL: 'postgresql://u:p@h:5432/db?connection_limit=40',
+  REDIS_URL: 'rediss://h:6379',
+  ENCRYPTION_KEY: '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef',
+  ANTHROPIC_API_KEY: 'sk-ant-x',
+}
+
+test('worker env: warns when the graph store is unset, naming the runtime consequence', async () => {
+  setNodeEnv('production')
+  Object.assign(process.env, WORKER_BASE, { VOYAGE_API_KEY: 'pa-key' })
+  delete process.env.NEO4J_URI
+  const { assertWorkerEnv } = await freshEnv()
+  const warnings: string[] = []
+  assert.doesNotThrow(() => assertWorkerEnv({ warn: (msg: string) => warnings.push(msg) }))
+  const found = warnings.find((msg) => msg.includes('NEO4J_URI'))
+  assert.ok(found, `expected a NEO4J_URI warning, got: ${warnings.join(' | ')}`)
+  assert.match(found, /ground|index/i, 'the warning must name what runs lose, not just the key')
+})
+
+// Both halves of ragEnabled() matter: a graph with no embeddings key indexes
+// and retrieves exactly nothing, so its absence is equally worth a warning.
+test('worker env: warns when the embeddings key is unset', async () => {
+  setNodeEnv('production')
+  Object.assign(process.env, WORKER_BASE, { NEO4J_URI: 'neo4j+s://h', NEO4J_USERNAME: 'neo4j', NEO4J_PASSWORD: 'pw' })
+  delete process.env.VOYAGE_API_KEY
+  const { assertWorkerEnv } = await freshEnv()
+  const warnings: string[] = []
+  assert.doesNotThrow(() => assertWorkerEnv({ warn: (msg: string) => warnings.push(msg) }))
+  assert.ok(
+    warnings.some((msg) => msg.includes('VOYAGE_API_KEY')),
+    `expected a VOYAGE_API_KEY warning, got: ${warnings.join(' | ')}`,
+  )
+})
+
+// A URI alone is not a configured graph: neo4jConfigured() requires all three,
+// so a missing password degrades exactly as silently as a missing URI.
+test('worker env: warns on partial Neo4j credentials, not just a missing URI', async () => {
+  setNodeEnv('production')
+  Object.assign(process.env, WORKER_BASE, { NEO4J_URI: 'neo4j+s://h', NEO4J_USERNAME: 'neo4j', VOYAGE_API_KEY: 'pa-key' })
+  delete process.env.NEO4J_PASSWORD
+  const { assertWorkerEnv } = await freshEnv()
+  const warnings: string[] = []
+  assert.doesNotThrow(() => assertWorkerEnv({ warn: (msg: string) => warnings.push(msg) }))
+  assert.ok(
+    warnings.some((msg) => msg.includes('NEO4J_PASSWORD')),
+    `expected a NEO4J_PASSWORD warning, got: ${warnings.join(' | ')}`,
+  )
+})
+
+test('worker env: a fully configured graph-RAG setup warns about neither', async () => {
+  setNodeEnv('production')
+  Object.assign(process.env, WORKER_BASE, {
+    NEO4J_URI: 'neo4j+s://h', NEO4J_USERNAME: 'neo4j', NEO4J_PASSWORD: 'pw', VOYAGE_API_KEY: 'pa-key',
+  })
+  const { assertWorkerEnv } = await freshEnv()
+  const warnings: string[] = []
+  assert.doesNotThrow(() => assertWorkerEnv({ warn: (msg: string) => warnings.push(msg) }))
+  assert.ok(!warnings.some((msg) => msg.includes('NEO4J_URI') || msg.includes('VOYAGE_API_KEY')))
+})

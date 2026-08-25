@@ -20,15 +20,31 @@ export type HealthDetails = {
   degraded: Degradation[]
 }
 
-export async function collectHealthDetails(): Promise<HealthDetails> {
+/**
+ * The four dependency probes, injectable so the assembly of the payload — which
+ * probe result reaches which field, and which ones reach `degraded` — can be
+ * tested without a live Postgres, Redis, Neo4j and queue. Production passes
+ * nothing and gets the real probes.
+ */
+export type HealthProbes = {
+  db: () => Promise<{ ok: boolean; ms?: number; error?: string }>
+  cache: () => Promise<{ ok: boolean; configured: boolean }>
+  neo4j: () => Promise<{ ok: boolean; configured: boolean }>
+  queue: () => Promise<{ ok: boolean; configured?: boolean } & Record<string, unknown>>
+}
+
+const defaultProbes: HealthProbes = {
+  db: () => probeWithDeadline(async () => { await prisma.$queryRaw`SELECT 1` }),
+  cache: () => cachePing().then((c) => ({ ok: c.ok, configured: c.configured })).catch(() => ({ ok: false, configured: false })),
+  neo4j: () => neo4jPing().catch(() => ({ ok: false, configured: false })),
+  queue: () => queuePing(),
+}
+
+export async function collectHealthDetails(probes: Partial<HealthProbes> = {}): Promise<HealthDetails> {
+  const { db: probeDb, cache: probeCache, neo4j: probeNeo4j, queue: probeQueue } = { ...defaultProbes, ...probes }
   const configuration = getProductReadiness()
-  const [db, cache, neo4j, queue] = await Promise.all([
-    probeWithDeadline(async () => { await prisma.$queryRaw`SELECT 1` }),
-    cachePing().then((c) => ({ ok: c.ok, configured: c.configured })).catch(() => ({ ok: false, configured: false })),
-    neo4jPing().catch(() => ({ ok: false, configured: false })),
-    queuePing(),
-  ])
-  const degraded = degradedSubsystems(process.env, { cacheReachable: cache.ok })
+  const [db, cache, neo4j, queue] = await Promise.all([probeDb(), probeCache(), probeNeo4j(), probeQueue()])
+  const degraded = degradedSubsystems(process.env, { cacheReachable: cache.ok, neo4jReachable: neo4j.ok })
   if (degraded.length > 0 && process.env.NODE_ENV === 'production') {
     // Error level, not warn: each entry means a feature the product claims is
     // silently absent. Without this the only symptom is a user noticing.

@@ -170,6 +170,14 @@ const RECOMMENDED_FOR_WORKER = [
   ['NEXT_PUBLIC_APP_URL', 'digest/email deep links will render without a host'],
   ['NEXT_PUBLIC_SUPABASE_URL', 'realtime run-event broadcasts will be off (clients fall back to polling latency)'],
   ['SUPABASE_SERVICE_ROLE_KEY', 'realtime run-event broadcasts will be off (clients fall back to polling latency)'],
+  // Graph-RAG needs BOTH halves of ragEnabled() — a durable store and an
+  // embeddings key — and neo4jConfigured() needs all three Neo4j vars, so any
+  // one of these missing silently disables grounding and indexing for every
+  // queue-executed run. The worker spent weeks in exactly that state.
+  ['NEO4J_URI', 'agent runs execute with no graph grounding and are never indexed back into the workspace graph'],
+  ['NEO4J_USERNAME', 'agent runs execute with no graph grounding and are never indexed back into the workspace graph'],
+  ['NEO4J_PASSWORD', 'agent runs execute with no graph grounding and are never indexed back into the workspace graph'],
+  ['VOYAGE_API_KEY', 'no embeddings, so graph indexing and retrieval are both skipped even with a graph store configured'],
 ] as const
 
 export function assertWorkerEnv(logger: { warn: (message: string) => void } = console): void {

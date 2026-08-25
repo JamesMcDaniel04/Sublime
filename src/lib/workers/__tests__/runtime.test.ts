@@ -273,4 +273,31 @@ if (TEST_DB) {
 
     runtime.workers[scheduledIndex].isRunning = () => true
   })
+
+  // ── Graph-RAG on the worker ───────────────────────────────────────────────
+  //
+  // This process is where production agent runs actually execute, so whether
+  // it can reach the graph is exactly what an operator needs to see — the
+  // 2026-08-24 gap was invisible precisely because nothing on this process
+  // ever said. Report it here.
+  test('/health reports the graph-RAG probe alongside redis and the database', async () => {
+    runtime.workers.forEach((worker: any) => { worker.isRunning = () => true })
+    redisConn.ping = async () => 'PONG'
+    const response = await runtime.server.inject({ method: 'GET', url: '/health' })
+    const body = response.json()
+    assert.ok(body.graphRag, `expected a graphRag field, got keys: ${JSON.stringify(Object.keys(body))}`)
+    assert.equal(body.graphRag.configured, false, 'no NEO4J_* is set in this test process')
+  })
+
+  // The other half, and the one that must not regress: graph-RAG stays OUT of
+  // the 503 condition. RAG degrades gracefully by design, so failing readiness
+  // over it would have Fly restart-loop a worker that is executing runs fine —
+  // trading a degraded feature for a genuine outage. A guard, not a RED test.
+  test('/health stays 200 when graph-RAG is unconfigured — it is reported, never gating', async () => {
+    runtime.workers.forEach((worker: any) => { worker.isRunning = () => true })
+    redisConn.ping = async () => 'PONG'
+    const response = await runtime.server.inject({ method: 'GET', url: '/health' })
+    assert.equal(response.statusCode, 200)
+    assert.equal(response.json().status, 'healthy')
+  })
 }

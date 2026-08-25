@@ -242,6 +242,17 @@ export class Neo4jGraphStore implements GraphRagStore {
     )
   }
 
+  /**
+   * Force driver construction — and therefore ensureIndexes() — without
+   * writing anything. Every public method short-circuits on empty input before
+   * it ever reaches driver(), so provisioning a fresh instance previously meant
+   * performing a real write. scripts/verify-neo4j.ts uses this to create the
+   * schema and then assert it actually got created.
+   */
+  async ensureReady(): Promise<void> {
+    await this.driver()
+  }
+
   /** Release the bolt driver (tests/graceful shutdown); safe when never opened. */
   async close(): Promise<void> {
     if (!this.driverPromise) return

@@ -27,9 +27,18 @@ function cacheConfigured(env: Env): boolean {
   return Boolean(env.REDIS_URL)
 }
 
+/** True when graph-RAG would actually run. Mirrors ragEnabled() in
+ *  lib/rag/get-store.ts: embeddingsConfigured() AND neo4jConfigured(), the
+ *  latter requiring all three vars — two of three is not a partial graph, it
+ *  is a silent fall back to the per-process in-memory store. */
+function graphRagConfigured(env: Env): boolean {
+  const graph = Boolean(env.NEO4J_URI && env.NEO4J_USERNAME && env.NEO4J_PASSWORD)
+  return graph && Boolean(env.VOYAGE_API_KEY)
+}
+
 export function degradedSubsystems(
   env: Env,
-  probes: { cacheReachable?: boolean } = {},
+  probes: { cacheReachable?: boolean; neo4jReachable?: boolean } = {},
 ): Degradation[] {
   const degraded: Degradation[] = []
 
@@ -57,6 +66,19 @@ export function degradedSubsystems(
       key: 'cache',
       impact:
         'The shared cache is unavailable, so monthly credit ceilings and rate limits fall back to per-instance counters and stop holding workspace-wide.',
+    })
+  }
+
+  // Graph-RAG fails the same way the cache does — quietly, and on the path
+  // that matters least visibly. On 2026-08-24 the queue worker carried neither
+  // NEO4J_* nor VOYAGE_API_KEY, so ragEnabled() was false for every
+  // queue-executed run: retrieveContext() returned nothing and
+  // indexExecution() no-opped, for weeks, with /health reporting ok.
+  if (!graphRagConfigured(env) || probes.neo4jReachable === false) {
+    degraded.push({
+      key: 'graph-rag',
+      impact:
+        'Agent runs execute with no graph grounding and are never indexed back, so the workspace graph stops growing and answers lose the correlated context the product promises.',
     })
   }
 

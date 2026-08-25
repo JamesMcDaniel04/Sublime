@@ -12,6 +12,7 @@ import { initSentry, captureError, flushErrorReporting } from '@/lib/observabili
 import { executeActivityBackfillJob } from '@/lib/activity/backfill'
 import { flushFlowDispatchOutbox } from '@/lib/queue/flow-outbox'
 import { systemPrisma } from '@/lib/prisma'
+import { neo4jPing } from '@/lib/rag/neo4j-store'
 
 /** Health probes must answer fast enough to be a health check, not a query. */
 const HEALTH_DB_TIMEOUT_MS = 4000
@@ -64,7 +65,20 @@ class WorkerRuntime {
     // converts an outage into silence.
     this.server.get('/health', async (_request, reply) => {
       const running = this.workers.every((worker) => worker.isRunning())
-      const [redis, database] = await Promise.all([this.pingRedis(), this.pingDatabase()])
+      // graphRag is probed alongside the others but is DELIBERATELY absent from
+      // `healthy`. Redis or the database being down means this process consumes
+      // nothing, so 503 and let the platform recycle it. An unreachable graph
+      // means runs still execute, just without grounding — reporting it as
+      // unhealthy would restart-loop a working worker, trading a degraded
+      // feature for a real outage. It is reported so it stops being invisible,
+      // which is the whole lesson of the database probe above.
+      // neo4jPing() carries its own 3s deadline and never throws, so it cannot
+      // outlast the database probe's 4s or turn a check into a hang.
+      const [redis, database, graphRag] = await Promise.all([
+        this.pingRedis(),
+        this.pingDatabase(),
+        neo4jPing().catch(() => ({ configured: false, ok: false })),
+      ])
       const healthy = running && redis && database
       reply.code(healthy ? 200 : 503)
       return {
@@ -72,6 +86,7 @@ class WorkerRuntime {
         workers: Object.fromEntries(this.workerSpecs.map((spec, index) => [spec.queue, this.workers[index].isRunning()])),
         redis,
         database,
+        graphRag,
         uptime: process.uptime(),
       }
     })

@@ -6,6 +6,10 @@ const configured = {
   RESEND_API_KEY: 'key',
   SENTRY_DSN: 'dsn',
   REDIS_URL: 'redis://host',
+  VOYAGE_API_KEY: 'pa-key',
+  NEO4J_URI: 'neo4j+s://host',
+  NEO4J_USERNAME: 'neo4j',
+  NEO4J_PASSWORD: 'pw',
 }
 
 const keysOf = (list: { key: string }[]) => list.map((d) => d.key).sort()
@@ -58,4 +62,37 @@ test('every degradation carries an impact an operator can act on', () => {
 // Unknown cache state (probe not run) must not invent a failure.
 test('an unprobed cache is not reported as unreachable', () => {
   assert.deepEqual(degradedSubsystems(configured, {}), [])
+})
+
+// ── Graph-RAG ───────────────────────────────────────────────────────────────
+//
+// The failure that was live on 2026-08-24: the Fly worker carried no NEO4J_*
+// and no VOYAGE_API_KEY, so every queue-executed agent run grounded on nothing
+// and indexed nothing back — while /health reported ok the entire time. This
+// is precisely the class this module exists to name, and it was uncovered.
+
+test('a missing graph store degrades graph-RAG', () => {
+  const found = degradedSubsystems({ ...configured, NEO4J_URI: undefined }, { cacheReachable: true, neo4jReachable: true })
+  assert.deepEqual(keysOf(found), ['graph-rag'])
+  assert.match(found[0].impact, /ground/i)
+})
+
+// Both gates matter: ragEnabled() is embeddings AND a durable store, so a
+// graph with no embeddings key is exactly as dark as having no graph at all.
+test('a graph store without an embeddings key is still degraded', () => {
+  const found = degradedSubsystems({ ...configured, VOYAGE_API_KEY: undefined }, { cacheReachable: true, neo4jReachable: true })
+  assert.deepEqual(keysOf(found), ['graph-rag'])
+})
+
+// neo4jConfigured() requires all three vars. Two of the three is not a partial
+// graph — it silently falls back to the per-process in-memory store.
+test('partial Neo4j credentials do not count as a configured graph store', () => {
+  const found = degradedSubsystems({ ...configured, NEO4J_PASSWORD: undefined }, { cacheReachable: true, neo4jReachable: true })
+  assert.deepEqual(keysOf(found), ['graph-rag'])
+})
+
+// Same lesson the cache probe teaches: configured is not the same as working.
+test('a configured but unreachable graph store is degraded, not healthy', () => {
+  const found = degradedSubsystems(configured, { cacheReachable: true, neo4jReachable: false })
+  assert.deepEqual(keysOf(found), ['graph-rag'])
 })
