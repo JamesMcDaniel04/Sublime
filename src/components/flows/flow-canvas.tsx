@@ -3,7 +3,7 @@
 import { Fragment, useState } from 'react'
 import { Plus, Sparkles } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { DATA_OP_LABELS } from '@/lib/flows/data-ops'
+import { DATA_OP_LABELS } from '@/lib/flows/step-copy'
 import { CONDITION_OP_LABELS, VARIABLE_OP_LABELS, VARIABLE_TYPE_LABELS, type DataOp, type FlowGraph, type FlowNode, type VariableOp } from '@/lib/flows/graph'
 import type { StepType } from '@/lib/flows/mutate'
 import { humanizeTokens, type TokenLabelContext } from '@/lib/flows/token-text'

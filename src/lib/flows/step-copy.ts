@@ -54,3 +54,28 @@ export const VARIABLE_VALUE_PLACEHOLDER: Record<VariableOp, string> = {
 export function variableValueOptional(op: VariableOp): boolean {
   return op === 'initialize' || op === 'increment' || op === 'decrement'
 }
+
+/**
+ * Display labels for each data op.
+ *
+ * Lives here, not in data-ops.ts, because the executor is server-only by
+ * intent: flow-canvas.tsx and data-body.tsx import labels, so anything
+ * data-ops.ts pulls in — a parser, a crypto shim — would land in the browser
+ * bundle. The flow builder page runs at 364.6k of a 400k gzip budget.
+ */
+export const DATA_OP_LABELS: Record<DataOp, string> = {
+  aggregate: 'Aggregate',
+  compose: 'Compose',
+  parseJson: 'Parse JSON',
+  join: 'Join',
+  csvTable: 'Create CSV table',
+  htmlTable: 'Create HTML table',
+  slackMessage: 'Format Slack message',
+  filterArray: 'Filter array',
+  select: 'Select',
+  sort: 'Sort items',
+  limit: 'Limit items',
+  dedupe: 'Remove duplicates',
+  splitOut: 'Split out a field',
+
+}

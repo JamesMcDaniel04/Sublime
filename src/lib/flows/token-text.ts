@@ -1,5 +1,5 @@
 import { VARIABLE_OP_LABELS, type FlowGraph, type FlowNode } from '@/lib/flows/graph'
-import { DATA_OP_LABELS } from '@/lib/flows/data-ops'
+import { DATA_OP_LABELS } from '@/lib/flows/step-copy'
 
 /**
  * Pure presentation helpers that turn `{{token}}` template strings into

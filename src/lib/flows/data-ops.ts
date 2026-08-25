@@ -1,4 +1,5 @@
 import type { ConditionClause, DataOp } from '@/lib/flows/graph'
+import { DATA_OP_LABELS } from '@/lib/flows/step-copy'
 import { asStructured, readPath, type FlowContext, evalClauseAsync, resolveTemplateAsync, type EvalJsFn } from '@/features/flows/context'
 
 /**
@@ -42,23 +43,6 @@ export type DataOpConfig = {
 
 export type DataOpResult = { output: unknown } | { error: string }
 
-/** Display names matching the step picker copy — used in error messages. */
-export const DATA_OP_LABELS: Record<DataOp, string> = {
-  aggregate: 'Aggregate',
-  compose: 'Compose',
-  parseJson: 'Parse JSON',
-  join: 'Join',
-  csvTable: 'Create CSV table',
-  htmlTable: 'Create HTML table',
-  slackMessage: 'Format Slack message',
-  filterArray: 'Filter array',
-  select: 'Select',
-  sort: 'Sort items',
-  limit: 'Limit items',
-  dedupe: 'Remove duplicates',
-  splitOut: 'Split out a field',
-
-}
 
 const isBlank = (value: unknown): boolean => value === undefined || value === null || (typeof value === 'string' && value.trim() === '')
 

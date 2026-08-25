@@ -2,7 +2,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { BUILTIN_GROUPS, AI_CAPABILITY_LEAVES, TRIGGER_LEAVES, searchCorpus } from '../builtin-catalog'
 import { DATA_OPS, VARIABLE_OPS, emptyGraph, flowNodeSchema } from '../graph'
-import { DATA_OP_LABELS } from '../data-ops'
+import { DATA_OP_LABELS } from '../step-copy'
 import { insertNodeAfter } from '../mutate'
 
 test('built-in groups cover the drill-in taxonomy', () => {
