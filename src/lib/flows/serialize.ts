@@ -46,6 +46,7 @@ export function serializeFlow(flow: {
     // Through the typed reader, so the builder shows the zone the RUN will
     // actually use — an invalid stored value reads back as UTC here too.
     timezone: flowSettings(metadata).timezone,
+    callerPolicy: flowSettings(metadata).callerPolicy,
     // Imported-credential bulk bind (persisted at import time): the builder
     // surfaces groups whose member steps still lack a credential.
     importedCredentialGroups: Array.isArray(metadata.importedCredentialGroups) ? metadata.importedCredentialGroups : [],

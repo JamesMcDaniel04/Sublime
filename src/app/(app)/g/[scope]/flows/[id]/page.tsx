@@ -336,6 +336,7 @@ function FlowBuilder() {
   const [visibility, setVisibility] = useState<string>('private')
   const [errorFlowId, setErrorFlowId] = useState('')
   const [timezone, setTimezone] = useState('UTC')
+  const [callerPolicy, setCallerPolicy] = useState<'any' | 'none'>('any')
   const [improvementSuggestions, setImprovementSuggestions] = useState<{ id: string; title: string; content: string }[]>([])
   // Imported-credential bulk bind (persisted at import; see the banner component).
   const [importedCredentialGroups, setImportedCredentialGroups] = useState<CredentialGroup[]>([])
@@ -491,7 +492,7 @@ function FlowBuilder() {
   // Run the user explicitly picked (dropdown or ?run= deep-link). While set,
   // the poll tick refreshes that run's details instead of stealing selection.
   const pinnedRunId = useRef<string | null>(null)
-  const dirty = savedSnapshot !== '' && flowSnapshot({ name, description, graph, errorFlowId, icon, folder, timezone }) !== savedSnapshot
+  const dirty = savedSnapshot !== '' && flowSnapshot({ name, description, graph, errorFlowId, icon, folder, timezone, callerPolicy }) !== savedSnapshot
 
   useEffect(() => {
     let cancelled = false
@@ -528,10 +529,11 @@ function FlowBuilder() {
         setVisibility(typeof flow.visibility === 'string' ? flow.visibility : 'private')
         const loadedErrorFlowId = typeof flow.errorFlowId === 'string' ? flow.errorFlowId : ''
         setTimezone(typeof flow.timezone === 'string' ? flow.timezone : 'UTC')
+        setCallerPolicy(flow.callerPolicy === 'none' ? 'none' : 'any')
         setErrorFlowId(loadedErrorFlowId)
         setImportedCredentialGroups(Array.isArray(flow.importedCredentialGroups) ? flow.importedCredentialGroups : [])
         setAvailableFlows(flowsData.flows.map((entry: { id: string; name: string; published?: boolean }) => ({ id: entry.id, name: entry.name, published: Boolean(entry.published) })))
-        setSavedSnapshot(flowSnapshot({ name: flow.name, description: flow.description || '', graph: g, errorFlowId: loadedErrorFlowId, icon: flow.icon || '', folder: flow.folder || '', timezone: typeof flow.timezone === 'string' ? flow.timezone : 'UTC' }))
+        setSavedSnapshot(flowSnapshot({ name: flow.name, description: flow.description || '', graph: g, errorFlowId: loadedErrorFlowId, icon: flow.icon || '', folder: flow.folder || '', timezone: typeof flow.timezone === 'string' ? flow.timezone : 'UTC', callerPolicy: flow.callerPolicy === 'none' ? 'none' : 'any' }))
         baseUpdatedAtRef.current = flow.updatedAt
 
         // Agent choices are useful but not authoritative flow data. A failure
@@ -1079,7 +1081,7 @@ function FlowBuilder() {
       const response = await fetch('/api/flows', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id, name, description, icon, folder, timezone, ...(graphSyncLive ? {} : { graph }), errorFlowId: errorFlowId || null, baseUpdatedAt: baseUpdatedAtRef.current }),
+        body: JSON.stringify({ id, name, description, icon, folder, timezone, callerPolicy, ...(graphSyncLive ? {} : { graph }), errorFlowId: errorFlowId || null, baseUpdatedAt: baseUpdatedAtRef.current }),
       })
       const data = await response.json().catch(() => ({}))
       if (!response.ok) {
@@ -1090,13 +1092,13 @@ function FlowBuilder() {
         baseUpdatedAtRef.current = data.flow.updatedAt
       }
       invalidateCachedJson('/api/flows')
-      setSavedSnapshot(flowSnapshot({ name, description, graph, errorFlowId, icon, folder, timezone }))
+      setSavedSnapshot(flowSnapshot({ name, description, graph, errorFlowId, icon, folder, timezone, callerPolicy }))
       if (data.flow) setUnpublishedChanges(Boolean(data.flow.unpublishedChanges))
       return true
     } finally {
       setSaving(false)
     }
-  }, [id, name, description, icon, folder, timezone, graph, errorFlowId, loadError, savedSnapshot, graphSyncLive])
+  }, [id, name, description, icon, folder, timezone, graph, errorFlowId, loadError, savedSnapshot, graphSyncLive, callerPolicy])
 
   const publish = useCallback(
     async (revert = false) => {
@@ -1123,7 +1125,7 @@ function FlowBuilder() {
           // restoreVersion) or the next Save 409s forever.
           if (data.flow.updatedAt) baseUpdatedAtRef.current = data.flow.updatedAt
           setGraph(data.flow.graph)
-          setSavedSnapshot(flowSnapshot({ name, description, graph: data.flow.graph, errorFlowId, icon, folder, timezone }))
+          setSavedSnapshot(flowSnapshot({ name, description, graph: data.flow.graph, errorFlowId, icon, folder, timezone, callerPolicy }))
         }
         setVersion(data.flow?.version ?? version)
         setPublished(Boolean(data.flow?.published))
@@ -1133,7 +1135,7 @@ function FlowBuilder() {
         setPublishing(false)
       }
     },
-    [id, save, validation, version, name, description, errorFlowId, icon, folder, timezone],
+    [id, save, validation, version, name, description, errorFlowId, icon, folder, timezone, callerPolicy],
   )
 
   const unpublish = useCallback(async () => {
@@ -1325,14 +1327,14 @@ function FlowBuilder() {
       if (response.ok && data.flow?.graph) {
         if (data.flow.updatedAt) baseUpdatedAtRef.current = data.flow.updatedAt
         commitGraph(data.flow.graph)
-        setSavedSnapshot(flowSnapshot({ name, description, graph: data.flow.graph, errorFlowId, icon, folder, timezone }))
+        setSavedSnapshot(flowSnapshot({ name, description, graph: data.flow.graph, errorFlowId, icon, folder, timezone, callerPolicy }))
         setViewingVersion(null)
         toast.success(`Restored v${v} into the draft.`)
       } else {
         toast.error(data.error || 'Could not restore that version.')
       }
     },
-    [id, commitGraph, name, description, errorFlowId, icon, folder, timezone],
+    [id, commitGraph, name, description, errorFlowId, icon, folder, timezone, callerPolicy],
   )
 
   const run = useCallback(async (options?: { startNodeId?: string; mockOutputsText?: string }) => {
@@ -1700,6 +1702,19 @@ function FlowBuilder() {
                 {FLOW_TIMEZONES.map((zone) => <option key={zone} value={zone}>{zone}</option>)}
               </select>
               <p className="max-w-56 text-[11px] leading-4 text-muted-foreground">Schedules and date tokens resolve in this zone. Defaults to UTC.</p>
+              {/* The flow: tool plane hands an entire flow to an agent. This
+                  is how an author declines without deactivating the flow. */}
+              <label className="text-xs font-medium text-muted-foreground" htmlFor="flow-caller-policy">Agents may run this</label>
+              <select
+                id="flow-caller-policy"
+                value={callerPolicy}
+                onChange={(event) => setCallerPolicy(event.target.value === 'none' ? 'none' : 'any')}
+                className="w-full rounded-md border border-border bg-background px-2 py-1.5 text-xs"
+              >
+                <option value="any">Yes — agents can call this flow</option>
+                <option value="none">No — agents cannot call this flow</option>
+              </select>
+              <p className="max-w-56 text-[11px] leading-4 text-muted-foreground">Blocking agents does not disable the flow — its own trigger, schedule and subflow steps still run it.</p>
             </div>
             <DropdownMenuSeparator />
             <DropdownMenuItem onSelect={duplicateFlow}>
@@ -2317,6 +2332,7 @@ function flowSnapshot(fields: {
   icon: string
   folder: string
   timezone: string
+  callerPolicy: string
 }): string {
   return JSON.stringify(fields)
 }

@@ -13,7 +13,7 @@
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { flowSettings, isValidTimezone } from '../settings'
+import { flowSettings, isValidTimezone, flowCallableAsTool } from '../settings'
 
 test('an absent metadata bag yields defaults, not undefined', () => {
   const settings = flowSettings(null)
@@ -60,4 +60,39 @@ test('isValidTimezone accepts real zones and rejects nonsense', () => {
   assert.equal(isValidTimezone('Not/AZone'), false)
   assert.equal(isValidTimezone(''), false)
   assert.equal(isValidTimezone(undefined), false)
+})
+
+// ── callerPolicy ────────────────────────────────────────────────────────────
+//
+// The `flow:` tool plane makes ANY active flow callable by an agent, with no
+// per-flow opt-out. That is Sublime doing something n8n cannot (a whole flow
+// as an agent tool) without n8n's corresponding control (callerPolicy).
+//
+// A flow that posts to a customer channel or writes to Salesforce should be
+// able to say "not from an agent" without being deactivated.
+
+test('a flow with no policy stays callable — existing agents must not break', () => {
+  assert.equal(flowCallableAsTool(null), true)
+  assert.equal(flowCallableAsTool({}), true)
+})
+
+test('an explicit deny takes the flow out of the tool plane', () => {
+  assert.equal(flowCallableAsTool({ callerPolicy: 'none' }), false)
+})
+
+test('an explicit allow is callable', () => {
+  assert.equal(flowCallableAsTool({ callerPolicy: 'any' }), true)
+})
+
+// An unrecognised value must fail CLOSED here, unlike timezone. A policy
+// nobody understands should not grant access — the safe answer for a
+// governance control is the restrictive one.
+test('an unknown policy value denies rather than defaults to allow', () => {
+  assert.equal(flowCallableAsTool({ callerPolicy: 'everyone' }), false)
+  assert.equal(flowCallableAsTool({ callerPolicy: 42 }), false)
+})
+
+test('flowSettings surfaces the policy alongside the rest', () => {
+  assert.equal(flowSettings({ callerPolicy: 'none' }).callerPolicy, 'none')
+  assert.equal(flowSettings({}).callerPolicy, 'any')
 })

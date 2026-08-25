@@ -18,6 +18,7 @@
  */
 
 import { prisma } from '@/lib/prisma'
+import { flowCallableAsTool } from '@/lib/flows/settings'
 import { apiLogger } from '@/lib/logger'
 import { cacheGet, cacheSet } from '@/lib/cache'
 import { recordVerificationAsync } from '@/lib/connections/record-verification'
@@ -559,6 +560,11 @@ export async function loadFlowPlaneGroups(
   // short, stable flow-id suffix (the first flow keeps the clean slug).
   const usedSlugs = new Set<string>()
   for (const flow of flows) {
+    // Not offered when the flow's caller policy denies agents. This is the
+    // convenience half — the control is the refusal in
+    // resolveFlowToolExecutor, since a binding saved before the policy changed
+    // never passes through here again.
+    if (!flowCallableAsTool(flow.metadata)) continue
     const parsed = flowGraphSchema.safeParse(flow.publishedGraph ?? flow.graph)
     if (!parsed.success) continue
     const params = inputParamsFromGraph(parsed.data)
@@ -749,6 +755,12 @@ export async function resolveFlowToolExecutor(params: {
     // a DRAFT/DISABLED flow must not be executable as a tool.
     const flow = await prisma.flow.findFirst({ where: { id: ref, organizationId, status: 'ACTIVE' } })
     if (!flow) throw new Error('The selected flow no longer exists — pick another in the step config.')
+    // The control, not the filter above: a binding saved while the flow was
+    // callable survives a later policy change, so the refusal has to happen
+    // where the flow is about to RUN.
+    if (!flowCallableAsTool(flow.metadata)) {
+      throw new Error(`"${flow.name}" is not available to agents — its caller policy blocks agent invocation.`)
+    }
     return {
       provider: 'flow',
       isWrite: false,

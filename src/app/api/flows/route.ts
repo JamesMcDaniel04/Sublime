@@ -54,6 +54,8 @@ const flowSchema = z.object({
   // IANA zone for schedules and {{now}}/{{today}}. Validated server-side; an
   // unknown zone degrades to UTC at read time rather than failing the save.
   timezone: z.string().optional(),
+  // Whether an agent may invoke this flow through the `flow:` tool plane.
+  callerPolicy: z.enum(['any', 'none']).optional(),
 })
 
 function assertNoInlineSecrets(graph: z.infer<typeof flowGraphSchema>) {
@@ -264,13 +266,14 @@ export const PUT = withAuthenticatedApi(async (request, auth) => {
       // errorFlowId and timezone share one metadata bag, so they must be
       // written together — two independent spreads would have the later one
       // drop the earlier one's key.
-      ...((body.errorFlowId !== undefined || body.timezone !== undefined) && {
+      ...((body.errorFlowId !== undefined || body.timezone !== undefined || body.callerPolicy !== undefined) && {
         metadata: jsonValue({
           ...(existing.metadata && typeof existing.metadata === 'object' && !Array.isArray(existing.metadata) ? existing.metadata as Record<string, unknown> : {}),
           ...(body.errorFlowId !== undefined ? { errorFlowId: body.errorFlowId || undefined } : {}),
           ...(body.timezone !== undefined
             ? { timezone: isValidTimezone(body.timezone) ? body.timezone : undefined }
             : {}),
+          ...(body.callerPolicy !== undefined ? { callerPolicy: body.callerPolicy } : {}),
         }),
       }),
       // Preserve the webhook secret hash across trigger edits — the client
