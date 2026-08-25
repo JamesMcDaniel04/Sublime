@@ -96,6 +96,34 @@ if (TEST_DB) {
       assert.equal((await GET(get(flow.id, SECRET))).status, 409)
     })
 
+    // The finding a background security review caught: `publishedGraph ?? graph`
+    // let a secret holder serve and RUN unreviewed draft edits of a live flow.
+    // The webhook trigger route already documented this exact lesson.
+    await t.test('an ACTIVE flow with nothing published serves no form', async () => {
+      const flow = await makeFlow({ publishedGraph: undefined })
+      const response = await GET(get(flow.id, SECRET))
+      assert.equal(response.status, 409, 'the unpublished draft was exposed publicly')
+    })
+
+    await t.test('an ACTIVE flow with nothing published accepts no submission', async () => {
+      const flow = await makeFlow({ publishedGraph: undefined })
+      const response = await POST(post(flow.id, SECRET, { email: 'a@b.c' }))
+      assert.equal(response.status, 409, 'an unreviewed draft was runnable from a public form')
+    })
+
+    // Editing a published form must not change what the public sees until the
+    // change is published — the same guarantee agents just got.
+    await t.test('a draft edit does not change the public form', async () => {
+      const flow = await makeFlow()
+      await prisma.flow.updateMany({
+        // organizationId is required by the tenant guard — assertions included.
+        where: { id: flow.id, organizationId: seeded.auth.organizationId },
+        data: { graph: { nodes: [{ id: 'i', type: 'input', position: { x: 0, y: 0 }, data: { params: [{ name: 'ssn', type: 'string' }] } }], edges: [] } as never },
+      })
+      const body = await (await GET(get(flow.id, SECRET))).json()
+      assert.deepEqual(body.fields.map((f: { name: string }) => f.name), ['email'], 'a draft-only field reached the public form')
+    })
+
     await t.test('a DRAFT flow is not publicly reachable', async () => {
       const flow = await makeFlow({ status: 'DRAFT' })
       assert.equal((await GET(get(flow.id, SECRET))).status, 401)

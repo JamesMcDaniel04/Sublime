@@ -37,6 +37,14 @@ type FlowRow = NonNullable<Awaited<ReturnType<typeof systemPrisma.flow.findFirst
 type Authorized = { error: NextResponse; flow?: undefined } | { error?: undefined; flow: FlowRow }
 
 async function authorize(request: NextRequest, id: string | undefined): Promise<Authorized> {
+  // THROTTLE FIRST, before any database work. Placed after the lookup it
+  // bounded nothing that mattered: an anonymous caller could spend a query per
+  // request guessing tokens, and the cost landed on the workspace. The
+  // resource id comes off the path, so no read is needed to rate-limit.
+  if (await webhookThrottled(request, { key: 'flow.form', resourceId: id ?? 'unknown', perResource: 60, perIp: 20 })) {
+    return { error: NextResponse.json({ success: false, error: 'Too many requests — try again shortly.' }, { status: 429 }) }
+  }
+
   const token = request.nextUrl.searchParams.get('token') ?? ''
   const flow = id ? await systemPrisma.flow.findFirst({ where: { id, status: 'ACTIVE' } }) : null
   const trigger = (flow?.trigger && typeof flow.trigger === 'object' && !Array.isArray(flow.trigger)
@@ -75,8 +83,15 @@ export async function GET(request: NextRequest) {
   if (authorized.error) return authorized.error
   const { flow } = authorized
 
-  const parsed = flowGraphSchema.safeParse(flow.publishedGraph ?? flow.graph)
-  const fields = parsed.success ? formFieldsFor(parsed.data) : []
+  // PUBLISHED graph only — never `?? flow.graph`. The trigger route learned
+  // this the hard way and says so: falling back to the draft lets a secret
+  // holder run unreviewed edits of a live flow. A form with nothing published
+  // is simply not available yet.
+  const parsed = flowGraphSchema.safeParse(flow.publishedGraph)
+  if (!parsed.success) {
+    return NextResponse.json({ success: false, error: 'This form is not available.' }, { status: 409 })
+  }
+  const fields = formFieldsFor(parsed.data)
 
   return NextResponse.json({
     success: true,
@@ -94,15 +109,14 @@ export async function POST(request: NextRequest) {
   if (authorized.error) return authorized.error
   const { flow } = authorized
 
-  // The same guard the webhook trigger uses: per-FLOW and per-IP. Per-flow
-  // alone would let one source exhaust a workspace's run budget; per-IP alone
-  // would not bound a distributed submission at all.
-  if (await webhookThrottled(request, { key: 'flow.form', resourceId: flow.id, perResource: 60, perIp: 20 })) {
-    return NextResponse.json({ success: false, error: 'Too many submissions — try again shortly.' }, { status: 429 })
+  // Same rule as GET: a submission validates against, and runs, the PUBLISHED
+  // graph. Accepting input shaped by an unpublished draft would also mean the
+  // form and the run disagree about the contract.
+  const parsed = flowGraphSchema.safeParse(flow.publishedGraph)
+  if (!parsed.success) {
+    return NextResponse.json({ success: false, error: 'This form is not available.' }, { status: 409 })
   }
-
-  const parsed = flowGraphSchema.safeParse(flow.publishedGraph ?? flow.graph)
-  const fields = parsed.success ? formFieldsFor(parsed.data) : []
+  const fields = formFieldsFor(parsed.data)
 
   const body = await request.json().catch(() => ({}))
   const coerced = coerceFormSubmission(fields, body)
