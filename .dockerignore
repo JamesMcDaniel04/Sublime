@@ -1,6 +1,10 @@
-.git
-.next
-node_modules
-.env*
-!.env.example
-*.log
+# Allowlist: Dockerfile.worker only needs package files, prisma, src, and
+# tsconfig. Everything else (notably the multi-GB .claude/ session data) was
+# being uploaded to the remote builder on every deploy.
+*
+!package.json
+!package-lock.json
+!.npmrc
+!tsconfig.json
+!prisma
+!src

@@ -2,6 +2,7 @@ import type { Job } from 'bullmq'
 import { createHash } from 'crypto'
 import { prisma } from '@/lib/prisma'
 import { workersEnabled } from '@/lib/queue/config'
+import { checkFlowWorkerLiveness } from '@/lib/queue/worker-heartbeat'
 import { broadcastRunEvent } from '@/lib/realtime/run-events'
 import { inlineExecution } from '@/lib/queue/execution-mode'
 import { flowDispatchFailureDecision, flowDispatchPayloadHash, flowRunClaimDecision, loadFlowDispatch, publishFlowDispatchOutbox, type FlowQueueJobData } from '@/lib/queue/flow-outbox'
@@ -1519,8 +1520,24 @@ export async function dispatchFlowExecution(
   }
   if (!workersEnabled) throw new Error('Flow worker is disabled')
 
+  // Liveness gate: enqueueing succeeds even when nothing consumes the queue
+  // (worker never deployed, worker on a different Redis), which used to strand
+  // fresh runs at `running` — "Thinking…" forever in the builder — until the
+  // 30-minute reaper. A missing/stale heartbeat fails fast and loud instead.
+  const liveness = await checkFlowWorkerLiveness()
+
   const resuming = Boolean(job.flowRunId && (job.reply !== undefined || job.resumeReason === 'time'))
   if (resuming) {
+    // Liveness gate before the durable resume path: enqueueing succeeds even
+    // when nothing drains the queue, which used to strand the reply. The run
+    // stays `waiting`, so the reply can simply be retried once a worker is back.
+    if (!liveness.alive) {
+      const error = new Error(
+        'Flow execution backend is offline (no worker heartbeat) — try again once it reconnects.',
+      ) as Error & { code: string }
+      error.code = 'FLOW_WORKER_OFFLINE'
+      throw error
+    }
     const waiting = await prisma.flowRun.findFirst({
       where: { id: job.flowRunId, organizationId: job.organizationId },
       select: { id: true, flowId: true, status: true, waitGeneration: true },
@@ -1572,6 +1589,28 @@ export async function dispatchFlowExecution(
     }
     await publishFlowDispatchOutbox(outbox.id).catch(() => false)
     return { queued: true, flowRunId: waiting.id }
+  }
+
+  
+
+  // Same gate for a fresh run. Recorded as an immediately-failed run — visible
+  // in the run panel with a real reason — rather than a 500 with no trace, or
+  // a `running` row that says "Thinking…" until the 30-minute reaper.
+  if (!liveness.alive) {
+    const message = 'Flow execution backend is offline (no worker heartbeat). The run was not started.'
+    const failed = await prisma.flowRun.create({
+      data: {
+        flowId: job.flowId,
+        status: 'failed',
+        error: message,
+        finishedAt: new Date(),
+        input: jsonValue({ prompt: job.input ?? '' }),
+        trigger: jsonValue(job.trigger ?? { type: 'manual' }),
+        organizationId: job.organizationId,
+        userId: job.userId,
+      },
+    })
+    return { flowRunId: failed.id, status: 'failed', output: null, error: message }
   }
 
   let created

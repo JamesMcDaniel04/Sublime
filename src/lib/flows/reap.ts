@@ -64,6 +64,30 @@ export async function reapStuckFlowRuns(now = new Date(), onAfterRead?: () => Pr
   })
 }
 
+/**
+ * Fast path for the no-consumer outage: a `running` run with ZERO steps after
+ * this long was never picked up by a worker (a live worker writes the first
+ * step within seconds). The caller gates this on queue mode + a dead worker
+ * heartbeat — under a healthy-but-backlogged queue a zero-step run may be
+ * legitimately waiting its turn, and the general 30-minute reaper covers it.
+ */
+export const NEVER_STARTED_TIMEOUT_MS = 5 * 60 * 1000
+
+const NEVER_STARTED_ERROR = 'The execution backend was offline and the run was never picked up.'
+
+/** Fail stale zero-step `running` runs. Returns the reaped count. */
+export async function reapNeverStartedFlowRuns(now = new Date()): Promise<number> {
+  const cutoff = new Date(now.getTime() - NEVER_STARTED_TIMEOUT_MS)
+  // systemPrisma: global reaper sweep — runs across all orgs by design (invoked from CRON_SECRET-gated dispatch).
+  // Single atomic updateMany: `steps: { none: {} }` re-evaluates at write
+  // time, so a run a worker picked up mid-sweep (and gave a step) is skipped.
+  const reaped = await systemPrisma.flowRun.updateMany({
+    where: { status: 'running', startedAt: { lt: cutoff }, steps: { none: {} } },
+    data: { status: 'failed', error: NEVER_STARTED_ERROR, finishedAt: now },
+  })
+  return reaped.count
+}
+
 const ORPHANED_WAIT_ERROR = 'Wait expired with no resumable user'
 
 /**

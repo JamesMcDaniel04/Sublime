@@ -263,6 +263,72 @@ must verify availability per event type before the baseline layer is designed
 around it; where transitions are unavailable, cycle-time fields stay null and
 volume-only baselines still work.
 
+## Verification: HubSpot property history (2026-08-03)
+
+**Status: UNVERIFIED — no portal available, not a negative result.**
+
+`scripts/spikes/hubspot-history-probe.mjs` ran against the configured Nango
+account. It holds two connections, `slack` and `asana`; no HubSpot connection
+exists, so `GET /crm/v3/objects/deals?propertiesWithHistory=dealstage` was
+never exercised against a real portal.
+
+This is distinct from the failure case the plan anticipated. "History came
+back empty" would mean skipping the stage-change work; "there was nothing to
+ask" means the question stands open.
+
+Consequences taken:
+
+- The stage-change normalizer (`hubspotStageChangeActivities`) is implemented
+  and unit-tested against fixtures. It is correct with respect to HubSpot's
+  documented newest-first history shape and is inert if history never arrives —
+  an absent `propertiesWithHistory` yields zero events.
+- `listDealsWithHistory` is implemented, exported, and tested, but the backfill
+  generator's deals phase **still calls `searchDeals`**. Switching the live
+  path is deferred until a portal confirms the response shape: the list
+  endpoint also loses server-side `createdate` filtering, so swapping it in
+  unverified would trade a working fetch for a slower one with no gain.
+- Until the swap, HubSpot baselines are volume-only in practice.
+  `medianCycleTimeHours` and `reworkRate` stay null for `deal_stage_changed`
+  because no such events are ingested.
+
+To close this out: connect a HubSpot portal, run
+`node scripts/spikes/hubspot-history-probe.mjs` to list connections, re-run it
+with the connection id, and if `historyEntries >= 2` appears, change the deals
+phase in `src/lib/activity/sources/hubspot.ts` from `searchDeals` to
+`listDealsWithHistory`.
+
+## Verification: Plan 1 pipeline end to end (2026-08-05)
+
+Run against a throwaway Postgres with the full 90-migration chain applied,
+driving the real code path: adapter normalizers → `persistActivity` →
+`recomputeOrgBaselines` → `process_baselines`. 13 seeded events, 6 baselines.
+
+**Phase 1 criterion: PASS.** Every transition action
+(`deal_stage_changed`, `completed_task`, `merged_pr`) populates
+`previousState` on every row; every point event (`created_deal`,
+`logged_email`, `opened_pr`) carries none.
+
+**The jsonb null trap is real and was observed.** `persistActivity` writes
+`Prisma.JsonNull` for absent state, which is a JSON `null`, not SQL `NULL`.
+The naive check reports `previousState IS NOT NULL` for *every* row including
+point events — `opened_pr` measured `naive=1, correct=0`. Any query
+distinguishing transitions from point events must use:
+
+```sql
+"previousState" IS NOT NULL AND "previousState" <> 'null'::jsonb
+```
+
+**Measured baselines matched hand-counted SQL** for all 6 processes. The
+seeded regressing deal reported `reworkRate = 1` and
+`medianCycleTimeHours = 24`; point-event processes reported `null` (not `0`)
+for both. A second recompute upserted rather than duplicating.
+
+One semantic worth noting: a transition process with a single event reports
+`reworkRate = 0` — measured, nothing regressed — while cycle time stays null
+because a gap needs two events on one entity. Correct but weak signal; the
+confidence floor (0.4) excludes these from "measured" claims anyway, since a
+1-event, 26-day baseline scores 0.029.
+
 ## Open questions
 
 None blocking. Handling-time sourcing is decided (curated table default,

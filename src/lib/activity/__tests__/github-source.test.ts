@@ -1,7 +1,49 @@
 import { test, before, after } from 'node:test'
 import assert from 'node:assert/strict'
-import { githubIssueActivity, githubCommitActivity, makeGithubActivitySource } from '../sources/github'
+import {
+  githubIssueActivity,
+  githubCommitActivity,
+  githubPullLifecycleActivity,
+  makeGithubActivitySource,
+} from '../sources/github'
 import { getActivitySource } from '../registry'
+
+const mergedPr = {
+  number: 12,
+  title: 'Add baseline module',
+  user: { login: 'alice' },
+  pull_request: {},
+  state: 'closed',
+  created_at: '2026-07-10T09:00:00Z',
+  closed_at: '2026-07-12T15:00:00Z',
+  merged_at: '2026-07-12T15:00:00Z',
+}
+
+test('a merged PR becomes a transition from open', () => {
+  const event = githubPullLifecycleActivity('acme/api', mergedPr)
+  assert.ok(event)
+  assert.equal(event.action, 'merged_pr')
+  assert.equal(event.entityType, 'pull_request')
+  assert.equal(event.entityRef, 'acme/api#12')
+  assert.equal(event.actorRef, 'alice')
+  assert.deepEqual(event.previousState, { state: 'open' })
+  assert.deepEqual(event.newState, { state: 'merged' })
+  assert.equal(event.outcome, 'merged')
+  assert.equal(event.occurredAt.toISOString(), '2026-07-12T15:00:00.000Z')
+  assert.equal(event.dedupeKey, 'github:acme/api:pr:12:merged')
+})
+
+test('closed-unmerged is distinct; open PRs and issues yield nothing', () => {
+  const closed = githubPullLifecycleActivity('acme/api', { ...mergedPr, merged_at: null })
+  assert.equal(closed?.action, 'closed_pr')
+  assert.deepEqual(closed?.newState, { state: 'closed' })
+  assert.equal(closed?.outcome, 'closed')
+  assert.equal(closed?.dedupeKey, 'github:acme/api:pr:12:closed')
+
+  assert.equal(githubPullLifecycleActivity('acme/api', { ...mergedPr, closed_at: null, merged_at: null }), null)
+  // Issues are not pull requests.
+  assert.equal(githubPullLifecycleActivity('acme/api', { ...mergedPr, pull_request: undefined }), null)
+})
 
 test('registry resolves the github source with backfill capability', () => {
   const source = getActivitySource('github')

@@ -59,6 +59,7 @@ model Organization {
   integrationSecrets        IntegrationSecret[]
   activityEvents            ActivityEvent[]
   activityBackfills         ActivityBackfill[]
+  processBaselines          ProcessBaseline[]
   auditEvents               AuditEvent[]
   agentMemories             AgentMemory[]
   flowVersions              FlowVersion[]
@@ -1486,6 +1487,48 @@ model ActivityBackfill {
 
   @@unique([organizationId, source, connectionRef])
   @@map("activity_backfills")
+}
+
+/// Deterministic, measured statistics for one recurring process, computed from
+/// ActivityEvent rows (day-one-roi spec 2026-08-03). Facts only — no LLM
+/// output. Volume, cadence, cycle time and rework are counted or timed from
+/// observed events; handlingMinutes is the single estimated input, and the
+/// table version it came from is recorded so a later revision of that table
+/// cannot silently restate historical figures.
+model ProcessBaseline {
+  id             String @id @default(cuid())
+  organizationId String @db.Uuid
+  source         String
+  action         String
+  entityType     String
+
+  volume Int
+  /// Observation window actually covered, not the window requested.
+  windowDays Int
+  /// Median inter-event interval. Null when fewer than 2 events.
+  periodDays     Float?
+  distinctActors Int
+  /// Null unless the process carries state transitions.
+  medianCycleTimeHours Float?
+  /// Null when no entity in the process has transitions — distinct from 0,
+  /// which means transitions exist and none regressed.
+  reworkRate Float?
+  /// 0..1, from volume and window coverage.
+  confidence Float
+
+  handlingTimeTableVersion Int
+  /// Resolved minutes per occurrence: curated table, or the org override.
+  /// Null for actions the table does not cover.
+  handlingMinutes Float?
+
+  computedAt DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, source, action, entityType])
+  @@index([organizationId, confidence])
+  @@map("process_baselines")
 }
 
 /// Durable per-organization persona (org-persona-pipeline spec 2026-07-20).

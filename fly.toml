@@ -1,0 +1,39 @@
+# Fly.io deployment for the BullMQ worker (queue-mode execution runtime).
+# Counterpart to render.yaml — same contract: ONE queue, ONE Redis. The
+# REDIS_URL secret must be the SAME Upstash TCP URL (rediss://…:6379) that
+# Vercel uses to enqueue, or the web app and this worker operate two queues
+# that never meet. Secrets: fly secrets set KEY=value -a sprintiq-worker
+# (see render.yaml's envVars list for the full roster and why each matters).
+app = "sprintiq-worker"
+primary_region = "iad"
+
+[build]
+  dockerfile = "Dockerfile.worker"
+
+[env]
+  NODE_ENV = "production"
+  EXECUTION_MODE = "queue"
+  # Same model pins as render.yaml — runs execute on THIS process.
+  AGENT_MODEL = "claude-opus-4-8"
+  SUMMARY_MODEL = "claude-haiku-4-5"
+  AGENT_WORKER_CONCURRENCY = "10"
+  WORKER_PORT = "3002"
+
+# No [http_service]: the worker takes no public traffic and must never
+# auto-stop. Health is checked directly against the Fastify /health endpoint,
+# which reports 503 when the BullMQ workers, Redis, OR THE DATABASE are
+# unreachable, so Fly restarts it. The database probe is not optional: this
+# app spent weeks reporting 1/1 passing while every job failed against a
+# deleted Supabase project, because the old check only looked at Redis.
+[checks]
+  [checks.health]
+    type = "http"
+    port = 3002
+    path = "/health"
+    interval = "30s"
+    timeout = "10s"
+    grace_period = "90s"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "1gb"
