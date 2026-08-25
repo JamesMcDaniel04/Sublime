@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { normalizeFlowIcon, normalizeFlowFolder } from '@/lib/flows/organization'
+import { isValidTimezone } from '@/lib/flows/settings'
 import { prisma } from '@/lib/prisma'
 import { ApiError, withAuthenticatedApi } from '@/lib/server/api-handler'
 import { recordUserEvent } from '@/lib/behavior/record-event'
@@ -50,6 +51,9 @@ const flowSchema = z.object({
   // duplicate set them too), and an unbounded 'icon' is just free text.
   icon: z.string().optional(),
   folder: z.string().optional(),
+  // IANA zone for schedules and {{now}}/{{today}}. Validated server-side; an
+  // unknown zone degrades to UTC at read time rather than failing the save.
+  timezone: z.string().optional(),
 })
 
 function assertNoInlineSecrets(graph: z.infer<typeof flowGraphSchema>) {
@@ -257,10 +261,16 @@ export const PUT = withAuthenticatedApi(async (request, auth) => {
       ...(body.visibility !== undefined && { visibility: normalizeVisibility(body.visibility) }),
       ...(body.icon !== undefined && { icon: normalizeFlowIcon(body.icon) }),
       ...(body.folder !== undefined && { folder: normalizeFlowFolder(body.folder) }),
-      ...(body.errorFlowId !== undefined && {
+      // errorFlowId and timezone share one metadata bag, so they must be
+      // written together — two independent spreads would have the later one
+      // drop the earlier one's key.
+      ...((body.errorFlowId !== undefined || body.timezone !== undefined) && {
         metadata: jsonValue({
           ...(existing.metadata && typeof existing.metadata === 'object' && !Array.isArray(existing.metadata) ? existing.metadata as Record<string, unknown> : {}),
-          errorFlowId: body.errorFlowId || undefined,
+          ...(body.errorFlowId !== undefined ? { errorFlowId: body.errorFlowId || undefined } : {}),
+          ...(body.timezone !== undefined
+            ? { timezone: isValidTimezone(body.timezone) ? body.timezone : undefined }
+            : {}),
         }),
       }),
       // Preserve the webhook secret hash across trigger edits — the client

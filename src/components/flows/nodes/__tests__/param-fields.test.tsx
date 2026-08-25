@@ -25,7 +25,7 @@ const SPECS: ParamSpec[] = [
 function renderFields(data: Record<string, unknown>) {
   let patched: Record<string, unknown> | null = null
   const view = render(
-    <ParamFields specs={SPECS} data={data} nodeId="n1" onPatch={(next) => { patched = next }} />,
+    <ParamFields specs={SPECS} data={data} nodeId="n1" onPatch={(next: Record<string, unknown>) => { patched = next }} />,
   )
   return { ...view, patched: () => patched }
 }

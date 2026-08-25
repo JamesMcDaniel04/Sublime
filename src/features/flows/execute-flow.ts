@@ -1,4 +1,5 @@
 import type { Job } from 'bullmq'
+import { flowSettings } from '@/lib/flows/settings'
 import { createHash } from 'crypto'
 import { prisma } from '@/lib/prisma'
 import { workersEnabled } from '@/lib/queue/config'
@@ -1223,7 +1224,14 @@ export async function runFlowExecution(
     return stopRequested
   }
 
+  // The run's own startedAt, so {{now}} is stable across a resume: a retried
+  // step writes the same filenames and idempotency keys as the attempt it is
+  // retrying. Timezone comes from the flow's settings, defaulting to UTC —
+  // never the server's zone (see lib/flows/settings.ts).
+  const settings = flowSettings(flow.metadata)
   const result = await interpretFlow(graph, input, {
+    startedAt: (run.startedAt ?? new Date()).toISOString(),
+    timezone: settings.timezone,
     runAgent,
     runAction,
     runCode,

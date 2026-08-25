@@ -170,3 +170,46 @@ test('the Slack-node JSON arg case: exact label token resolves in-place', () => 
     { query: 'Hello from the agent' },
   )
 })
+
+// ── clock tokens ────────────────────────────────────────────────────────────
+//
+// {{now}} / {{today}} reach the resolver through the same path as every other
+// root. The rendering rules live in lib/flows/clock-tokens.ts; these pin the
+// WIRING — that a flow can actually write {{now}} in a field.
+
+const clockCtx = (timezone?: string): FlowContext => ({
+  trigger: { input: null },
+  step: {},
+  startedAt: '2026-03-14T15:09:26.535Z',
+  ...(timezone ? { timezone } : {}),
+}) as FlowContext
+
+test('{{now}} resolves through readPath', () => {
+  assert.equal(readPath(clockCtx(), 'now'), '2026-03-14T15:09:26.535Z')
+})
+
+test('{{today}} resolves through readPath', () => {
+  assert.equal(readPath(clockCtx(), 'today'), '2026-03-14')
+})
+
+test('clock tokens honour the flow timezone', () => {
+  assert.equal(readPath(clockCtx('Asia/Tokyo'), 'today'), '2026-03-15')
+})
+
+test('{{now.date}} renders inside a template', () => {
+  assert.equal(resolveTemplate('run-{{now.date}}.csv', clockCtx()), 'run-2026-03-14.csv')
+})
+
+// A run with no startedAt (an older persisted context, a unit-test stub) must
+// not render "undefined" into someone's filename.
+test('a context without startedAt yields nothing rather than the string undefined', () => {
+  const bare = { trigger: { input: null }, step: {} } as FlowContext
+  assert.equal(resolveTemplate('x{{now}}', bare), 'x')
+})
+
+// A step named "now" must not be shadowed into oblivion, and equally must not
+// hijack the clock root — reserved roots win, which is the existing rule.
+test('the clock roots are reserved, like trigger and step', () => {
+  const shadowed = { ...clockCtx(), step: { n1: { output: 'x' } } } as FlowContext
+  assert.equal(readPath(shadowed, 'now'), '2026-03-14T15:09:26.535Z')
+})

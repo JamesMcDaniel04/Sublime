@@ -61,6 +61,14 @@ export type InterpretResult = {
 }
 
 type Opts = {
+  /**
+   * The run's instant, for `{{now}}`/`{{today}}`. Callers pass the FlowRun's
+   * own startedAt so a resumed run renders the timestamps of its first
+   * attempt; omitted, it defaults to now.
+   */
+  startedAt?: string
+  /** The flow's IANA timezone. Absent means UTC — never the server's zone. */
+  timezone?: string
   runAgent: RunAgentFn
   runAction?: RunActionFn
   runCode?: RunCodeFn
@@ -1301,7 +1309,19 @@ export async function interpretFlow(graph: FlowGraph, input: unknown, opts: Opts
     ),
   )
 
-  const ctx: FlowContext = { trigger: { input }, step: {}, variables: {}, stepLabels }
+  // The run's instant and zone, fixed for the whole walk so every {{now}} in
+  // the flow agrees and a resumed run keeps the timestamps of its first
+  // attempt. `startedAt` defaults here rather than at each read: a resume
+  // passes the original value through, so retried steps write the same
+  // filenames and idempotency keys they wrote the first time.
+  const ctx: FlowContext = {
+    trigger: { input },
+    step: {},
+    variables: {},
+    stepLabels,
+    startedAt: opts.startedAt ?? new Date().toISOString(),
+    ...(opts.timezone ? { timezone: opts.timezone } : {}),
+  }
 
   // Resume: rebuild the symbol table from EVERY completed variable step before
   // walking. A completed loop/parallel short-circuits without entering its

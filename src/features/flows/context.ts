@@ -1,4 +1,5 @@
 import type { ConditionOp } from '@/lib/flows/graph'
+import { clockToken, CLOCK_ROOTS } from '@/lib/flows/clock-tokens'
 import { safeRegexTest } from '@/lib/security/safe-regex'
 
 /**
@@ -8,6 +9,14 @@ import { safeRegexTest } from '@/lib/security/safe-regex'
 export type FlowContext = {
   trigger: { input: unknown }
   step: Record<string, { output: unknown }>
+  // The instant the RUN started, and the flow's IANA timezone. Both feed the
+  // `{{now}}`/`{{today}}` roots. Pinning to run start rather than reading the
+  // wall clock per token keeps two tokens in one flow agreeing with each
+  // other, and keeps a retry writing the same values as the attempt it
+  // retries — these land in filenames and idempotency keys. Timezone absent
+  // means UTC, deliberately never the server's zone.
+  startedAt?: string
+  timezone?: string
   // Aggregated outputs of the data-bearing nodes that have executed so far,
   // keyed by builder label. Maintained by the interpreter (which knows node
   // types); read via `{{upstream}}` (whole, size-capped) and auto-appended to
@@ -89,6 +98,13 @@ export function serializeUpstream(upstream: Record<string, unknown>, maxChars: n
 /** Read a dot-path off the context (e.g. 'trigger.input', 'step.n1.output.score', 'item'). */
 export function readPath(ctx: FlowContext, path: string): unknown {
   const parts = path.trim().split('.')
+  // Clock roots resolve first: they are reserved like trigger/step/item, so a
+  // step labelled "now" cannot shadow them. Without startedAt there is no
+  // instant to render, and returning undefined keeps the template renderer
+  // from writing the string "undefined" into someone's filename.
+  if (CLOCK_ROOTS.has(parts[0])) {
+    return ctx.startedAt ? clockToken(path, { startedAt: ctx.startedAt, timezone: ctx.timezone }) : undefined
+  }
   // `var.<name>` roots into the variables map; deeper parts walk the value.
   if (parts[0] === 'var') {
     parts.shift()

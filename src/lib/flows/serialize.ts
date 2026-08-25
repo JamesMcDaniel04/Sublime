@@ -1,4 +1,5 @@
 import type { FlowGraph } from '@/lib/flows/graph'
+import { flowSettings } from '@/lib/flows/settings'
 
 /**
  * Wire shape for a flow, shared by the list page and the builder.
@@ -42,6 +43,9 @@ export function serializeFlow(flow: {
     // you" rail on the flows list page.
     suggested: metadata.suggested === true,
     errorFlowId: typeof metadata.errorFlowId === 'string' ? metadata.errorFlowId : null,
+    // Through the typed reader, so the builder shows the zone the RUN will
+    // actually use — an invalid stored value reads back as UTC here too.
+    timezone: flowSettings(metadata).timezone,
     // Imported-credential bulk bind (persisted at import time): the builder
     // surfaces groups whose member steps still lack a credential.
     importedCredentialGroups: Array.isArray(metadata.importedCredentialGroups) ? metadata.importedCredentialGroups : [],
