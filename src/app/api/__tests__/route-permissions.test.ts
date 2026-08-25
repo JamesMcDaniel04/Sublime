@@ -38,6 +38,7 @@ const DIFFERENTLY_AUTHENTICATED: ReadonlyArray<{ route: string; mechanism: strin
   { route: 'v1/flows/[id]/run', mechanism: 'workspace API key + flows:execute scope; published flows only' },
   { route: 'v1/runs/[id]', mechanism: 'workspace API key + runs:read scope' },
   { route: 'v1/agents', mechanism: 'workspace API key + agents:read scope' },
+  { route: 'mcp', mechanism: 'workspace API key + flows:execute scope; serves JSON-RPC to external MCP clients, exposing only flows that explicitly opted in' },
   { route: 'stripe/portal', mechanism: 'session + canManageBillingByRole; plan-exempt so a locked-out workspace can still pay' },
   { route: 'stripe/topup', mechanism: 'session + canManageBillingByRole; plan-exempt so a locked-out workspace can still pay' },
   { route: 'stripe/checkout', mechanism: 'session + canManageBillingByRole; plan-exempt so a locked-out workspace can still pay' },

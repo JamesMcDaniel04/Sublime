@@ -56,6 +56,15 @@ const flowSchema = z.object({
   timezone: z.string().optional(),
   // Whether an agent may invoke this flow through the `flow:` tool plane.
   callerPolicy: z.enum(['any', 'none']).optional(),
+  /**
+   * Expose this flow to external MCP clients.
+   *
+   * Deliberately separate from callerPolicy: that governs INTERNAL
+   * flow-to-flow calls inside one trust boundary and defaults to permissive,
+   * which would be the wrong default for publishing a flow to anyone holding
+   * an API key. See lib/mcp/exposed-flows.ts.
+   */
+  mcpExposed: z.boolean().optional(),
 })
 
 function assertNoInlineSecrets(graph: z.infer<typeof flowGraphSchema>) {
@@ -266,7 +275,7 @@ export const PUT = withAuthenticatedApi(async (request, auth) => {
       // errorFlowId and timezone share one metadata bag, so they must be
       // written together — two independent spreads would have the later one
       // drop the earlier one's key.
-      ...((body.errorFlowId !== undefined || body.timezone !== undefined || body.callerPolicy !== undefined) && {
+      ...((body.errorFlowId !== undefined || body.timezone !== undefined || body.callerPolicy !== undefined || body.mcpExposed !== undefined) && {
         metadata: jsonValue({
           ...(existing.metadata && typeof existing.metadata === 'object' && !Array.isArray(existing.metadata) ? existing.metadata as Record<string, unknown> : {}),
           ...(body.errorFlowId !== undefined ? { errorFlowId: body.errorFlowId || undefined } : {}),
@@ -274,6 +283,7 @@ export const PUT = withAuthenticatedApi(async (request, auth) => {
             ? { timezone: isValidTimezone(body.timezone) ? body.timezone : undefined }
             : {}),
           ...(body.callerPolicy !== undefined ? { callerPolicy: body.callerPolicy } : {}),
+          ...(body.mcpExposed !== undefined ? { mcpExposed: body.mcpExposed } : {}),
         }),
       }),
       // Preserve the webhook secret hash across trigger edits — the client
