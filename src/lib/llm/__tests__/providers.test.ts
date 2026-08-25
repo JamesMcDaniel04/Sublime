@@ -18,7 +18,7 @@
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { resolveProviders, providerForModel, BUILT_IN_PROVIDERS } from '../providers'
+import { resolveProviders, providerForModel, BUILT_IN_PROVIDERS, type ProviderDescriptor } from '../providers'
 
 const env = (over: Record<string, string | undefined> = {}) => ({
   ANTHROPIC_API_KEY: 'sk-ant-x',
@@ -32,12 +32,12 @@ test('a provider with no key configured is absent, not broken', () => {
 
 test('the built-in Anthropic provider appears when its key is set', () => {
   const providers = resolveProviders(env())
-  assert.ok(providers.some((p) => p.id === 'anthropic'))
+  assert.ok(providers.some((p: ProviderDescriptor) => p.id === 'anthropic'))
 })
 
 test('OpenAI appears on its own key', () => {
   const providers = resolveProviders(env({ OPENAI_API_KEY: 'sk-x' }))
-  assert.ok(providers.some((p) => p.id === 'openai'))
+  assert.ok(providers.some((p: ProviderDescriptor) => p.id === 'openai'))
 })
 
 // The part that opens the seam: a provider nobody hardcoded.
@@ -47,7 +47,7 @@ test('a custom OpenAI-compatible provider is registered from the environment', (
     LLM_PROVIDER_GROQ_API_KEY: 'gsk-x',
     LLM_PROVIDER_GROQ_MODELS: 'llama-3.3-70b,mixtral-8x7b',
   }))
-  const groq = providers.find((p) => p.id === 'groq')
+  const groq = providers.find((p: ProviderDescriptor) => p.id === 'groq')
   assert.ok(groq, 'a configured custom provider should appear')
   assert.equal(groq.wire, 'openai')
   assert.equal(groq.baseUrl, 'https://api.groq.com/openai/v1')
@@ -59,7 +59,7 @@ test('several custom providers can coexist', () => {
     LLM_PROVIDER_GROQ_BASE_URL: 'https://a', LLM_PROVIDER_GROQ_API_KEY: 'k1',
     LLM_PROVIDER_TOGETHER_BASE_URL: 'https://b', LLM_PROVIDER_TOGETHER_API_KEY: 'k2',
   }))
-  const ids = providers.map((p) => p.id)
+  const ids = providers.map((p: ProviderDescriptor) => p.id)
   assert.ok(ids.includes('groq') && ids.includes('together'))
 })
 
@@ -67,12 +67,12 @@ test('several custom providers can coexist', () => {
 // with an opaque 401; better to refuse to register it.
 test('a custom provider missing its key is not registered', () => {
   const providers = resolveProviders(env({ LLM_PROVIDER_GROQ_BASE_URL: 'https://a' }))
-  assert.ok(!providers.some((p) => p.id === 'groq'))
+  assert.ok(!providers.some((p: ProviderDescriptor) => p.id === 'groq'))
 })
 
 test('a custom provider missing its base URL is not registered', () => {
   const providers = resolveProviders(env({ LLM_PROVIDER_GROQ_API_KEY: 'k' }))
-  assert.ok(!providers.some((p) => p.id === 'groq'))
+  assert.ok(!providers.some((p: ProviderDescriptor) => p.id === 'groq'))
 })
 
 // A non-https endpoint is allowed only for a loopback host: a self-hosted
@@ -80,15 +80,15 @@ test('a custom provider missing its base URL is not registered', () => {
 // keys and prompts over the wire in the clear.
 test('a plaintext base URL is refused unless it is loopback', () => {
   const remote = resolveProviders(env({ LLM_PROVIDER_X_BASE_URL: 'http://example.com/v1', LLM_PROVIDER_X_API_KEY: 'k' }))
-  assert.ok(!remote.some((p) => p.id === 'x'), 'plaintext to a remote host should be refused')
+  assert.ok(!remote.some((p: ProviderDescriptor) => p.id === 'x'), 'plaintext to a remote host should be refused')
 
   const local = resolveProviders(env({ LLM_PROVIDER_OLLAMA_BASE_URL: 'http://127.0.0.1:11434/v1', LLM_PROVIDER_OLLAMA_API_KEY: 'k' }))
-  assert.ok(local.some((p) => p.id === 'ollama'), 'a loopback endpoint is the self-hosted case')
+  assert.ok(local.some((p: ProviderDescriptor) => p.id === 'ollama'), 'a loopback endpoint is the self-hosted case')
 })
 
 test('a malformed base URL is refused rather than failing at call time', () => {
   const providers = resolveProviders(env({ LLM_PROVIDER_X_BASE_URL: 'not a url', LLM_PROVIDER_X_API_KEY: 'k' }))
-  assert.ok(!providers.some((p) => p.id === 'x'))
+  assert.ok(!providers.some((p: ProviderDescriptor) => p.id === 'x'))
 })
 
 // ── resolving a model back to its provider ──────────────────────────────────

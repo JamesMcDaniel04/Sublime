@@ -1,6 +1,7 @@
 import { withAuthenticatedApi } from '@/lib/server/api-handler'
 import { embeddingsConfigured } from '@/lib/rag/embeddings'
 import { graphRagPersistent } from '@/lib/rag/get-store'
+import { resolveProviders } from '@/lib/llm/providers'
 import { pushEnabled } from '@/lib/notifications/push'
 import { nangoConfigured } from '@/lib/nango/client'
 import { prisma } from '@/lib/prisma'
@@ -49,6 +50,14 @@ export const GET = withAuthenticatedApi(async (_request, auth) => {
       label: 'Durable graph memory',
       configured: graphRagPersistent(),
       detail: 'Without a graph database, workspace memory lives in-process and resets on deploy.',
+    },
+    {
+      key: 'llm.providers',
+      label: 'Language model providers',
+      configured: resolveProviders(process.env).length > 0,
+      detail: resolveProviders(process.env).length > 0
+        ? `Available: ${resolveProviders(process.env).map((provider) => provider.label).join(', ')}. Add an OpenAI-compatible one with LLM_PROVIDER_<NAME>_BASE_URL and _API_KEY.`
+        : 'No model provider is configured — agents cannot run.',
     },
     {
       key: 'notifications.push',
