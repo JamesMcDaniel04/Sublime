@@ -71,6 +71,7 @@ export const BUILTIN_GROUPS: PickerGroup[] = [
       { id: 'data-limit', label: 'Limit items', description: 'Keep only the first N items of a list.', mode: 'action', stepType: 'data', seed: { dataOp: 'limit' } },
       { id: 'data-dedupe', label: 'Remove duplicates', description: 'Drop repeated items, comparing whole items or chosen fields.', mode: 'action', stepType: 'data', seed: { dataOp: 'dedupe' } },
       { id: 'data-split-out', label: 'Split out a field', description: 'Fan a list-bearing field out into one item per element.', mode: 'action', stepType: 'data', seed: { dataOp: 'splitOut' } },
+      { id: 'data-aggregate', label: 'Aggregate', description: 'Reduce a list to totals — count, sum, average, min, max. Group by a field for one row per group.', mode: 'action', stepType: 'data', seed: { dataOp: 'aggregate' } },
     ],
   },
   {

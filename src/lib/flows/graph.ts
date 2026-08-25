@@ -408,7 +408,7 @@ const variableNode = z.object({
 })
 
 /** Pure transforms a data operation step can perform (MS Data Operation parity). */
-export const DATA_OPS = ['compose', 'parseJson', 'join', 'csvTable', 'htmlTable', 'slackMessage', 'filterArray', 'select', 'sort', 'limit', 'dedupe', 'splitOut'] as const
+export const DATA_OPS = ['compose', 'parseJson', 'join', 'csvTable', 'htmlTable', 'slackMessage', 'filterArray', 'select', 'sort', 'limit', 'dedupe', 'splitOut', 'aggregate'] as const
 export type DataOp = (typeof DATA_OPS)[number]
 // Deterministic data-shaping step between other steps: no LLM, no I/O. `input`
 // is templated (usually an exact {{step.x.output}} token so structure survives);

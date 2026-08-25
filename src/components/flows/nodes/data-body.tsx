@@ -3,12 +3,17 @@
 import { Trash2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { CONDITION_OPS, CONDITION_OP_LABELS, DATA_OPS, type ConditionClause, type ConditionOp, type DataOp, type FlowNode } from '@/lib/flows/graph'
-import { DATA_OP_LABELS } from '@/lib/flows/data-ops'
+import { DATA_OP_LABELS, AGGREGATIONS, type Aggregation } from '@/lib/flows/data-ops'
 import { DATA_OP_HELPER, DATA_OP_INPUT_PLACEHOLDER } from '@/lib/flows/step-copy'
 import { TokenTextEditor } from '../token-text-editor'
 import { controlClass, labelClass, tokenControlBase, tokenControlClass } from './field-primitives'
 import { FieldPreview } from './field-preview'
 import type { NodeBodyModule, NodeBodyProps, TokenEditorWiring } from './types'
+
+const AGGREGATION_LABELS: Record<Aggregation, string> = {
+  count: 'Count', sum: 'Sum', avg: 'Average', min: 'Min', max: 'Max',
+  unique: 'Distinct', concat: 'Join text',
+}
 
 function DataBody({
   node,
@@ -77,6 +82,70 @@ function DataBody({
             aria-label="Join with"
           />
         </div>
+      )}
+      {op === 'aggregate' && (
+        <>
+          <div className="grid gap-2">
+            {/* Points at the first row's function select — the group's
+                primary control, so a screen reader lands somewhere useful. */}
+            <label className={labelClass} htmlFor={`${node.id}-agg-0`}>Totals <span className="text-red-500">*</span></label>
+            {(fields.length ? fields : [{ name: '', value: 'count' }]).map((row, index, list) => (
+              <div key={index} className="flex items-center gap-2">
+                <select
+                  id={index === 0 ? `${node.id}-agg-0` : undefined}
+                  aria-label="Aggregation function"
+                  className={cn(controlClass, 'w-36')}
+                  value={row.value || 'count'}
+                  onChange={(event) => setFields(list.map((entry, i) => (i === index ? { ...entry, value: event.target.value } : entry)))}
+                >
+                  {AGGREGATIONS.map((fn) => <option key={fn} value={fn}>{AGGREGATION_LABELS[fn]}</option>)}
+                </select>
+                <input
+                  aria-label="Aggregation field"
+                  className={controlClass}
+                  value={row.name}
+                  onChange={(event) => setFields(list.map((entry, i) => (i === index ? { ...entry, name: event.target.value } : entry)))}
+                  onFocus={blockActive}
+                  onBlur={unblockActive}
+                  // count is the only function that means anything without a
+                  // field — everything else needs to know what to add up.
+                  placeholder={row.value === 'count' ? 'Leave blank to count rows' : 'amount'}
+                />
+                {list.length > 1 && (
+                  <button
+                    type="button"
+                    aria-label="Remove total"
+                    className="rounded-md p-1.5 text-muted-foreground hover:bg-accent"
+                    onClick={() => setFields(list.filter((_, i) => i !== index))}
+                  >
+                    ×
+                  </button>
+                )}
+              </div>
+            ))}
+            <button
+              type="button"
+              className="w-fit rounded-md border border-input px-2.5 py-1 text-xs font-medium hover:bg-accent"
+              onClick={() => setFields([...(fields.length ? fields : [{ name: '', value: 'count' }]), { name: '', value: 'sum' }])}
+            >
+              Add total
+            </button>
+          </div>
+          <div className="grid gap-2">
+            <label className={labelClass} htmlFor={`${node.id}-groupby`}>Group by <span className="font-normal normal-case text-muted-foreground">(optional)</span></label>
+            <input
+              id={`${node.id}-groupby`}
+              aria-label="Group by"
+              className={controlClass}
+              value={node.data.field ?? ''}
+              onChange={(event) => update({ ...node, data: { ...node.data, field: event.target.value || undefined } })}
+              onFocus={blockActive}
+              onBlur={unblockActive}
+              placeholder="Leave blank to total the whole list"
+            />
+            <p className="text-xs text-muted-foreground">Grouping returns one row per distinct value, with the group field included.</p>
+          </div>
+        </>
       )}
       {op === 'limit' && (
         <div className="grid gap-2">

@@ -12,6 +12,10 @@ import { asStructured, readPath, type FlowContext, evalClauseAsync, resolveTempl
  * the way the existing filter node and loop bodies do.
  */
 
+/** Aggregations the `aggregate` op understands. */
+export const AGGREGATIONS = ['count', 'sum', 'avg', 'min', 'max', 'unique', 'concat'] as const
+export type Aggregation = (typeof AGGREGATIONS)[number]
+
 export type DataOpConfig = {
   /** The already-resolved input value (exact tokens keep their structure). */
   input?: unknown
@@ -40,6 +44,7 @@ export type DataOpResult = { output: unknown } | { error: string }
 
 /** Display names matching the step picker copy — used in error messages. */
 export const DATA_OP_LABELS: Record<DataOp, string> = {
+  aggregate: 'Aggregate',
   compose: 'Compose',
   parseJson: 'Parse JSON',
   join: 'Join',
@@ -232,6 +237,59 @@ export async function runDataOp(op: DataOp, config: DataOpConfig): Promise<DataO
       output.push(item)
     }
     return { output }
+  }
+
+  if (op === 'aggregate') {
+    const list = asList(config.input)
+    if (!list) return { error: `${label} needs a list — the input wasn't a list.` }
+
+    // fields: [{ name: <path>, value: <function> }]. An empty name means the
+    // function applies to the item itself, which only `count` can do.
+    const specs = (config.fields ?? []).map((field) => ({
+      path: field.name.trim(),
+      fn: field.value.trim().toLowerCase(),
+    }))
+    const unknown = specs.find((spec) => !AGGREGATIONS.includes(spec.fn as Aggregation))
+    if (unknown) {
+      return { error: `${label} doesn't know how to "${unknown.fn}" — use ${AGGREGATIONS.join(', ')}.` }
+    }
+    const active = specs.length ? specs : [{ path: '', fn: 'count' as const }]
+
+    const reduce = (rows: unknown[]): Record<string, unknown> => {
+      const out: Record<string, unknown> = {}
+      for (const { path, fn } of active) {
+        const key = path ? `${path}_${fn}` : fn
+        const raw = rows.map((row) => (path ? readPath(itemContext(row, config.ctx), `item.${path}`) : row))
+        if (fn === 'count') { out[key] = rows.length; continue }
+        if (fn === 'unique') { out[key] = new Set(raw.map((value) => JSON.stringify(value ?? null))).size; continue }
+        if (fn === 'concat') { out[key] = raw.filter((value) => value != null).join(config.separator ?? ', '); continue }
+        // Numeric functions ignore values that are not numbers. Coercing them
+        // to 0 would silently drag an average down and report a total that
+        // never existed in the data.
+        const numbers = raw
+          .map((value) => (typeof value === 'number' ? value : Number(value)))
+          .filter((value): value is number => Number.isFinite(value))
+        if (fn === 'sum') out[key] = numbers.reduce((a, b) => a + b, 0)
+        else if (fn === 'avg') out[key] = numbers.length ? numbers.reduce((a, b) => a + b, 0) / numbers.length : 0
+        else if (fn === 'min') out[key] = numbers.length ? Math.min(...numbers) : 0
+        else if (fn === 'max') out[key] = numbers.length ? Math.max(...numbers) : 0
+      }
+      return out
+    }
+
+    const groupBy = config.field?.trim()
+    if (!groupBy) return { output: reduce(list) }
+
+    // One row per group, group key first so the output reads like a table.
+    const groups = new Map<string, { key: unknown; rows: unknown[] }>()
+    for (const item of list) {
+      const value = readPath(itemContext(item, config.ctx), `item.${groupBy}`)
+      const id = JSON.stringify(value ?? null)
+      const bucket = groups.get(id)
+      if (bucket) bucket.rows.push(item)
+      else groups.set(id, { key: value, rows: [item] })
+    }
+    return { output: [...groups.values()].map(({ key, rows }) => ({ [groupBy]: key, ...reduce(rows) })) }
   }
 
   if (op === 'splitOut') {

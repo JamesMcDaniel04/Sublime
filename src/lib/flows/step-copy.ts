@@ -8,6 +8,7 @@ import type { DataOp, VariableOp } from '@/lib/flows/graph'
 
 /** Placeholder for a data operation's input field — teaches the expected shape. */
 export const DATA_OP_INPUT_PLACEHOLDER: Record<DataOp, string> = {
+  aggregate: '{{step.<id>.output}} — the list to total up',
   compose: 'The value to pass along',
   parseJson: 'The JSON text to parse',
   join: 'The list to join',
@@ -24,6 +25,7 @@ export const DATA_OP_INPUT_PLACEHOLDER: Record<DataOp, string> = {
 
 /** One-line helper under each data operation's fields. */
 export const DATA_OP_HELPER: Record<DataOp, string> = {
+  aggregate: 'Reduces a list to totals. Group by a field to get one row per group.',
   compose: 'Passes the value through so later steps can reuse it under this step’s name.',
   parseJson: 'Turns JSON text into structured data so later steps can map its fields.',
   join: 'Combines the list into one text value, with the separator between items.',

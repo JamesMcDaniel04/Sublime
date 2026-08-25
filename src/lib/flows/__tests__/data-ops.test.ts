@@ -222,3 +222,79 @@ test('sort, limit, dedupe, splitOut ops', async () => {
     { emails: 'y@a.co', team: 'ops' },
   ])
 })
+
+// ── aggregate ───────────────────────────────────────────────────────────────
+//
+// n8n's Summarize: reduce a list to totals, optionally grouped. Sublime has
+// no way to answer "how many, and how much" without dropping into a code step.
+//
+// Config reuses the fields the data node already carries rather than growing
+// its flat optional bag any further:
+//   fields — [{ name: <path>, value: <function> }] the aggregations
+//   field  — the path to group by; blank aggregates the whole list
+
+const ROWS = [
+  { region: 'emea', amount: 100, rep: 'ana' },
+  { region: 'emea', amount: 50, rep: 'ana' },
+  { region: 'amer', amount: 25, rep: 'bo' },
+]
+
+test('aggregate counts the whole list when nothing is grouped', async () => {
+  const out = ok(await runDataOp('aggregate', { input: ROWS, fields: [{ name: '', value: 'count' }] }))
+  assert.deepEqual(out, { count: 3 })
+})
+
+test('aggregate sums a numeric field', async () => {
+  const out = ok(await runDataOp('aggregate', { input: ROWS, fields: [{ name: 'amount', value: 'sum' }] }))
+  assert.deepEqual(out, { amount_sum: 175 })
+})
+
+test('aggregate groups into one row per group', async () => {
+  const out = ok(await runDataOp('aggregate', {
+    input: ROWS, field: 'region', fields: [{ name: 'amount', value: 'sum' }],
+  })) as Array<Record<string, unknown>>
+  assert.equal(out.length, 2)
+  assert.deepEqual(out.find((r) => r.region === 'emea'), { region: 'emea', amount_sum: 150 })
+  assert.deepEqual(out.find((r) => r.region === 'amer'), { region: 'amer', amount_sum: 25 })
+})
+
+test('aggregate supports several functions at once', async () => {
+  const out = ok(await runDataOp('aggregate', {
+    input: ROWS,
+    fields: [{ name: 'amount', value: 'sum' }, { name: 'amount', value: 'max' }, { name: '', value: 'count' }],
+  })) as Record<string, unknown>
+  assert.equal(out.amount_sum, 175)
+  assert.equal(out.amount_max, 100)
+  assert.equal(out.count, 3)
+})
+
+test('aggregate averages, and does not round', async () => {
+  const out = ok(await runDataOp('aggregate', { input: ROWS, fields: [{ name: 'amount', value: 'avg' }] })) as Record<string, number>
+  assert.ok(Math.abs(out.amount_avg - 175 / 3) < 1e-9)
+})
+
+test('aggregate counts distinct values', async () => {
+  const out = ok(await runDataOp('aggregate', { input: ROWS, fields: [{ name: 'rep', value: 'unique' }] }))
+  assert.deepEqual(out, { rep_unique: 2 })
+})
+
+// Non-numeric values must not silently become 0 and drag an average down.
+test('aggregate ignores non-numeric values rather than counting them as zero', async () => {
+  const mixed = [{ n: 10 }, { n: 'not a number' }, { n: 20 }]
+  const out = ok(await runDataOp('aggregate', { input: mixed, fields: [{ name: 'n', value: 'avg' }] })) as Record<string, number>
+  assert.equal(out.n_avg, 15, 'the string was averaged in as 0')
+})
+
+test('aggregate over an empty list returns zeroed totals, not an error', async () => {
+  const out = ok(await runDataOp('aggregate', { input: [], fields: [{ name: 'amount', value: 'sum' }, { name: '', value: 'count' }] }))
+  assert.deepEqual(out, { amount_sum: 0, count: 0 })
+})
+
+test('aggregate rejects a non-list input the way its siblings do', async () => {
+  assert.match(err(await runDataOp('aggregate', { input: { not: 'a list' }, fields: [{ name: '', value: 'count' }] })), /list/i)
+})
+
+// An unknown function must not silently produce nothing.
+test('aggregate reports an unknown function instead of ignoring it', async () => {
+  assert.match(err(await runDataOp('aggregate', { input: ROWS, fields: [{ name: 'amount', value: 'median' }] })), /median/i)
+})

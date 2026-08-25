@@ -84,3 +84,32 @@ test('the splitOut op exposes its list field', () => {
     'splitOut needs a way to name the field it fans out on',
   )
 })
+
+// The aggregate op ships with the same obligation the last two commits were
+// about: config the executor reads must have a control. Its `fields` carry the
+// aggregations and `field` carries the group-by.
+test('the aggregate op exposes its aggregation rows', () => {
+  const { container } = renderBody({ op: 'aggregate', input: '{{x}}' })
+  assert.ok(container.querySelector('[aria-label="Aggregation function"]'), 'no way to choose count/sum/avg')
+  assert.ok(container.querySelector('[aria-label="Aggregation field"]'), 'no way to name the field to aggregate')
+})
+
+test('the aggregate op exposes group-by', () => {
+  const { container } = renderBody({ op: 'aggregate', input: '{{x}}' })
+  assert.ok(container.querySelector('[aria-label="Group by"]'), 'no way to group, so only whole-list totals are reachable')
+})
+
+test('choosing an aggregation writes it onto the node', () => {
+  const { container, updated } = renderBody({ op: 'aggregate', input: '{{x}}' })
+  const fn = container.querySelector('[aria-label="Aggregation function"]') as HTMLSelectElement
+  fireEvent.change(fn, { target: { value: 'sum' } })
+  const fields = (updated()?.data as { fields?: { name: string; value: string }[] })?.fields
+  assert.equal(fields?.[0]?.value, 'sum')
+})
+
+test('group-by writes to field', () => {
+  const { container, updated } = renderBody({ op: 'aggregate', input: '{{x}}' })
+  const group = container.querySelector('[aria-label="Group by"]') as HTMLInputElement
+  fireEvent.change(group, { target: { value: 'region' } })
+  assert.equal((updated()?.data as { field?: string })?.field, 'region')
+})
