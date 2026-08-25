@@ -3,6 +3,7 @@
 import type { FlowNode } from '@/lib/flows/graph'
 import { IntegrationLogo } from '@/components/integrations/integration-logo'
 import { ToolArgsEditor } from '../tool-args-editor'
+import { ResourcePicker } from '../resource-picker'
 import { SearchableSelect } from '../searchable-select'
 import { ConnectionHealth } from './connection-health'
 import type { ToolCatalog } from '../tool-catalog-type'
@@ -83,6 +84,15 @@ function ToolBody({
           args={node.data.args}
           onChange={(nextArgs) => update({ ...node, data: { ...node.data, args: nextArgs } })}
           labelCtx={tokenWiring.labelCtx}
+        />
+      )}
+      {connection && (
+        // Only read-classified actions are offered. The server refuses write
+        // tools and non-read planes on its own — this filter is so the common
+        // case never presents one, not the thing that makes it safe.
+        <ResourcePicker
+          connectionId={connection.id}
+          tools={connection.tools.filter((entry) => entry.risk === 'read').map((entry) => ({ name: entry.name, description: entry.description }))}
         />
       )}
       {node.data.risk && node.data.risk !== 'read' && <p className="rounded-lg bg-amber-50 p-2 text-xs text-amber-800">This action is classified as {node.data.risk} — it performs an external write when the flow runs.</p>}
