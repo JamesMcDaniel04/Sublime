@@ -17,7 +17,7 @@ const ALL_TYPES = [
   'trigger', 'agent', 'code', 'condition', 'loop', 'parallel', 'stop', 'tool', 'http',
   'transform', 'filter', 'switch', 'variable', 'data', 'humanReview',
   'respondWebhook', 'wait', 'repeatUntil', 'input', 'output', 'subflow',
-  'router', 'errorShield', 'merge',
+  'router', 'errorShield', 'merge', 'vector',
 ] as const
 
 test('ALL_TYPES matches the FlowNode union exactly', () => {

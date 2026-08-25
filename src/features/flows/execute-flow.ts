@@ -2,6 +2,7 @@ import type { Job } from 'bullmq'
 import { takeUnseen } from './static-store'
 import { flowSettings } from '@/lib/flows/settings'
 import { collectSecretRefs } from '@/lib/secrets/providers'
+import { makeRunVector } from '@/features/vector/run-vector-step'
 import { createBinaryHandle } from '@/lib/binary/handle'
 import { binaryStore } from '@/lib/binary/store'
 import { withSecretRedaction, redactForCurrentRun } from '@/lib/secrets/redaction-scope'
@@ -1327,6 +1328,8 @@ export async function runFlowExecution(
       runAgent,
       runAction,
       runCode,
+    // Vector collection reads/writes, scoped to this run's workspace.
+    runVector: makeRunVector(job.organizationId),
       evalJs,
       runFlow,
       routeAi,

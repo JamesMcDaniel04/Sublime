@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
 import { createPortal } from 'react-dom'
-import { Bot, Braces, Check, CircleStop, Clock, ClipboardCopy, Code2, Copy, Filter, GitBranch, GitMerge, Globe, LogIn, LogOut, MessageSquare, MoreHorizontal, PanelRight, Pencil, Plus, Power, PowerOff, Radio, Repeat, Rows3, Settings2, ShieldAlert, SlidersHorizontal, Sparkles, Split, Trash2, UserCheck, Variable, Webhook, Workflow, Wrench, Zap } from 'lucide-react'
+import { Bot, Braces, Check, CircleStop, Clock, ClipboardCopy, Code2, Copy, Filter, GitBranch, GitMerge, Globe, LogIn, LogOut, MessageSquare, MoreHorizontal, PanelRight, Pencil, Plus, Power, PowerOff, Radio, Repeat, Rows3, Settings2, ShieldAlert, SlidersHorizontal, Sparkles, Split, Trash2, UserCheck, Variable, Webhook, Workflow, Wrench, Zap, Database } from 'lucide-react'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
 import { jamCursorColor } from '@/lib/flows/jam-presence'
@@ -43,6 +43,7 @@ const TRIGGER_SUBTYPE_ICON: Record<string, typeof Bot> = {
 // ingress/routing layer's supported event set.
 
 const NODE_ICON: Record<FlowNode['type'], typeof Bot> = {
+  vector: Database,
   trigger: Zap,
   agent: Bot,
   condition: GitBranch,
@@ -72,6 +73,7 @@ const NODE_ICON: Record<FlowNode['type'], typeof Bot> = {
 }
 
 const NODE_TONE: Record<FlowNode['type'], string> = {
+  vector: 'bg-violet-600 text-white',
   trigger: 'bg-blue-600 text-white',
   agent: 'bg-foreground text-background',
   http: 'bg-emerald-600 text-white',

@@ -49,6 +49,7 @@ model Organization {
   agentWorkers              AgentWorker[]
   agentRequests             AgentRequest[]
   apiKeys                   ApiKey[]
+  vectorDocuments           FlowVectorDocument[]
   executions                AgentExecution[]
   templates                 AgentTemplate[]
   integrations              Integration[]
@@ -1026,6 +1027,37 @@ model ApiKeyUsage {
   @@index([apiKeyId, createdAt])
   @@index([organizationId, createdAt])
   @@map("api_key_usage")
+}
+
+/// A document in a flow-owned vector collection.
+///
+/// Separate from the agent knowledge graph on purpose: mixing arbitrary flow
+/// documents into what agents reason over would change what every agent knows
+/// as a side effect of someone building a flow.
+///
+/// The embedding column is added by migration (Prisma has no vector type) and
+/// is therefore absent here — see 20260825050000_flow_vector_documents.
+model FlowVectorDocument {
+  id             String   @id @default(cuid())
+  organizationId String   @db.Uuid
+  /// Namespace within a workspace. Normalised — see lib/vector/collection.ts.
+  collection     String
+  /// Caller-supplied key, so re-embedding the same source updates in place
+  /// rather than accumulating duplicates.
+  externalId     String
+  content        String
+  metadata       Json     @default("{}")
+  createdAt      DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt      DateTime @updatedAt @db.Timestamptz(6)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  /// Org FIRST: the tenant guard requires organizationId in the where clause,
+  /// and a (collection, externalId) unique would let a crafted collection name
+  /// address another workspace's row.
+  @@unique([organizationId, collection, externalId])
+  @@index([organizationId, collection])
+  @@map("flow_vector_documents")
 }
 
 model FlowStaticData {

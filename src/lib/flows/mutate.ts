@@ -20,6 +20,10 @@ function edgeId(source: string, target: string, branch?: string): string {
 /** Default `data` for a freshly created / retyped node. */
 function defaultData(type: FlowNode['type'], extra?: { bodyId?: string; agentId?: string }): FlowNode['data'] {
   switch (type) {
+    case 'vector':
+      // Search is the safe default: it reads and writes nothing, so a freshly
+      // dropped node cannot modify a collection before anyone configures it.
+      return { mode: 'search', collection: '', query: '' }
     case 'agent':
       return { agentId: extra?.agentId ?? '', input: 'Use this flow input:\n{{trigger.input}}' }
     case 'merge':

@@ -61,6 +61,18 @@ export type InterpretResult = {
   webhookResponse?: { statusCode: number; headers: Record<string, string>; bodyMode: 'json' | 'text' | 'binary' | 'none'; body?: unknown }
 }
 
+export type RunVectorFn = (step: {
+  id: string
+  mode: 'search' | 'upsert' | 'delete'
+  collection: string
+  query?: string
+  limit?: number
+  minScore?: number
+  documents?: unknown
+  idField?: string
+  contentField?: string
+}) => Promise<{ ok: true; output: unknown } | { ok: false; error: string }>
+
 type Opts = {
   /**
    * The run's instant, for `{{now}}`/`{{today}}`. Callers pass the FlowRun's
@@ -84,6 +96,12 @@ type Opts = {
   runAgent: RunAgentFn
   runAction?: RunActionFn
   runCode?: RunCodeFn
+  /**
+   * Vector collection reads and writes. Injected so the interpreter stays free
+   * of Prisma and the embedding provider — a flow's control flow is testable
+   * without a database or an API key.
+   */
+  runVector?: RunVectorFn
   /** Server-only QuickJS evaluator for inline {{js: …}} expression tokens. */
   evalJs?: EvalJsFn
   runFlow?: RunFlowFn
@@ -1220,6 +1238,35 @@ export async function interpretFlow(graph: FlowGraph, input: unknown, opts: Opts
       const error = `Repeat until reached its ${node.data.maxIterations}-run safety limit.`
       emit({ nodeId: node.id, status: 'failed', error, iterationPath: ctx.iterationPath })
       return { kind: 'fail', error }
+    }
+
+    if (node.type === 'vector') {
+      // Injected, like every other side-effecting adapter: the interpreter
+      // stays free of Prisma and the embedding provider, so a flow's control
+      // flow is testable without either.
+      if (!opts.runVector) {
+        const error = 'Vector steps are not available in this context.'
+        emit({ nodeId: node.id, status: 'failed', error, iterationPath: ctx.iterationPath })
+        return { kind: 'fail', error }
+      }
+      const outcome = await opts.runVector({
+        id: node.id,
+        mode: node.data.mode ?? 'search',
+        collection: await resolveTemplateAsync(node.data.collection ?? '', ctx, opts.evalJs),
+        query: node.data.query ? await resolveTemplateAsync(node.data.query, ctx, opts.evalJs) : undefined,
+        limit: node.data.limit,
+        minScore: node.data.minScore,
+        documents: node.data.documents ? await resolveTemplateValueAsync(node.data.documents, ctx, opts.evalJs) : undefined,
+        idField: node.data.idField,
+        contentField: node.data.contentField,
+      })
+      if (!outcome.ok) {
+        emit({ nodeId: node.id, status: 'failed', error: outcome.error, iterationPath: ctx.iterationPath })
+        return { kind: 'fail', error: outcome.error }
+      }
+      ctx.step[node.id] = { output: outcome.output }
+      emit({ nodeId: node.id, status: 'succeeded', output: outcome.output, iterationPath: ctx.iterationPath })
+      return { kind: 'ok', output: outcome.output }
     }
 
     if (node.type === 'merge') {

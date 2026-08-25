@@ -123,6 +123,44 @@ const conditionNode = z.object({
     disabled: z.boolean().optional(),
   }),
 })
+
+/**
+ * Retrieval over a flow-owned vector collection.
+ *
+ * `mode` decides what the step does, and the panel shows only that mode's
+ * fields — search needs a query and a result count, upsert needs documents.
+ */
+const vectorNode = z.object({
+  id: z.string(),
+  type: z.literal('vector'),
+  typeVersion: nodeTypeVersionSchema,
+  data: z.object({
+    label: z.string().optional(),
+    note: z.string().optional(),
+    mode: z.enum(['search', 'upsert', 'delete']).default('search'),
+    /** Namespace within the workspace. Normalised at the boundary. */
+    collection: z.string(),
+    /** search: the text to embed and look for. Templated. */
+    query: z.string().optional(),
+    /** search: how many documents to return. */
+    limit: z.number().int().min(1).max(100).optional(),
+    /** search: drop anything less similar than this (-1..1). */
+    minScore: z.number().min(-1).max(1).optional(),
+    /**
+     * upsert/delete: the items to write or remove. Templated — usually
+     * `{{step.<id>.output}}` — and each item needs an id and, for upsert,
+     * the text to embed.
+     */
+    documents: z.string().optional(),
+    /** upsert/delete: which field of each item is its stable key. */
+    idField: z.string().optional(),
+    /** upsert: which field of each item holds the text to embed. */
+    contentField: z.string().optional(),
+    excludeFromContext: z.boolean().optional(),
+    disabled: z.boolean().optional(),
+  }),
+})
+
 // Ends the flow early with an optional message.
 const stopNode = z.object({
   id: z.string(),
@@ -664,6 +702,7 @@ const errorShieldNode = z.object({
 })
 
 export const flowNodeSchema = z.discriminatedUnion('type', [
+  vectorNode,
   mergeNode,
   triggerNode, agentNode, conditionNode, loopNode, parallelNode, stopNode, toolNode, httpNode, codeNode, transformNode, filterNode, switchNode, variableNode, dataNode, humanReviewNode, respondWebhookNode, waitNode, repeatUntilNode, inputNode, outputNode, subflowNode, routerNode, errorShieldNode,
 ])
