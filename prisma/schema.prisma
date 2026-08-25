@@ -99,6 +99,10 @@ model Organization {
   @@map("organizations")
   workspaceVariables WorkspaceVariable[]
   flowStaticData     FlowStaticData[]
+  evalDatasets       EvalDataset[]
+  evalCases          EvalCase[]
+  evalRuns           EvalRun[]
+  evalCaseResults    EvalCaseResult[]
 }
 
 model User {
@@ -280,6 +284,7 @@ model AgentTask {
   connectors   AgentConnector[]
   memories     AgentMemory[]
   requests     AgentRequest[]
+  evalDatasets EvalDataset[]
 
   @@index([organizationId, status])
   @@index([organizationId, userId, status, updatedAt])
@@ -991,6 +996,91 @@ model FlowStaticData {
   @@unique([organizationId, flowId, key])
   @@index([organizationId, flowId])
   @@map("flow_static_data")
+}
+
+/// A set of cases an agent is evaluated against.
+model EvalDataset {
+  id             String   @id @default(cuid())
+  organizationId String   @db.Uuid
+  /// The agent this dataset evaluates. Null = a shared set reusable by any.
+  agentTaskId    String?
+  name           String
+  description    String   @default("")
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  agentTask    AgentTask?   @relation(fields: [agentTaskId], references: [id], onDelete: Cascade)
+  cases        EvalCase[]
+  runs         EvalRun[]
+
+  @@index([organizationId, agentTaskId])
+  @@map("eval_datasets")
+}
+
+/// One case: an input, and what a good answer looks like.
+model EvalCase {
+  id             String   @id @default(cuid())
+  datasetId      String
+  organizationId String   @db.Uuid
+  input          String   @db.Text
+  /// Natural-language rubric the judge scores against.
+  rubric         String   @db.Text
+  /// Substrings the output must contain — a cheap deterministic check that
+  /// needs no model call, so a dataset stays useful without a judge budget.
+  mustContain    Json     @default("[]")
+  createdAt      DateTime @default(now())
+
+  dataset      EvalDataset  @relation(fields: [datasetId], references: [id], onDelete: Cascade)
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  results      EvalCaseResult[]
+
+  @@index([organizationId, datasetId])
+  @@map("eval_cases")
+}
+
+/// One execution of a dataset against an agent.
+model EvalRun {
+  id             String    @id @default(cuid())
+  datasetId      String
+  organizationId String    @db.Uuid
+  agentTaskId    String
+  /// The agent version evaluated. THE point of persisting runs: without it
+  /// "did this change make it better" is unanswerable.
+  agentVersion   Int       @default(1)
+  status         String    @default("running")
+  passed         Int       @default(0)
+  failed         Int       @default(0)
+  startedAt      DateTime  @default(now())
+  finishedAt     DateTime?
+
+  dataset      EvalDataset      @relation(fields: [datasetId], references: [id], onDelete: Cascade)
+  organization Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  results      EvalCaseResult[]
+
+  @@index([organizationId, datasetId, startedAt])
+  @@map("eval_runs")
+}
+
+/// One case's outcome within a run.
+model EvalCaseResult {
+  id             String   @id @default(cuid())
+  runId          String
+  caseId         String
+  organizationId String   @db.Uuid
+  passed         Boolean
+  /// 0..1 from the judge; null when only deterministic checks ran.
+  score          Float?
+  output         String   @db.Text
+  notes          String   @default("")
+  createdAt      DateTime @default(now())
+
+  run          EvalRun      @relation(fields: [runId], references: [id], onDelete: Cascade)
+  evalCase     EvalCase     @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, runId])
+  @@map("eval_case_results")
 }
 
 model Flow {
