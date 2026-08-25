@@ -13,12 +13,20 @@ import { executeActivityBackfillJob } from '@/lib/activity/backfill'
 import { flushFlowDispatchOutbox } from '@/lib/queue/flow-outbox'
 import { systemPrisma } from '@/lib/prisma'
 import { neo4jPing } from '@/lib/rag/neo4j-store'
+import { QueueTriggerService } from '@/features/triggers/queue-consumers'
 
 /** Health probes must answer fast enough to be a health check, not a query. */
 const HEALTH_DB_TIMEOUT_MS = 4000
 
 class WorkerRuntime {
   private server = Fastify({ logger: true })
+  /**
+   * Long-lived broker consumers. Lives in the worker rather than the web
+   * runtime because a consumer is a persistent connection, which serverless
+   * has nowhere to put.
+   */
+  private queueTriggers = new QueueTriggerService()
+  private queueReconcileTimer?: NodeJS.Timeout
   private scheduleTimer?: NodeJS.Timeout
   private flowOutboxTimer?: NodeJS.Timeout
   private heartbeatTimer?: NodeJS.Timeout
@@ -139,6 +147,11 @@ class WorkerRuntime {
       // Stop beating immediately: the key's TTL then expires it within
       // WORKER_HEARTBEAT_TTL_S, flipping producers to fail-fast dispatch.
       if (this.heartbeatTimer) clearInterval(this.heartbeatTimer)
+      if (this.queueReconcileTimer) clearInterval(this.queueReconcileTimer)
+      // Broker consumers first: stopping them drains in-flight messages and
+      // stops NEW work arriving. Doing it after pausing the job workers would
+      // keep pulling messages we have nowhere to run.
+      await this.queueTriggers.stop().catch(() => undefined)
       // Stop taking new jobs immediately; in-flight jobs keep running.
       await Promise.allSettled(this.workers.map((worker) => worker.pause(true)))
       await this.server.close()
@@ -187,6 +200,20 @@ class WorkerRuntime {
     this.flowOutboxTimer = setInterval(() => {
       flushFlowDispatchOutbox().catch((error) => this.server.log.error(error, 'Flow outbox recovery failed'))
     }, 10_000)
+    // Broker consumers for queue-triggered flows. Reconciled rather than
+    // started once: publishing or unpublishing a flow must take effect without
+    // a worker restart, and the supervisor leaves already-running bindings
+    // alone so this is safe to repeat.
+    //
+    // A broker being unreachable must not stop the worker booting — the whole
+    // point of the supervisor's backoff is that it keeps trying while
+    // everything else runs.
+    await this.queueTriggers.reconcile()
+      .then((count) => { if (count) this.server.log.info({ count }, 'Queue trigger consumers started') })
+      .catch((error) => this.server.log.error(error, 'Queue trigger reconciliation failed'))
+    this.queueReconcileTimer = setInterval(() => {
+      this.queueTriggers.reconcile().catch((error) => this.server.log.error(error, 'Queue trigger reconciliation failed'))
+    }, 60_000)
     // Liveness beat on the SAME Redis the workers consume: producers gate flow
     // dispatch on this key, so a run is failed fast instead of stranded when
     // no worker is draining the queue (or the worker is on a different Redis).

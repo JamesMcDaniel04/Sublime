@@ -1,6 +1,6 @@
 import { FIELD_TYPES, type FlowGraph, type TriggerInputField } from '@/lib/flows/graph'
 
-export const FLOW_TRIGGER_TYPES = ['manual', 'schedule', 'webhook', 'signal', 'slack', 'activity', 'poll', 'form', 'email'] as const
+export const FLOW_TRIGGER_TYPES = ['manual', 'schedule', 'webhook', 'signal', 'slack', 'activity', 'poll', 'form', 'email', 'queue'] as const
 export type FlowTriggerType = (typeof FLOW_TRIGGER_TYPES)[number]
 export type FlowTrigger = { type: FlowTriggerType; [key: string]: unknown }
 
