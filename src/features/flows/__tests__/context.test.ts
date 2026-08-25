@@ -258,3 +258,64 @@ test('a step labelled "secrets" cannot shadow the secrets root', () => {
   } as FlowContext
   assert.equal(readPath(ctx, 'secrets.vault.a'), 'sk-live-xyz')
 })
+
+// ── paired-item lineage ─────────────────────────────────────────────────────
+//
+// `{{<Step>.item.<path>}}` — the item THAT step produced corresponding to the
+// one being processed now. The n8n `$('Node').item` equivalent, and the reason
+// a per-item flow can line up data from several steps.
+
+test('a step item pairs positionally with the current loop iteration', () => {
+  const ctx: FlowContext = {
+    trigger: { input: null },
+    step: { n1: { output: [{ id: 'a' }, { id: 'b' }] } },
+    stepLabels: { n1: 'lookup' },
+    loop: { index: 1, count: 2 },
+  } as FlowContext
+  assert.equal(readPath(ctx, 'lookup.item.id'), 'b')
+})
+
+test('the bare item token resolves to the whole paired item', () => {
+  const ctx: FlowContext = {
+    trigger: { input: null },
+    step: { n1: { output: [{ id: 'a' }] } },
+    stepLabels: { n1: 'lookup' },
+    loop: { index: 0, count: 1 },
+  } as FlowContext
+  assert.deepEqual(readPath(ctx, 'lookup.item'), { id: 'a' })
+})
+
+// The safety property, through the resolver: mismatched lengths must not
+// produce a neighbouring record.
+test('a mismatched array yields nothing rather than a wrong record', () => {
+  const ctx: FlowContext = {
+    trigger: { input: null },
+    step: { n1: { output: [{ id: 'a' }, { id: 'b' }, { id: 'c' }] } },
+    stepLabels: { n1: 'lookup' },
+    loop: { index: 1, count: 2 },
+  } as FlowContext
+  assert.equal(readPath(ctx, 'lookup.item.id'), undefined)
+})
+
+// `.output` still reads the whole thing — `.item` is additive, not a change
+// in what existing tokens mean.
+test('the output token is unchanged by item support', () => {
+  const ctx: FlowContext = {
+    trigger: { input: null },
+    step: { n1: { output: [{ id: 'a' }, { id: 'b' }] } },
+    stepLabels: { n1: 'lookup' },
+    loop: { index: 0, count: 2 },
+  } as FlowContext
+  assert.deepEqual(readPath(ctx, 'lookup.output'), [{ id: 'a' }, { id: 'b' }])
+})
+
+// A step that legitimately produced a field called "item" must still be
+// reachable through .output, so nothing existing breaks.
+test('a step whose output has its own item field is still readable', () => {
+  const ctx: FlowContext = {
+    trigger: { input: null },
+    step: { n1: { output: { item: 'a real field' } } },
+    stepLabels: { n1: 'lookup' },
+  } as FlowContext
+  assert.equal(readPath(ctx, 'lookup.output.item'), 'a real field')
+})

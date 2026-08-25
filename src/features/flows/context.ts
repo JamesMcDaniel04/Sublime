@@ -3,6 +3,7 @@ import { clockToken, CLOCK_ROOTS } from '@/lib/flows/clock-tokens'
 import { workspaceVarsToken, WORKSPACE_VAR_ROOT } from '@/lib/flows/workspace-vars'
 import { parseSecretRef, SECRETS_ROOT } from '@/lib/secrets/providers'
 import { safeRegexTest } from '@/lib/security/safe-regex'
+import { pairedItemFor } from '@/lib/flows/paired-item'
 
 /**
  * The evaluation context threaded through a flow run: the trigger input, every
@@ -158,6 +159,20 @@ export function readPath(ctx: FlowContext, path: string): unknown {
   // so `<Label>.output.<field>` mirrors `step.<id>.output.<field>`.
   const labeled = resolveLabelRoot(ctx, parts[0])
   if (labeled) {
+    // `<Step>.item` is paired-item lineage: the item THAT step produced which
+    // corresponds to the one being processed now (n8n's `$('Node').item`).
+    // Checked before the generic walk so it cannot be shadowed — and only for
+    // the wrapper's own `item`, so a step whose OUTPUT has a field called
+    // `item` is still reachable through `<Step>.output.item`.
+    if (parts[1] === 'item') {
+      const paired = pairedItemFor(ctx.step[labeled], ctx.loop)
+      let cursor: unknown = paired
+      for (const part of parts.slice(2)) {
+        if (cursor == null || typeof cursor !== 'object') return undefined
+        cursor = (cursor as Record<string, unknown>)[part]
+      }
+      return cursor
+    }
     let cursor: unknown = ctx.step[labeled]
     for (const part of parts.slice(1)) {
       if (cursor == null || typeof cursor !== 'object') return undefined
