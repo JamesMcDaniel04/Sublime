@@ -21,6 +21,10 @@ function defaultData(type: FlowNode['type'], extra?: { bodyId?: string; agentId?
   switch (type) {
     case 'agent':
       return { agentId: extra?.agentId ?? '', input: 'Use this flow input:\n{{trigger.input}}' }
+    case 'merge':
+      // Append is the safe default: it never drops a row, so a freshly
+      // dropped Merge produces a visible result before it is configured.
+      return { mode: 'append' }
     case 'condition':
       return { match: 'all', clauses: [{ left: '', op: 'contains', right: '' }] }
     case 'loop':

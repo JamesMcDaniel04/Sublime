@@ -49,6 +49,7 @@ export const BUILTIN_GROUPS: PickerGroup[] = [
       { id: 'control-input', label: 'Input', description: 'Declare the typed inputs this workflow accepts when another workflow calls it.', mode: 'action', stepType: 'input' },
       { id: 'control-output', label: 'Output', description: 'Declare the fields this workflow returns to its caller.', mode: 'action', stepType: 'output' },
       { id: 'control-parallel', label: 'Parallel branches', description: 'Run independent branches at the same time.', mode: 'action', stepType: 'parallel' },
+      { id: 'control-merge', label: 'Merge', description: 'Join two branches back into one result — append, match on a field, or pair by position.', mode: 'action', stepType: 'merge' },
       { id: 'control-stop', label: 'Stop flow', description: 'End the flow early with an optional message.', mode: 'action', stepType: 'stop' },
     ],
   },

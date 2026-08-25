@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { MERGE_MODES } from '@/lib/flows/merge'
 import { AGENT_RUN_TIMEOUT_MS } from '@/lib/agents/timeouts'
 
 /** Comparison operators available to a condition node. */
@@ -429,6 +430,29 @@ export type DataOp = (typeof DATA_OPS)[number]
 // against {{item.*}}), `fields` (select's per-item name/value mappings).
 // NOTE: the existing `transform`/`filter` node types stay untouched; `data`
 // supersedes them for new graphs (picker copy steers — Task 4).
+// Fan two branches back together. `parallel`/`router` fan work out; this is
+// the only node that joins it. The two sources default to the node's first
+// two parents (edges are already many->many), and may be named explicitly so
+// the join does not depend on invisible edge insertion order.
+const mergeNode = z.object({
+  id: z.string(),
+  type: z.literal('merge'),
+  data: z.object({
+    label: z.string().optional(),
+    note: z.string().optional(),
+    mode: z.enum(MERGE_MODES).default('append'),
+    /** byKey: the field to join on for each side. */
+    leftKey: z.string().optional(),
+    rightKey: z.string().optional(),
+    join: z.enum(['inner', 'left', 'outer']).optional(),
+    /** Explicit source node ids; unset falls back to parent order. */
+    leftSource: z.string().optional(),
+    rightSource: z.string().optional(),
+    excludeFromContext: z.boolean().optional(),
+    disabled: z.boolean().optional(),
+  }),
+})
+
 const dataNode = z.object({
   id: z.string(),
   type: z.literal('data'),
@@ -600,6 +624,7 @@ const errorShieldNode = z.object({
 })
 
 export const flowNodeSchema = z.discriminatedUnion('type', [
+  mergeNode,
   triggerNode, agentNode, conditionNode, loopNode, parallelNode, stopNode, toolNode, httpNode, codeNode, transformNode, filterNode, switchNode, variableNode, dataNode, humanReviewNode, respondWebhookNode, waitNode, repeatUntilNode, inputNode, outputNode, subflowNode, routerNode, errorShieldNode,
 ])
 export const flowEdgeSchema = z.object({

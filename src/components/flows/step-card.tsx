@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
 import { createPortal } from 'react-dom'
-import { Bot, Braces, Check, CircleStop, Clock, ClipboardCopy, Code2, Copy, Filter, GitBranch, Globe, LogIn, LogOut, MessageSquare, MoreHorizontal, PanelRight, Pencil, Plus, Power, PowerOff, Radio, Repeat, Rows3, Settings2, ShieldAlert, SlidersHorizontal, Sparkles, Split, Trash2, UserCheck, Variable, Webhook, Workflow, Wrench, Zap } from 'lucide-react'
+import { Bot, Braces, Check, CircleStop, Clock, ClipboardCopy, Code2, Copy, Filter, GitBranch, GitMerge, Globe, LogIn, LogOut, MessageSquare, MoreHorizontal, PanelRight, Pencil, Plus, Power, PowerOff, Radio, Repeat, Rows3, Settings2, ShieldAlert, SlidersHorizontal, Sparkles, Split, Trash2, UserCheck, Variable, Webhook, Workflow, Wrench, Zap } from 'lucide-react'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
 import { jamCursorColor } from '@/lib/flows/jam-presence'
@@ -48,6 +48,7 @@ const NODE_ICON: Record<FlowNode['type'], typeof Bot> = {
   condition: GitBranch,
   loop: Repeat,
   parallel: Rows3,
+  merge: GitMerge,
   stop: CircleStop,
   tool: Wrench,
   http: Globe,
@@ -75,6 +76,8 @@ const NODE_TONE: Record<FlowNode['type'], string> = {
   agent: 'bg-foreground text-background',
   http: 'bg-emerald-600 text-white',
   code: 'bg-slate-700 text-white',
+  // Same family as parallel/router: this is control-flow shape, not data.
+  merge: 'bg-violet-600 text-white',
   respondWebhook: 'bg-emerald-700 text-white',
   wait: 'bg-sky-600 text-white',
   repeatUntil: 'bg-cyan-700 text-white',

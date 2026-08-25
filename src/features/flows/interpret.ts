@@ -1,4 +1,5 @@
 import type { FlowGraph, FlowNode, FlowEdge, VariableType } from '@/lib/flows/graph'
+import { runMerge } from '@/lib/flows/merge'
 import { resolveTemplateAsync, resolveTemplateValueAsync, asStructured, evalCondition, evalConditionAsync, evalClauseAsync, serializeUpstream, type EvalJsFn, type FlowContext } from './context'
 import { stepLabelsOf } from '@/lib/flows/token-text'
 import { shouldRetryAfterTimeout } from './action-reliability'
@@ -1191,6 +1192,33 @@ export async function interpretFlow(graph: FlowGraph, input: unknown, opts: Opts
       const error = `Repeat until reached its ${node.data.maxIterations}-run safety limit.`
       emit({ nodeId: node.id, status: 'failed', error, iterationPath: ctx.iterationPath })
       return { kind: 'fail', error }
+    }
+
+    if (node.type === 'merge') {
+      // The two branches. Explicit sources win so a join never depends on
+      // invisible edge insertion order; unset falls back to the first two
+      // parents, which is what a two-branch wiring means anyway.
+      const parents = parentsOf.get(node.id) ?? []
+      const leftId = node.data.leftSource || parents[0]
+      const rightId = node.data.rightSource || parents.find((id) => id !== leftId)
+      const merged = runMerge(
+        {
+          mode: node.data.mode ?? 'append',
+          leftKey: node.data.leftKey,
+          rightKey: node.data.rightKey,
+          join: node.data.join,
+        },
+        leftId ? ctx.step[leftId]?.output : undefined,
+        rightId ? ctx.step[rightId]?.output : undefined,
+      )
+      if (merged && typeof merged === 'object' && 'error' in merged) {
+        const error = (merged as { error: string }).error
+        emit({ nodeId: node.id, status: 'failed', error, iterationPath: ctx.iterationPath })
+        return { kind: 'fail', error }
+      }
+      ctx.step[node.id] = { output: merged }
+      emit({ nodeId: node.id, status: 'succeeded', output: merged, iterationPath: ctx.iterationPath })
+      return { kind: 'ok', output: merged }
     }
 
     if (node.type === 'parallel') {
