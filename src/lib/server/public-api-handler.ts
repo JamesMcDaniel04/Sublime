@@ -69,9 +69,15 @@ async function lookupKey(prefix: string): Promise<ApiKeyRow | null> {
 }
 
 export function withPublicApi(handler: PublicHandler, access: PublicApiAccess) {
+  /**
+   * The second argument is REQUIRED and shaped exactly as Next passes it.
+   * Typing it optional made the route fail `next build` type-checking even
+   * though every direct call in tests worked — the framework's own
+   * RouteContext admits no `undefined`.
+   */
   return async (
     request: NextRequest,
-    routeContext?: { params: Promise<Record<string, string>> | Record<string, string> },
+    routeContext: { params: Promise<Record<string, string>> },
   ): Promise<Response> => {
     if (declaredBodyTooLarge(request, access.maxBodyBytes ?? DEFAULT_MAX_BODY_BYTES)) {
       return refuse(413, 'Request body is too large.', 'TOO_LARGE')

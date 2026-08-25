@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/button'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { Input } from '@/components/ui/input'
 import { AgentAvatar } from '@/components/agents/agent-avatar'
+import { portraitSeeds } from '@/lib/agents/avatar-portraits'
 import { randomAvatarSeed } from '@/lib/agents/avatar'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
@@ -222,17 +223,32 @@ function todayKey(): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
 
-// Curated agent emojis — all ≤4 UTF-16 code units, so they fit the icon cap.
-const AGENT_EMOJIS = [
-  '🤖', '📊', '📈', '📉', '✉️', '📬', '🔔', '📅',
-  '🗂️', '📝', '🔎', '🎯', '⚡', '🧠', '💬', '📣',
-  '🛰️', '🧭', '🚀', '🛎️', '💼', '📌', '🧾', '🔗',
-  '⏰', '🗓️', '✅', '⭐', '🔥', '💡', '🏷️', '🪄',
-]
-
-function EmojiPicker({ value, onChange }: { value: string; onChange: (emoji: string) => void }) {
+/**
+ * Choosing the agent's face.
+ *
+ * This replaced an emoji picker. An emoji is a mark next to a name; a portrait
+ * is how an agent reads as a member of a team, which is what the roster is
+ * for. The stored `icon` is left alone rather than cleared — existing agents
+ * still show theirs as a corner badge, and wiping it would silently discard
+ * something people chose.
+ *
+ * Every face is offered exactly once, in a stable order — see portraitSeeds
+ * for why that ordering is searched for rather than derived.
+ */
+function PortraitPicker({
+  agentId,
+  value,
+  onChange,
+}: {
+  /** Absent for an agent that does not exist yet; the seed alone drives the face. */
+  agentId?: string
+  value: string
+  onChange: (seed: string) => void
+}) {
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement | null>(null)
+  const seeds = portraitSeeds()
+
   useEffect(() => {
     if (!open) return
     const onClick = (event: MouseEvent) => {
@@ -241,30 +257,34 @@ function EmojiPicker({ value, onChange }: { value: string; onChange: (emoji: str
     document.addEventListener('mousedown', onClick)
     return () => document.removeEventListener('mousedown', onClick)
   }, [open])
+
   return (
     <div className="relative" ref={ref}>
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
-        className="flex h-10 w-14 items-center justify-center rounded-md border border-input bg-background text-xl transition-colors hover:bg-accent"
-        aria-label="Choose agent emoji"
+        className="flex h-10 w-14 items-center justify-center rounded-md border border-input bg-background transition-colors hover:bg-accent"
+        aria-label="Choose this agent's portrait"
+        aria-expanded={open}
       >
-        {value || '🤖'}
+        <AgentAvatar agent={{ id: agentId ?? 'new-agent', avatarSeed: value || null }} size="sm" />
       </button>
       {open && (
-        <div className="absolute left-0 top-full z-50 mt-1 w-56 rounded-md border border-border bg-popover p-2 shadow-md">
-          <div className="grid grid-cols-8 gap-0.5">
-            {AGENT_EMOJIS.map((emoji) => (
+        <div className="absolute left-0 top-full z-50 mt-1 w-72 rounded-md border border-border bg-popover p-2 shadow-md">
+          <div className="grid max-h-64 grid-cols-6 gap-1 overflow-y-auto">
+            {seeds.map((seed) => (
               <button
-                key={emoji}
+                key={seed}
                 type="button"
-                onClick={() => { onChange(emoji); setOpen(false) }}
+                onClick={() => { onChange(seed); setOpen(false) }}
                 className={cn(
-                  'flex h-6 w-6 items-center justify-center rounded text-lg hover:bg-accent',
-                  value === emoji && 'bg-accent',
+                  'flex items-center justify-center rounded p-0.5 hover:bg-accent',
+                  value === seed && 'bg-accent ring-1 ring-ring',
                 )}
+                aria-label={`Portrait ${seed}`}
+                aria-pressed={value === seed}
               >
-                {emoji}
+                <AgentAvatar agent={{ id: agentId ?? 'new-agent', avatarSeed: seed }} size="sm" />
               </button>
             ))}
           </div>
@@ -900,7 +920,11 @@ export function AgentConfigForm({
       <div>
         <Label>Name</Label>
         <div className="flex gap-2">
-          <EmojiPicker value={draft.icon} onChange={(icon) => setDraft({ ...draft, icon })} />
+          <PortraitPicker
+            agentId={editingAgent?.id}
+            value={draft.avatarSeed ?? ''}
+            onChange={(avatarSeed) => setDraft({ ...draft, avatarSeed })}
+          />
           <Input className="flex-1" value={draft.title} onChange={(event) => setDraft({ ...draft, title: event.target.value })} />
         </div>
       </div>

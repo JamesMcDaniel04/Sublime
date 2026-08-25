@@ -18,6 +18,7 @@ import { Switch } from '@/components/ui/switch'
 import { LearningsPanel } from '../learnings-panel'
 import { BehaviorPatternsPanel } from '../behavior-patterns-panel'
 import { IntelligenceHealthCard } from '../intelligence-health-card'
+import { WorkspaceVariablesCard } from '../workspace-variables-card'
 import type { OrgSettings } from './types'
 
 export function WorkspaceTab({
@@ -137,6 +138,7 @@ export function WorkspaceTab({
         </CardContent>
       </Card>
       <KnowledgeRetentionCard isAdmin={isAdmin} plan={orgPlan} />
+      <WorkspaceVariablesCard isAdmin={isAdmin} />
       <LearningsPanel isAdmin={isAdmin} />
       <BehaviorPatternsPanel />
       {isAdmin && <IntelligenceHealthCard />}

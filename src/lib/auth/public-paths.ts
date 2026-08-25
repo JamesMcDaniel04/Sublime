@@ -41,6 +41,18 @@ export const PUBLIC_PATHS: ReadonlySet<string> = new Set([
  * — being permissive there costs nothing, and treating a real auth page as
  * protected would bounce a signed-out user off the very page they need.
  */
+/**
+ * Public prefixes, for pages whose path carries an id.
+ *
+ * `/f/` is a form-triggered flow's public submission page. It is deliberately
+ * a PREFIX rather than a listed path because the flow id is in the URL, and it
+ * is safe to expose because the page itself renders nothing and holds nothing:
+ * every byte it shows comes from an API call authorised by the per-flow
+ * trigger token, which is throttled and constant-time compared. Without a
+ * valid token the page shows only "this form is not available".
+ */
+const PUBLIC_PREFIXES = ['/auth/', '/f/'] as const
+
 export function isPublicPath(pathname: string): boolean {
-  return PUBLIC_PATHS.has(pathname) || pathname.startsWith('/auth/')
+  return PUBLIC_PATHS.has(pathname) || PUBLIC_PREFIXES.some((prefix) => pathname.startsWith(prefix))
 }

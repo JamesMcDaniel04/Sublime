@@ -81,3 +81,34 @@ function fnv1a(value: string): number {
 export function portraitFor(seed: string): Portrait {
   return PORTRAITS[fnv1a(seed) % PORTRAIT_COUNT]
 }
+
+/**
+ * One seed per portrait, so a picker can offer every face exactly once.
+ *
+ * A seed maps to a portrait through a hash, so there is no way to ASK for
+ * portrait N — the mapping only runs forwards. Rather than invert it, this
+ * searches deterministically for the first seed landing on each index and
+ * caches the answer. Deterministic matters: a picker whose options reshuffled
+ * between renders would move the face someone was about to click.
+ */
+let seedsByPortrait: string[] | null = null
+
+export function portraitSeeds(): string[] {
+  if (seedsByPortrait) return seedsByPortrait
+
+  const found = new Array<string | undefined>(PORTRAIT_COUNT)
+  let remaining = PORTRAIT_COUNT
+  // Bounded so a hash change can never turn this into an infinite loop; a
+  // partial set degrades the picker rather than hanging the page.
+  for (let candidate = 0; candidate < 100_000 && remaining > 0; candidate += 1) {
+    const seed = `p${candidate}`
+    const index = fnv1a(seed) % PORTRAIT_COUNT
+    if (!found[index]) {
+      found[index] = seed
+      remaining -= 1
+    }
+  }
+
+  seedsByPortrait = found.filter((seed): seed is string => Boolean(seed))
+  return seedsByPortrait
+}

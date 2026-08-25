@@ -26,7 +26,16 @@ function routesOnDisk(dir = PUBLIC_GROUP, prefix = ''): string[] {
 // the suite fails here instead of the route quietly redirecting visitors to
 // sign-in.
 test('every route in the (public) group is allow-listed', () => {
-  const missing = routesOnDisk().filter((route) => !PUBLIC_PATHS.has(route))
+  // Checked through isPublicPath rather than PUBLIC_PATHS directly, because
+  // that is the function middleware actually calls — and it is the only one
+  // that understands a dynamic route. A page at /f/[id] is never a literal
+  // member of the set; it is covered by a prefix, and a test reading the raw
+  // set would demand an entry that cannot exist.
+  const missing = routesOnDisk().filter((route) => {
+    // Concretise dynamic segments the way a real request would.
+    const concrete = route.replace(/\[[^\]]+\]/g, 'sample-id')
+    return !isPublicPath(concrete)
+  })
   assert.deepEqual(missing, [], `public routes missing from PUBLIC_PATHS: ${missing.join(', ')}`)
 })
 
@@ -48,4 +57,27 @@ test('authenticated routes stay protected', () => {
   for (const path of ['/g/all/dashboard', '/settings', '/activity', '/skills/abc']) {
     assert.equal(isPublicPath(path), false, `${path} should be protected`)
   }
+})
+
+// ── the public form page ────────────────────────────────────────────────────
+//
+// A form-triggered flow is submitted by someone outside the workspace, so its
+// page cannot require a session. It is safe to expose because the page renders
+// nothing and holds nothing — every byte comes from an API call authorised by
+// the per-flow trigger token.
+
+test('a form submission page is public', () => {
+  assert.equal(isPublicPath('/f/clx123abc'), true)
+})
+
+// The prefix must not accidentally open anything else that starts with f.
+test('the form prefix does not open unrelated paths', () => {
+  assert.equal(isPublicPath('/flows'), false)
+  assert.equal(isPublicPath('/flows/clx123abc'), false)
+  assert.equal(isPublicPath('/feed'), false)
+})
+
+test('an authenticated area is still private', () => {
+  assert.equal(isPublicPath('/settings'), false)
+  assert.equal(isPublicPath('/agents'), false)
 })

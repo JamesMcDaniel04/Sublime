@@ -10,6 +10,13 @@ import { test, after } from 'node:test'
 import assert from 'node:assert/strict'
 import { NextRequest } from 'next/server'
 
+/**
+ * What Next passes as a route handler's second argument. Supplied here because
+ * the wrapper's type requires it — omitting it is what let a signature
+ * mismatch reach `next build` while every test passed.
+ */
+const ROUTE_CONTEXT = { params: Promise.resolve({} as Record<string, string>) }
+
 const TEST_DB = process.env.TEST_DATABASE_URL
 if (TEST_DB) {
   process.env.DATABASE_URL = TEST_DB
@@ -74,7 +81,7 @@ if (TEST_DB) {
 
     await t.test('a valid key lists its own workspace flows', async () => {
       const key = await makeKey(seeded, ['flows:read'])
-      const body = await (await listFlows(req('/api/v1/flows', { key }))).json()
+      const body = await (await listFlows(req('/api/v1/flows', { key }), ROUTE_CONTEXT)).json()
       assert.equal(body.success, true)
       assert.equal(body.flows.length, 1)
       assert.equal(body.flows[0].name, 'Public flow')
@@ -83,29 +90,29 @@ if (TEST_DB) {
     // The isolation property.
     await t.test('a key never sees another workspace\'s flows', async () => {
       const key = await makeKey(other, ['flows:read'])
-      const body = await (await listFlows(req('/api/v1/flows', { key }))).json()
+      const body = await (await listFlows(req('/api/v1/flows', { key }), ROUTE_CONTEXT)).json()
       assert.equal(body.flows.length, 1)
       assert.equal(body.flows[0].name, 'Other workspace flow')
     })
 
     await t.test('no key is refused', async () => {
-      assert.equal((await listFlows(req('/api/v1/flows'))).status, 401)
+      assert.equal((await listFlows(req('/api/v1/flows'), ROUTE_CONTEXT)).status, 401)
     })
 
     await t.test('a made-up key is refused', async () => {
-      assert.equal((await listFlows(req('/api/v1/flows', { key: 'sk_sub_aaaaaaaa_nonsense' }))).status, 401)
+      assert.equal((await listFlows(req('/api/v1/flows', { key: 'sk_sub_aaaaaaaa_nonsense' }), ROUTE_CONTEXT)).status, 401)
     })
 
     // Knowing a real prefix must not be enough — the prefix is public.
     await t.test('a real prefix with the wrong secret is refused', async () => {
       const real = await makeKey(seeded, ['flows:read'])
       const prefix = real.slice(0, real.lastIndexOf('_'))
-      assert.equal((await listFlows(req('/api/v1/flows', { key: `${prefix}_wrongsecretwrongsecret` }))).status, 401)
+      assert.equal((await listFlows(req('/api/v1/flows', { key: `${prefix}_wrongsecretwrongsecret` }), ROUTE_CONTEXT)).status, 401)
     })
 
     await t.test('a key without the scope is refused', async () => {
       const key = await makeKey(seeded, ['agents:read'])
-      const response = await listFlows(req('/api/v1/flows', { key }))
+      const response = await listFlows(req('/api/v1/flows', { key }), ROUTE_CONTEXT)
       assert.equal(response.status, 403)
       assert.match((await response.json()).error, /flows:read/)
     })
@@ -113,22 +120,22 @@ if (TEST_DB) {
     // write implies read, so a sync key can still list.
     await t.test('a write-scoped key can read the same resource', async () => {
       const key = await makeKey(seeded, ['flows:write'])
-      assert.equal((await listFlows(req('/api/v1/flows', { key }))).status, 200)
+      assert.equal((await listFlows(req('/api/v1/flows', { key }), ROUTE_CONTEXT)).status, 200)
     })
 
     await t.test('a revoked key stops working', async () => {
       const key = await makeKey(seeded, ['flows:read'], { revokedAt: new Date() })
-      assert.equal((await listFlows(req('/api/v1/flows', { key }))).status, 401)
+      assert.equal((await listFlows(req('/api/v1/flows', { key }), ROUTE_CONTEXT)).status, 401)
     })
 
     await t.test('an expired key stops working', async () => {
       const key = await makeKey(seeded, ['flows:read'], { expiresAt: new Date(Date.now() - 1000) })
-      assert.equal((await listFlows(req('/api/v1/flows', { key }))).status, 401)
+      assert.equal((await listFlows(req('/api/v1/flows', { key }), ROUTE_CONTEXT)).status, 401)
     })
 
     await t.test('agents are listed with an agents scope', async () => {
       const key = await makeKey(seeded, ['agents:read'])
-      assert.equal((await listAgents(req('/api/v1/agents', { key }))).status, 200)
+      assert.equal((await listAgents(req('/api/v1/agents', { key }), ROUTE_CONTEXT)).status, 200)
     })
 
     // ── key management ──────────────────────────────────────────────────────
@@ -176,7 +183,7 @@ if (TEST_DB) {
 
       // And it still works.
       installTestAuth(seeded.auth)
-      assert.equal((await listFlows(req('/api/v1/flows', { key: created.plaintext }))).status, 200)
+      assert.equal((await listFlows(req('/api/v1/flows', { key: created.plaintext }), ROUTE_CONTEXT)).status, 200)
     })
 
     await t.test('revoking a key takes effect immediately', async () => {
@@ -184,10 +191,10 @@ if (TEST_DB) {
       const created = await (await manageKeys(req('/api/settings/api-keys', {
         method: 'POST', body: { action: 'create', name: 'Doomed', scopes: ['flows:read'] },
       }))).json()
-      assert.equal((await listFlows(req('/api/v1/flows', { key: created.plaintext }))).status, 200)
+      assert.equal((await listFlows(req('/api/v1/flows', { key: created.plaintext }), ROUTE_CONTEXT)).status, 200)
 
       await manageKeys(req('/api/settings/api-keys', { method: 'POST', body: { action: 'revoke', id: created.key.id } }))
-      assert.equal((await listFlows(req('/api/v1/flows', { key: created.plaintext }))).status, 401)
+      assert.equal((await listFlows(req('/api/v1/flows', { key: created.plaintext }), ROUTE_CONTEXT)).status, 401)
     })
 
     await t.test('key creation and revocation are audited', async () => {

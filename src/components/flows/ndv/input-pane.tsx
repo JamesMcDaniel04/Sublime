@@ -1,6 +1,7 @@
 'use client'
 
 import { JsonTokenView } from './json-token-view'
+import { ContextTokens } from './context-tokens'
 
 /**
  * The NDV's left pane: exactly what this node will receive, as raw JSON.
@@ -9,6 +10,11 @@ import { JsonTokenView } from './json-token-view'
  *
  * There is deliberately no summarised "fields" view — one place to read
  * upstream data, and it shows the real payload.
+ *
+ * Below it, "Variables and context" lists the tokens available in EVERY step
+ * regardless of what ran upstream: the run clock, workspace constants, the
+ * loop position. Those were previously discoverable only by knowing they
+ * existed.
  */
 export function InputPane({
   rawInput,
@@ -22,6 +28,7 @@ export function InputPane({
       <div className="flex items-center justify-between border-b border-border bg-card px-4 py-2">
         <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Input</p>
       </div>
+      <div className="flex min-h-0 flex-1 flex-col">
       {rawInput === undefined ? (
         <p className="p-4 text-sm text-muted-foreground">
           No upstream data yet — run the flow once, or pin a step&apos;s output, and the values you can map from will
@@ -32,6 +39,8 @@ export function InputPane({
           <JsonTokenView value={rawInput} onInsertToken={onInsertToken} />
         </div>
       )}
+      </div>
+      <ContextTokens onInsertToken={onInsertToken} />
     </div>
   )
 }

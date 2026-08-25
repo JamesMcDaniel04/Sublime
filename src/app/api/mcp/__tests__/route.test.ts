@@ -11,6 +11,13 @@ import { test, after } from 'node:test'
 import assert from 'node:assert/strict'
 import { NextRequest } from 'next/server'
 
+/**
+ * What Next passes as a route handler's second argument. Supplied here because
+ * the wrapper's type requires it — omitting it is what let a signature
+ * mismatch reach `next build` while every test passed.
+ */
+const ROUTE_CONTEXT = { params: Promise.resolve({} as Record<string, string>) }
+
 const TEST_DB = process.env.TEST_DATABASE_URL
 if (TEST_DB) {
   process.env.DATABASE_URL = TEST_DB
@@ -80,32 +87,32 @@ if (TEST_DB) {
     })
 
     await t.test('initialize completes the handshake', async () => {
-      const body = await (await POST(rpc(key, { jsonrpc: '2.0', id: 1, method: 'initialize', params: {} }))).json()
+      const body = await (await POST(rpc(key, { jsonrpc: '2.0', id: 1, method: 'initialize', params: {} }), ROUTE_CONTEXT)).json()
       assert.equal(body.result.protocolVersion, MCP_PROTOCOL_VERSION)
       assert.ok(body.result.capabilities.tools)
     })
 
     await t.test('a notification is accepted with no body', async () => {
-      const response = await POST(rpc(key, { jsonrpc: '2.0', method: 'notifications/initialized' }))
+      const response = await POST(rpc(key, { jsonrpc: '2.0', method: 'notifications/initialized' }), ROUTE_CONTEXT)
       assert.equal(response.status, 202)
       assert.equal(await response.text(), '')
     })
 
     await t.test('tools/list shows only the flow that opted in', async () => {
-      const body = await (await POST(rpc(key, { jsonrpc: '2.0', id: 2, method: 'tools/list' }))).json()
+      const body = await (await POST(rpc(key, { jsonrpc: '2.0', id: 2, method: 'tools/list' }), ROUTE_CONTEXT)).json()
       assert.equal(body.result.tools.length, 1, 'a flow that never opted in was exposed')
       assert.match(body.result.tools[0].name, /nightly/)
       assert.deepEqual(body.result.tools[0].inputSchema.required, ['account'])
     })
 
     await t.test('the internal flow id is never sent to the client', async () => {
-      const body = await (await POST(rpc(key, { jsonrpc: '2.0', id: 2, method: 'tools/list' }))).json()
+      const body = await (await POST(rpc(key, { jsonrpc: '2.0', id: 2, method: 'tools/list' }), ROUTE_CONTEXT)).json()
       assert.ok(!JSON.stringify(body).includes(exposed.id))
     })
 
     // The isolation property.
     await t.test('another workspace sees none of these tools', async () => {
-      const body = await (await POST(rpc(otherKey, { jsonrpc: '2.0', id: 2, method: 'tools/list' }))).json()
+      const body = await (await POST(rpc(otherKey, { jsonrpc: '2.0', id: 2, method: 'tools/list' }), ROUTE_CONTEXT)).json()
       assert.deepEqual(body.result.tools, [])
     })
 
@@ -118,7 +125,7 @@ if (TEST_DB) {
         },
         select: { id: true },
       })
-      const body = await (await POST(rpc(key, { jsonrpc: '2.0', id: 2, method: 'tools/list' }))).json()
+      const body = await (await POST(rpc(key, { jsonrpc: '2.0', id: 2, method: 'tools/list' }), ROUTE_CONTEXT)).json()
       assert.ok(
         !body.result.tools.some((tool: { name: string }) => tool.name.includes('draft')),
         'an unpublished flow was runnable from outside',
@@ -130,7 +137,7 @@ if (TEST_DB) {
       const body = await (await POST(rpc(key, {
         jsonrpc: '2.0', id: 3, method: 'tools/call',
         params: { name: 'nightly_sync', arguments: { account: 'acme' } },
-      }))).json()
+      }), ROUTE_CONTEXT)).json()
       assert.equal(body.result.isError, false, `the call failed: ${JSON.stringify(body.result)}`)
 
       const run = await prisma.flowRun.findFirst({
@@ -142,7 +149,7 @@ if (TEST_DB) {
     await t.test('an unknown tool is a tool error, not a broken session', async () => {
       const body = await (await POST(rpc(key, {
         jsonrpc: '2.0', id: 4, method: 'tools/call', params: { name: 'no_such_tool' },
-      }))).json()
+      }), ROUTE_CONTEXT)).json()
       assert.equal(body.result.isError, true)
       assert.equal(body.error, undefined)
     })
@@ -151,12 +158,12 @@ if (TEST_DB) {
     await t.test('a tool cannot be called across workspaces by name', async () => {
       const body = await (await POST(rpc(otherKey, {
         jsonrpc: '2.0', id: 5, method: 'tools/call', params: { name: 'nightly_sync', arguments: {} },
-      }))).json()
+      }), ROUTE_CONTEXT)).json()
       assert.equal(body.result.isError, true, 'another workspace ran a flow it cannot see')
     })
 
     await t.test('a malformed body returns a JSON-RPC error, not a crash', async () => {
-      const response = await POST(rpc(key, 'not an object'))
+      const response = await POST(rpc(key, 'not an object'), ROUTE_CONTEXT)
       assert.equal(response.status, 200, 'a bad request must not fail the transport')
       assert.equal((await response.json()).error.code, -32600)
     })
@@ -165,19 +172,19 @@ if (TEST_DB) {
       const response = await POST(new NextRequest(new URL('http://test/api/mcp'), {
         method: 'POST', headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list' }),
-      } as never))
+      } as never), ROUTE_CONTEXT)
       assert.equal(response.status, 401)
     })
 
     await t.test('a key without flows:execute cannot reach the server', async () => {
       const readOnly = await makeKey(seeded, ['flows:read'])
-      assert.equal((await POST(rpc(readOnly, { jsonrpc: '2.0', id: 1, method: 'tools/list' }))).status, 403)
+      assert.equal((await POST(rpc(readOnly, { jsonrpc: '2.0', id: 1, method: 'tools/list' }), ROUTE_CONTEXT)).status, 403)
     })
 
     await t.test('GET says to use POST rather than pretending to stream', async () => {
       const response = await GET(new NextRequest(new URL('http://test/api/mcp'), {
         method: 'GET', headers: { authorization: `Bearer ${key}` },
-      } as never))
+      } as never), ROUTE_CONTEXT)
       assert.equal(response.status, 405)
       assert.equal(response.headers.get('allow'), 'POST')
     })
