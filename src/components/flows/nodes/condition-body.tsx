@@ -4,7 +4,7 @@ import { Plus, Trash2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { CONDITION_OPS, CONDITION_OP_LABELS, type ConditionClause, type ConditionOp, type FlowNode } from '@/lib/flows/graph'
 import { TokenTextEditor } from '../token-text-editor'
-import { controlClass, tokenControlClass } from './field-primitives'
+import { controlClass, labelClass, tokenControlClass } from './field-primitives'
 import { FieldPreview } from './field-preview'
 import type { NodeBodyModule, NodeBodyProps, TokenEditorWiring } from './types'
 
@@ -38,6 +38,35 @@ export function ConditionBody({
     update({ ...node, data: { ...node.data, clauses: next, match: node.data.match ?? 'all', left: undefined, op: undefined, right: undefined } } as FlowNode)
   return (
     <div className="space-y-3">
+      {/* Per-item routing. On a condition this splits the input list into
+          {matched, unmatched} and lights BOTH branches — a different node in
+          practice, and it had no control at all. Rendered only for condition:
+          FilterBody owns the same field with its own (keep/gate) framing. */}
+      {node.type === 'condition' && (
+        <div className="grid gap-2">
+          <label className={labelClass} htmlFor={`${node.id}-evaluation`}>Evaluation</label>
+          <select
+            id={`${node.id}-evaluation`}
+            aria-label="Evaluation"
+            className={controlClass}
+            value={node.data.splitItems === true ? 'perItem' : 'once'}
+            onChange={(event) =>
+              update({
+                ...node,
+                data: { ...node.data, splitItems: event.target.value === 'perItem' ? true : undefined },
+              } as FlowNode)
+            }
+          >
+            <option value="once">Evaluate once, take one branch</option>
+            <option value="perItem">Evaluate per item, split the list</option>
+          </select>
+          <p className="text-xs text-muted-foreground">
+            {node.data.splitItems === true
+              ? 'Both branches run when both sides have items. Downstream reads .matched / .unmatched.'
+              : 'The whole step takes the true branch or the false branch.'}
+          </p>
+        </div>
+      )}
       <div className="flex items-center justify-between gap-2">
         <p className="text-sm text-muted-foreground">{node.type === 'condition' ? 'Route the flow based on a rule.' : 'Continue only when this rule is true.'}</p>
         {clauses.length > 1 && (

@@ -1,5 +1,6 @@
 import type { FlowNode } from '@/lib/flows/graph'
 import type { NodeBodyModule } from './types'
+import { filterModule } from './filter-body'
 import { respondWebhookModule } from './respond-webhook-body'
 import { waitModule } from './wait-body'
 import { subflowModule } from './subflow-body'
@@ -40,7 +41,7 @@ export const NODE_BODIES: Record<FlowNode['type'], NodeBodyModule> = {
   subflow: subflowModule,
   stop: stopModule,
   condition: conditionModule,
-  filter: conditionModule,
+  filter: filterModule,
   transform: transformModule,
   loop: loopModule,
   parallel: parallelModule,
