@@ -97,6 +97,7 @@ model Organization {
   queueDeadLetters          QueueDeadLetter[]
 
   @@map("organizations")
+  workspaceVariables WorkspaceVariable[]
 }
 
 model User {
@@ -927,6 +928,34 @@ model ConnectionVerification {
 /// A visual agent pipeline: a graph of steps, each running a workspace agent
 /// via runAgentExecution. Distinct from WorkflowStep/WorkflowEvent (those are a
 /// single agent's internal tool-call trace). See docs/superpowers/specs.
+/// Workspace-scoped constants, referenced from a flow as {{workspace.<key>}}.
+///
+/// n8n calls these $vars. Deliberately NOT `{{vars.x}}` here: `{{var.x}}`
+/// already exists and is FLOW-scoped (written by variable steps), and two
+/// scopes one letter apart is a footgun that would be found in production.
+///
+/// Values are plain text and readable by any member — a channel id, a
+/// threshold, a base URL. Secrets belong in the credential vault, which has
+/// placeholder-only reveal and rotation; this table deliberately has neither,
+/// and the API refuses to store anything that looks like a credential.
+model WorkspaceVariable {
+  id             String   @id @default(cuid())
+  organizationId String   @db.Uuid
+  /// Lowercase, dot-free identifier — dots would be ambiguous against the
+  /// token path grammar ({{workspace.a.b}} could mean two things).
+  key            String
+  value          String   @db.Text
+  description    String   @default("")
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, key])
+  @@index([organizationId])
+  @@map("workspace_variables")
+}
+
 model Flow {
   id                          String   @id @default(cuid())
   name                        String

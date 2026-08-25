@@ -1229,9 +1229,19 @@ export async function runFlowExecution(
   // retrying. Timezone comes from the flow's settings, defaulting to UTC —
   // never the server's zone (see lib/flows/settings.ts).
   const settings = flowSettings(flow.metadata)
+  // Loaded ONCE per run, not per token: a flow reading the same variable in
+  // ten steps must see one value, and a mid-run edit must not change the
+  // meaning of a run already in flight.
+  const workspaceVars = Object.fromEntries(
+    (await prisma.workspaceVariable.findMany({
+      where: { organizationId: job.organizationId },
+      select: { key: true, value: true },
+    })).map((row) => [row.key, row.value]),
+  )
   const result = await interpretFlow(graph, input, {
     startedAt: (run.startedAt ?? new Date()).toISOString(),
     timezone: settings.timezone,
+    workspaceVars,
     runAgent,
     runAction,
     runCode,

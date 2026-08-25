@@ -1,5 +1,6 @@
 import type { ConditionOp } from '@/lib/flows/graph'
 import { clockToken, CLOCK_ROOTS } from '@/lib/flows/clock-tokens'
+import { workspaceVarsToken, WORKSPACE_VAR_ROOT } from '@/lib/flows/workspace-vars'
 import { safeRegexTest } from '@/lib/security/safe-regex'
 
 /**
@@ -17,6 +18,11 @@ export type FlowContext = {
   // means UTC, deliberately never the server's zone.
   startedAt?: string
   timezone?: string
+  // Workspace constants, read via {{workspace.<key>}}. Loaded once per run.
+  // Distinct from `variables` above, which is FLOW-scoped and written by
+  // variable steps — see lib/flows/workspace-vars.ts for why the token roots
+  // are deliberately not one letter apart.
+  workspaceVars?: Record<string, string>
   // Aggregated outputs of the data-bearing nodes that have executed so far,
   // keyed by builder label. Maintained by the interpreter (which knows node
   // types); read via `{{upstream}}` (whole, size-capped) and auto-appended to
@@ -102,6 +108,9 @@ export function readPath(ctx: FlowContext, path: string): unknown {
   // step labelled "now" cannot shadow them. Without startedAt there is no
   // instant to render, and returning undefined keeps the template renderer
   // from writing the string "undefined" into someone's filename.
+  if (parts[0] === WORKSPACE_VAR_ROOT) {
+    return workspaceVarsToken(path, ctx.workspaceVars ?? {})
+  }
   if (CLOCK_ROOTS.has(parts[0])) {
     return ctx.startedAt ? clockToken(path, { startedAt: ctx.startedAt, timezone: ctx.timezone }) : undefined
   }

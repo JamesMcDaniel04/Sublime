@@ -69,6 +69,8 @@ type Opts = {
   startedAt?: string
   /** The flow's IANA timezone. Absent means UTC — never the server's zone. */
   timezone?: string
+  /** Workspace constants for {{workspace.<key>}}, loaded once per run. */
+  workspaceVars?: Record<string, string>
   runAgent: RunAgentFn
   runAction?: RunActionFn
   runCode?: RunCodeFn
@@ -1321,6 +1323,7 @@ export async function interpretFlow(graph: FlowGraph, input: unknown, opts: Opts
     stepLabels,
     startedAt: opts.startedAt ?? new Date().toISOString(),
     ...(opts.timezone ? { timezone: opts.timezone } : {}),
+    ...(opts.workspaceVars ? { workspaceVars: opts.workspaceVars } : {}),
   }
 
   // Resume: rebuild the symbol table from EVERY completed variable step before
