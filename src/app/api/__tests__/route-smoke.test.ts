@@ -167,6 +167,7 @@ if (TEST_DB) {
     { name: 'GET /api/intelligence/user-suggestions', run: async () => (await import('../intelligence/user-suggestions/route')).GET(req('/api/intelligence/user-suggestions')) },
     { name: 'GET /api/rtc/ice', run: async () => (await import('../rtc/ice/route')).GET(req('/api/rtc/ice')) },
     { name: 'GET /api/workspace-variables', run: async () => (await import('../workspace-variables/route')).GET(req('/api/workspace-variables')) },
+    { name: 'GET /api/dependents', run: async () => (await import('../dependents/route')).GET(req('/api/dependents?ref=cred_x')) },
     { name: 'GET /api/slack/connections/[id]/channels', run: async () => (await import('../slack/connections/[id]/channels/route')).GET(req('/api/slack/connections/no-such-id/channels')) },
   ]
 
