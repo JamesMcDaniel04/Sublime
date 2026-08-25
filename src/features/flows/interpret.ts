@@ -72,6 +72,12 @@ type Opts = {
   timezone?: string
   /** Workspace constants for {{workspace.<key>}}, loaded once per run. */
   workspaceVars?: Record<string, string>
+  /**
+   * Cross-run dedupe (data op, scope: 'flow'). Injected like runAgent/runCode
+   * so the interpreter stays free of database access — the adapter wires it to
+   * features/flows/static-store.ts, which does the locking.
+   */
+  takeUnseen?: (items: unknown[], idPath: string) => Promise<{ fresh: unknown[] }>
   runAgent: RunAgentFn
   runAction?: RunActionFn
   runCode?: RunCodeFn
@@ -804,6 +810,25 @@ export async function interpretFlow(graph: FlowGraph, input: unknown, opts: Opts
       // its structure), then delegate to the side-effect-free op runner.
       // filterArray clauses / select values resolve per item inside runDataOp,
       // with this ctx riding along so step/trigger/var tokens keep working.
+      // Cross-run dedupe is the one data op that cannot be pure: "have I seen
+      // this before" is a question about previous RUNS. Handled here, ahead of
+      // the pure runner, so runDataOp keeps its no-I/O contract.
+      if (node.data.op === 'dedupe' && node.data.scope === 'flow') {
+        if (!opts.takeUnseen) {
+          const error = 'Cross-run dedupe is not available in this context — run the flow rather than testing the step alone.'
+          emit({ nodeId: node.id, status: 'failed', error, iterationPath: ctx.iterationPath })
+          return { kind: 'fail', error }
+        }
+        const source = node.data.input?.trim()
+          ? await resolveTemplateValueAsync(node.data.input, ctx, opts.evalJs)
+          : undefined
+        const list = Array.isArray(source) ? source : source == null ? [] : [source]
+        const { fresh } = await opts.takeUnseen(list, node.data.idPath?.trim() || 'id')
+        ctx.step[node.id] = { output: fresh }
+        emit({ nodeId: node.id, status: 'succeeded', output: fresh, iterationPath: ctx.iterationPath })
+        return { kind: 'ok', output: fresh }
+      }
+
       const runOnce = async (opCtx: FlowContext) => runDataOp(node.data.op, {
         input: node.data.input?.trim() ? await resolveTemplateValueAsync(node.data.input, opCtx, opts.evalJs) : undefined,
         separator: node.data.separator === undefined ? undefined : await resolveTemplateAsync(node.data.separator, opCtx, opts.evalJs),

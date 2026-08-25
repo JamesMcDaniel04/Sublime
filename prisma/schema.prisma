@@ -98,6 +98,7 @@ model Organization {
 
   @@map("organizations")
   workspaceVariables WorkspaceVariable[]
+  flowStaticData     FlowStaticData[]
 }
 
 model User {
@@ -967,6 +968,31 @@ model WorkspaceVariable {
   @@map("workspace_variables")
 }
 
+/// Per-flow state that survives between runs — n8n's $getWorkflowStaticData.
+///
+/// One row per (flow, key) rather than a blob on Flow: two keys written by
+/// different steps in the same run would otherwise race on one JSON column,
+/// and last-write-wins there means a silently dropped cursor.
+model FlowStaticData {
+  id             String   @id @default(cuid())
+  flowId         String
+  organizationId String   @db.Uuid
+  key            String
+  value          Json     @default("{}")
+  updatedAt      DateTime @updatedAt
+  createdAt      DateTime @default(now())
+
+  flow         Flow         @relation(fields: [flowId], references: [id], onDelete: Cascade)
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  // Org FIRST: the tenant guard requires organizationId in the where clause,
+  // and a (flowId, key) unique would let a crafted flowId address another
+  // workspace's row. Scoping is structural rather than remembered.
+  @@unique([organizationId, flowId, key])
+  @@index([organizationId, flowId])
+  @@map("flow_static_data")
+}
+
 model Flow {
   id                          String   @id @default(cuid())
   name                        String
@@ -1013,6 +1039,7 @@ model Flow {
   collaborators FlowCollaborator[]
   comments      FlowComment[]
   nodePins      FlowNodePin[]
+  staticData    FlowStaticData[]
   observations  FlowLearningObservation[]
 
   @@index([organizationId, updatedAt])

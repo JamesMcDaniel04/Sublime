@@ -9,6 +9,8 @@ import { DATA_OP_HELPER, DATA_OP_INPUT_PLACEHOLDER } from '@/lib/flows/step-copy
 import { TokenTextEditor } from '../token-text-editor'
 import { controlClass, labelClass, tokenControlBase, tokenControlClass } from './field-primitives'
 import { FieldPreview } from './field-preview'
+import { ParamFields } from './param-fields'
+import { DATA_PARAMS } from '@/lib/flows/data-params'
 import type { NodeBodyModule, NodeBodyProps, TokenEditorWiring } from './types'
 
 const AGGREGATION_LABELS: Record<Aggregation, string> = {
@@ -70,21 +72,7 @@ function DataBody({
         />
         <FieldPreview value={node.data.input ?? ''} ctx={previewContext} />
       </div>
-      {op === 'join' && (
-        <div className="grid gap-2">
-          <label className={labelClass}>Join with <span className="font-normal normal-case text-muted-foreground">(optional)</span></label>
-          <input
-            value={node.data.separator ?? ''}
-            onChange={(event) => update({ ...node, data: { ...node.data, separator: event.target.value || undefined } })}
-            onFocus={blockActive}
-            onBlur={unblockActive}
-            className={controlClass}
-            placeholder="Defaults to a comma"
-            aria-label="Join with"
-          />
-        </div>
-      )}
-      {op === 'aggregate' && (
+            {op === 'aggregate' && (
         <>
           <div className="grid gap-2">
             {/* Points at the first row's function select — the group's
@@ -132,81 +120,19 @@ function DataBody({
               Add total
             </button>
           </div>
-          <div className="grid gap-2">
-            <label className={labelClass} htmlFor={`${node.id}-groupby`}>Group by <span className="font-normal normal-case text-muted-foreground">(optional)</span></label>
-            <input
-              id={`${node.id}-groupby`}
-              aria-label="Group by"
-              className={controlClass}
-              value={node.data.field ?? ''}
-              onChange={(event) => update({ ...node, data: { ...node.data, field: event.target.value || undefined } })}
-              onFocus={blockActive}
-              onBlur={unblockActive}
-              placeholder="Leave blank to total the whole list"
-            />
-            <p className="text-xs text-muted-foreground">Grouping returns one row per distinct value, with the group field included.</p>
-          </div>
         </>
       )}
-      {op === 'limit' && (
-        <div className="grid gap-2">
-          <label className={labelClass} htmlFor={`${node.id}-count`}>Items to keep <span className="text-red-500">*</span></label>
-          <input
-            type="number"
-            min={1}
-            max={10000}
-            value={node.data.count ?? ''}
-            // Mirrors the executor's clamp (data-ops.ts: 1..10000). A control
-            // that accepts a value the executor silently rewrites is worse
-            // than no control — the flow would run with a number the builder
-            // never showed.
-            onChange={(event) => {
-              const raw = Number(event.target.value)
-              const count = Number.isFinite(raw) && raw >= 1 ? Math.min(10000, Math.floor(raw)) : undefined
-              update({ ...node, data: { ...node.data, count } })
-            }}
-            onFocus={blockActive}
-            onBlur={unblockActive}
-            className={controlClass}
-            id={`${node.id}-count`}
-            placeholder="10"
-            aria-label="Items to keep"
-          />
-          <p className="text-xs text-muted-foreground">Keeps the first N items. Defaults to 10.</p>
-        </div>
-      )}
-      {op === 'splitOut' && (
-        <div className="grid gap-2">
-          <label className={labelClass} htmlFor={`${node.id}-splitfield`}>List field <span className="font-normal normal-case text-muted-foreground">(optional)</span></label>
-          <input
-            value={node.data.field ?? ''}
-            onChange={(event) => update({ ...node, data: { ...node.data, field: event.target.value || undefined } })}
-            onFocus={blockActive}
-            onBlur={unblockActive}
-            className={controlClass}
-            id={`${node.id}-splitfield`}
-            placeholder="Leave blank if the input is already a list"
-            aria-label="List field"
-          />
-          <p className="text-xs text-muted-foreground">The list-bearing field to fan out on. Other fields are carried onto each item.</p>
-        </div>
-      )}
-      {op === 'parseJson' && (
-        <div className="grid gap-2">
-          <label className={labelClass}>Schema <span className="font-normal normal-case text-muted-foreground">(optional)</span></label>
-          <textarea
-            rows={4}
-            value={node.data.schema ?? ''}
-            onChange={(event) => update({ ...node, data: { ...node.data, schema: event.target.value || undefined } })}
-            onFocus={blockActive}
-            onBlur={unblockActive}
-            className={cn(controlClass, 'h-auto resize-y py-2 font-mono text-xs')}
-            placeholder="A JSON Schema describing the parsed shape"
-            aria-label="Schema"
-          />
-          <p className="text-xs text-muted-foreground">Optional — stored for reference.</p>
-        </div>
-      )}
+                        {/* Scalar params come from the manifest — visibility is data, not an
+          && anyone has to remember. Composite editors (clause rows, totals
+          rows) stay bespoke below. */}
+      <ParamFields
+        specs={DATA_PARAMS}
+        data={node.data as unknown as Record<string, unknown>}
+        nodeId={node.id}
+        onPatch={(patch: Record<string, unknown>) => update({ ...node, data: { ...node.data, ...patch } } as FlowNode)}
+        onFocusText={blockActive}
+        onBlurText={unblockActive}
+      />
       {op === 'filterArray' && (
         <div className="grid gap-2">
           <label className={labelClass}>Conditions <span className="text-red-500">*</span></label>

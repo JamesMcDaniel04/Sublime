@@ -469,6 +469,12 @@ const dataNode = z.object({
     count: z.number().int().min(1).max(10000).optional(),
     // splitOut: the list-bearing field to fan out on (other fields carried).
     field: z.string().optional(),
+    // dedupe: 'list' (default) removes duplicates within this input; 'flow'
+    // remembers across RUNS in flow static data, so a poll only ever emits an
+    // item once. See lib/flows/static-data.ts.
+    scope: z.enum(['list', 'flow']).optional(),
+    // dedupe(flow): which field identifies an item. Absent hashes the item.
+    idPath: z.string().optional(),
     // n8n-parity fan-out: run the op once PER ITEM of the input list.
     forEachItem: z.boolean().optional(),
     // Keep this node's output OUT of the `{{upstream}}` aggregate. Default: included.

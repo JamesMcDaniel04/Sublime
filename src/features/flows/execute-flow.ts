@@ -1,4 +1,5 @@
 import type { Job } from 'bullmq'
+import { takeUnseen } from './static-store'
 import { flowSettings } from '@/lib/flows/settings'
 import { createHash } from 'crypto'
 import { prisma } from '@/lib/prisma'
@@ -1242,6 +1243,10 @@ export async function runFlowExecution(
     startedAt: (run.startedAt ?? new Date()).toISOString(),
     timezone: settings.timezone,
     workspaceVars,
+    // Cross-run dedupe, scoped to this flow and this org. Locked inside the
+    // store so two concurrent runs of the same flow cannot both decide the
+    // same rows are new — the double-send dedupe exists to prevent.
+    takeUnseen: (items, idPath) => takeUnseen(job.organizationId, flow.id, items, idPath),
     runAgent,
     runAction,
     runCode,

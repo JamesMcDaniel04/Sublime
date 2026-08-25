@@ -55,6 +55,25 @@ export const DATA_PARAMS: ParamSpec[] = [
     showWhen: { op: ['splitOut'] },
   },
   {
+    key: 'scope',
+    label: 'Remember across runs',
+    control: 'select',
+    options: [
+      { value: 'list', label: 'No — only remove duplicates in this input' },
+      { value: 'flow', label: 'Yes — never emit an item this flow has seen before' },
+    ],
+    help: 'Cross-run memory is kept per flow and bounded to the most recent items.',
+    showWhen: { op: ['dedupe'] },
+  },
+  {
+    key: 'idPath',
+    label: 'Identify items by',
+    control: 'text',
+    placeholder: 'id',
+    help: 'Field that identifies an item. Blank compares the whole item.',
+    showWhen: { op: ['dedupe'], scope: ['flow'] },
+  },
+  {
     key: 'field',
     label: 'Group by',
     control: 'text',

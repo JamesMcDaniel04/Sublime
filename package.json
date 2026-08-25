@@ -13,7 +13,7 @@
     "worker:dev": "tsx watch src/lib/workers/runtime.ts",
     "worker:start": "tsx src/lib/workers/runtime.ts",
     "typecheck": "prisma generate && tsc --noEmit",
-    "lint": "eslint . --max-warnings 91",
+    "lint": "eslint . --max-warnings 89",
     "check": "npm run typecheck && npm run lint && npm run audit:prod && npm run build",
     "audit:prod": "npm audit --omit=dev --audit-level=moderate",
     "check:auth": "node scripts/check-auth-hardening.mjs",
