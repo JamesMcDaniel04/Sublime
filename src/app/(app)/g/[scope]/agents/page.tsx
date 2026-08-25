@@ -722,6 +722,7 @@ function AgentHQ() {
             onOpenAgent={selectAgent}
             onEditAgent={(id) => { setSelectedAgentId(id); setConfigureOpen(true); setFocusRunId(null) }}
             onCreateAgent={() => selectAgent(NEW_AGENT)}
+            onBrowseTemplates={() => setView('templates')}
           />
         </div>
       ) : (

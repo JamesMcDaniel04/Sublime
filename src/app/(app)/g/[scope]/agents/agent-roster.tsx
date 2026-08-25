@@ -13,6 +13,7 @@ import { useCachedJson } from '@/lib/client/use-cached-json'
 import { randomAvatarSeed } from '@/lib/agents/avatar'
 import { fallbackRoleLabel } from '@/lib/agents/role-label'
 import { hasRunHistory, mergeAgentKpis, pickKpiSlots, type AgentKpis } from '@/lib/agents/roster-stats'
+import { TeamSignalsBar } from './team-signals-bar'
 import type { SerializedWorker } from '@/lib/agents/worker-serialize'
 import { cn } from '@/lib/utils'
 import type { Agent } from '@/lib/types'
@@ -66,7 +67,7 @@ function KpiSplit({ kpis }: { kpis: AgentKpis }) {
     )
   }
   return (
-    <dl className="grid grid-cols-2 pt-3">
+    <dl className="grid grid-cols-2 pt-2">
       {slots.map((slot, index) => (
         <div key={slot.key} className={cn('text-center', index === 1 && 'border-l border-border/60')}>
           <dd className="text-lg font-semibold leading-tight tabular-nums">{slot.display}</dd>
@@ -95,7 +96,7 @@ function RosterTile({
   return (
     <div
       className={cn(
-        'group relative flex flex-col rounded-2xl border bg-card p-5 shadow-1 transition-all duration-200',
+        'group relative flex flex-col rounded-2xl border bg-card p-3.5 shadow-1 transition-all duration-200',
         'hover:-translate-y-0.5 hover:shadow-lg focus-within:ring-2 focus-within:ring-ring',
       )}
     >
@@ -118,7 +119,10 @@ function RosterTile({
       <div className="relative mx-auto">
         <AgentAvatar
           agent={{ id: entry.id, avatarSeed: entry.avatarSeed }}
-          size="xl"
+          // lg, not xl: the portrait still leads the card, but a 132px face
+          // pushed the name, role and numbers below the fold of a scan — the
+          // tile was reading as a poster rather than a directory entry.
+          size="lg"
           shape="tile"
           status={status}
           badge={entry.kind === 'agent' ? entry.agent.icon || undefined : undefined}
@@ -132,7 +136,7 @@ function RosterTile({
         />
       </div>
 
-      <div className="mt-3 min-w-0 text-center">
+      <div className="mt-2 min-w-0 text-center">
         {/* Stretched link: the whole tile activates this one control, so the
             card has a single focusable primary action with a real name. */}
         <button
@@ -151,7 +155,7 @@ function RosterTile({
           </span>
         </button>
 
-        <span className="mt-2 inline-block max-w-full truncate rounded-full bg-muted px-2.5 py-0.5 text-xs font-medium text-muted-foreground">
+        <span className="mt-1.5 inline-block max-w-full truncate rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
           {role}
         </span>
 
@@ -159,15 +163,15 @@ function RosterTile({
             thing standing between the agent and its work, say so instead of
             reporting how many agents share the avatar. */}
         {entry.kpis.waiting > 0 ? (
-          <p className="mt-1.5 text-xs font-medium text-amber-600 dark:text-amber-400">Needs you</p>
+          <p className="mt-1 text-[11px] font-medium text-amber-600 dark:text-amber-400">Needs you</p>
         ) : entry.kind === 'worker' ? (
-          <p className="mt-1.5 text-xs text-muted-foreground">
+          <p className="mt-1 text-[11px] text-muted-foreground">
             {memberCount} {memberCount === 1 ? 'agent' : 'agents'}
           </p>
         ) : null}
       </div>
 
-      <div className="mt-auto border-t border-border/60 pt-1">
+      <div className="mt-auto border-t border-border/60 pt-0.5">
         <KpiSplit kpis={entry.kpis} />
       </div>
     </div>
@@ -180,12 +184,15 @@ export function AgentRoster({
   onOpenAgent,
   onEditAgent,
   onCreateAgent,
+  onBrowseTemplates,
 }: {
   agents: Agent[]
   loading: boolean
   onOpenAgent: (agentId: string) => void
   onEditAgent: (agentId: string) => void
   onCreateAgent: () => void
+  /** Switches to the Templates view — the candidates strand's destination. */
+  onBrowseTemplates?: () => void
 }) {
   const { data: workerData, refresh: refreshWorkers } = useCachedJson<{ workers?: SerializedWorker[] }>(WORKERS_URL)
   const { data: statsData, refresh: refreshStats } = useCachedJson<{ stats?: Record<string, AgentKpis> }>(STATS_URL)
@@ -293,7 +300,13 @@ export function AgentRoster({
         </Button>
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+      <TeamSignalsBar
+        members={entries.map((entry) => ({ id: entry.id, name: entry.name, kpis: entry.kpis }))}
+        onOpenAgent={onOpenAgent}
+        onBrowseTemplates={onBrowseTemplates ?? onCreateAgent}
+      />
+
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
         {entries.map((entry) => (
           <RosterTile
             key={`${entry.kind}:${entry.id}`}
@@ -305,7 +318,7 @@ export function AgentRoster({
         <button
           type="button"
           onClick={onCreateAgent}
-          className="flex min-h-[17rem] flex-col items-center justify-center gap-2 rounded-2xl border border-dashed bg-muted/40 p-5 text-muted-foreground transition-colors duration-150 hover:border-foreground/30 hover:text-foreground"
+          className="flex min-h-[13rem] flex-col items-center justify-center gap-2 rounded-2xl border border-dashed bg-muted/40 p-3.5 text-muted-foreground transition-colors duration-150 hover:border-foreground/30 hover:text-foreground"
         >
           <UserPlus className="h-6 w-6" />
           <span className="text-sm font-medium">Hire an agent</span>
