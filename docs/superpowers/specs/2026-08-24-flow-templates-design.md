@@ -105,14 +105,32 @@ export path would leak precisely the thing the export path learned not to.
 
 ### 3. Storage
 
+**Correction to this spec, found while implementing.** The section above
+originally said "store a sanitized `FlowGraph`". That is wrong, and wrong in a
+way that would have shipped broken templates.
+
+A raw graph carries `agentId` references. Those are row ids in the SAVING
+workspace — meaningless in any other workspace, and dangling as soon as the
+agent is deleted. A template storing them produces a flow whose agent steps
+point at nothing.
+
+`toPortableFlow` already solves exactly this: it INLINES every referenced
+agent alongside the sanitized graph. And `fromPortableFlow`
+(`src/lib/import/portable.ts`) is its inverse, already used by
+`POST /api/flows/import`, which already materializes those inlined agents and
+remaps the refs — behaviour that already has DB-backed test coverage in
+`flows/__tests__/flow-import.test.ts`.
+
+So a flow template stores the **portable document**, not a graph, and
+provisioning one is the import path rather than a second materializer.
+
 No migration. `configuration` is already `Json?`:
 
 ```
 configuration: {
   kind: 'flow',
   visibility: 'org',
-  graph: <sanitized FlowGraph>,
-  trigger: <normalized trigger, secrets dropped>,
+  portable: <PortableFlow — sanitized graph + inlined agents>,
   icon, integrations, requiredIntegrations, departments,  // existing keys
   savedFromFlowId: <id>,   // provenance, not a live reference
 }
@@ -125,12 +143,12 @@ workspace by then. The stored graph is the template.
 ### 4. Provisioning reads the graph when present
 
 `loadDbTemplateRecipe` gains one branch: when `kind === 'flow'` and
-`config.graph` is a valid graph, carry it on the recipe and let the existing
-flow-materialization path use it instead of synthesizing one from
+`config.portable` parses via `fromPortableFlow`, carry the resulting graph and
+`agentsToCreate` on the recipe instead of synthesizing a flow from
 `instructions`. Everything else — required-integration checks, connection
 resolution, agent-ref rewriting, capacity limits, activation — is untouched.
 
-When `config.graph` is absent or fails validation, fall back to today's
+When `config.portable` is absent or fails validation, fall back to today's
 instructions-derived behaviour rather than erroring. An older template must
 keep working.
 
