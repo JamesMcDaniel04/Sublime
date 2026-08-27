@@ -75,6 +75,11 @@ export async function listEligiblePatterns(
   organizationId: string,
   userId: string,
   db = prisma,
+  // Injectable clock, matching isPatternEligible and loadOutcomeKindWeights.
+  // Without it the gate reads the wall clock, and a test fixture with frozen
+  // dates silently ages past MAX_STALE_DAYS — which is exactly what turned
+  // this suite red a month after it was written.
+  now: Date = new Date(),
 ): Promise<EligiblePattern[]> {
   try {
     const [patterns, firstEvent] = await Promise.all([
@@ -93,9 +98,9 @@ export async function listEligiblePatterns(
     // rejecting is suppressed until the history decays; kinds that led to
     // adopted automations rank first. The loader never throws — a failure
     // degrades to unweighted gating, never an empty list.
-    const weights = await loadOutcomeKindWeights(organizationId, userId, db)
+    const weights = await loadOutcomeKindWeights(organizationId, userId, db, now)
     return patterns
-      .filter((p) => isPatternEligible(p, firstEvent?.occurredAt ?? null))
+      .filter((p) => isPatternEligible(p, firstEvent?.occurredAt ?? null, now))
       .filter((p) => (weights.get(p.kind) ?? 0) > KIND_SUPPRESS_WEIGHT)
       .sort((a, b) => (weights.get(b.kind) ?? 0) - (weights.get(a.kind) ?? 0) || b.occurrenceCount - a.occurrenceCount)
       .map((p) => ({

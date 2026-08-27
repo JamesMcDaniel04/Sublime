@@ -87,7 +87,7 @@ test('NEVER throws when the write fails', async () => {
 
 test('kind list is the bounded spec set', () => {
   assert.deepEqual([...USER_EVENT_KINDS].sort(), [
-    'agent_created', 'agent_edited', 'agent_run_manual',
+    'agent_created', 'agent_edited', 'agent_published', 'agent_run_manual',
     'assistant_prompt', 'connection_added', 'connection_removed', 'copilot_prompt',
     'flow_created', 'flow_edited', 'flow_published', 'flow_run_feedback', 'flow_run_manual', 'flow_run_outcome',
     'goal_abandoned', 'goal_achieved', 'goal_contribution_linked', 'goal_created',

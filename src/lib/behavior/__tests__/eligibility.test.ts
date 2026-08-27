@@ -110,7 +110,7 @@ test('outcome weights at the gate: rejected kinds suppressed, adopted kinds rank
     },
     flow: { findMany: async () => [{ id: 'f-1', status: 'ACTIVE', publishedGraph: null }] },
   }
-  const result = await listEligiblePatterns('org-1', 'u-1', db as never)
+  const result = await listEligiblePatterns('org-1', 'u-1', db as never, now)
   assert.deepEqual(result.map((p) => p.kind), ['sequence', 'capability_gap'])
 })
 
@@ -127,6 +127,6 @@ test('outcome-weights load failure degrades to unweighted gating, not an empty l
     userSuggestion: { findMany: async () => { throw new Error('db down') } },
     flow: { findMany: async () => [] },
   }
-  const result = await listEligiblePatterns('org-1', 'u-1', db as never)
+  const result = await listEligiblePatterns('org-1', 'u-1', db as never, now)
   assert.equal(result.length, 1)
 })
