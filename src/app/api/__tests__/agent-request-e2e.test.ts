@@ -34,7 +34,7 @@ if (TEST_DB) {
   let llmServer: http.Server
 
   /** Swapped per test to script the model's next turn. */
-  let nextTurn: { kind: 'text'; text: string } | { kind: 'decline'; reason: string } = {
+  let nextTurn: { kind: 'text'; text: string } | { kind: 'decline'; reason: string } | { kind: 'ask'; question: string } = {
     kind: 'text',
     text: 'Acme is 40% below its usual usage; the renewal is at risk.',
   }
@@ -42,7 +42,9 @@ if (TEST_DB) {
   const contentFor = () =>
     nextTurn.kind === 'text'
       ? [{ type: 'text', text: nextTurn.text }]
-      : [{ type: 'tool_use', id: 'toolu_decline', name: 'decline_request', input: { reason: nextTurn.reason } }]
+      : nextTurn.kind === 'ask'
+        ? [{ type: 'tool_use', id: 'toolu_ask', name: 'ask_user', input: { question: nextTurn.question } }]
+        : [{ type: 'tool_use', id: 'toolu_decline', name: 'decline_request', input: { reason: nextTurn.reason } }]
 
   const post = (path: string, body: unknown) =>
     new NextRequest(`http://localhost${path}`, {
@@ -52,18 +54,17 @@ if (TEST_DB) {
     })
   const get = (path: string) => new NextRequest(`http://localhost${path}`, { method: 'GET' })
 
-  /** Poll until the request row leaves the non-terminal statuses. */
-  async function waitForSettle(requestId: string, timeoutMs = 20_000) {
+  /** Poll until the request reaches one of the given statuses. */
+  async function waitForStatus(requestId: string, statuses: string[], timeoutMs = 20_000) {
     const deadline = Date.now() + timeoutMs
     while (Date.now() < deadline) {
-      const row = await prisma.agentRequest.findFirst({
-        where: { id: requestId, organizationId },
-      })
-      if (row && !['pending', 'running'].includes(row.status)) return row
+      const row = await prisma.agentRequest.findFirst({ where: { id: requestId, organizationId } })
+      if (row && statuses.includes(row.status)) return row
       await new Promise((resolve) => setTimeout(resolve, 150))
     }
-    throw new Error(`request ${requestId} never settled`)
+    throw new Error(`request ${requestId} never reached ${statuses.join('/')}`)
   }
+  const waitForSettle = (requestId: string) => waitForStatus(requestId, ['completed', 'failed', 'declined', 'cancelled'])
 
   before(async () => {
     ;({ prisma } = await import('@/lib/prisma'))
@@ -85,7 +86,7 @@ if (TEST_DB) {
           role: 'assistant',
           model: 'qwen-qa',
           content: contentFor(),
-          stop_reason: nextTurn.kind === 'decline' ? 'tool_use' : 'end_turn',
+          stop_reason: nextTurn.kind === 'text' ? 'end_turn' : 'tool_use',
           usage: { input_tokens: 10, output_tokens: 5 },
         }
         if (body.stream) {
@@ -211,6 +212,29 @@ if (TEST_DB) {
       where: { id: payload.executionId, organizationId },
     })
     assert.equal(execution.status, 'completed')
+  })
+
+  test('a question from the agent parks the request as waiting, and the in-app reply settles it', async () => {
+    nextTurn = { kind: 'ask', question: 'Which Acme contract — the 2025 or the 2026 renewal?' }
+    const { POST } = await import('../agents/[id]/requests/route')
+    const payload = await (await POST(post(`/api/agents/${agentId}/requests`, { text: 'check the Acme contract' }))).json()
+
+    const waiting = await waitForStatus(payload.requestId, ['waiting', 'completed', 'failed'])
+    assert.equal(waiting.status, 'waiting', 'the ask_user pause is mirrored onto the request')
+    const parked = await prisma.agentExecution.findFirst({ where: { id: payload.executionId, organizationId } })
+    assert.equal(parked.status, 'waiting_for_input')
+
+    // Answer through the REAL reply route. The resume job carries no
+    // requestId of its own — this is the path that used to leave the request
+    // stuck at `waiting` after the run had long since finished.
+    nextTurn = { kind: 'text', text: 'The 2026 renewal is at risk.' }
+    const { POST: reply } = await import('../executions/[id]/reply/route')
+    const response = await reply(post(`/api/executions/${payload.executionId}/reply`, { message: 'The 2026 one' }))
+    assert.equal(response.status, 200)
+
+    const settled = await waitForSettle(payload.requestId)
+    assert.equal(settled.status, 'completed')
+    assert.match(settled.result, /2026 renewal is at risk/)
   })
 
   test('the goal composer reads its requests back, attributed to agent and requester', async () => {

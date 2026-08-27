@@ -436,9 +436,24 @@ export async function runAgentExecution(
   // The human ask this run answers, when there is one. Loaded before the
   // prompt is built because it frames the whole run; `null` for every
   // scheduled/webhook/manual run, which is why those see no behavior change.
-  const answeringRequest = data.requestId
+  //
+  // A resume job (ask_user reply — from the app OR a Slack thread) carries no
+  // requestId of its own, so recover it from the trigger the ORIGINAL job
+  // stamped on the execution row. Without this, answering an agent's question
+  // resumed the run as an anonymous one and the request sat at `waiting`
+  // until the cron reconcile noticed the run had finished.
+  let requestId = data.requestId
+  if (!requestId && data.executionId) {
+    const row = await prisma.agentExecution.findFirst({
+      where: { id: data.executionId, organizationId },
+      select: { trigger: true },
+    })
+    const trigger = row?.trigger as { type?: string; requestId?: string } | null
+    if (trigger?.type === 'request' && typeof trigger.requestId === 'string') requestId = trigger.requestId
+  }
+  const answeringRequest = requestId
     ? await prisma.agentRequest.findFirst({
-        where: { id: data.requestId, organizationId, agentTaskId: agent.id },
+        where: { id: requestId, organizationId, agentTaskId: agent.id },
         select: { id: true, text: true, requestedBy: { select: { name: true } } },
       })
     : null

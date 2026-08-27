@@ -13,12 +13,15 @@ import { apiLogger } from '@/lib/logger'
 import { captureError } from '@/lib/observability/sentry'
 import { getQueue, QUEUE_NAMES } from './config'
 import { Prisma } from '@/generated/prisma/client'
+import { moveAgentRequest } from '@/lib/agents/request-settle'
 
 export interface DeadLetterInput {
   queue: string
   jobId?: string
   executionId?: string
   organizationId?: string
+  /** Set when the dead job was answering a human-addressed AgentRequest. */
+  requestId?: string
   data: unknown
   error: string
 }
@@ -38,6 +41,19 @@ export async function recordDeadLetter(input: DeadLetterInput): Promise<void> {
         data: { status: 'failed', error: input.error.slice(0, 300), completedAt: new Date() },
       })
       .catch(() => undefined)
+  }
+
+  // The person who asked must not be left on "Working…" behind a dead job.
+  // The settle path is status-guarded, so a request the run already answered
+  // (or a human already cancelled) is a no-op here rather than clobbered.
+  if (input.requestId && input.organizationId) {
+    await moveAgentRequest({
+      requestId: input.requestId,
+      organizationId: input.organizationId,
+      to: 'failed',
+      executionId: input.executionId ?? null,
+      error: input.error.slice(0, 300),
+    }).catch(() => undefined)
   }
 
   // systemPrisma: worker-side cross-tenant capture; see flow twin.
@@ -85,6 +101,7 @@ export function deadLetterFromJob(queueName: string) {
       jobId: job.id,
       executionId: typeof data.executionId === 'string' ? data.executionId : undefined,
       organizationId: typeof data.organizationId === 'string' ? data.organizationId : undefined,
+      requestId: typeof data.requestId === 'string' ? data.requestId : undefined,
       data: job.data,
       error: error?.message || 'unknown error',
     })

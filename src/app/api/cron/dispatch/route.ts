@@ -165,6 +165,23 @@ export async function GET(request: Request) {
       apiLogger.error('cron/dispatch: pending reaper skipped (queue unreachable)', { error: capError(error) })
     }
 
+    // Human-addressed requests whose run settled without settling THEM. The
+    // reapers above terminalize executions, not requests, so without this a
+    // reaped run leaves its requester on "Working…" forever. Isolated so a
+    // sweep failure never aborts the tick.
+    try {
+      const { reconcileStrandedRequests } = await import('@/lib/agents/request-reconcile')
+      const { decryptRunValue } = await import('@/lib/agents/run-crypto')
+      const reconciled = await reconcileStrandedRequests(async (executionId) => {
+        // systemPrisma: id-keyed read inside a global sweep (CRON_SECRET-gated).
+        const row = await systemPrisma.agentExecution.findUnique({ where: { id: executionId }, select: { output: true } })
+        return decryptRunValue<{ summary?: string }>(row?.output)?.summary ?? null
+      })
+      if (reconciled > 0) apiLogger.warn('cron/dispatch: reconciled stranded agent requests', { reconciled })
+    } catch (error) {
+      apiLogger.error('cron/dispatch: request reconciliation failed', { error: capError(error) })
+    }
+
     // Same recovery for flows: a crashed inline flow execution leaves its run
     // `running` forever, which also wedges that flow's schedule via the
     // overlap guard. Isolated so a reaper failure never aborts the tick.
