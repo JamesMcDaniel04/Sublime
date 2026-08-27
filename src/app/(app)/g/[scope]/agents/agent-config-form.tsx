@@ -25,6 +25,7 @@ import { cn } from '@/lib/utils'
 import { connectedSlugSet, missingIntegrations } from '@/lib/templates/relevance'
 import { AgentHttpToolsDialog } from '@/components/agents/agent-http-tools-dialog'
 import { agentHttpToolSchema, type AgentHttpTool } from '@/lib/agents/http-tools'
+import { GRANT_LEVELS, parseGrants, UNRESTRICTED_GRANTS, type GrantLevel } from '@/lib/agents/grants'
 import {
   cadenceOf,
   cronToTime,
@@ -124,6 +125,8 @@ export type AgentDraft = {
   autoAnswerFromMemory?: boolean
   /** When true, write-plane tool calls (Slack/Email/HTTP/deliveries) pause for approval. */
   requireApproval?: boolean
+  /** What the agent may DO per plane; '*' is everything not listed. */
+  grants?: Record<string, GrantLevel>
   /** Structured output contract: non-empty = runs must return JSON with these properties. */
   outputFields?: { name: string; type: 'string' | 'number' | 'boolean' | 'object' | 'array'; description?: string }[]
   /** User-configured HTTP API endpoints exposed to the model as tools. */
@@ -184,6 +187,7 @@ const emptyDraft: AgentDraft = {
   goal: '',
   autoAnswerFromMemory: true,
   requireApproval: false,
+  grants: { '*': 'read' },
   outputFields: [],
   httpTools: [],
   alwaysStrategize: false,
@@ -583,6 +587,9 @@ export function AgentConfigForm({
       goal: source.goal || '',
       autoAnswerFromMemory: source.autoAnswerFromMemory !== false,
       requireApproval: source.requireApproval === true,
+      // A legacy agent (no grant) has always had write everywhere; show that
+      // truthfully rather than as read-only, and saving makes it explicit.
+      grants: parseGrants((source as { grants?: unknown }).grants) ?? { ...UNRESTRICTED_GRANTS },
       outputFields: Array.isArray(source.outputFields) ? source.outputFields : [],
       httpTools: Array.isArray((source as { httpTools?: unknown[] }).httpTools)
         ? ((source as { httpTools?: unknown[] }).httpTools ?? []).flatMap((entry) => {
@@ -791,6 +798,7 @@ export function AgentConfigForm({
           goal: draft.goal,
           autoAnswerFromMemory: draft.autoAnswerFromMemory !== false,
           requireApproval: draft.requireApproval === true,
+          grants: draft.grants ?? { '*': 'read' },
           alwaysStrategize: draft.alwaysStrategize === true,
           maxTurns: draft.maxTurns ?? 16,
           outputFields: draft.outputFields ?? [],
@@ -1127,6 +1135,58 @@ export function AgentConfigForm({
             onCheckedChange={(on) => setDraft({ ...draft, requireApproval: on })}
           />
         </div>
+      </div>
+      {/* ── What it may do ─────────────────────────────────────────────
+          Approval decides whether a write PAUSES; this decides whether the
+          tool exists at all. A blocked or read-only plane never reaches the
+          model, so there is nothing for injected content to aim at. */}
+      <div className="rounded-lg border p-3" role="group" aria-labelledby="agent-grants-heading">
+        {/* A heading for a group of controls, not a label for one — each row's
+            radiogroup carries its own accessible name. */}
+        <p id="agent-grants-heading" className="text-sm font-medium">What it may do</p>
+        <p className="mt-0.5 text-xs text-muted-foreground">
+          Per connected tool. New agents start read-only; widen only what this agent's job needs.
+        </p>
+        <ul className="mt-3 space-y-2">
+          {[
+            ...draft.integrations.map((key) => ({ key: key.trim().toLowerCase(), label: key })),
+            ...((draft.httpTools?.length ?? 0) > 0 ? [{ key: 'http', label: 'HTTP endpoints' }] : []),
+            // Invoking a flow is a write (a flow has side effects), so an agent
+            // allowed to run flows needs this plane widened — show it.
+            ...(draft.allowFlows ? [{ key: 'flow', label: 'Saved flows' }] : []),
+            { key: '*', label: 'Everything else (MCP servers, tools not listed)' },
+          ]
+            .filter((row, index, rows) => rows.findIndex((r) => r.key === row.key) === index)
+            .map((row) => {
+              const level = draft.grants?.[row.key] ?? draft.grants?.['*'] ?? 'read'
+              return (
+                <li key={row.key} className="flex flex-wrap items-center justify-between gap-2 text-sm">
+                  <span className={cn('min-w-0 truncate', row.key === '*' && 'text-muted-foreground')}>{row.label}</span>
+                  <div className="flex gap-1" role="radiogroup" aria-label={`Access for ${row.label}`}>
+                    {GRANT_LEVELS.map((option) => (
+                      <button
+                        key={option}
+                        type="button"
+                        role="radio"
+                        aria-checked={level === option}
+                        onClick={() => setDraft({ ...draft, grants: { ...(draft.grants ?? {}), [row.key]: option } })}
+                        className={cn(
+                          'rounded-full border px-2.5 py-0.5 text-xs font-medium capitalize transition-colors',
+                          level === option
+                            ? option === 'blocked'
+                              ? 'border-red-300 bg-red-50 text-red-800 dark:border-red-500/40 dark:bg-red-500/15 dark:text-red-200'
+                              : 'border-horizon-300 bg-horizon-50 text-horizon-700 dark:border-horizon-500/40 dark:bg-horizon-500/15 dark:text-horizon-200'
+                            : 'border-border/60 bg-card text-muted-foreground hover:bg-accent hover:text-foreground',
+                        )}
+                      >
+                        {option}
+                      </button>
+                    ))}
+                  </div>
+                </li>
+              )
+            })}
+        </ul>
       </div>
 
       {/* ── More settings (advanced, collapsed by default) ──────────── */}

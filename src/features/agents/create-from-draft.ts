@@ -1,4 +1,5 @@
 import type { AgentTask } from '@/generated/prisma/client'
+import { DEFAULT_NEW_AGENT_GRANTS } from '@/lib/agents/grants'
 import { prisma } from '@/lib/prisma'
 import { syncAgentConnectors } from '@/lib/connectors/agent-connectors'
 import { DEFAULT_AGENT_MODEL } from '@/lib/llm/model-runner'
@@ -61,6 +62,8 @@ export async function createAgentFromDraft(
       visibility: 'private',
       organizationId: ctx.organizationId,
       userId: ctx.userId,
+      // A drafted agent is a human's — read-only until they widen it.
+      grants: DEFAULT_NEW_AGENT_GRANTS,
       metadata: {
         title: normalized.title,
         description: normalized.description,

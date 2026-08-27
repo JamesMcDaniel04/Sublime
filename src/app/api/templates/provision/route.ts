@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { provisionedGrants } from '@/lib/agents/grants'
 import { Prisma } from '@/generated/prisma/client'
 import { prisma, systemPrisma } from '@/lib/prisma'
 import { DEFAULT_AGENT_MODEL } from '@/lib/llm/model-runner'
@@ -129,6 +130,8 @@ async function materializeAgent(
       visibility: 'private',
       organizationId,
       userId,
+      // Write on the planes the template declared, read on everything else.
+      grants: provisionedGrants(spec.integrations),
       metadata: {
         title: spec.title,
         description,

@@ -1,4 +1,5 @@
 import { readAgentMetadata } from '@/lib/agents/metadata'
+import { parseGrants } from '@/lib/agents/grants'
 import { normalizeRoleLabel } from '@/lib/agents/role-label'
 import { DEFAULT_AGENT_MODEL } from '@/lib/llm/model-runner'
 
@@ -17,6 +18,8 @@ export function serializeAgent(agent: {
   visibility: string
   status: string
   schedule: unknown
+  /** Optional so test fixtures and older callers need not carry it. */
+  grants?: unknown
   createdAt: Date
   lastExecutedAt: Date | null
   executionCount: number
@@ -56,6 +59,8 @@ export function serializeAgent(agent: {
     // a shared avatar.
     workerId: agent.workerId ?? null,
     visibility: agent.visibility || 'shared',
+    // null = legacy, unrestricted; the form shows that as write-everywhere.
+    grants: parseGrants(agent.grants),
     status: agent.status.toLowerCase(),
     schedule: agent.schedule,
     createdAt: agent.createdAt,

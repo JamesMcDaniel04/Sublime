@@ -26,6 +26,9 @@ type Profile = {
     icon: string
     status: string
     visibility: string
+    integrations: string[]
+    allowFlows: boolean
+    grants: Record<string, 'read' | 'write' | 'blocked'> | null
     lastExecutedAt: string | null
     createdAt: string
   }
@@ -211,6 +214,39 @@ export default function AgentProfilePage() {
         ) : (
           <p className="text-sm text-muted-foreground">No runs yet. Ask it something below, or run it from settings.</p>
         )}
+      </section>
+
+      <section className="space-y-3" aria-labelledby="profile-grants">
+        <h2 id="profile-grants" className="text-sm font-semibold">What it may do</h2>
+        {/* The trust surface: what this teammate is allowed to touch, stated
+            per tool rather than inferred from whose account it runs under. */}
+        <ul className="divide-y divide-border/60 rounded-lg border border-border/60 bg-card text-sm">
+          {[...agent.integrations.map((key) => ({ key: key.trim().toLowerCase(), label: key })), ...(agent.allowFlows ? [{ key: 'flow', label: 'Saved flows' }] : []), { key: '*', label: 'Everything else' }]
+            .filter((row, index, rows) => rows.findIndex((r) => r.key === row.key) === index)
+            .map((row) => {
+              const level = agent.grants === null ? 'write' : (agent.grants[row.key] ?? agent.grants['*'] ?? 'read')
+              return (
+                <li key={row.key} className="flex items-center justify-between gap-3 px-3 py-2">
+                  <span className={cn('truncate', row.key === '*' && 'text-muted-foreground')}>{row.label}</span>
+                  <span
+                    className={cn(
+                      'rounded-full px-2 py-0.5 text-xs font-medium capitalize',
+                      level === 'blocked'
+                        ? 'bg-red-50 text-red-800 dark:bg-red-500/15 dark:text-red-200'
+                        : level === 'write'
+                          ? 'bg-horizon-50 text-horizon-700 dark:bg-horizon-500/15 dark:text-horizon-200'
+                          : 'bg-muted text-muted-foreground',
+                    )}
+                  >
+                    {level === 'write' ? 'Read & write' : level}
+                  </span>
+                </li>
+              )
+            })}
+        </ul>
+        <p className="text-xs text-muted-foreground">
+          {agent.grants === null ? 'This agent predates permissions and runs unrestricted. Set them in settings.' : 'Change these in settings. A blocked or read-only tool is never offered to the model.'}
+        </p>
       </section>
 
       <section className="space-y-3" aria-labelledby="profile-ask">

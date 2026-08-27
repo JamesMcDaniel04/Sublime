@@ -14,6 +14,8 @@ export interface AuditInput {
   organizationId: string
   action: string
   actorUserId?: string | null
+  /** The agent that acted, when actorKind is 'agent'. */
+  actorAgentId?: string | null
   actorKind?: 'user' | 'agent' | 'system'
   resourceType?: string | null
   resourceId?: string | null
@@ -41,6 +43,7 @@ export async function recordAudit(input: AuditInput): Promise<void> {
         organizationId: input.organizationId,
         action: input.action,
         actorUserId: input.actorUserId ?? null,
+        actorAgentId: input.actorAgentId ?? null,
         actorKind: input.actorKind ?? 'user',
         resourceType: input.resourceType ?? null,
         resourceId: input.resourceId ?? null,

@@ -6,6 +6,8 @@ import { recordUserEvent } from '@/lib/behavior/record-event'
 import { agentHttpToolSchema, MAX_AGENT_HTTP_TOOLS } from '@/lib/agents/http-tools'
 import { agentOwnerScope, agentReadScope, agentWriteScope, VISIBILITY } from '@/lib/server/visibility'
 import { readAgentMetadata } from '@/lib/agents/metadata'
+import { DEFAULT_NEW_AGENT_GRANTS } from '@/lib/agents/grants'
+import { Prisma } from '@/generated/prisma/client'
 import { serializeAgent } from '@/lib/agents/serialize'
 import { ROLE_LABEL_MAX_CHARS, normalizeRoleLabel } from '@/lib/agents/role-label'
 import { indexAgent, removeAgentFromGraph } from '@/lib/rag/indexer'
@@ -83,6 +85,9 @@ const agentSchema = z.object({
   allowSubagents: z.boolean().optional(),
   // Restrict which agents it may run. Empty/omitted = any visible agent.
   subagentIds: z.array(z.string()).optional(),
+  // What the agent may DO per plane (lib/agents/grants.ts). Omitted on create
+  // = read-only until a human widens it; null = unrestricted (legacy rows).
+  grants: z.record(z.string().trim().min(1).max(80), z.enum(['read', 'write', 'blocked'])).nullable().optional(),
   // Lets this agent invoke saved flows as tools (deterministic multi-step work,
   // e.g. HTTP/API enrichment, that belongs in a flow graph).
   allowFlows: z.boolean().optional(),
@@ -175,6 +180,7 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
       goal: data.goal?.trim() ? data.goal.trim() : null,
       organizationId: auth.organizationId,
       userId: auth.dbUser.id,
+      grants: data.grants === undefined ? DEFAULT_NEW_AGENT_GRANTS : data.grants === null ? Prisma.DbNull : data.grants,
       metadata: {
         title: data.title,
         description: data.description,
@@ -235,6 +241,12 @@ export const PUT = withAuthenticatedApi(async (request, auth) => {
   if (sharingChanged && existing.userId !== auth.dbUser.id) {
     throw new ApiError('Only the agent owner can change who it is shared with', 403, 'FORBIDDEN')
   }
+  // Widening what an agent may DO is the owner's (or an admin's) call, for the
+  // same reason sharing is: an editor must not be able to hand someone else's
+  // agent write access to a plane its owner kept read-only.
+  if (body.grants !== undefined && existing.userId !== auth.dbUser.id && !auth.isAdmin) {
+    throw new ApiError('Only the agent owner can change what it may do', 403, 'FORBIDDEN')
+  }
   const metadata = existing.metadata && typeof existing.metadata === 'object' && !Array.isArray(existing.metadata) ? existing.metadata : {}
   const existingMetadata = readAgentMetadata(existing.metadata)
   const specialistArea = body.specialistArea
@@ -256,6 +268,7 @@ export const PUT = withAuthenticatedApi(async (request, auth) => {
       ...(body.folder !== undefined && { folder: body.folder || null }),
       ...(body.visibility !== undefined && { visibility: normalizeVisibility(body.visibility) }),
       ...(body.goal !== undefined && { goal: body.goal?.trim() ? body.goal.trim() : null }),
+      ...(body.grants !== undefined && { grants: body.grants === null ? Prisma.DbNull : body.grants }),
       metadata: {
         ...metadata,
         ...(body.title !== undefined && { title: body.title }),

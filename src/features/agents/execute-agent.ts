@@ -6,6 +6,8 @@ import { getQueue, QUEUE_NAMES, workersEnabled } from '@/lib/queue/config'
 import { inlineExecution } from '@/lib/queue/execution-mode'
 import { apiLogger } from '@/lib/logger'
 import { recordAudit } from '@/lib/audit'
+import { classifyTool, grantFor, parseGrants, toolAllowed, type AgentGrants } from '@/lib/agents/grants'
+import { BUILTIN_CONNECTORS } from '@/lib/connectors/registry'
 import { resolveHttpAuthRef } from '@/lib/flows/http-auth-ref'
 import { agentHttpToolDefinition, agentHttpToolsFromMetadata } from '@/lib/agents/http-tools'
 import { AgentHttpToolClient } from '@/lib/agents/http-tools-run'
@@ -291,8 +293,14 @@ async function loadTools(
   providers: string[],
   ownerUserId?: string | null,
   query?: string,
-  flowOptions?: { allowFlows?: boolean; flowIds?: string[]; resource?: GoalResource; depth?: number },
+  flowOptions?: { allowFlows?: boolean; flowIds?: string[]; resource?: GoalResource; depth?: number; grants?: AgentGrants | null },
 ) {
+  // The agent's own permission grant. Enforced HERE, at discovery, rather than
+  // at call time: a tool the grant forbids is never offered to the model, so
+  // there is nothing for injected content to steer toward. null = legacy,
+  // unrestricted. See lib/agents/grants.ts for the fail-closed rules.
+  const grants = flowOptions?.grants ?? null
+  const readOnlyPlanes = new Set(BUILTIN_CONNECTORS.filter((c) => !c.isWrite).map((c) => c.providerId))
   // Every plane contributes to one list; the cap/priority policy is applied once
   // at the end (capDiscoveredTools) so write tools aren't crowded out. Plane
   // discovery/binding lives in ./tool-planes, shared with the flow tool catalog
@@ -301,7 +309,16 @@ async function loadTools(
   const pushGroup = (group: ToolPlaneGroup, options: { cap?: number; namePrefix?: string } = {}) => {
     if (!group.client) return
     const prefix = options.namePrefix ?? group.provider
-    const tools = options.cap ? group.tools.slice(0, options.cap) : group.tools
+    const level = grantFor(grants, group.provider)
+    if (level === 'blocked') return
+    const planeIsReadOnly = !group.isWrite && readOnlyPlanes.has(group.provider)
+    let hidden = 0
+    const tools = (options.cap ? group.tools.slice(0, options.cap) : group.tools).filter((tool) => {
+      const allowed = toolAllowed(level, classifyTool({ name: tool.name, annotations: tool.annotations, planeIsReadOnly }))
+      if (!allowed) hidden += 1
+      return allowed
+    })
+    if (hidden > 0) apiLogger.info('agent grant hid tools', { organizationId, provider: group.provider, level, hidden })
     for (const tool of tools) {
       discovered.push({
         name: toolName(prefix, tool.name),
@@ -425,6 +442,10 @@ export async function runAgentExecution(
     where: { id: agentId, organizationId, status: 'ACTIVE' },
   })
   if (!agentRow) throw new Error('Agent not found or inactive')
+  // From the LIVE row (agentRow), deliberately not the published config a run
+  // executes: a permission change must bind the very next run, not the next
+  // publish.
+  const agentGrants = parseGrants((agentRow as { grants?: unknown }).grants)
 
   // A run executes the PUBLISHED config when the agent has one, so editing a
   // production agent no longer changes it mid-flight. An agent that has never
@@ -814,14 +835,22 @@ export async function runAgentExecution(
       // this agent's depth + 1 (see loadFlowPlaneGroups), so agent<->flow
       // cycles are bounded by the subflow cap instead of resetting per hop.
       depth: data.depth ?? 0,
+      // Read from the LIVE row, never the published snapshot: a permission
+      // change must bind the very next run.
+      grants: agentGrants,
     })
     // User-configured HTTP API endpoints (metadata.httpTools): each becomes a
     // real tool executed through the flow HTTP engine with vault credentials.
     // Added after the cap so a configured endpoint is never crowded out by
     // discovered tools — the user explicitly built it for this agent.
+    const httpLevel = grantFor(agentGrants, 'http')
     for (const httpTool of agentHttpToolsFromMetadata(agentMetadata)) {
       const definition = agentHttpToolDefinition(httpTool)
       if (bindings.has(definition.name)) continue
+      // Configured endpoints bypass plane discovery, so the grant applies here:
+      // a GET/HEAD endpoint is a read, anything else a write.
+      const method = String((httpTool as { method?: string }).method ?? 'GET').toUpperCase()
+      if (!toolAllowed(httpLevel, method === 'GET' || method === 'HEAD' ? 'read' : 'write')) continue
       tools.push(definition)
       bindings.set(definition.name, {
         provider: 'http',
@@ -1193,6 +1222,7 @@ export async function runAgentExecution(
               organizationId,
               executionId: execution.id,
               actorUserId: userId,
+              actorAgentId: agent.id,
               actorKind: 'agent',
               action: isWriteProvider(heldBinding.provider) ? 'tool.write' : 'tool.call',
               tool: held.toolName,
@@ -1485,6 +1515,7 @@ export async function runAgentExecution(
             organizationId,
             executionId: execution.id,
             actorUserId: userId,
+            actorAgentId: agent.id,
             actorKind: 'agent',
             action: isWriteProvider(binding.provider) ? 'tool.write' : 'tool.call',
             tool: call.name,

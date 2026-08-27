@@ -32,6 +32,10 @@ if (TEST_DB) {
   let agentId: string
   let goalId: string
   let llmServer: http.Server
+  let realFetch: typeof fetch
+  /** Tool names the fake model was offered on its most recent turn. */
+  let lastTools: string[] | null = null
+  const MCP_URL = 'https://example.com/qa-mcp'
 
   /** Swapped per test to script the model's next turn. */
   let nextTurn: { kind: 'text'; text: string } | { kind: 'decline'; reason: string } | { kind: 'ask'; question: string } = {
@@ -80,6 +84,7 @@ if (TEST_DB) {
       req.on('data', (chunk) => (raw += chunk))
       req.on('end', () => {
         const body = JSON.parse(raw || '{}')
+        if (Array.isArray(body.tools)) lastTools = body.tools.map((tool: { name: string }) => tool.name)
         const message = {
           id: 'msg_qa',
           type: 'message',
@@ -149,9 +154,38 @@ if (TEST_DB) {
       },
     })
     goalId = goal.id
+
+    // A user-added MCP server with one annotated read tool, one heuristically
+    // read tool, and one write tool — served by fetch interception on a public
+    // https host (localhost is SSRF-blocked by design, exactly as in
+    // template-flow-e2e). This is what the grant is enforced against.
+    await prisma.mcpConnection.create({
+      data: { organizationId, userId, name: 'qatools', serverUrl: MCP_URL, authType: 'none', isActive: true },
+    })
+    realFetch = globalThis.fetch
+    globalThis.fetch = (async (input: any, init?: RequestInit) => {
+      const url = typeof input === 'string' ? input : input?.url ?? String(input)
+      if (!url.startsWith(MCP_URL)) return realFetch(input, init)
+      const body = JSON.parse(String(init?.body ?? '{}'))
+      const reply = (result: unknown) =>
+        new Response(JSON.stringify({ jsonrpc: '2.0', id: body.id ?? null, result }), { status: 200, headers: { 'content-type': 'application/json' } })
+      if (body.method === 'initialize') return reply({ protocolVersion: '2024-11-05', capabilities: { tools: {} }, serverInfo: { name: 'qatools', version: '1' } })
+      if (body.method === 'tools/list') {
+        return reply({
+          tools: [
+            { name: 'qa_read', description: 'Read a thing.', inputSchema: { type: 'object', properties: {} }, annotations: { readOnlyHint: true } },
+            { name: 'qa_list_items', description: 'List things.', inputSchema: { type: 'object', properties: {} } },
+            { name: 'qa_write', description: 'Write a thing.', inputSchema: { type: 'object', properties: {} } },
+          ],
+        })
+      }
+      if (body.method === 'tools/call') return reply({ content: [{ type: 'text', text: 'ok' }] })
+      return new Response('{}', { status: 200, headers: { 'content-type': 'application/json' } })
+    }) as typeof fetch
   })
 
   after(async () => {
+    if (realFetch) globalThis.fetch = realFetch
     delete process.env.QWEN_API_KEY
     delete process.env.QWEN_BASE_URL
     await new Promise<void>((resolve) => llmServer.close(() => resolve()))
@@ -292,5 +326,34 @@ if (TEST_DB) {
     const response = await POST(post(`/api/agents/${agentId}/requests`, { text: '   ' }))
     assert.ok(response.status >= 400)
     assert.equal(await prisma.agentExecution.count({ where: { organizationId } }), before)
+  })
+
+  test("the grant decides which tools the model is even offered", async () => {
+    nextTurn = { kind: 'text', text: 'Done.' }
+    const { POST } = await import('../agents/[id]/requests/route')
+    const { Prisma } = await import('@/generated/prisma/client')
+    const offeredUnder = async (grants: Record<string, string> | null) => {
+      await prisma.agentTask.updateMany({
+        where: { id: agentId, organizationId },
+        data: { grants: grants === null ? Prisma.DbNull : grants },
+      })
+      lastTools = null
+      const payload = await (await POST(post(`/api/agents/${agentId}/requests`, { text: 'ping' }))).json()
+      await waitForSettle(payload.requestId)
+      // Assigned from inside the LLM stub's request handler, so TS's narrowing
+      // after `lastTools = null` above is wrong here.
+      const offered = (lastTools as string[] | null) ?? []
+      return offered.filter((name) => name.startsWith('qatools_')).sort()
+    }
+    // read: the annotated read tool and the heuristically-read tool, never the write.
+    assert.deepEqual(await offeredUnder({ qatools: 'read' }), ['qatools_qa_list_items', 'qatools_qa_read'])
+    // blocked: the plane does not exist as far as the model knows.
+    assert.deepEqual(await offeredUnder({ qatools: 'blocked' }), [])
+    // an explicit grant that never mentions the plane: read-only, not open.
+    assert.deepEqual(await offeredUnder({ slack: 'write' }), ['qatools_qa_list_items', 'qatools_qa_read'])
+    // write: everything.
+    assert.deepEqual(await offeredUnder({ '*': 'write' }), ['qatools_qa_list_items', 'qatools_qa_read', 'qatools_qa_write'])
+    // legacy null: unrestricted — shipping grants changed nothing for existing agents.
+    assert.deepEqual(await offeredUnder(null), ['qatools_qa_list_items', 'qatools_qa_read', 'qatools_qa_write'])
   })
 }

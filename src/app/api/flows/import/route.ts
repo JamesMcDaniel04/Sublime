@@ -1,4 +1,5 @@
 import { Prisma } from '@/generated/prisma/client'
+import { provisionedGrants } from '@/lib/agents/grants'
 import { z } from 'zod'
 import { createHash } from 'node:crypto'
 import { prisma } from '@/lib/prisma'
@@ -270,6 +271,8 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
                 visibility: 'private',
                 organizationId: auth.organizationId,
                 userId: auth.dbUser.id,
+                // Write on the planes the imported spec declared, read elsewhere.
+                grants: provisionedGrants(agent.integrations),
                 metadata,
               },
               select: { id: true },

@@ -203,7 +203,11 @@ if (TEST_DB) {
     const createRes = await (await import('../agents/route')).POST(
       // allowFlows opts this agent into the flow tool-plane; empty flowIds =
       // any agent-callable flow (the QA Echo Child above).
-      post('/api/agents', { title: 'QA Capture Agent', instructions: 'Run the QA Echo Child flow, then report done.', allowFlows: true }),
+      // New agents default to read-only, and invoking a flow is a write — so
+      // the human enabling flows also widens that plane, as the form's
+      // "Saved flows" row does. Without this the model is never offered the
+      // flow tool and the run below has nothing to capture.
+      post('/api/agents', { title: 'QA Capture Agent', instructions: 'Run the QA Echo Child flow, then report done.', allowFlows: true, grants: { '*': 'read', flow: 'write' } }),
     )
     assert.equal(createRes.status, 200)
     const agentId = (await createRes.json()).agent.id

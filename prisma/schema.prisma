@@ -261,6 +261,11 @@ model AgentTask {
   organizationId  String    @db.Uuid
   userId          String?
   metadata        Json?
+  /// What this agent may DO, per plane — see src/lib/agents/grants.ts.
+  /// NULL = legacy, unrestricted (its behaviour before grants existed). Read
+  /// LIVE by every run, never from publishedConfig: a permission change must
+  /// take effect immediately, not on the next publish.
+  grants          Json?
   /// The config scheduled and triggered runs actually execute.
   ///
   /// Mirrors Flow.publishedGraph. NULL means this agent has never been
@@ -683,6 +688,10 @@ model AuditEvent {
   // operator can still read (including the organization.deleted row itself).
   organizationId String?  @db.Uuid
   actorUserId    String?
+  /// Which AGENT acted, when actorKind is 'agent'. actorUserId stays the human
+  /// whose credentials it ran with; this makes the agent dimension queryable
+  /// without a join through executions.
+  actorAgentId   String?
   actorKind      String   @default("user") // 'user' | 'agent' | 'system'
   action         String // e.g. 'tool.write', 'agent.config_changed'
   resourceType   String?
@@ -700,6 +709,7 @@ model AuditEvent {
 
   @@index([organizationId, createdAt])
   @@index([organizationId, action])
+  @@index([organizationId, actorAgentId])
   @@map("audit_events")
 }
 
