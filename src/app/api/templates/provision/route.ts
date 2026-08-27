@@ -1,10 +1,9 @@
 import { z } from 'zod'
-import { provisionedGrants } from '@/lib/agents/grants'
 import { Prisma } from '@/generated/prisma/client'
 import { prisma, systemPrisma } from '@/lib/prisma'
-import { DEFAULT_AGENT_MODEL } from '@/lib/llm/model-runner'
 import { ApiError, withAuthenticatedApi } from '@/lib/server/api-handler'
 import { templateVisibleTo } from '@/lib/templates/visibility'
+import { MANUAL_SCHEDULE, materializeAgent, type MaterializeSpec } from '@/lib/templates/materialize-agent'
 import { deliveryForSeed, getSeedByKey, instructionsForSeed, type SeedTemplate, type TemplateAgentSpec } from '@/lib/templates/catalogue'
 import { graphNeedsBackingFlow, missingRequiredProviders, resolveGraphToolConnections, rewriteGraphAgentRefs } from '@/lib/templates/provision-plan'
 import { validateSlackDeliveryChannel } from '@/lib/templates/validate-delivery'
@@ -15,8 +14,7 @@ import { syncAgentConnectors } from '@/lib/connectors/agent-connectors'
 import { recordUserEvent } from '@/lib/behavior/record-event'
 import type { AgentSchedule } from '@/lib/scheduling/due'
 import type { FlowGraph } from '@/lib/flows/graph'
-import { withTemplateOutputStandard } from '@/lib/templates/output-standard'
-import { assertAgentCapacity, assertFlowCapacity, assertSpecialistAreaCapacity } from '@/lib/billing/enforce'
+import { assertFlowCapacity, assertSpecialistAreaCapacity } from '@/lib/billing/enforce'
 import { DEPARTMENTS, departmentsForTools, type Department } from '@/lib/templates/departments'
 import { effectiveTemplateEstimate } from '@/lib/goals/calibrate-estimates'
 
@@ -55,10 +53,6 @@ const bodySchema = z
     message: 'Provide exactly one of seedKey or templateId',
   })
 
-const MANUAL_SCHEDULE: AgentSchedule = {
-  type: 'manual', time: '', cron: '', timezone: 'UTC', isActive: false,
-}
-
 function scheduleForSeed(seed: SeedTemplate | undefined): AgentSchedule {
   const schedule = seed?.trigger?.type === 'schedule' ? seed.trigger.schedule : undefined
   return schedule
@@ -89,67 +83,6 @@ function combinedAgentSpec(seed: SeedTemplate) {
 // zod-inferred trigger/graph shapes (mirrors src/app/api/flows/route.ts).
 function jsonValue(value: unknown) {
   return JSON.parse(JSON.stringify(value ?? null))
-}
-
-type MaterializeSpec = {
-  title: string
-  instructions: string
-  model?: string
-  integrations: string[]
-  requiredIntegrations?: string[]
-  description?: string
-  /** Extra agent metadata (skills, goal, output fields…) carried by
-   *  DB-authored templates; seeds leave it empty. */
-  extraMetadata?: Record<string, unknown>
-  /** Roster identity to file this agent under, so a template joins an existing
-   *  avatar instead of standing up a new one. */
-  workerId?: string | null
-}
-
-/** Create one AgentTask mirroring POST /api/agents' create shape (an ACTIVE, runnable agent). */
-async function materializeAgent(
-  spec: MaterializeSpec,
-  organizationId: string,
-  userId: string,
-  schedule: AgentSchedule = MANUAL_SCHEDULE,
-  specialistArea = departmentsForTools(spec.integrations)[0],
-): Promise<string> {
-  await assertAgentCapacity(organizationId)
-  await assertSpecialistAreaCapacity(organizationId, specialistArea)
-  // Preserve the catalogue description a user saw on the template card; fall
-  // back to the title only when the spec carries none (embedded flow specs).
-  const description = spec.description?.trim() || spec.title
-  const agent = await prisma.agentTask.create({
-    data: {
-      agentType: 'CUSTOM',
-      description,
-      objective: withTemplateOutputStandard(spec.instructions),
-      ...(spec.workerId ? { workerId: spec.workerId } : {}),
-      schedule,
-      status: 'ACTIVE',
-      visibility: 'private',
-      organizationId,
-      userId,
-      // Write on the planes the template declared, read on everything else.
-      grants: provisionedGrants(spec.integrations),
-      metadata: {
-        title: spec.title,
-        description,
-        model: spec.model ?? DEFAULT_AGENT_MODEL,
-        integrations: spec.integrations,
-        specialistArea,
-        requiredIntegrations: spec.requiredIntegrations ?? [],
-        skills: [],
-        icon: '',
-        allowSubagents: false,
-        subagentIds: [],
-        autoAnswerFromMemory: true,
-        ...(spec.extraMetadata ?? {}),
-      },
-    },
-    select: { id: true },
-  })
-  return agent.id
 }
 
 type DbTemplateRecipe = {

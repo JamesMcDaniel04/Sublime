@@ -123,6 +123,7 @@ if (TEST_DB) {
     { name: 'GET /api/goals/[id]/requests', run: async () => (await import('../goals/[id]/requests/route')).GET(req(`/api/goals/${goalId}/requests`)) },
     { name: 'GET /api/agents/[id]', run: async () => (await import('../agents/[id]/route')).GET(req('/api/agents/no-such-id')) },
     { name: 'GET /api/inbox', run: async () => (await import('../inbox/route')).GET(req('/api/inbox')) },
+    { name: 'GET /api/store', run: async () => (await import('../store/route')).GET(req('/api/store')) },
     { name: 'GET /api/agents/[id]/requests', run: async () => (await import('../agents/[id]/requests/route')).GET(req('/api/agents/no-such-id/requests')) },
     // Dynamic [id] routes — real seeded ids.
     { name: 'GET /api/agents/[id]/knowledge', run: async () => (await import('../agents/[id]/knowledge/route')).GET(req(`/api/agents/${agentId}/knowledge`)) },

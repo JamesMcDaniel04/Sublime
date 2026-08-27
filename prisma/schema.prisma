@@ -49,6 +49,8 @@ model Organization {
   agentWorkers              AgentWorker[]
   agentRequests             AgentRequest[]
   externalAgentBindings     ExternalAgentBinding[]
+  storeListings             StoreListing[]
+  agentInstalls             AgentInstall[]
   apiKeys                   ApiKey[]
   vectorDocuments           FlowVectorDocument[]
   executions                AgentExecution[]
@@ -298,6 +300,7 @@ model AgentTask {
   requests        AgentRequest[]
   evalDatasets    EvalDataset[]
   externalBinding ExternalAgentBinding?
+  install         AgentInstall?
 
   @@index([organizationId, status])
   @@index([organizationId, userId, status, updatedAt])
@@ -408,6 +411,61 @@ model AgentMemory {
   // `prisma migrate diff` from proposing to drop it as drift.
   @@index([embeddingVec], map: "agent_memories_embedding_vec_hnsw")
   @@map("agent_memories")
+}
+
+/// A published agent package: a versioned definition another workspace can
+/// install as a teammate. `definition` is a snapshot (see lib/store/listing.ts)
+/// and NEVER carries a secret — an external listing names the publisher's
+/// endpoint, and each installer supplies its own credential. No organizationId
+/// column on purpose: public listings are cross-workspace by design, so this
+/// model sits outside the tenant guard and every query scopes by visibility.
+model StoreListing {
+  id                      String   @id @default(cuid())
+  publisherOrganizationId String   @db.Uuid
+  slug                    String
+  name                    String
+  description             String   @default("")
+  category                String   @default("Community")
+  /// 'native' | 'external'
+  kind                    String
+  /// 'organization' (the publisher's workspace only) | 'public'
+  visibility              String   @default("organization")
+  /// Bumped on every re-publish; installs remember the version they took.
+  version                 Int      @default(1)
+  definition              Json
+  sourceAgentTaskId       String?
+  publishedById           String?
+  isActive                Boolean  @default(true)
+  createdAt               DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt               DateTime @updatedAt @db.Timestamptz(6)
+
+  publisher Organization   @relation(fields: [publisherOrganizationId], references: [id], onDelete: Cascade)
+  installs  AgentInstall[]
+
+  @@unique([publisherOrganizationId, slug])
+  @@index([visibility, isActive, updatedAt])
+  @@map("store_listings")
+}
+
+/// One workspace's install of a listing: which version it took and which
+/// agent it became, so an update can be offered without overwriting local
+/// edits (compare the agent's updatedAt to this row's).
+model AgentInstall {
+  id               String   @id @default(cuid())
+  organizationId   String   @db.Uuid
+  listingId        String
+  agentTaskId      String   @unique
+  installedVersion Int
+  installedById    String?
+  createdAt        DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt        DateTime @updatedAt @db.Timestamptz(6)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  listing      StoreListing @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  agentTask    AgentTask    @relation(fields: [agentTaskId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, listingId])
+  @@map("agent_installs")
 }
 
 /// Where an external agent lives. One per agent; the agent's `runtime` must be
