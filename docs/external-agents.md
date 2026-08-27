@@ -26,6 +26,7 @@ or a custom header) and this JSON body:
   "request": { "id": "cm…", "text": "look at the Acme renewal", "requesterName": "Jamie" },
   "objective": "Monitor renewal risk across named accounts.",
   "input": "look at the Acme renewal",
+  "goalId": "cm…",
   "callbackUrl": "https://<your-sublime>/api/agents/<agentId>/external/callback",
   "callbackToken": "…"
 }
@@ -33,7 +34,8 @@ or a custom header) and this JSON body:
 
 `request` is null for a scheduled or manually triggered run; `objective` is
 the agent's standing job so you can frame the ask the way a native run would
-(the ask is one task *within* that job).
+(the ask is one task *within* that job). `goalId` is the goal the ask belongs
+to, or null — see *Returning work* below.
 
 ### Your endpoint → Sublime
 
@@ -49,6 +51,38 @@ Answer in one of two ways:
 
 The initial POST is given 30 seconds. Anything that takes longer should
 answer `202` and call back.
+
+## Returning work (the coding-agent loop)
+
+An answer may carry tracked work — for a coding agent, the pull request it
+opened. Add `work` to the inline response or the callback body:
+
+```json
+{
+  "output": "Opened PR #42 fixing the login redirect.",
+  "work": [
+    {
+      "subject": "Fix login redirect after SSO",
+      "produced": "https://github.com/acme/app/pull/42",
+      "subjectRef": "acme/app#42",
+      "body": "Changed the callback handler to honour `next`…",
+      "assigneeHint": "jamie@acme.com"
+    }
+  ]
+}
+```
+
+Each entry lands on the ask's goal as a work item — the same ledger a native
+agent's `log_work` writes to — so a person disposes of it (used, edited,
+skipped) and its outcome feeds the goal's learning. `subject` and `produced`
+are required; `subjectRef` is a stable external id so re-runs do not file the
+same PR twice; `assigneeHint` is a name or email and resolves best-effort.
+Up to 20 entries per answer.
+
+This is deliberate, not automatic: an answer without `work` stays an answer.
+The ask's `goalId` is in the payload; when it is null there is nowhere for
+work to land, and Sublime records `external.work_dropped` on the run instead
+of failing it.
 
 ## What Sublime guarantees
 

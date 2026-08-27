@@ -13,6 +13,8 @@ const bodySchema = z.object({
   status: z.enum(['completed', 'failed']).optional(),
   output: z.unknown().optional(),
   error: z.string().max(2000).optional(),
+  /** Tracked work to land on the request's goal — see docs/external-agents.md. */
+  work: z.unknown().optional(),
 })
 
 /**

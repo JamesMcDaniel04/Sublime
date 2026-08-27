@@ -24,6 +24,52 @@ export const MAX_EXTERNAL_TIMEOUT_MINUTES = 24 * 60
 /** How long the initial POST may take. An agent that needs longer answers 202 and calls back. */
 export const EXTERNAL_DISPATCH_TIMEOUT_MS = 30_000
 const MAX_OUTPUT_CHARS = 50_000
+/** Work entries an answer may carry. Bounded like every other inbound list. */
+export const MAX_WORK_ENTRIES = 20
+const MAX_WORK_FIELD_CHARS = 200
+const MAX_WORK_BODY_CHARS = 50_000
+
+/**
+ * A unit of tracked work the agent declares alongside its answer — for a
+ * coding agent, one pull request. Lands on the request's goal through the
+ * same GoalWork path a native agent's log_work uses, so it enters the
+ * disposition ledger and the rule learning like any other agent output.
+ */
+export type ExternalWorkEntry = {
+  subject: string
+  produced: string
+  body: string | null
+  bodyFormat: 'markdown' | 'html'
+  /** Stable external id (a PR id) so a re-run does not file the same work twice. */
+  subjectRef: string | null
+  /** A name or email; resolved server-side, never an error when unknown. */
+  assigneeHint: string | null
+}
+
+const str = (value: unknown, max: number): string | null =>
+  typeof value === 'string' && value.trim() ? value.trim().slice(0, max) : null
+
+/** Pure, fail-safe: junk entries are dropped, the list is capped, nothing throws. */
+export function parseWorkEntries(value: unknown): ExternalWorkEntry[] {
+  if (!Array.isArray(value)) return []
+  const out: ExternalWorkEntry[] = []
+  for (const raw of value.slice(0, MAX_WORK_ENTRIES)) {
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) continue
+    const entry = raw as Record<string, unknown>
+    const subject = str(entry.subject, MAX_WORK_FIELD_CHARS)
+    const produced = str(entry.produced, MAX_WORK_FIELD_CHARS)
+    if (!subject || !produced) continue
+    out.push({
+      subject,
+      produced,
+      body: str(entry.body, MAX_WORK_BODY_CHARS),
+      bodyFormat: entry.bodyFormat === 'html' ? 'html' : 'markdown',
+      subjectRef: str(entry.subjectRef, MAX_WORK_FIELD_CHARS),
+      assigneeHint: str(entry.assigneeHint, MAX_WORK_FIELD_CHARS),
+    })
+  }
+  return out
+}
 
 export type ExternalDispatchPayload = {
   protocol: typeof EXTERNAL_PROTOCOL
@@ -34,6 +80,8 @@ export type ExternalDispatchPayload = {
   /** The agent's standing job, so the service can frame the ask the way a native run would. */
   objective: string
   input: string
+  /** The goal the ask belongs to, if any — where returned `work` will land. Null means work is dropped. */
+  goalId: string | null
   callbackUrl: string
   /** Single-use, bound to this run. Present it as x-callback-token. */
   callbackToken: string
@@ -61,7 +109,7 @@ export function callbackUrlFor(agentId: string, base = process.env.NEXT_PUBLIC_A
 }
 
 export type ExternalOutcome =
-  | { kind: 'completed'; output: string }
+  | { kind: 'completed'; output: string; work: ExternalWorkEntry[] }
   | { kind: 'accepted' }
   | { kind: 'failed'; error: string }
 
@@ -79,8 +127,9 @@ export function interpretExternalResponse(status: number, body: unknown): Extern
   if (status >= 200 && status < 300) {
     if (record?.status === 'failed') return { kind: 'failed', error: String(record.error ?? 'The external agent reported a failure.').slice(0, 500) }
     const output = record?.output
-    if (typeof output === 'string' && output.trim()) return { kind: 'completed', output: output.slice(0, MAX_OUTPUT_CHARS) }
-    if (output !== undefined && output !== null) return { kind: 'completed', output: JSON.stringify(output).slice(0, MAX_OUTPUT_CHARS) }
+    const work = parseWorkEntries(record?.work)
+    if (typeof output === 'string' && output.trim()) return { kind: 'completed', output: output.slice(0, MAX_OUTPUT_CHARS), work }
+    if (output !== undefined && output !== null) return { kind: 'completed', output: JSON.stringify(output).slice(0, MAX_OUTPUT_CHARS), work }
     return { kind: 'failed', error: 'The external agent answered without an output.' }
   }
   return { kind: 'failed', error: `The external agent responded with HTTP ${status}.` }

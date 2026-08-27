@@ -14,6 +14,7 @@ import { notify } from '@/lib/notifications/service'
 import { encryptRunText, encryptRunValue } from '@/lib/agents/run-crypto'
 import { agentDisplayName } from '@/lib/agents/metadata'
 import { moveAgentRequest } from '@/lib/agents/request-settle'
+import { prismaGoalsPort } from '@/lib/integrations/goals-port'
 import {
   authHeadersFor, buildExternalPayload, callbackUrlFor, dispatchToExternalAgent, mintCallbackToken, type ExternalOutcome,
 } from './external-agent'
@@ -31,7 +32,7 @@ export async function runExternalAgentRun(args: {
   objective: string
   executionId: string
   input: string
-  request: { id: string; text: string; requesterName: string | null } | null
+  request: { id: string; text: string; requesterName: string | null; goalId: string | null } | null
   fetchImpl?: typeof fetch
 }): Promise<{ status: string; executionId: string; summary?: string }> {
   const { organizationId, executionId, agentId } = args
@@ -58,7 +59,9 @@ export async function runExternalAgentRun(args: {
     endpointUrl: binding.endpointUrl,
     headers: authHeadersFor(binding),
     payload: buildExternalPayload({
-      runId: executionId, agentId, request: args.request, objective: args.objective, input: args.input,
+      runId: executionId, agentId,
+      request: args.request ? { id: args.request.id, text: args.request.text, requesterName: args.request.requesterName } : null,
+      objective: args.objective, input: args.input, goalId: args.request?.goalId ?? null,
       callbackUrl: callbackUrlFor(agentId), callbackToken: token,
     }),
     fetchImpl: args.fetchImpl,
@@ -104,6 +107,37 @@ export async function settleExternalRun(args: {
   const agent = await prisma.agentTask.findFirst({ where: { id: agentId, organizationId }, select: { id: true, description: true, metadata: true } })
   if (completed) {
     await prisma.agentTask.updateMany({ where: { id: agentId, organizationId }, data: { lastExecutedAt: new Date(), executionCount: { increment: 1 }, lastResult: jsonValue({ summary: outcome.output }) } }).catch(() => undefined)
+  }
+
+  // Work the agent declared lands on the request's goal through the same
+  // path a native agent's log_work takes — it enters the disposition ledger
+  // and the rule learning like any other agent output. Deliberate, not
+  // automatic: an answer without `work` stays an answer. Without a goal there
+  // is nowhere for it to land, and the run says so rather than losing it
+  // silently.
+  if (completed && outcome.work.length > 0) {
+    const request = args.requestId
+      ? await prisma.agentRequest.findFirst({ where: { id: args.requestId, organizationId }, select: { goalId: true } })
+      : null
+    const goalId = request?.goalId ?? null
+    if (!goalId) {
+      await prisma.workflowEvent.create({ data: { executionId, kind: 'external.work_dropped', payload: jsonValue({ count: outcome.work.length, reason: 'the request names no goal' }) } }).catch(() => undefined)
+    } else {
+      const port = prismaGoalsPort(organizationId, { type: 'agent', id: agentId })
+      let logged = 0
+      for (const entry of outcome.work) {
+        try {
+          await port.writeWork(goalId, {
+            subject: entry.subject, subjectRef: entry.subjectRef, produced: entry.produced, body: entry.body,
+            bodyFormat: entry.bodyFormat, assigneeHint: entry.assigneeHint, signals: null, probeRuleId: null,
+          })
+          logged += 1
+        } catch (error) {
+          apiLogger.warn('external work entry not logged', { executionId, goalId, error: error instanceof Error ? error.message : String(error) })
+        }
+      }
+      await prisma.workflowEvent.create({ data: { executionId, kind: 'external.work_logged', payload: jsonValue({ goalId, count: logged, of: outcome.work.length }) } }).catch(() => undefined)
+    }
   }
 
   if (args.requestId) {

@@ -495,7 +495,7 @@ export async function runAgentExecution(
   const answeringRequest = requestId
     ? await prisma.agentRequest.findFirst({
         where: { id: requestId, organizationId, agentTaskId: agent.id },
-        select: { id: true, text: true, requestedBy: { select: { name: true } } },
+        select: { id: true, text: true, goalId: true, requestedBy: { select: { name: true } } },
       })
     : null
 
@@ -755,7 +755,7 @@ export async function runAgentExecution(
       executionId: execution.id,
       input: data.input || agent.objective,
       request: answeringRequest
-        ? { id: answeringRequest.id, text: answeringRequest.text, requesterName: answeringRequest.requestedBy?.name ?? null }
+        ? { id: answeringRequest.id, text: answeringRequest.text, requesterName: answeringRequest.requestedBy?.name ?? null, goalId: answeringRequest.goalId ?? null }
         : null,
     })
   }

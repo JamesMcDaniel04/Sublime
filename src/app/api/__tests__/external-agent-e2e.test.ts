@@ -26,7 +26,8 @@ if (TEST_DB) {
   let userId: string
   let agentId: string
   let realFetch: typeof fetch
-  let mode: 'sync' | 'async' | 'down' = 'sync'
+  let mode: 'sync' | 'async' | 'down' | 'sync-work' = 'sync'
+  let goalId: string
   const captured: Array<{ headers: Record<string, string>; body: any }> = []
 
   const post = (path: string, body: unknown, headers: Record<string, string> = {}) =>
@@ -52,6 +53,7 @@ if (TEST_DB) {
     organizationId = seeded.organizationId
     userId = seeded.userId
     await prisma.user.update({ where: { id: userId }, data: { name: 'Jamie' } })
+    goalId = (await prisma.goal.create({ data: { organizationId, name: 'Ship the SSO fix', kind: 'retention', createdByUserId: userId, targetValue: 1, startValue: 0, targetDate: new Date('2026-12-31') } })).id
 
     realFetch = globalThis.fetch
     globalThis.fetch = (async (input: any, init?: RequestInit) => {
@@ -61,6 +63,12 @@ if (TEST_DB) {
       captured.push({ headers, body: JSON.parse(String(init?.body ?? '{}')) })
       if (mode === 'down') return new Response('nope', { status: 503 })
       if (mode === 'async') return new Response(null, { status: 202 })
+      if (mode === 'sync-work') {
+        return new Response(JSON.stringify({
+          output: 'Opened PR #42 fixing the login redirect.',
+          work: [{ subject: 'Fix login redirect after SSO', produced: 'https://github.com/acme/app/pull/42', subjectRef: 'acme/app#42', body: 'Changed the callback handler.', assigneeHint: 'Jamie' }],
+        }), { status: 200, headers: { 'content-type': 'application/json' } })
+      }
       return new Response(JSON.stringify({ output: 'External says: Acme is at risk.' }), { status: 200, headers: { 'content-type': 'application/json' } })
     }) as typeof fetch
   })
@@ -166,6 +174,37 @@ if (TEST_DB) {
     const request = await settled(payload.requestId)
     assert.equal(request.status, 'failed')
     assert.match(request.error, /never called back/)
+  })
+
+  test('a coding agent\'s answer lands its pull request as tracked work on the ask\'s goal', async () => {
+    mode = 'sync-work'; captured.length = 0
+    const { POST } = await import('../agents/[id]/requests/route')
+    const payload = await (await POST(post(`/api/agents/${agentId}/requests`, { text: 'fix the login redirect', goalId }))).json()
+    const request = await settled(payload.requestId)
+    assert.equal(request.status, 'completed')
+    assert.equal(captured[0].body.goalId, goalId, 'the ask tells the agent where work will land')
+    const work = await prisma.goalWork.findMany({ where: { organizationId, goalId, resourceType: 'agent', resourceId: agentId } })
+    assert.equal(work.length, 1)
+    assert.equal(work[0].produced, 'https://github.com/acme/app/pull/42')
+    assert.equal(work[0].subjectRef, 'acme/app#42')
+    assert.equal(work[0].subject, 'Fix login redirect after SSO')
+    assert.equal(work[0].assigneeUserId, userId, 'assigneeHint "Jamie" resolved to the member')
+    assert.equal(work[0].disposition, 'pending', 'a person disposes of it, like any agent work')
+    const events = await prisma.workflowEvent.findMany({ where: { executionId: payload.executionId, kind: 'external.work_logged' } })
+    assert.equal(events.length, 1)
+    assert.equal(events[0].payload.count, 1)
+  })
+
+  test('work returned for a goal-less ask is recorded as dropped, not lost silently and not failed', async () => {
+    mode = 'sync-work'
+    const before = await prisma.goalWork.count({ where: { organizationId } })
+    const { POST } = await import('../agents/[id]/requests/route')
+    const payload = await (await POST(post(`/api/agents/${agentId}/requests`, { text: 'fix it again' }))).json()
+    const request = await settled(payload.requestId)
+    assert.equal(request.status, 'completed', 'the answer still lands')
+    assert.equal(await prisma.goalWork.count({ where: { organizationId } }), before, 'nowhere to land, nothing filed')
+    const events = await prisma.workflowEvent.findMany({ where: { executionId: payload.executionId, kind: 'external.work_dropped' } })
+    assert.equal(events.length, 1)
   })
 
   test('an MCP client with agents:execute can ask a Sublime agent and read the answer', async () => {
