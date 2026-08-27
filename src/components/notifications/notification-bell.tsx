@@ -7,6 +7,8 @@ import { Button } from '@/components/ui/button'
 import { useAuth } from '@/hooks/use-auth'
 import { getSnapshot } from '@/lib/client/snapshot'
 import { notificationHref } from '@/lib/notifications/notification-href'
+import { NeedsYouSection } from './needs-you-section'
+import type { NeedsYouItem } from '@/lib/inbox/needs-you'
 import { cn } from '@/lib/utils'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { SuggestionApprovalDialog } from '@/components/intelligence/suggestion-approval-dialog'
@@ -52,6 +54,20 @@ export function NotificationBell({ buttonClassName }: { buttonClassName?: string
   const [open, setOpen] = useState(false)
   const [items, setItems] = useState<NotificationItem[]>([])
   const [unread, setUnread] = useState(0)
+  // "Needs you": the queue of decisions waiting on this person, polled while
+  // the panel is open. Kept separate from the shell snapshot so opening the
+  // bell is the only thing that pays for it.
+  const [needsYou, setNeedsYou] = useState<NeedsYouItem[]>([])
+  const loadNeedsYou = useCallback(async () => {
+    try {
+      const response = await fetch('/api/inbox', { cache: 'no-store' })
+      if (!response.ok) return
+      const payload = await response.json()
+      setNeedsYou(Array.isArray(payload.items) ? payload.items : [])
+    } catch {
+      // A failed poll is not worth a toast; the next one retries.
+    }
+  }, [])
   const [pushState, setPushState] = useState<PushState>('unknown')
   const [detail, setDetail] = useState<NotificationDetail | null>(null)
   const [detailLoading, setDetailLoading] = useState(false)
@@ -133,6 +149,12 @@ export function NotificationBell({ buttonClassName }: { buttonClassName?: string
     }
     probe().catch(() => setPushState('unavailable'))
   }, [])
+
+  useEffect(() => {
+    void loadNeedsYou()
+    const timer = setInterval(() => void loadNeedsYou(), open ? 20_000 : 90_000)
+    return () => clearInterval(timer)
+  }, [open, loadNeedsYou])
 
   const markRead = async () => {
     if (!unread) return
@@ -246,6 +268,14 @@ export function NotificationBell({ buttonClassName }: { buttonClassName?: string
             {unread > 9 ? '9+' : unread}
           </span>
         )}
+        {needsYou.length > 0 && (
+          <span
+            className="absolute -bottom-1 -right-1 flex h-4 min-w-[16px] items-center justify-center rounded-full bg-amber-500 px-1 text-[10px] font-medium text-white"
+            title={`${needsYou.length} waiting on you`}
+          >
+            {needsYou.length > 9 ? '9+' : needsYou.length}
+          </span>
+        )}
       </Button>
       {open && (
         <>
@@ -259,7 +289,8 @@ export function NotificationBell({ buttonClassName }: { buttonClassName?: string
               {pushState === 'enabled' && <button className="text-xs font-medium text-muted-foreground hover:text-red-600" onClick={disablePush}>Disable push</button>}
             </div>
             <div className="max-h-96 overflow-y-auto">
-              {items.length === 0 && <p className="px-3 py-6 text-center text-sm text-muted-foreground">No notifications yet.</p>}
+              <NeedsYouSection items={needsYou} onChanged={() => void loadNeedsYou()} onNavigate={() => setOpen(false)} />
+              {items.length === 0 && needsYou.length === 0 && <p className="px-3 py-6 text-center text-sm text-muted-foreground">No notifications yet.</p>}
               {items.map((n) => {
                 const content = <>
                   {levelIcon(n.level)}
