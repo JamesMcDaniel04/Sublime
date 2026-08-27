@@ -5,6 +5,7 @@ import { agentReadScope } from '@/lib/server/visibility'
 import { goalReadWhere } from '@/lib/server/goal-scope'
 import { rateLimit } from '@/lib/ratelimit'
 import { createAgentRequest, MAX_REQUEST_TEXT_CHARS, RequestDispatchError } from '@/lib/agents/request-dispatch'
+import { AGENT_REQUEST_SELECT, serializeAgentRequest } from '@/lib/agents/request-serialize'
 
 export const runtime = 'nodejs'
 
@@ -16,6 +17,23 @@ const bodySchema = z.object({
 
 /** pathname: /api/agents/<agentId>/requests */
 const agentIdFrom = (pathname: string) => decodeURIComponent(pathname.split('/').at(-2) ?? '')
+
+/** One agent's ask history — what its profile shows. */
+export const GET = withAuthenticatedApi(async (request, auth) => {
+  const agentId = agentIdFrom(request.nextUrl.pathname)
+  const agent = await prisma.agentTask.findFirst({
+    where: { id: agentId, organizationId: auth.organizationId, ...agentReadScope(auth.dbUser.id) },
+    select: { id: true },
+  })
+  if (!agent) throw new ApiError('Agent not found', 404, 'NOT_FOUND')
+  const rows = await prisma.agentRequest.findMany({
+    where: { organizationId: auth.organizationId, agentTaskId: agentId },
+    orderBy: { createdAt: 'desc' },
+    take: 30,
+    select: AGENT_REQUEST_SELECT,
+  })
+  return { success: true, items: rows.map(serializeAgentRequest) }
+}, { requires: 'member' })
 
 export const POST = withAuthenticatedApi(async (request, auth) => {
   const agentId = agentIdFrom(request.nextUrl.pathname)

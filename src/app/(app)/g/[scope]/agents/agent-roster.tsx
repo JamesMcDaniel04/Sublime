@@ -1,9 +1,11 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Loader2, Plus, Settings2, Sparkles, Trash2, UserPlus } from 'lucide-react'
+import { Loader2, Plus, Settings2, Sparkles, Trash2, UserPlus, UserRound } from 'lucide-react'
 import { toast } from 'sonner'
+import Link from 'next/link'
 import { AgentAvatar, type AgentAvatarStatus } from '@/components/agents/agent-avatar'
+import { useScopedHref } from '@/lib/client/scoped-href'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
@@ -84,10 +86,13 @@ function RosterTile({
   entry,
   onOpen,
   onConfigure,
+  profileHref,
 }: {
   entry: RosterEntry
   onOpen: () => void
   onConfigure: () => void
+  /** The agent's profile page; absent for a worker, which has no page of its own. */
+  profileHref?: string
 }) {
   const memberCount = entry.kind === 'worker' ? entry.members.length : 1
   const role = entry.roleLabel
@@ -113,6 +118,16 @@ function RosterTile({
       >
         <Settings2 className="h-3.5 w-3.5" />
       </button>
+      {profileHref && (
+        <Link
+          href={profileHref}
+          aria-label={`Profile for ${entry.name}`}
+          title="Profile"
+          className="absolute left-3 top-3 z-10 rounded-md p-1.5 text-muted-foreground/60 transition-colors hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring group-hover:text-muted-foreground"
+        >
+          <UserRound className="h-3.5 w-3.5" />
+        </Link>
+      )}
 
       {/* The portrait is the card's subject, not a marker beside a name — so it
           leads, centred and large, the way a directory photo does. */}
@@ -195,6 +210,7 @@ export function AgentRoster({
   onBrowseTemplates?: () => void
 }) {
   const { data: workerData, refresh: refreshWorkers } = useCachedJson<{ workers?: SerializedWorker[] }>(WORKERS_URL)
+  const href = useScopedHref()
   const { data: statsData, refresh: refreshStats } = useCachedJson<{ stats?: Record<string, AgentKpis> }>(STATS_URL)
   const [editing, setEditing] = useState<SerializedWorker | null>(null)
 
@@ -313,6 +329,7 @@ export function AgentRoster({
             entry={entry}
             onOpen={() => openEntry(entry)}
             onConfigure={() => configureEntry(entry)}
+            profileHref={entry.kind === 'agent' ? href(`/agents/${entry.id}`) : undefined}
           />
         ))}
         <button

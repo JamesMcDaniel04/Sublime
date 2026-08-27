@@ -6,34 +6,10 @@ import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { AgentAvatar } from '@/components/agents/agent-avatar'
+import { OPEN_REQUEST_STATUSES, RequestList } from '@/components/agents/request-list'
 import type { SerializedAgentRequest } from '@/lib/agents/request-serialize'
 
 type PickableAgent = { id: string; title: string; roleLabel: string | null; avatarSeed: string | null }
-
-/** Statuses still moving — while any request is in one, keep polling. */
-const OPEN_STATUSES = new Set(['pending', 'running', 'waiting'])
-
-const STATUS_LABEL: Record<string, string> = {
-  pending: 'Queued',
-  running: 'Working…',
-  waiting: 'Needs you',
-  completed: 'Answered',
-  declined: 'Declined',
-  failed: 'Failed',
-  cancelled: 'Cancelled',
-}
-
-const STATUS_TONE: Record<string, string> = {
-  pending: 'text-muted-foreground',
-  running: 'text-horizon-700 dark:text-horizon-200',
-  waiting: 'text-amber-600 dark:text-amber-400',
-  completed: 'text-emerald-700 dark:text-emerald-400',
-  // A decline is a correct outcome, so it reads as neutral information —
-  // never as the red an actual failure gets.
-  declined: 'text-muted-foreground',
-  failed: 'text-destructive',
-  cancelled: 'text-muted-foreground',
-}
 
 /**
  * Ask an agent for something, on the goal it belongs to.
@@ -95,7 +71,7 @@ export function AgentRequestComposer({ goalId }: { goalId: string }) {
 
   // Poll only while something is actually in flight, then stop. Requests are
   // minutes-long, so a permanent timer would be pure waste.
-  const hasOpen = useMemo(() => requests.some((request) => OPEN_STATUSES.has(request.status)), [requests])
+  const hasOpen = useMemo(() => requests.some((request) => OPEN_REQUEST_STATUSES.has(request.status)), [requests])
   useEffect(() => {
     if (!hasOpen) return
     timer.current = setTimeout(() => void loadRequests(), 4000)
@@ -193,30 +169,7 @@ export function AgentRequestComposer({ goalId }: { goalId: string }) {
         </div>
       </div>
 
-      {requests.length > 0 && (
-        <ul className="space-y-2">
-          {requests.map((request) => (
-            <li key={request.id} className="rounded-lg border border-border/60 bg-card p-3 text-sm">
-              <div className="flex flex-wrap items-baseline justify-between gap-2">
-                <span className="font-medium">
-                  {request.requesterName ? `${request.requesterName} → ` : ''}
-                  {request.agentName}
-                </span>
-                <span className={cn('text-xs font-medium', STATUS_TONE[request.status] ?? 'text-muted-foreground')}>
-                  {STATUS_LABEL[request.status] ?? request.status}
-                </span>
-              </div>
-              <p className="mt-1 text-muted-foreground">{request.text}</p>
-              {request.result && <p className="mt-2 whitespace-pre-wrap">{request.result}</p>}
-              {request.error && (
-                <p className="mt-2 text-muted-foreground">
-                  {request.status === 'declined' ? request.error : `Couldn't finish: ${request.error}`}
-                </p>
-              )}
-            </li>
-          ))}
-        </ul>
-      )}
+      <RequestList requests={requests} />
     </section>
   )
 }
