@@ -2,7 +2,7 @@
 
 Migrations run during the **Vercel build** (`scripts/vercel-migrate.mjs` →
 `prisma migrate deploy`), which means the schema changes **minutes before the
-new code is promoted** — and the Render worker never runs migrations at all.
+new code is promoted** — and the Fly worker never runs migrations at all.
 That ordering has three sharp edges; this runbook is how to not cut yourself.
 
 ## The expand/contract rule (non-negotiable)
@@ -42,16 +42,21 @@ applied with `prisma migrate resolve --applied <name>`).
 
 ## The worker is not migrated by the web deploy
 
-The Render worker's build is `npm ci && npm run db:generate` — **generate
-only**. A Vercel deploy migrates the shared database while the worker keeps
-running the previous release's Prisma client. For additive migrations that's
-fine (the old client ignores new columns). For anything else:
+The worker runs on **Fly.io** (`sprintiq-worker`, config in `fly.toml`,
+image from `Dockerfile.worker`). Its build runs `prisma generate` only. A
+Vercel deploy migrates the shared database while the worker keeps running the
+previous release's Prisma client. For additive migrations that's fine (the
+old client ignores new columns). For anything else:
 
 1. Merge the expand migration + web code.
 2. Wait for Vercel promotion.
-3. **Manually redeploy the worker** (Render dashboard → Deploy latest) so its
-   client matches.
+3. **Redeploy the worker** — `flyctl deploy -a sprintiq-worker` from the repo
+   root — so its client matches. Nothing redeploys it automatically.
 4. Only then merge any contract migration.
+
+> `render.yaml` describes a Render service that was **never created**. It is
+> kept only as the annotated roster of worker env vars. Do not follow any
+> "Render dashboard" instruction — there is no such deployment.
 
 ## Concurrent builds / failed half-applied migrations
 

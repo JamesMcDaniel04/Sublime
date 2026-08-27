@@ -66,15 +66,23 @@ DROP TYPE "IntegrationType"; DROP TYPE "MCPAgentType";`
     `QWEN_API_KEY`, `QWEN_BASE_URL`, and `QWEN_MODEL`, then set `AGENT_MODEL`
     to the Qwen model exposed in the agent picker.
   - `SENTRY_DSN` → set to enable error tracking (optional but recommended).
-- **Worker (Phase 4)**: deploy the BullMQ worker via `render.yaml`
-  (Render → New → Blueprint → this repo), setting every `sync: false` secret in
-  the Render dashboard. `REDIS_URL` must be the **same Upstash TCP URL**
-  (`rediss://…:6379`) Vercel uses to enqueue — NOT a separate Redis, or the
-  worker listens to an empty queue. Rollout order: worker deploys green and its
-  logs show the queues consuming → then flip Vercel `EXECUTION_MODE` to `queue`
-  (or remove the var; prod defaults to queue) and redeploy. Until then,
-  production runs inline (`EXECUTION_MODE=inline`), bounded by the 5-minute
-  serverless ceiling.
+- **Worker**: the BullMQ worker runs on **Fly.io** as `sprintiq-worker`
+  (`fly.toml` + `Dockerfile.worker`; `flyctl` must be authenticated).
+  - Deploy: `flyctl deploy -a sprintiq-worker`. Nothing redeploys it on a
+    Vercel promotion — a web deploy leaves the worker on its previous release.
+  - Secrets: `flyctl secrets set KEY=value -a sprintiq-worker`. `render.yaml`
+    (never deployed; retained as documentation) lists every var and why it
+    matters. `REDIS_URL` must be the **same Upstash TCP URL** (`rediss://…:6379`)
+    Vercel uses to enqueue — NOT a separate Redis, or the worker listens to an
+    empty queue. `DATABASE_URL` must be the worker's OWN session-pooler URL
+    with `connection_limit` ≥ its total concurrency (see `assertWorkerEnv`).
+  - Health: `/health` on :3002 returns 503 unless the workers are running AND
+    Redis answers AND the database answers. The database probe exists because
+    on 2026-08-24 the worker spent weeks reporting healthy while pointed at a
+    deleted Supabase project — `flyctl logs -a sprintiq-worker` is the place
+    to confirm, not the check mark.
+  - Rollout order: worker deploys green and its logs show the queues consuming
+    → then Vercel runs with `EXECUTION_MODE=queue` (the prod default).
 
 ## Secrets
 

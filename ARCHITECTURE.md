@@ -85,7 +85,7 @@ users. What changed, at the architecture level:
 - **Queue plane:** producers use a bounded Redis connection (commands reject
   in ~5s instead of retrying forever) and process-wide `getQueue()`
   singletons; the worker runs per-queue concurrency (env-tunable, default 10
-  for agent/flow queues), pauses + force-closes within Render's SIGTERM
+  for agent/flow queues), pauses + force-closes within the platform's SIGTERM
   window, and dead-letters every genuinely-failed job (a redelivered job
   whose row is already `failed` rethrows instead of resolving). Dead-letter
   queues are pruned by the retention cron; `/api/health` reports queue depths.

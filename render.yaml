@@ -1,3 +1,10 @@
+# ┌─────────────────────────────────────────────────────────────────────────┐
+# │ NOT DEPLOYED. This Render blueprint was never applied — the worker runs │
+# │ on Fly.io as `sprintiq-worker` (see fly.toml, Dockerfile.worker, and     │
+# │ docs/runbooks/deploy.md). This file is kept ONLY because its envVars     │
+# │ block is the annotated roster of what the worker needs and why. Do not  │
+# │ follow any "Render dashboard" instruction anywhere in this repo.        │
+# └─────────────────────────────────────────────────────────────────────────┘
 services:
   # BullMQ worker: executes queued agent runs (EXECUTION_MODE=queue) off the
   # serverless request path. Deploy alongside Vercel; share the same database

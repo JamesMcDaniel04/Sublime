@@ -1,5 +1,6 @@
 # Fly.io deployment for the BullMQ worker (queue-mode execution runtime).
-# Counterpart to render.yaml — same contract: ONE queue, ONE Redis. The
+# THIS is the worker's real deploy config — render.yaml was never applied and
+# is retained only as the annotated env roster. Same contract: ONE queue, ONE Redis. The
 # REDIS_URL secret must be the SAME Upstash TCP URL (rediss://…:6379) that
 # Vercel uses to enqueue, or the web app and this worker operate two queues
 # that never meet. Secrets: fly secrets set KEY=value -a sprintiq-worker
