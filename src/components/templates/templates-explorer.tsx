@@ -25,6 +25,7 @@ import { LibraryFilterBar, departmentLabel } from '@/components/templates/librar
 import { ALL_FILTER, categoriesOf, matchesLibraryFilters } from '@/lib/templates/library-filters'
 import { connectedSlugSet, missingIntegrations, sortByReadiness } from '@/lib/templates/relevance'
 import { useCachedJson } from '@/lib/client/use-cached-json'
+import { StoreSection } from '@/components/templates/store-section'
 import { TemplateCatalogueCard } from '@/components/templates/template-catalogue-card'
 import type { GoalSummary } from '@/lib/types'
 
@@ -699,6 +700,10 @@ export function TemplatesExplorer() {
                 />
               </section>
             )}
+
+            {/* Packages other workspaces published. Renders nothing when the
+                store is empty, so a fresh workspace sees no empty shelf. */}
+            <StoreSection />
 
           </TabsContent>
 

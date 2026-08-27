@@ -69,6 +69,7 @@ export const GET = withAuthenticatedApi(async (request, auth) => {
   return {
     success: true,
     agent: serializeAgent(agent),
+    isOwner: agent.userId === auth.dbUser.id,
     worker,
     kpis: computeAgentKpis({
       tallies: tallies.map((row): AgentRunTally => ({ status: row.status, count: row._count._all })),

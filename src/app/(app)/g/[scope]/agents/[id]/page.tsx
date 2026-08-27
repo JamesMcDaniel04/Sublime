@@ -3,7 +3,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useParams } from 'next/navigation'
-import { ArrowLeft, Bot, Loader2, Send, Settings2 } from 'lucide-react'
+import { ArrowLeft, Bot, Loader2, Send, Settings2, Store } from 'lucide-react'
+import { useAuth } from '@/hooks/use-auth'
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { toast } from 'sonner'
 import { AgentAvatar, type AgentAvatarStatus } from '@/components/agents/agent-avatar'
 import { OPEN_REQUEST_STATUSES, RequestList } from '@/components/agents/request-list'
@@ -34,6 +36,7 @@ type Profile = {
     lastExecutedAt: string | null
     createdAt: string
   }
+  isOwner: boolean
   worker: { id: string; name: string } | null
   kpis: AgentKpis
   runs: Array<{ id: string; status: string; startedAt: string; completedAt: string | null; triggerType: string; headline: string | null }>
@@ -91,6 +94,11 @@ export default function AgentProfilePage() {
   const [missing, setMissing] = useState(false)
   const [text, setText] = useState('')
   const [sending, setSending] = useState(false)
+  const { isAdmin } = useAuth()
+  const [publishOpen, setPublishOpen] = useState(false)
+  const [publishName, setPublishName] = useState('')
+  const [publishVisibility, setPublishVisibility] = useState<'organization' | 'public'>('organization')
+  const [publishing, setPublishing] = useState(false)
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const load = useCallback(async () => {
@@ -195,12 +203,82 @@ export default function AgentProfilePage() {
             <p className="mt-2 text-sm text-muted-foreground">{agent.description}</p>
           )}
         </div>
-        <Button asChild variant="outline" size="sm">
-          <Link href={href(`/agents?agent=${agent.id}`)}>
-            <Settings2 className="mr-1.5 h-3.5 w-3.5" /> Settings
-          </Link>
-        </Button>
+        <div className="flex shrink-0 gap-2">
+          {(profile.isOwner || isAdmin) && (
+            <Button variant="outline" size="sm" onClick={() => { setPublishName(agent.title); setPublishOpen(true) }}>
+              <Store className="mr-1.5 h-3.5 w-3.5" /> Publish
+            </Button>
+          )}
+          <Button asChild variant="outline" size="sm">
+            <Link href={href(`/agents?agent=${agent.id}`)}>
+              <Settings2 className="mr-1.5 h-3.5 w-3.5" /> Settings
+            </Link>
+          </Button>
+        </div>
       </header>
+
+      {/* Publishing snapshots the agent as a package: its job, integrations,
+          grants — never its secrets or workspace-local skills. Public means
+          every workspace, which is why that option is an admin's alone. */}
+      <Dialog open={publishOpen} onOpenChange={setPublishOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Publish {agent.title} to the store</DialogTitle>
+            <DialogDescription>
+              Others install a copy as a teammate. {agent.runtime === 'external' ? 'They will bring their own credential for your endpoint.' : 'Its instructions, integrations, and permissions travel; its secrets and skills do not.'}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3 text-sm">
+            <label className="block">
+              <span className="text-xs text-muted-foreground">Listing name</span>
+              <input value={publishName} onChange={(event) => setPublishName(event.target.value)} className="mt-0.5 w-full rounded-md border bg-background px-2 py-1 text-sm" />
+            </label>
+            <div className="flex gap-1" role="radiogroup" aria-label="Who can install it">
+              {(['organization', 'public'] as const).map((option) => (
+                <button
+                  key={option}
+                  type="button"
+                  role="radio"
+                  aria-checked={publishVisibility === option}
+                  disabled={option === 'public' && !isAdmin}
+                  title={option === 'public' && !isAdmin ? 'Only a workspace admin can publish to every workspace' : undefined}
+                  onClick={() => setPublishVisibility(option)}
+                  className={cn('rounded-full border px-2.5 py-0.5 text-xs font-medium transition-colors disabled:opacity-50',
+                    publishVisibility === option
+                      ? 'border-horizon-300 bg-horizon-50 text-horizon-700 dark:border-horizon-500/40 dark:bg-horizon-500/15 dark:text-horizon-200'
+                      : 'border-border/60 bg-card text-muted-foreground hover:bg-accent hover:text-foreground')}
+                >
+                  {option === 'organization' ? 'This workspace' : 'Every workspace'}
+                </button>
+              ))}
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" size="sm" onClick={() => setPublishOpen(false)}>Cancel</Button>
+            <Button
+              size="sm"
+              disabled={publishing || !publishName.trim()}
+              onClick={async () => {
+                setPublishing(true)
+                try {
+                  const response = await fetch('/api/store', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ agentId: agent.id, name: publishName.trim(), visibility: publishVisibility }) })
+                  const payload = await response.json().catch(() => ({}))
+                  if (!response.ok) { toast.error(payload.error || 'Could not publish.'); return }
+                  toast.success(`Published ${payload.listing?.name ?? agent.title} (v${payload.listing?.version ?? 1})`)
+                  setPublishOpen(false)
+                } catch {
+                  toast.error('Could not publish.')
+                } finally {
+                  setPublishing(false)
+                }
+              }}
+            >
+              {publishing ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <Store className="mr-1.5 h-3.5 w-3.5" />}
+              Publish
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <section aria-label="Performance" className="rounded-2xl border bg-card p-5">
         {slots ? (
