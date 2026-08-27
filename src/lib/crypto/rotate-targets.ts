@@ -10,6 +10,8 @@
 export const ROTATION_TARGETS: ReadonlyArray<{ model: string; columns: string[] }> = [
   { model: 'credential', columns: ['authConfig'] },
   { model: 'mcpConnection', columns: ['authConfig'] },
+  // External agent endpoint auth: { headerName?, secretEnc? }.
+  { model: 'externalAgentBinding', columns: ['authConfig'] },
   { model: 'postgresConnection', columns: ['authConfig'] },
   { model: 'integrationSecret', columns: ['authConfig'] },
   { model: 'googleOAuthConnection', columns: ['refreshTokenEnc'] },

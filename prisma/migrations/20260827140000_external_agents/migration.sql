@@ -1,4 +1,9 @@
 -- External agents (BYOA outbound). Additive: a defaulted column and a new table.
+--
+-- Adding a foreign key takes a lock on agent_tasks; bound the wait so a busy
+-- deploy fails fast and retries instead of part-applying (the api_keys
+-- migration's incident, and the rule migration-lock-safety.test enforces).
+SET LOCAL lock_timeout = '5s';
 ALTER TABLE "agent_tasks" ADD COLUMN "runtime" TEXT NOT NULL DEFAULT 'native';
 CREATE TABLE "external_agent_bindings" (
     "id" TEXT NOT NULL,
