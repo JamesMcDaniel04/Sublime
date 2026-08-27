@@ -36,6 +36,8 @@ export type CreateAgentRequestInput = {
   goalId?: string | null
   origin?: 'app' | 'slack'
   slack?: SlackRunOrigin | null
+  /** Seed the new run's transcript from this prior execution (a thread follow-up). */
+  continueExecutionId?: string | null
 }
 
 export class RequestDispatchError extends Error {
@@ -103,6 +105,7 @@ export async function createAgentRequest(input: CreateAgentRequestInput): Promis
     userId: requestedByUserId,
     input: text,
     requestId: request.id,
+    ...(input.continueExecutionId ? { continueExecutionId: input.continueExecutionId } : {}),
   }
 
   if (inlineExecution) {

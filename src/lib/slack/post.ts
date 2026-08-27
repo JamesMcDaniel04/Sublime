@@ -7,6 +7,11 @@ export async function postSlackMessage(args: {
   channel: string
   threadTs?: string
   text: string
+  /** Post as a named teammate rather than the generic bot. Honored by Slack
+   *  only when the app holds chat:write.customize; silently ignored otherwise,
+   *  so an install predating that scope still gets the message. */
+  username?: string
+  iconUrl?: string
   fetchImpl?: typeof fetch
 }): Promise<void> {
   const fetchImpl = args.fetchImpl ?? fetch
@@ -17,6 +22,8 @@ export async function postSlackMessage(args: {
       channel: args.channel,
       text: args.text,
       ...(args.threadTs ? { thread_ts: args.threadTs } : {}),
+      ...(args.username ? { username: args.username } : {}),
+      ...(args.iconUrl ? { icon_url: args.iconUrl } : {}),
     }),
     signal: AbortSignal.timeout(30_000),
   })

@@ -42,7 +42,7 @@ test('a waiting request asks the agent question and says where to answer', () =>
   // posted with no route to an answer would be a dead end.
   const text = requestReplyText({ ...base, status: 'waiting', question: 'Which Acme contract?' })
   assert.match(text!, /Which Acme contract\?/)
-  assert.match(text!, /Answer in Sublime/)
+  assert.match(text!, /Reply in this thread/)
 })
 
 test('a waiting request with no question still says something actionable', () => {

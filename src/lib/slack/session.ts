@@ -1,4 +1,5 @@
-/** SlackThreadSession: one Slack thread ↔ one flow conversation.
+/** SlackThreadSession: one Slack thread ↔ one conversation — a flow's, or an
+ * addressed agent's.
  * resolveSessionRouting is the pure precedence decision the ingress applies
  * BEFORE trigger matching; the DB helpers wrap the session lifecycle. */
 import { Prisma } from '@/generated/prisma/client'
@@ -114,4 +115,89 @@ export async function closeStaleSlackSessions(): Promise<number> {
     data: { status: 'closed' },
   })
   return result.count
+}
+
+// ── Agent conversations ──────────────────────────────────────────────────────
+
+export type AgentSessionRouting =
+  | { mode: 'resume'; executionId: string; requestId: string }
+  | { mode: 'continue'; agentTaskId: string; continueExecutionId: string | null }
+  | { mode: 'fallthrough' }
+
+/**
+ * Pure precedence for a thread owned by an agent conversation.
+ *
+ *   resume    — the request's run is parked on ask_user: the thread reply IS
+ *               the answer.
+ *   continue  — the request settled: a further message is a follow-up ask to
+ *               the same agent, seeded from the prior run's transcript. Only a
+ *               COMPLETED run seeds — a failed run may end on a dangling
+ *               tool_use, and replaying that hands the model a malformed
+ *               conversation (the same rule the flow path applies).
+ *   fallthrough — the agent is busy (pending/running) or gone; let normal
+ *               trigger matching see the message instead of queueing a second
+ *               ask behind one that hasn't answered yet.
+ */
+export function resolveAgentSessionRouting(args: {
+  session: { agentTaskId: string | null; agentRequestId: string | null; agentExecutionId: string | null; status: string } | null
+  requestStatus: string | null
+  executionStatus: string | null
+  agentActive: boolean
+}): AgentSessionRouting {
+  const { session } = args
+  if (!session || session.status !== 'open' || !session.agentTaskId || !session.agentRequestId) return { mode: 'fallthrough' }
+  if (!args.agentActive) return { mode: 'fallthrough' }
+  if (args.requestStatus === 'waiting' && args.executionStatus === 'waiting_for_input' && session.agentExecutionId) {
+    return { mode: 'resume', executionId: session.agentExecutionId, requestId: session.agentRequestId }
+  }
+  if (args.requestStatus && ['completed', 'declined', 'failed', 'cancelled'].includes(args.requestStatus)) {
+    return {
+      mode: 'continue',
+      agentTaskId: session.agentTaskId,
+      continueExecutionId: args.executionStatus === 'completed' ? session.agentExecutionId : null,
+    }
+  }
+  return { mode: 'fallthrough' }
+}
+
+/**
+ * Give an agent conversation the thread. Create-first for the same atomicity
+ * reason as upsertThreadSession. An OPEN row owned by a flow, or by a
+ * different agent, keeps the thread; a CLOSED row is a dead conversation and
+ * may be taken over — otherwise a thread a flow once touched could never host
+ * an agent again.
+ */
+export async function upsertAgentThreadSession(args: {
+  organizationId: string
+  bindingId: string
+  channel: string
+  threadTs: string
+  agentTaskId: string
+  agentRequestId: string
+  agentExecutionId: string | null
+}): Promise<void> {
+  try {
+    await systemPrisma.slackThreadSession.create({ data: { ...args, status: 'open' } })
+    return
+  } catch (error) {
+    if (!isUniqueViolation(error)) throw error
+  }
+  const existing = await systemPrisma.slackThreadSession.findUnique({
+    where: { bindingId_channel_threadTs: { bindingId: args.bindingId, channel: args.channel, threadTs: args.threadTs } },
+    select: { status: true, flowId: true, agentTaskId: true },
+  })
+  if (!existing) return
+  const sameAgent = existing.agentTaskId === args.agentTaskId
+  if (existing.status === 'open' && (existing.flowId || (existing.agentTaskId && !sameAgent))) return
+  await systemPrisma.slackThreadSession.updateMany({
+    where: { bindingId: args.bindingId, channel: args.channel, threadTs: args.threadTs },
+    data: {
+      flowId: null,
+      flowRunId: null,
+      agentTaskId: args.agentTaskId,
+      agentRequestId: args.agentRequestId,
+      agentExecutionId: args.agentExecutionId,
+      status: 'open',
+    },
+  })
 }

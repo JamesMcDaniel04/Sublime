@@ -3,7 +3,9 @@ import { apiLogger } from '@/lib/logger'
 import { dispatchFlowExecution } from '@/features/flows/execute-flow'
 import { matchSlackFlows, slackTriggerConfigOf, type SlackTriggerConfig } from '@/lib/slack/route-event'
 import { claimSlackEvent } from '@/lib/slack/dedup'
-import { findOpenSession, resolveSessionRouting, upsertThreadSession, closeSession } from '@/lib/slack/session'
+import { findOpenSession, resolveSessionRouting, resolveAgentSessionRouting, upsertThreadSession, upsertAgentThreadSession, closeSession } from '@/lib/slack/session'
+import { resumeAgentExecution } from '@/features/agents/execute-agent'
+import { encryptRunText } from '@/lib/agents/run-crypto'
 import type { NormalizedSlackEvent, SlackTriggerInput } from '@/lib/slack/payload'
 import { ingestActivity } from '@/lib/activity/ingest'
 import { slackActivityFromInput } from '@/lib/activity/sources/slack'
@@ -46,6 +48,128 @@ async function resolveRunOwner(flow: { userId: string | null; organizationId: st
 }
 
 /**
+ * A message in a thread an agent conversation owns.
+ *
+ * Two outcomes, decided by resolveAgentSessionRouting: the message ANSWERS a
+ * question the run is parked on, or it is a FOLLOW-UP ask after the request
+ * settled. Both resolve the Slack user to a member first — the same
+ * no-fallback rule as the initial ask, because a resumed run keeps executing
+ * with the requester's credentials and a follow-up runs with the replier's.
+ *
+ * Only the person who asked may answer the agent's question. The run holds
+ * THEIR connections; letting anyone in the channel steer it would be an
+ * escalation the initial identity check exists to prevent.
+ */
+async function tryAgentThreadContinuation(args: {
+  bindingId: string
+  organizationId: string
+  input: SlackTriggerInput
+  session: { id: string; threadTs: string; agentTaskId: string | null; agentRequestId: string | null; agentExecutionId: string | null; status: string }
+}): Promise<boolean> {
+  const { bindingId, organizationId, input, session } = args
+  const request = session.agentRequestId
+    ? await systemPrisma.agentRequest.findFirst({
+        where: { id: session.agentRequestId, organizationId },
+        select: {
+          id: true,
+          status: true,
+          executionId: true,
+          agentTaskId: true,
+          requestedByUserId: true,
+          agentTask: { select: { id: true, status: true, agentType: true, description: true, metadata: true, visibility: true, userId: true } },
+        },
+      })
+    : null
+  const execution = request?.executionId
+    ? await systemPrisma.agentExecution.findFirst({ where: { id: request.executionId, organizationId }, select: { status: true } })
+    : null
+  const routing = resolveAgentSessionRouting({
+    session,
+    requestStatus: request?.status ?? null,
+    executionStatus: execution?.status ?? null,
+    agentActive: request?.agentTask.status === 'ACTIVE',
+  })
+  if (!request || request.agentTask.status !== 'ACTIVE') {
+    await closeSession({ organizationId, id: session.id })
+    return false
+  }
+  if (routing.mode === 'fallthrough') return false
+
+  const binding = await systemPrisma.slackWorkspaceConnection.findFirst({
+    where: { id: bindingId, organizationId, status: 'active' },
+  })
+  if (!binding) return false
+  const botToken = decryptSecretJson(binding.botToken)
+  const say = (text: string) =>
+    postSlackMessage({ botToken, channel: input.channel, threadTs: session.threadTs, text }).catch(() => undefined)
+
+  const replierUserId = await resolveSlackRequesterUserId({ organizationId, botToken, slackUserId: input.user ?? '' })
+  if (!replierUserId) {
+    await say("I couldn't match your Slack account to a Sublime user, so I can't act on this. Ask an admin to check that your Sublime account uses the same email as your Slack profile.")
+    return true
+  }
+
+  // Double-delivery guard, as everywhere else on this ingress.
+  if (input.ts) {
+    const claimed = await claimSlackEvent(bindingId, `msg:${input.channel}:${input.ts}:agentcont:${request.id}`)
+    if (!claimed) return true
+  }
+
+  if (routing.mode === 'resume') {
+    if (replierUserId !== request.requestedByUserId) {
+      await say(`Only the person who asked can answer this — the run is using their connections.`)
+      return true
+    }
+    // systemPrisma: id-keyed write; the execution was loaded org-scoped above.
+    await systemPrisma.executionMessage.create({
+      data: { executionId: routing.executionId, role: 'user', content: encryptRunText(input.text) },
+    })
+    try {
+      await resumeAgentExecution({
+        executionId: routing.executionId,
+        agentId: request.agentTaskId,
+        organizationId,
+        userId: request.requestedByUserId!,
+        reply: input.text,
+      })
+    } catch (error) {
+      apiLogger.error('slack agent resume failed', { requestId: request.id, error: error instanceof Error ? error.message : String(error) })
+      await say(':warning: I couldn\'t resume that run just now. Please try again shortly.')
+    }
+    return true
+  }
+
+  // Follow-up: a new ask to the same agent, as the replier. Visibility rules
+  // match the initial ask — a private agent answers only its owner.
+  if (request.agentTask.visibility === 'private' && request.agentTask.userId !== replierUserId) return false
+  const origin = { ...slackRunTrigger(bindingId, input).slack, thread_ts: session.threadTs }
+  try {
+    const created = await createAgentRequest({
+      organizationId,
+      requestedByUserId: replierUserId,
+      agent: request.agentTask,
+      text: input.text,
+      origin: 'slack',
+      slack: origin,
+      continueExecutionId: routing.continueExecutionId,
+    })
+    await upsertAgentThreadSession({
+      organizationId,
+      bindingId,
+      channel: input.channel,
+      threadTs: session.threadTs,
+      agentTaskId: request.agentTaskId,
+      agentRequestId: created.requestId,
+      agentExecutionId: created.executionId,
+    }).catch(() => undefined)
+  } catch (error) {
+    apiLogger.error('slack agent follow-up dispatch failed', { agentId: request.agentTaskId, error: error instanceof Error ? error.message : String(error) })
+    await say(':warning: I couldn\'t start that request just now. Please try again shortly.')
+  }
+  return true
+}
+
+/**
  * Ingress precedence: a non-bot message in a thread with an open
  * SlackThreadSession is a CONTINUATION of that conversation, not a fresh
  * trigger match — resolved and dispatched here, before normal trigger
@@ -62,15 +186,24 @@ async function tryThreadContinuation(args: {
   const session = await findOpenSession({ organizationId, bindingId, channel: input.channel, threadTs: input.thread_ts })
   if (!session) return false
 
+  // A thread owned by an agent conversation routes to that agent.
+  if (session.agentRequestId) return tryAgentThreadContinuation({ bindingId, organizationId, input, session })
+  // A flow conversation needs both pointers; a row with neither owner is dead.
+  if (!session.flowId || !session.flowRunId) {
+    await closeSession({ organizationId, id: session.id })
+    return false
+  }
+  const flowSession = { ...session, flowId: session.flowId, flowRunId: session.flowRunId }
+
   const [sessionFlow, sessionRun] = await Promise.all([
     systemPrisma.flow.findFirst({
-      where: { id: session.flowId, organizationId, status: 'ACTIVE' },
+      where: { id: flowSession.flowId, organizationId, status: 'ACTIVE' },
       select: { id: true, userId: true, organizationId: true, isPublished: true, trigger: true },
     }),
-    systemPrisma.flowRun.findFirst({ where: { id: session.flowRunId, organizationId }, select: { status: true } }),
+    systemPrisma.flowRun.findFirst({ where: { id: flowSession.flowRunId, organizationId }, select: { status: true } }),
   ])
   const flowActive = Boolean(sessionFlow?.isPublished)
-  const routing = resolveSessionRouting({ session, runStatus: sessionRun?.status ?? null, flowActive })
+  const routing = resolveSessionRouting({ session: flowSession, runStatus: sessionRun?.status ?? null, flowActive })
   if (!flowActive) {
     // Unpublished/deleted flow: the conversation is over — close and fall
     // through to normal matching.
@@ -120,7 +253,7 @@ async function tryThreadContinuation(args: {
   // and DB-backed via the same SlackProcessedEvent unique constraint — so
   // only one delivery starts the new run; the sibling is dropped as handled.
   if (input.ts) {
-    const claimed = await claimSlackEvent(bindingId, `msg:${input.channel}:${input.ts}:cont:${session.flowId}`)
+    const claimed = await claimSlackEvent(bindingId, `msg:${input.channel}:${input.ts}:cont:${flowSession.flowId}`)
     if (!claimed) return true
   }
 
@@ -237,7 +370,7 @@ async function tryAgentMention(args: {
   if (agent.visibility === 'private' && agent.userId !== requesterUserId) return false
 
   try {
-    await createAgentRequest({
+    const created = await createAgentRequest({
       organizationId,
       requestedByUserId: requesterUserId,
       agent,
@@ -245,6 +378,22 @@ async function tryAgentMention(args: {
       origin: 'slack',
       slack: origin,
     })
+    // The thread now belongs to this conversation: a reply answers the agent's
+    // question, a later message is a follow-up ask. Best-effort — the request
+    // is already dispatched, and a session write failing must not retry it.
+    if (origin.thread_ts) {
+      await upsertAgentThreadSession({
+        organizationId,
+        bindingId,
+        channel: input.channel,
+        threadTs: origin.thread_ts,
+        agentTaskId: agent.id,
+        agentRequestId: created.requestId,
+        agentExecutionId: created.executionId,
+      }).catch((error) =>
+        apiLogger.error('slack agent session upsert failed', { requestId: created.requestId, error: error instanceof Error ? error.message : String(error) }),
+      )
+    }
   } catch (error) {
     apiLogger.error('slack agent request dispatch failed', {
       agentId: agent.id,

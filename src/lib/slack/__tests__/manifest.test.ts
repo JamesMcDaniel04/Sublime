@@ -7,7 +7,7 @@ test('manifest pre-fills scopes, event subscriptions, and the ingress URL', () =
   assert.equal(manifest.display_information.name, 'Sublime Bot')
   // Real scope names (the spec's "message.channels" is an event, not a scope).
   assert.deepEqual(manifest.oauth_config.scopes.bot, [
-    'app_mentions:read', 'channels:history', 'channels:read', 'chat:write', 'commands', 'groups:read', 'im:history', 'im:read', 'users:read',
+    'app_mentions:read', 'channels:history', 'channels:read', 'chat:write', 'chat:write.customize', 'commands', 'groups:read', 'im:history', 'im:read', 'users:read',
   ])
   assert.equal(manifest.settings.event_subscriptions.request_url, 'https://app.test/api/slack/events/bind_1')
   assert.deepEqual(manifest.settings.event_subscriptions.bot_events, ['app_mention', 'message.channels', 'message.im'])

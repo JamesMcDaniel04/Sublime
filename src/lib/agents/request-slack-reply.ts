@@ -52,7 +52,7 @@ export function requestReplyText(args: {
       // in the app. Say where explicitly rather than asking a question the
       // thread cannot receive an answer to.
       const ask = args.question?.trim() || `${args.agentName} needs something from you before it can continue.`
-      return args.runUrl ? `${ask}\n\nAnswer in Sublime: ${args.runUrl}` : ask
+      return `${ask}\n\n_Reply in this thread to answer${args.runUrl ? `, or in Sublime: ${args.runUrl}` : '.'}_`
     }
   }
 }
@@ -61,6 +61,8 @@ export async function deliverRequestSlackReply(args: {
   organizationId: string
   origin: SlackRunOrigin
   agentName: string
+  /** Absolute portrait URL for Slack's icon_url; null when no app origin is configured. */
+  agentPortraitUrl?: string | null
   status: RequestReplyStatus
   result?: string | null
   error?: string | null
@@ -92,6 +94,9 @@ export async function deliverRequestSlackReply(args: {
     channel: args.origin.channel,
     threadTs: args.origin.thread_ts,
     text,
+    // The teammate speaks as itself: name and face travel with the work.
+    username: args.agentName,
+    ...(args.agentPortraitUrl ? { iconUrl: args.agentPortraitUrl } : {}),
     fetchImpl: args.fetchImpl,
   })
 }

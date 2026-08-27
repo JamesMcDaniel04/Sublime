@@ -34,9 +34,17 @@ if (TEST_DB) {
   const CHANNEL = 'C0CHAN111'
   const BOT = 'U0BOT9999'
   const SLACK_KNOWN = 'U0KNOWN01'
+  const SLACK_OTHER = 'U0OTHER02'
   const SLACK_STRANGER = 'U0STRANGE'
+  let otherUserId: string
 
-  const posted: Array<{ channel: string; text: string; thread_ts?: string }> = []
+  /** What the fake model says on its next turn. */
+  let nextTurn: { kind: 'text'; text: string } | { kind: 'ask'; question: string } = {
+    kind: 'text',
+    text: 'Acme usage is down 40%; the renewal needs attention.',
+  }
+
+  const posted: Array<{ channel: string; text: string; thread_ts?: string; username?: string; icon_url?: string }> = []
   let ts = 1752300000
 
   const event = (text: string, slackUser: string) => {
@@ -48,6 +56,20 @@ if (TEST_DB) {
       botUserId: BOT,
       normalized: {
         input: { kind: 'app_mention', text, user: slackUser, channel: CHANNEL, ts: stamp, team: 'T0AAA111' },
+        dedupId: `Ev${stamp}`,
+      },
+    } as any
+  }
+  /** A plain (un-mentioned) message inside an existing thread. */
+  const threadReply = (text: string, slackUser: string, threadTs: string) => {
+    ts += 1
+    const stamp = `${ts}.000200`
+    return {
+      bindingId,
+      organizationId,
+      botUserId: BOT,
+      normalized: {
+        input: { kind: 'message.channels', text, user: slackUser, channel: CHANNEL, ts: stamp, thread_ts: threadTs, team: 'T0AAA111' },
         dedupId: `Ev${stamp}`,
       },
     } as any
@@ -74,6 +96,10 @@ if (TEST_DB) {
       where: { id: userId },
       data: { name: 'Jamie', email: 'jamie@example.com' },
     })
+    const other = await prisma.user.create({
+      data: { supabaseId: crypto.randomUUID(), organizationId, isActive: true, name: 'Sam', email: 'other@example.com' },
+    })
+    otherUserId = other.id
 
     const agent = await prisma.agentTask.create({
       data: {
@@ -110,19 +136,32 @@ if (TEST_DB) {
       req.on('data', (chunk) => (raw += chunk))
       req.on('end', () => {
         const body = JSON.parse(raw || '{}')
+        const content =
+          nextTurn.kind === 'text'
+            ? [{ type: 'text', text: nextTurn.text }]
+            : [{ type: 'tool_use', id: 'toolu_ask', name: 'ask_user', input: { question: nextTurn.question } }]
         const message = {
           id: 'msg_qa', type: 'message', role: 'assistant', model: 'qwen-qa',
-          content: [{ type: 'text', text: 'Acme usage is down 40%; the renewal needs attention.' }],
-          stop_reason: 'end_turn', usage: { input_tokens: 10, output_tokens: 5 },
+          content,
+          stop_reason: nextTurn.kind === 'text' ? 'end_turn' : 'tool_use', usage: { input_tokens: 10, output_tokens: 5 },
         }
         if (body.stream) {
+          const block = content[0] as any
+          const blockEvents = block.type === 'text'
+            ? [
+                `event: content_block_start\ndata: ${JSON.stringify({ type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } })}\n\n`,
+                `event: content_block_delta\ndata: ${JSON.stringify({ type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: block.text } })}\n\n`,
+              ]
+            : [
+                `event: content_block_start\ndata: ${JSON.stringify({ type: 'content_block_start', index: 0, content_block: { type: 'tool_use', id: block.id, name: block.name, input: {} } })}\n\n`,
+                `event: content_block_delta\ndata: ${JSON.stringify({ type: 'content_block_delta', index: 0, delta: { type: 'input_json_delta', partial_json: JSON.stringify(block.input) } })}\n\n`,
+              ]
           res.writeHead(200, { 'content-type': 'text/event-stream' })
           res.end([
             `event: message_start\ndata: ${JSON.stringify({ type: 'message_start', message: { ...message, content: [], stop_reason: null } })}\n\n`,
-            `event: content_block_start\ndata: ${JSON.stringify({ type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } })}\n\n`,
-            `event: content_block_delta\ndata: ${JSON.stringify({ type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: message.content[0].text } })}\n\n`,
+            ...blockEvents,
             `event: content_block_stop\ndata: ${JSON.stringify({ type: 'content_block_stop', index: 0 })}\n\n`,
-            `event: message_delta\ndata: ${JSON.stringify({ type: 'message_delta', delta: { stop_reason: 'end_turn', stop_sequence: null }, usage: { output_tokens: 5 } })}\n\n`,
+            `event: message_delta\ndata: ${JSON.stringify({ type: 'message_delta', delta: { stop_reason: message.stop_reason, stop_sequence: null }, usage: { output_tokens: 5 } })}\n\n`,
             `event: message_stop\ndata: ${JSON.stringify({ type: 'message_stop' })}\n\n`,
           ].join(''))
         } else {
@@ -145,6 +184,12 @@ if (TEST_DB) {
         if (requested === SLACK_KNOWN) {
           return new Response(
             JSON.stringify({ ok: true, user: { profile: { email: 'Jamie@Example.com' } } }),
+            { status: 200, headers: { 'content-type': 'application/json' } },
+          )
+        }
+        if (requested === SLACK_OTHER) {
+          return new Response(
+            JSON.stringify({ ok: true, user: { profile: { email: 'other@example.com' } } }),
             { status: 200, headers: { 'content-type': 'application/json' } },
           )
         }
@@ -224,10 +269,78 @@ if (TEST_DB) {
     assert.equal(await prisma.agentRequest.count({ where: { organizationId } }), before)
   })
 
-  test("another member's private agent is not addressable from Slack", async () => {
-    const other = await prisma.user.create({
-      data: { supabaseId: crypto.randomUUID(), organizationId, isActive: true, email: 'other@example.com' },
+  test('a question from the agent is answered in the same thread — by the person who asked', async () => {
+    nextTurn = { kind: 'ask', question: 'Which Acme contract — 2025 or 2026?' }
+    posted.length = 0
+    const { routeSlackEvent } = await import('@/lib/slack/dispatch')
+    const ask = event(`<@${BOT}> @Riley check the Acme contract`, SLACK_KNOWN)
+    await routeSlackEvent(ask)
+
+    const request = await waitFor(async () => {
+      const row = await prisma.agentRequest.findFirst({ where: { organizationId, text: 'check the Acme contract' } })
+      return row?.status === 'waiting' ? row : null
     })
+    // The thread now belongs to this conversation.
+    const session = await prisma.slackThreadSession.findFirst({ where: { organizationId, agentRequestId: request.id } })
+    assert.ok(session, 'an agent-owned thread session was opened')
+    assert.equal(session.threadTs, ask.normalized.input.ts, 'rooted at the mention that started it')
+    assert.equal(session.flowId, null)
+    // The question lands in-thread, as the agent, and says where to answer.
+    const asked = await waitFor(async () => posted.find((m) => /Which Acme contract/.test(m.text)) ?? null)
+    assert.equal(asked.thread_ts, session.threadTs)
+    assert.equal(asked.username, 'Riley', 'the teammate speaks as itself')
+    assert.match(asked.text, /Reply in this thread/)
+
+    // A different member's reply is refused: the run holds the ASKER's connections.
+    posted.length = 0
+    await routeSlackEvent(threadReply('the 2025 one', SLACK_OTHER, session.threadTs))
+    const refused = posted.find((m) => /Only the person who asked/.test(m.text))
+    assert.ok(refused, 'someone else answering is told why')
+    assert.equal((await prisma.agentRequest.findFirst({ where: { id: request.id, organizationId } })).status, 'waiting')
+
+    // The requester's reply resumes the run and the answer comes back in-thread.
+    nextTurn = { kind: 'text', text: 'The 2026 renewal is at risk.' }
+    await routeSlackEvent(threadReply('the 2026 one', SLACK_KNOWN, session.threadTs))
+    const settled = await waitFor(async () => {
+      const row = await prisma.agentRequest.findFirst({ where: { id: request.id, organizationId } })
+      return row?.status === 'completed' ? row : null
+    })
+    assert.match(settled.result, /2026 renewal is at risk/)
+    const answer = posted.find((m) => /2026 renewal is at risk/.test(m.text))
+    assert.ok(answer, 'the answer was posted')
+    assert.equal(answer.thread_ts, session.threadTs, 'in the same thread')
+    assert.equal(answer.username, 'Riley')
+  })
+
+  test('a follow-up in the thread after the answer is a new ask to the same agent, seeded from the last run', async () => {
+    nextTurn = { kind: 'text', text: 'Their usage recovered last week.' }
+    posted.length = 0
+    const { routeSlackEvent } = await import('@/lib/slack/dispatch')
+    const session = await prisma.slackThreadSession.findFirst({ where: { organizationId, agentTaskId: agentId, status: 'open' } })
+    assert.ok(session)
+    const before = await prisma.agentRequest.findFirst({ where: { id: session.agentRequestId, organizationId } })
+
+    await routeSlackEvent(threadReply('and how does that compare to last quarter?', SLACK_KNOWN, session.threadTs))
+    const followUp = await waitFor(async () => {
+      const row = await prisma.agentRequest.findFirst({ where: { organizationId, text: 'and how does that compare to last quarter?' } })
+      return row?.status === 'completed' ? row : null
+    })
+    assert.notEqual(followUp.id, before.id, 'a NEW request, not a mutation of the old one')
+    assert.equal(followUp.agentTaskId, agentId)
+    assert.equal(followUp.requestedByUserId, userId)
+    // The session now points at the follow-up, so the NEXT message continues from it.
+    const moved = await prisma.slackThreadSession.findFirst({ where: { id: session.id, organizationId } })
+    assert.equal(moved.agentRequestId, followUp.id)
+    assert.equal(moved.agentExecutionId, followUp.executionId)
+    // Seeded from the prior COMPLETED run: the new execution was told to continue it.
+    const execution = await prisma.agentExecution.findFirst({ where: { id: followUp.executionId, organizationId } })
+    assert.equal(execution.status, 'completed')
+    const reply = posted.find((m) => /usage recovered/.test(m.text))
+    assert.equal(reply?.thread_ts, session.threadTs)
+  })
+
+  test("another member's private agent is not addressable from Slack", async () => {
+    const other = { id: otherUserId }
     await prisma.agentTask.create({
       data: {
         agentType: 'CUSTOM',

@@ -16,7 +16,9 @@ import { prisma } from '@/lib/prisma'
 import { apiLogger } from '@/lib/logger'
 import { notify } from '@/lib/notifications/service'
 import { slackOriginOf } from '@/lib/slack/reply'
-import { agentDisplayName } from '@/lib/agents/metadata'
+import { agentDisplayName, readAgentMetadata } from '@/lib/agents/metadata'
+import { avatarSeedFor } from '@/lib/agents/avatar'
+import { portraitFor } from '@/lib/agents/avatar-portraits'
 import { deliverRequestSlackReply, type RequestReplyStatus } from './request-slack-reply'
 import { isTerminal, sourcesFor, type RequestStatus } from './request-transitions'
 
@@ -58,6 +60,14 @@ export async function moveAgentRequest(input: MoveAgentRequestInput): Promise<bo
     }),
   )
   return true
+}
+
+/** Absolute URL of the agent's portrait for Slack's icon_url. Null without an app origin. */
+function portraitUrlFor(agent: { id: string; metadata: unknown }): string | null {
+  const base = process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, '')
+  if (!base) return null
+  const seed = avatarSeedFor({ id: agent.id, avatarSeed: readAgentMetadata(agent.metadata).avatarSeed })
+  return `${base}${portraitFor(seed).src}`
 }
 
 const NOTIFY_COPY: Record<string, { type: string; level: 'success' | 'error' | 'info' | 'action'; verb: string }> = {
@@ -107,6 +117,7 @@ async function announce(input: MoveAgentRequestInput): Promise<void> {
     organizationId: input.organizationId,
     origin,
     agentName,
+    agentPortraitUrl: portraitUrlFor(request.agentTask),
     status: input.to as RequestReplyStatus,
     result: request.result,
     error: request.error,

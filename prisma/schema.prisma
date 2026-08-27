@@ -97,14 +97,14 @@ model Organization {
   flowLearningObservations  FlowLearningObservation[]
   flowLearningFeedback      FlowLearningFeedback[]
   queueDeadLetters          QueueDeadLetter[]
+  workspaceVariables        WorkspaceVariable[]
+  flowStaticData            FlowStaticData[]
+  evalDatasets              EvalDataset[]
+  evalCases                 EvalCase[]
+  evalRuns                  EvalRun[]
+  evalCaseResults           EvalCaseResult[]
 
   @@map("organizations")
-  workspaceVariables WorkspaceVariable[]
-  flowStaticData     FlowStaticData[]
-  evalDatasets       EvalDataset[]
-  evalCases          EvalCase[]
-  evalRuns           EvalRun[]
-  evalCaseResults    EvalCaseResult[]
 }
 
 model User {
@@ -245,22 +245,22 @@ model OrganizationInvitation {
 }
 
 model AgentTask {
-  id             String    @id @default(cuid())
-  agentType      String    @default("CUSTOM")
-  description    String    @db.Text
-  objective      String    @db.Text
-  goal           String?   @db.Text
-  schedule       Json      @default("{}")
-  status         String    @default("ACTIVE")
-  folder         String?
+  id              String    @id @default(cuid())
+  agentType       String    @default("CUSTOM")
+  description     String    @db.Text
+  objective       String    @db.Text
+  goal            String?   @db.Text
+  schedule        Json      @default("{}")
+  status          String    @default("ACTIVE")
+  folder          String?
   /// The roster identity this agent works under. Null means it stands alone
   /// and renders as its own tile — which is why no existing agent needed a
   /// backfill when workers were introduced.
-  workerId       String?
-  visibility     String    @default("private")
-  organizationId String    @db.Uuid
-  userId         String?
-  metadata       Json?
+  workerId        String?
+  visibility      String    @default("private")
+  organizationId  String    @db.Uuid
+  userId          String?
+  metadata        Json?
   /// The config scheduled and triggered runs actually execute.
   ///
   /// Mirrors Flow.publishedGraph. NULL means this agent has never been
@@ -271,12 +271,12 @@ model AgentTask {
   publishedConfig Json?
   publishedAt     DateTime?
   /// Bumped on each publish, so a run can record which version produced it.
-  version        Int       @default(1)
-  lastExecutedAt DateTime?
-  executionCount Int       @default(0)
-  lastResult     Json?
-  createdAt      DateTime  @default(now())
-  updatedAt      DateTime  @updatedAt
+  version         Int       @default(1)
+  lastExecutedAt  DateTime?
+  executionCount  Int       @default(0)
+  lastResult      Json?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
 
   organization Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   owner        User?              @relation(fields: [userId], references: [id], onDelete: SetNull)
@@ -1016,13 +1016,13 @@ model ApiKey {
 
 /// A single public-API request, for per-key rate limiting and usage reporting.
 model ApiKeyUsage {
-  id        String   @id @default(cuid())
-  apiKeyId  String
+  id             String   @id @default(cuid())
+  apiKeyId       String
   /// Denormalised so the tenant guard can scope reads without a join.
-  organizationId String @db.Uuid
-  route     String
-  status    Int
-  createdAt DateTime @default(now()) @db.Timestamptz(6)
+  organizationId String   @db.Uuid
+  route          String
+  status         Int
+  createdAt      DateTime @default(now()) @db.Timestamptz(6)
 
   @@index([apiKeyId, createdAt])
   @@index([organizationId, createdAt])
@@ -1113,8 +1113,8 @@ model EvalCase {
   mustContain    Json     @default("[]")
   createdAt      DateTime @default(now())
 
-  dataset      EvalDataset  @relation(fields: [datasetId], references: [id], onDelete: Cascade)
-  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  dataset      EvalDataset      @relation(fields: [datasetId], references: [id], onDelete: Cascade)
+  organization Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   results      EvalCaseResult[]
 
   @@index([organizationId, datasetId])
@@ -1553,8 +1553,14 @@ model SlackThreadSession {
   bindingId        String
   channel          String
   threadTs         String // the thread root ts
-  flowId           String
-  flowRunId        String // latest run in this thread
+  /// A thread is owned by EITHER a flow conversation (flowId/flowRunId) OR an
+  /// agent conversation (agentTaskId/agentRequestId). Both flow pointers went
+  /// nullable when agents became addressable from Slack; the unique key still
+  /// makes one thread one conversation.
+  flowId           String?
+  flowRunId        String? // latest run in this thread
+  agentTaskId      String?
+  agentRequestId   String? // latest human-addressed request in this thread
   agentExecutionId String? // latest agent execution (conversation seed)
   status           String   @default("open") // open | closed
   updatedAt        DateTime @updatedAt
@@ -1564,6 +1570,7 @@ model SlackThreadSession {
 
   @@unique([bindingId, channel, threadTs])
   @@index([flowRunId])
+  @@index([agentRequestId])
   @@map("slack_thread_sessions")
 }
 
@@ -1748,24 +1755,24 @@ model ProcessBaseline {
   action         String
   entityType     String
 
-  volume Int
+  volume               Int
   /// Observation window actually covered, not the window requested.
-  windowDays Int
+  windowDays           Int
   /// Median inter-event interval. Null when fewer than 2 events.
-  periodDays     Float?
-  distinctActors Int
+  periodDays           Float?
+  distinctActors       Int
   /// Null unless the process carries state transitions.
   medianCycleTimeHours Float?
   /// Null when no entity in the process has transitions — distinct from 0,
   /// which means transitions exist and none regressed.
-  reworkRate Float?
+  reworkRate           Float?
   /// 0..1, from volume and window coverage.
-  confidence Float
+  confidence           Float
 
   handlingTimeTableVersion Int
   /// Resolved minutes per occurrence: curated table, or the org override.
   /// Null for actions the table does not cover.
-  handlingMinutes Float?
+  handlingMinutes          Float?
 
   computedAt DateTime @default(now())
   updatedAt  DateTime @updatedAt
