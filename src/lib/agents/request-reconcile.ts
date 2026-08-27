@@ -93,6 +93,9 @@ export function planRequestReconciliation(
         break
       case 'running':
       case 'cancelling':
+      // Parked on an external agent: from the requester's side it is still
+      // working, so the request says "Working…", not "Needs you".
+      case 'waiting_for_external':
         if (request.status !== 'running') moves.push({ ...base, to: 'running', reason: 'execution is running' })
         break
       default:

@@ -48,13 +48,14 @@ export type RunMutation = { id: string; status?: string; deleted?: boolean }
 /** The held write call, as the run detail exposes it (features/agents/approval.ts). */
 type PendingApprovalView = { node: string; input?: Record<string, unknown> }
 
-export const groupOrder = ['running', 'pending', 'cancelling', 'waiting_for_input', 'failed', 'cancelled', 'completed'] as const
+export const groupOrder = ['running', 'pending', 'cancelling', 'waiting_for_input', 'waiting_for_external', 'failed', 'cancelled', 'completed'] as const
 
 export const groupLabels: Record<string, string> = {
   running: 'Running',
   pending: 'Queued',
   cancelling: 'Cancelling',
   waiting_for_input: 'Needs input',
+  waiting_for_external: 'Waiting on external agent',
   failed: 'Error',
   cancelled: 'Cancelled',
   completed: 'Success',
@@ -77,6 +78,7 @@ function runStatusIcon(status: string) {
       return <CircleDashed className="h-4 w-4 shrink-0 animate-spin text-blue-600" aria-label="Running" />
     case 'cancelling':
       return <CircleDashed className="h-4 w-4 shrink-0 animate-spin text-muted-foreground" aria-label="Cancelling" />
+    case 'waiting_for_external':
     case 'waiting_for_input':
       return <HelpCircle className="h-4 w-4 shrink-0 text-amber-500" aria-label="Needs input" />
     case 'cancelled':
@@ -520,7 +522,7 @@ function RunRow({
   const [replying, setReplying] = useState(false)
   const [actionBusy, setActionBusy] = useState(false)
   const status = activityStatus(activity)
-  const isActive = ['running', 'pending', 'cancelling', 'waiting_for_input'].includes(status)
+  const isActive = ['running', 'pending', 'cancelling', 'waiting_for_input', 'waiting_for_external'].includes(status)
   const isCancellable = isCancellableRunStatus(status)
   const isTerminal = isTerminalRunStatus(status)
   const { items: timeline, suggestions } = buildProcessTimeline(details?.events ?? [], details?.steps ?? [])
@@ -698,6 +700,7 @@ function RunRow({
               const summary =
                 activity.metadata?.pendingQuestion?.question || activity.metadata?.headline || activity.error || resultText(activity)
               if (summary) return summary
+              if (status === 'waiting_for_external') return 'Waiting on the external agent…'
               if (status === 'waiting_for_input') return 'Waiting for you…'
               if (status === 'cancelling') return 'Cancelling…'
               if (isActive) return <TypewriterStatus seed={activity.id ? activity.id.charCodeAt(activity.id.length - 1) : 0} />

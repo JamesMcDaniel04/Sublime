@@ -96,7 +96,7 @@ test('tools/call runs the named flow and returns its output', async () => {
   let ran = ''
   const response = await call(
     { jsonrpc: '2.0', id: 3, method: 'tools/call', params: { name: 'nightly_sync', arguments: { account: 'acme' } } },
-    async (tool) => { ran = tool.flowId; return { ok: true, output: 'synced' } },
+    async (tool) => { ran = tool.flowId ?? ''; return { ok: true, output: 'synced' } },
   )
   assert.equal(ran, 'flow-1')
   assert.equal(response?.result?.content?.[0].text, 'synced')

@@ -22,6 +22,7 @@ export const GET = withAuthenticatedApi(async (request, auth) => {
   const id = agentIdFrom(request.nextUrl.pathname)
   const agent = await prisma.agentTask.findFirst({
     where: { id, organizationId: auth.organizationId, agentType: { not: 'SYSTEM' }, ...agentReadScope(auth.dbUser.id) },
+    include: { externalBinding: true },
   })
   if (!agent) throw new ApiError('Agent not found', 404, 'NOT_FOUND')
 

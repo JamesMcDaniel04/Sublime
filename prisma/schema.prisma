@@ -48,6 +48,7 @@ model Organization {
   agents                    AgentTask[]
   agentWorkers              AgentWorker[]
   agentRequests             AgentRequest[]
+  externalAgentBindings     ExternalAgentBinding[]
   apiKeys                   ApiKey[]
   vectorDocuments           FlowVectorDocument[]
   executions                AgentExecution[]
@@ -261,6 +262,9 @@ model AgentTask {
   organizationId  String    @db.Uuid
   userId          String?
   metadata        Json?
+  /// Where this agent's work executes: 'native' (Sublime's own tool loop) or
+  /// 'external' (a service the workspace brought — see ExternalAgentBinding).
+  runtime         String    @default("native")
   /// What this agent may DO, per plane — see src/lib/agents/grants.ts.
   /// NULL = legacy, unrestricted (its behaviour before grants existed). Read
   /// LIVE by every run, never from publishedConfig: a permission change must
@@ -283,16 +287,17 @@ model AgentTask {
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
 
-  organization Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  owner        User?              @relation(fields: [userId], references: [id], onDelete: SetNull)
-  worker       AgentWorker?       @relation(fields: [workerId], references: [id], onDelete: SetNull)
-  executions   AgentExecution[]
-  chatMessages AgentChatMessage[]
-  chatSessions AgentChatSession[]
-  connectors   AgentConnector[]
-  memories     AgentMemory[]
-  requests     AgentRequest[]
-  evalDatasets EvalDataset[]
+  organization    Organization          @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  owner           User?                 @relation(fields: [userId], references: [id], onDelete: SetNull)
+  worker          AgentWorker?          @relation(fields: [workerId], references: [id], onDelete: SetNull)
+  executions      AgentExecution[]
+  chatMessages    AgentChatMessage[]
+  chatSessions    AgentChatSession[]
+  connectors      AgentConnector[]
+  memories        AgentMemory[]
+  requests        AgentRequest[]
+  evalDatasets    EvalDataset[]
+  externalBinding ExternalAgentBinding?
 
   @@index([organizationId, status])
   @@index([organizationId, userId, status, updatedAt])
@@ -403,6 +408,34 @@ model AgentMemory {
   // `prisma migrate diff` from proposing to drop it as drift.
   @@index([embeddingVec], map: "agent_memories_embedding_vec_hnsw")
   @@map("agent_memories")
+}
+
+/// Where an external agent lives. One per agent; the agent's `runtime` must be
+/// 'external' for it to matter. Sublime POSTs each ask to `endpointUrl`
+/// (SSRF-guarded on save AND on every dispatch) and the service answers
+/// inline or calls back with a single-use, run-bound token — see
+/// docs/external-agents.md for the contract.
+model ExternalAgentBinding {
+  id             String @id @default(cuid())
+  organizationId String @db.Uuid
+  agentTaskId    String @unique
+
+  endpointUrl    String
+  /// 'none' | 'bearer' | 'header'
+  authType       String @default("none")
+  /// { headerName?, secretEnc? } — the secret is AES-GCM ciphertext, never plain.
+  authConfig     Json   @default("{}")
+  /// How long a parked run waits for the callback before it is failed.
+  timeoutMinutes Int    @default(10)
+
+  createdAt DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @db.Timestamptz(6)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  agentTask    AgentTask    @relation(fields: [agentTaskId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+  @@map("external_agent_bindings")
 }
 
 /// A piece of work a human addressed to an agent.

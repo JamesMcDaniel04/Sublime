@@ -34,7 +34,8 @@ export type CreateAgentRequestInput = {
   agent: RequestAgent
   text: string
   goalId?: string | null
-  origin?: 'app' | 'slack'
+  /** 'api' = an external caller (a workspace API key, e.g. another agent over MCP). */
+  origin?: 'app' | 'slack' | 'api'
   slack?: SlackRunOrigin | null
   /** Seed the new run's transcript from this prior execution (a thread follow-up). */
   continueExecutionId?: string | null

@@ -127,6 +127,9 @@ export type AgentDraft = {
   requireApproval?: boolean
   /** What the agent may DO per plane; '*' is everything not listed. */
   grants?: Record<string, GrantLevel>
+  /** Where its work runs. 'external' = a service the workspace brought. */
+  runtime?: 'native' | 'external'
+  external?: { endpointUrl: string; authType: 'none' | 'bearer' | 'header'; headerName: string; secret: string; timeoutMinutes: number; hasSecret: boolean }
   /** Structured output contract: non-empty = runs must return JSON with these properties. */
   outputFields?: { name: string; type: 'string' | 'number' | 'boolean' | 'object' | 'array'; description?: string }[]
   /** User-configured HTTP API endpoints exposed to the model as tools. */
@@ -188,6 +191,8 @@ const emptyDraft: AgentDraft = {
   autoAnswerFromMemory: true,
   requireApproval: false,
   grants: { '*': 'read' },
+  runtime: 'native',
+  external: { endpointUrl: '', authType: 'none', headerName: '', secret: '', timeoutMinutes: 10, hasSecret: false },
   outputFields: [],
   httpTools: [],
   alwaysStrategize: false,
@@ -348,6 +353,7 @@ export function AgentConfigForm({
   // Auto-open "More settings" when any advanced option is configured — an
   // active schedule, output contract, or webhook must never be hidden.
   const advancedInUse =
+    draft.runtime === 'external' ||
     draft.alwaysStrategize === true ||
     (draft.maxTurns ?? 16) !== 16 ||
     (draft.outputFields?.length ?? 0) > 0 ||
@@ -590,6 +596,18 @@ export function AgentConfigForm({
       // A legacy agent (no grant) has always had write everywhere; show that
       // truthfully rather than as read-only, and saving makes it explicit.
       grants: parseGrants((source as { grants?: unknown }).grants) ?? { ...UNRESTRICTED_GRANTS },
+      runtime: (source as { runtime?: string }).runtime === 'external' ? 'external' : 'native',
+      external: (() => {
+        const ext = (source as { external?: { endpointUrl?: string; authType?: string; headerName?: string | null; timeoutMinutes?: number; hasSecret?: boolean } | null }).external
+        return {
+          endpointUrl: ext?.endpointUrl ?? '',
+          authType: (ext?.authType === 'bearer' || ext?.authType === 'header' ? ext.authType : 'none') as 'none' | 'bearer' | 'header',
+          headerName: ext?.headerName ?? '',
+          secret: '',
+          timeoutMinutes: ext?.timeoutMinutes ?? 10,
+          hasSecret: ext?.hasSecret === true,
+        }
+      })(),
       outputFields: Array.isArray(source.outputFields) ? source.outputFields : [],
       httpTools: Array.isArray((source as { httpTools?: unknown[] }).httpTools)
         ? ((source as { httpTools?: unknown[] }).httpTools ?? []).flatMap((entry) => {
@@ -799,6 +817,19 @@ export function AgentConfigForm({
           autoAnswerFromMemory: draft.autoAnswerFromMemory !== false,
           requireApproval: draft.requireApproval === true,
           grants: draft.grants ?? { '*': 'read' },
+          runtime: draft.runtime ?? 'native',
+          ...(draft.runtime === 'external' && draft.external
+            ? {
+                external: {
+                  endpointUrl: draft.external.endpointUrl.trim(),
+                  authType: draft.external.authType,
+                  ...(draft.external.authType === 'header' && draft.external.headerName ? { headerName: draft.external.headerName } : {}),
+                  // Write-only: only sent when the person typed a new one.
+                  ...(draft.external.secret ? { secret: draft.external.secret } : {}),
+                  timeoutMinutes: draft.external.timeoutMinutes,
+                },
+              }
+            : {}),
           alwaysStrategize: draft.alwaysStrategize === true,
           maxTurns: draft.maxTurns ?? 16,
           outputFields: draft.outputFields ?? [],
@@ -1207,6 +1238,73 @@ export function AgentConfigForm({
 
       {moreOpen && (
         <>
+      {/* ── Where it runs ─────────────────────────────────────────────
+          An external agent is a teammate whose work runs somewhere else.
+          Sublime POSTs it each ask and receives the answer inline or through
+          a callback; see docs/external-agents.md for the contract. */}
+      <div className="rounded-lg border p-3" role="group" aria-labelledby="agent-runtime-heading">
+        <p id="agent-runtime-heading" className="text-sm font-medium">Where it runs</p>
+        <div className="mt-2 flex gap-1" role="radiogroup" aria-label="Runtime">
+          {(['native', 'external'] as const).map((option) => (
+            <button
+              key={option}
+              type="button"
+              role="radio"
+              aria-checked={(draft.runtime ?? 'native') === option}
+              onClick={() => setDraft({ ...draft, runtime: option })}
+              className={cn(
+                'rounded-full border px-2.5 py-0.5 text-xs font-medium transition-colors',
+                (draft.runtime ?? 'native') === option
+                  ? 'border-horizon-300 bg-horizon-50 text-horizon-700 dark:border-horizon-500/40 dark:bg-horizon-500/15 dark:text-horizon-200'
+                  : 'border-border/60 bg-card text-muted-foreground hover:bg-accent hover:text-foreground',
+              )}
+            >
+              {option === 'native' ? 'In Sublime' : 'External service'}
+            </button>
+          ))}
+        </div>
+        {draft.runtime === 'external' && draft.external && (
+          <div className="mt-3 space-y-2 text-sm">
+            <label className="block">
+              <span className="text-xs text-muted-foreground">Endpoint (https)</span>
+              <Input value={draft.external.endpointUrl} onChange={(event) => setDraft({ ...draft, external: { ...draft.external!, endpointUrl: event.target.value } })} placeholder="https://agents.example.com/sublime" className="mt-0.5 w-full rounded-md border bg-background px-2 py-1 text-sm" />
+            </label>
+            <div className="grid grid-cols-2 gap-2">
+              <label className="block">
+                <span className="text-xs text-muted-foreground">Authentication</span>
+                <select
+                  value={draft.external.authType}
+                  onChange={(event) => setDraft({ ...draft, external: { ...draft.external!, authType: event.target.value as 'none' | 'bearer' | 'header' } })}
+                  className="mt-0.5 w-full rounded-md border bg-background px-2 py-1 text-sm"
+                >
+                  <option value="none">None</option>
+                  <option value="bearer">Bearer token</option>
+                  <option value="header">Custom header</option>
+                </select>
+              </label>
+              <label className="block">
+                <span className="text-xs text-muted-foreground">Callback deadline (minutes)</span>
+                <Input type="number" min={1} max={1440} value={draft.external.timeoutMinutes} onChange={(event) => setDraft({ ...draft, external: { ...draft.external!, timeoutMinutes: Math.max(1, Math.min(1440, Number(event.target.value) || 10)) } })} className="mt-0.5 w-full rounded-md border bg-background px-2 py-1 text-sm" />
+              </label>
+            </div>
+            {draft.external.authType === 'header' && (
+              <label className="block">
+                <span className="text-xs text-muted-foreground">Header name</span>
+                <Input value={draft.external.headerName} onChange={(event) => setDraft({ ...draft, external: { ...draft.external!, headerName: event.target.value } })} placeholder="x-api-key" className="mt-0.5 w-full rounded-md border bg-background px-2 py-1 text-sm" />
+              </label>
+            )}
+            {draft.external.authType !== 'none' && (
+              <label className="block">
+                <span className="text-xs text-muted-foreground">{draft.external.hasSecret ? 'Secret (leave blank to keep the stored one)' : 'Secret'}</span>
+                <Input type="password" autoComplete="off" value={draft.external.secret} onChange={(event) => setDraft({ ...draft, external: { ...draft.external!, secret: event.target.value } })} className="mt-0.5 w-full rounded-md border bg-background px-2 py-1 text-sm" />
+              </label>
+            )}
+            <p className="text-xs text-muted-foreground">
+              Sublime posts each ask to this endpoint with a per-run callback URL and token. Answer inline (200 with output) or accept (202) and post the result to the callback. The endpoint must be a public https host.
+            </p>
+          </div>
+        )}
+      </div>
       <div className="rounded-lg border p-3">
         <div className="flex items-center justify-between gap-3">
           <div>

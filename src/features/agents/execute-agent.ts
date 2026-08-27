@@ -140,6 +140,26 @@ function jsonValue(value: unknown) {
   return JSON.parse(JSON.stringify(value ?? null))
 }
 
+/**
+ * An external agent never talks to a model here — its service does — so it
+ * must not need a provider key. This placeholder only has to survive the
+ * transcript seed and the execution claim that run before the external
+ * branch returns; every model-loop method on it refuses loudly, so a code
+ * path that reached one would fail the run instead of silently doing nothing.
+ */
+function externalPlaceholderRunner(): ReturnType<typeof createModelRunner> {
+  const refuse = () => {
+    throw new Error('External agents do not run a model loop')
+  }
+  return {
+    model: 'external',
+    start: () => [],
+    appendUserMessage: () => undefined,
+    appendToolResults: refuse,
+    next: refuse,
+  } as unknown as ReturnType<typeof createModelRunner>
+}
+
 // Re-exported for callers that historically imported these from here (the
 // definitions moved to ./tool-planes, shared with the flow tool catalog).
 export { toolDiscoveryCacheKey } from './tool-planes'
@@ -489,7 +509,8 @@ export async function runAgentExecution(
       ? (agentMetadata.outputFields as OutputField[]).filter((field) => typeof field?.name === 'string' && field.name.trim())
       : []
   const model = agentMetadata.model || DEFAULT_AGENT_MODEL
-  const runner = createModelRunner(model)
+  const isExternalAgent = (agentRow as { runtime?: string }).runtime === 'external'
+  const runner = isExternalAgent ? externalPlaceholderRunner() : createModelRunner(model)
 
   const queuedExecution = data.executionId
     ? await prisma.agentExecution.findFirst({
@@ -716,6 +737,26 @@ export async function runAgentExecution(
   if (!resuming) {
     await prisma.executionMessage.create({
       data: { executionId: execution.id, role: 'user', content: encryptRunText(data.input || agent.objective) },
+    })
+  }
+
+  // An external agent's work runs somewhere else: the ask is POSTed to its
+  // endpoint and the run is settled from the inline answer or parked until the
+  // callback lands (lib/agents/external-run.ts). Nothing in the native tool
+  // loop below applies — no tools, no transcript, no token budget.
+  if (isExternalAgent) {
+    if (resuming) throw new Error('An external agent run cannot be resumed')
+    const { runExternalAgentRun } = await import('@/lib/agents/external-run')
+    return runExternalAgentRun({
+      organizationId,
+      userId,
+      agentId: agent.id,
+      objective: agent.objective,
+      executionId: execution.id,
+      input: data.input || agent.objective,
+      request: answeringRequest
+        ? { id: answeringRequest.id, text: answeringRequest.text, requesterName: answeringRequest.requestedBy?.name ?? null }
+        : null,
     })
   }
 

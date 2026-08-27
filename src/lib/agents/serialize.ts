@@ -1,5 +1,6 @@
 import { readAgentMetadata } from '@/lib/agents/metadata'
 import { parseGrants } from '@/lib/agents/grants'
+import { describeExternalBinding } from '@/lib/agents/external-agent'
 import { normalizeRoleLabel } from '@/lib/agents/role-label'
 import { DEFAULT_AGENT_MODEL } from '@/lib/llm/model-runner'
 
@@ -20,6 +21,9 @@ export function serializeAgent(agent: {
   schedule: unknown
   /** Optional so test fixtures and older callers need not carry it. */
   grants?: unknown
+  runtime?: string
+  /** The external binding when the caller loaded it; never carries the secret out. */
+  externalBinding?: { endpointUrl: string; authType: string; authConfig: unknown; timeoutMinutes: number } | null
   createdAt: Date
   lastExecutedAt: Date | null
   executionCount: number
@@ -61,6 +65,8 @@ export function serializeAgent(agent: {
     visibility: agent.visibility || 'shared',
     // null = legacy, unrestricted; the form shows that as write-everywhere.
     grants: parseGrants(agent.grants),
+    runtime: agent.runtime ?? 'native',
+    external: describeExternalBinding(agent.externalBinding),
     status: agent.status.toLowerCase(),
     schedule: agent.schedule,
     createdAt: agent.createdAt,

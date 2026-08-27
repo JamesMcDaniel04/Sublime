@@ -6,11 +6,12 @@
  */
 
 /** A run the user can ask to stop: actively looping, or paused waiting on them. */
-const CANCELLABLE_STATUSES = new Set(['running', 'waiting_for_input'])
+const CANCELLABLE_STATUSES = new Set(['running', 'waiting_for_input', 'waiting_for_external'])
 
 /** Paused states with no live turn loop to notice a 'cancelling' flag — these
  *  finalize to 'cancelled' immediately instead of waiting for the loop. */
-const WAITING_STATUSES = new Set(['waiting_for_input'])
+// waiting_for_external: parked on an external agent's callback — no live loop either.
+const WAITING_STATUSES = new Set(['waiting_for_input', 'waiting_for_external'])
 
 /** Finished runs, safe to delete outright (no in-flight work references them). */
 const TERMINAL_STATUSES = new Set(['completed', 'failed', 'cancelled'])

@@ -21,8 +21,10 @@ export interface McpTool {
   name: string
   description: string
   inputSchema: Record<string, unknown>
-  /** Internal — never sent to the client. */
-  flowId: string
+  /** Internal — never sent to the client. Set for flow tools. */
+  flowId?: string
+  /** Internal. Absent = a flow tool; the agent tools name themselves. */
+  kind?: 'flow' | 'ask_agent' | 'get_request'
 }
 
 export type InvokeResult =

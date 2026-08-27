@@ -182,6 +182,16 @@ export async function GET(request: Request) {
       apiLogger.error('cron/dispatch: request reconciliation failed', { error: capError(error) })
     }
 
+    // External agents that accepted an ask and never called back. The
+    // stuck-run reaper ignores waiting_for_external by design; this is theirs.
+    try {
+      const { reapExternalTimeouts } = await import('@/lib/agents/external-run')
+      const reaped = await reapExternalTimeouts()
+      if (reaped > 0) apiLogger.warn('cron/dispatch: failed external runs past their deadline', { reaped })
+    } catch (error) {
+      apiLogger.error('cron/dispatch: external timeout sweep failed', { error: capError(error) })
+    }
+
     // Same recovery for flows: a crashed inline flow execution leaves its run
     // `running` forever, which also wedges that flow's schedule via the
     // overlap guard. Isolated so a reaper failure never aborts the tick.

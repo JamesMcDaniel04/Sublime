@@ -94,6 +94,8 @@ export type WebhookRoute =
   // caller is a browser, so the token rides the query string.
   | 'flow.form'
   | 'agent.trigger'
+  // An external agent posting a run's answer back with its single-use token.
+  | 'agent.external_callback'
   | 'slack.events'
 
 export interface WebhookAuthFailure {

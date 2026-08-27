@@ -42,6 +42,11 @@ test('a resumed run moves a waiting request back to running', () => {
   assert.equal(planRequestReconciliation([req({ status: 'waiting' })], execs('running'), now)[0].to, 'running')
 })
 
+test('a run parked on an external agent reads as working, not as needing the requester', () => {
+  assert.equal(planRequestReconciliation([req({ status: 'waiting' })], execs('waiting_for_external'), now)[0].to, 'running')
+  assert.deepEqual(planRequestReconciliation([req({ status: 'running' })], execs('waiting_for_external'), now), [])
+})
+
 test('a queued run is left alone — it will run', () => {
   assert.deepEqual(planRequestReconciliation([req({ status: 'pending' })], execs('pending'), now), [])
 })

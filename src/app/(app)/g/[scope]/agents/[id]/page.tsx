@@ -29,6 +29,8 @@ type Profile = {
     integrations: string[]
     allowFlows: boolean
     grants: Record<string, 'read' | 'write' | 'blocked'> | null
+    runtime: string
+    external: { host: string; authType: string; timeoutMinutes: number } | null
     lastExecutedAt: string | null
     createdAt: string
   }
@@ -182,6 +184,11 @@ export default function AgentProfilePage() {
             )}
             {profile.worker && <span className="text-muted-foreground">on {profile.worker.name}</span>}
             {agent.visibility === 'private' && <span className="text-xs text-muted-foreground">Private</span>}
+            {agent.runtime === 'external' && (
+              <span className="rounded-full border border-border/60 px-2 py-0.5 text-xs text-muted-foreground" title={agent.external?.host ? `Runs at ${agent.external.host}` : 'Runs outside Sublime'}>
+                External{agent.external?.host ? ` · ${agent.external.host}` : ''}
+              </span>
+            )}
             {agent.lastExecutedAt && <span className="text-xs text-muted-foreground">Last worked {relative(agent.lastExecutedAt)}</span>}
           </div>
           {agent.description && agent.description !== agent.title && (
@@ -218,6 +225,11 @@ export default function AgentProfilePage() {
 
       <section className="space-y-3" aria-labelledby="profile-grants">
         <h2 id="profile-grants" className="text-sm font-semibold">What it may do</h2>
+        {agent.runtime === 'external' ? (
+          <p className="text-sm text-muted-foreground">
+            This agent's work runs outside Sublime{agent.external?.host ? ` at ${agent.external.host}` : ''}. Sublime sends it each ask and receives the answer; what it may touch is governed there, not here.
+          </p>
+        ) : (<>
         {/* The trust surface: what this teammate is allowed to touch, stated
             per tool rather than inferred from whose account it runs under. */}
         <ul className="divide-y divide-border/60 rounded-lg border border-border/60 bg-card text-sm">
@@ -247,6 +259,7 @@ export default function AgentProfilePage() {
         <p className="text-xs text-muted-foreground">
           {agent.grants === null ? 'This agent predates permissions and runs unrestricted. Set them in settings.' : 'Change these in settings. A blocked or read-only tool is never offered to the model.'}
         </p>
+        </>)}
       </section>
 
       <section className="space-y-3" aria-labelledby="profile-ask">

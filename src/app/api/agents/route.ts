@@ -7,6 +7,8 @@ import { agentHttpToolSchema, MAX_AGENT_HTTP_TOOLS } from '@/lib/agents/http-too
 import { agentOwnerScope, agentReadScope, agentWriteScope, VISIBILITY } from '@/lib/server/visibility'
 import { readAgentMetadata } from '@/lib/agents/metadata'
 import { DEFAULT_NEW_AGENT_GRANTS } from '@/lib/agents/grants'
+import { encryptExternalAuth, MAX_EXTERNAL_TIMEOUT_MINUTES } from '@/lib/agents/external-agent'
+import { assertPublicUrl } from '@/lib/net/ssrf'
 import { Prisma } from '@/generated/prisma/client'
 import { serializeAgent } from '@/lib/agents/serialize'
 import { ROLE_LABEL_MAX_CHARS, normalizeRoleLabel } from '@/lib/agents/role-label'
@@ -88,6 +90,20 @@ const agentSchema = z.object({
   // What the agent may DO per plane (lib/agents/grants.ts). Omitted on create
   // = read-only until a human widens it; null = unrestricted (legacy rows).
   grants: z.record(z.string().trim().min(1).max(80), z.enum(['read', 'write', 'blocked'])).nullable().optional(),
+  // Where the agent's work runs. An external agent is a service the workspace
+  // brought (docs/external-agents.md); `external` is required with 'external'.
+  runtime: z.enum(['native', 'external']).optional(),
+  external: z
+    .object({
+      endpointUrl: z.string().trim().url().max(2000),
+      authType: z.enum(['none', 'bearer', 'header']).default('none'),
+      headerName: z.string().trim().max(80).optional(),
+      // Write-only: never echoed back; omitted on update = keep the stored one.
+      secret: z.string().max(4000).optional(),
+      timeoutMinutes: z.number().int().min(1).max(MAX_EXTERNAL_TIMEOUT_MINUTES).optional(),
+    })
+    .nullable()
+    .optional(),
   // Lets this agent invoke saved flows as tools (deterministic multi-step work,
   // e.g. HTTP/API enrichment, that belongs in a flow graph).
   allowFlows: z.boolean().optional(),
@@ -168,9 +184,18 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
   const specialistArea = data.specialistArea || departmentsForTools(data.integrations)[0]
   await assertAgentCapacity(auth.organizationId)
   await assertSpecialistAreaCapacity(auth.organizationId, specialistArea)
+  // An external agent's endpoint is vetted BEFORE the row exists, so a refused
+  // URL leaves nothing behind. It is vetted again on every dispatch.
+  if (data.runtime === 'external') {
+    if (!data.external) throw new ApiError('An external agent needs an endpoint', 400, 'EXTERNAL_ENDPOINT_REQUIRED')
+    await assertPublicUrl(data.external.endpointUrl).catch((error) => {
+      throw new ApiError(`Endpoint refused: ${error instanceof Error ? error.message : String(error)}`, 400, 'ENDPOINT_REFUSED')
+    })
+  }
   const agent = await prisma.agentTask.create({
     data: {
       agentType: 'CUSTOM',
+      runtime: data.runtime ?? 'native',
       description: data.description || data.title,
       objective: data.instructions,
       schedule: data.schedule,
@@ -226,7 +251,19 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
     kind: 'agent_created', resourceType: 'agent', resourceId: agent.id,
     context: { name: data.title || agent.description },
   })
-  return { success: true, agent: { ...serializeAgent(agent), isOwner: agent.userId === auth.dbUser.id } }
+  const externalBinding = data.runtime === 'external' && data.external
+    ? await prisma.externalAgentBinding.create({
+        data: {
+          organizationId: auth.organizationId,
+          agentTaskId: agent.id,
+          endpointUrl: data.external.endpointUrl,
+          authType: data.external.authType,
+          authConfig: encryptExternalAuth({ authType: data.external.authType, headerName: data.external.headerName, secret: data.external.secret }) as never,
+          timeoutMinutes: data.external.timeoutMinutes ?? 10,
+        },
+      })
+    : null
+  return { success: true, agent: { ...serializeAgent({ ...agent, externalBinding }), isOwner: agent.userId === auth.dbUser.id } }
 }, { requires: 'member', rateLimit: { feature: 'agent-create', perUser: 12 } })
 
 export const PUT = withAuthenticatedApi(async (request, auth) => {
@@ -246,6 +283,16 @@ export const PUT = withAuthenticatedApi(async (request, auth) => {
   // agent write access to a plane its owner kept read-only.
   if (body.grants !== undefined && existing.userId !== auth.dbUser.id && !auth.isAdmin) {
     throw new ApiError('Only the agent owner can change what it may do', 403, 'FORBIDDEN')
+  }
+  // Same trust class: WHERE the agent's work executes decides who sees every
+  // ask and every answer. Owner or admin only.
+  if ((body.runtime !== undefined || body.external !== undefined) && existing.userId !== auth.dbUser.id && !auth.isAdmin) {
+    throw new ApiError('Only the agent owner can change where it runs', 403, 'FORBIDDEN')
+  }
+  if (body.external) {
+    await assertPublicUrl(body.external.endpointUrl).catch((error) => {
+      throw new ApiError(`Endpoint refused: ${error instanceof Error ? error.message : String(error)}`, 400, 'ENDPOINT_REFUSED')
+    })
   }
   const metadata = existing.metadata && typeof existing.metadata === 'object' && !Array.isArray(existing.metadata) ? existing.metadata : {}
   const existingMetadata = readAgentMetadata(existing.metadata)
@@ -269,6 +316,7 @@ export const PUT = withAuthenticatedApi(async (request, auth) => {
       ...(body.visibility !== undefined && { visibility: normalizeVisibility(body.visibility) }),
       ...(body.goal !== undefined && { goal: body.goal?.trim() ? body.goal.trim() : null }),
       ...(body.grants !== undefined && { grants: body.grants === null ? Prisma.DbNull : body.grants }),
+      ...(body.runtime !== undefined && { runtime: body.runtime }),
       metadata: {
         ...metadata,
         ...(body.title !== undefined && { title: body.title }),
@@ -319,7 +367,28 @@ export const PUT = withAuthenticatedApi(async (request, auth) => {
     kind: 'agent_edited', resourceType: 'agent', resourceId: agent.id,
     context: { name: (agent.metadata as { title?: string } | null)?.title || agent.description },
   })
-  return { success: true, agent: { ...serializeAgent(agent), isOwner: agent.userId === auth.dbUser.id } }
+  if (body.external) {
+    const current = await prisma.externalAgentBinding.findFirst({ where: { agentTaskId: agent.id, organizationId: auth.organizationId } })
+    const priorConfig = current?.authConfig && typeof current.authConfig === 'object' ? (current.authConfig as Record<string, unknown>) : {}
+    // A missing secret on update keeps the stored one; a changed auth type
+    // without a new secret drops it rather than reusing a secret minted for a
+    // different header.
+    const nextConfig = body.external.secret
+      ? encryptExternalAuth({ authType: body.external.authType, headerName: body.external.headerName, secret: body.external.secret })
+      : body.external.authType === current?.authType
+        ? { ...priorConfig, ...(body.external.headerName ? { headerName: body.external.headerName } : {}) }
+        : encryptExternalAuth({ authType: body.external.authType, headerName: body.external.headerName })
+    const bindingData = {
+      endpointUrl: body.external.endpointUrl,
+      authType: body.external.authType,
+      authConfig: nextConfig as never,
+      timeoutMinutes: body.external.timeoutMinutes ?? current?.timeoutMinutes ?? 10,
+    }
+    if (current) await prisma.externalAgentBinding.updateMany({ where: { id: current.id, organizationId: auth.organizationId }, data: bindingData })
+    else await prisma.externalAgentBinding.create({ data: { organizationId: auth.organizationId, agentTaskId: agent.id, ...bindingData } })
+  }
+  const externalBinding = await prisma.externalAgentBinding.findFirst({ where: { agentTaskId: agent.id, organizationId: auth.organizationId } })
+  return { success: true, agent: { ...serializeAgent({ ...agent, externalBinding }), isOwner: agent.userId === auth.dbUser.id } }
 }, { requires: 'member' })
 
 export const DELETE = withAuthenticatedApi(async (request, auth) => {

@@ -41,8 +41,8 @@ type PublicHandler = (
 ) => Promise<unknown>
 
 export interface PublicApiAccess {
-  /** The single scope this route requires. */
-  scope: ApiScope
+  /** The scope this route requires — or, for a multiplexed endpoint like MCP, any one of several; each tool then re-checks its own. */
+  scope: ApiScope | ApiScope[]
   /** Requests per key per minute. Defaults to a conservative 60. */
   perMinute?: number
   maxBodyBytes?: number
@@ -99,11 +99,12 @@ export function withPublicApi(handler: PublicHandler, access: PublicApiAccess) {
 
     const key = auth.key
 
-    if (!scopeSatisfies(key.scopes, access.scope)) {
+    const required = Array.isArray(access.scope) ? access.scope : [access.scope]
+    if (!required.some((scope) => scopeSatisfies(key.scopes, scope))) {
       // Named explicitly: unlike an authentication failure, telling a
       // legitimate caller which scope they are missing leaks nothing and is
       // the difference between a fixable error and a mystery.
-      return refuse(403, `This API key is missing the "${access.scope}" scope.`, 'INSUFFICIENT_SCOPE')
+      return refuse(403, `This API key is missing the "${required.join('" or "')}" scope.`, 'INSUFFICIENT_SCOPE')
     }
 
     // Per KEY, not per user or per IP: the key is the identity here, and it is
