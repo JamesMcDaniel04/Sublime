@@ -105,3 +105,17 @@ export function rewriteGraphAgentRefs(graph: FlowGraph, refToId: Record<string, 
   }
   return clone
 }
+
+/**
+ * Point the graph's trigger node at a deploy-time trigger (a customized
+ * schedule). The builder treats the trigger node as the editable source of
+ * truth and every save syncs Flow.trigger from it, so an override that only
+ * touched Flow.trigger would be reverted by the first edit in the builder.
+ */
+export function rewriteGraphTrigger(graph: FlowGraph, trigger: unknown): FlowGraph {
+  const clone: FlowGraph = JSON.parse(JSON.stringify(graph))
+  for (const node of clone.nodes) {
+    if (node.type === 'trigger') node.data = { ...node.data, trigger: JSON.parse(JSON.stringify(trigger)) }
+  }
+  return clone
+}

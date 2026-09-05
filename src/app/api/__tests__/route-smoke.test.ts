@@ -16,6 +16,7 @@ if (TEST_DB) {
   let flowId: string
   let goalId: string
   let memberId: string
+  let knowledgeId: string
 
   before(async () => {
     ;({ prisma } = await import('@/lib/prisma'))
@@ -58,6 +59,15 @@ if (TEST_DB) {
       data: { supabaseId: crypto.randomUUID(), organizationId: seeded.organizationId, isActive: true },
     })
     memberId = member.id
+    // A repository file the viewer can open (workspace-wide, legacy plaintext
+    // body so the fixture needs no ENCRYPTION_KEY).
+    const knowledge = await prisma.knowledgeDocument.create({
+      data: {
+        organizationId: seeded.organizationId, userId: seeded.userId, filename: 'smoke.md', title: 'Smoke note',
+        mimeType: 'text/markdown', sourceType: 'manual', visibility: 'organization', charCount: 5, sizeBytes: 5,
+      },
+    })
+    knowledgeId = knowledge.id
   })
 
   after(async () => {
@@ -114,6 +124,7 @@ if (TEST_DB) {
     { name: 'GET /api/skills', run: async () => (await import('../skills/route')).GET(req('/api/skills')) },
     { name: 'GET /api/workflows/executions', run: async () => (await import('../workflows/executions/route')).GET(req('/api/workflows/executions')) },
     { name: 'GET /api/knowledge', run: async () => (await import('../knowledge/route')).GET(req('/api/knowledge')) },
+    { name: 'GET /api/knowledge/[id]', run: async () => (await import('../knowledge/[id]/route')).GET(req(`/api/knowledge/${knowledgeId}`)) },
     { name: 'GET /api/goals', run: async () => (await import('../goals/route')).GET(req('/api/goals')) },
     { name: 'GET /api/goals/impact', run: async () => (await import('../goals/impact/route')).GET(req('/api/goals/impact')) },
     { name: 'GET /api/goals/report', run: async () => (await import('../goals/report/route')).GET(req('/api/goals/report')) },

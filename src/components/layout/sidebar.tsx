@@ -11,6 +11,7 @@ import {
   ChevronRight,
   ChevronsUpDown,
   Folder,
+  FolderOpen,
   Gauge,
   ImagePlus,
   ListTree,
@@ -94,6 +95,9 @@ const navigation = [
   { name: 'Agents', href: '/agents', icon: Bot, description: 'Specialized agents serving your goals' },
   { name: 'Flows', href: '/flows', icon: Workflow, description: 'Orchestrate multi-step work' },
   { name: 'Integrations', href: '/integrations', icon: Plug, description: 'Connect the tools you already use' },
+  // Workspace-level like Traces: files are an org resource with no goal
+  // dimension, so no /g/<scope> prefix.
+  { name: 'Files', href: '/knowledge', icon: FolderOpen, description: 'Reference files your agents can read' },
 ]
 
 function planLabel(plan: string) {
