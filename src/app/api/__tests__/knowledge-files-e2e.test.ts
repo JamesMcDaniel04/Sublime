@@ -127,16 +127,22 @@ if (TEST_DB) {
 
   test('a file that expires mid-run stops being listable and readable on the next call', async () => {
     const { storeKnowledge } = await import('@/lib/knowledge/store')
+    // Stored with a comfortable expiry so ingestion time can never eat the
+    // window; the short fuse is set only once the toolset has been built.
     const expiring = await storeKnowledge({
       organizationId, userId, sourceType: 'upload', title: 'Ephemeral', filename: 'ephemeral.md',
-      content: 'gone soon', visibility: 'organization', retentionPolicy: 'expiring', expiresAt: new Date(Date.now() + 400),
+      content: 'gone soon', visibility: 'organization', retentionPolicy: 'expiring', expiresAt: new Date(Date.now() + 60 * 60 * 1000),
     })
     assert.ok(expiring.id)
     const { buildWorkspaceFileTools } = await import('@/lib/knowledge/file-tools')
     // Built while the file is alive — the scope must not be frozen here.
     const toolset = await buildWorkspaceFileTools({ organizationId, agentId, userId })
     assert.equal(toolset.fileCount, 2)
-    await new Promise((resolve) => setTimeout(resolve, 600))
+    await prisma.knowledgeDocument.update({
+      where: { id: expiring.id, organizationId },
+      data: { expiresAt: new Date(Date.now() + 300) },
+    })
+    await new Promise((resolve) => setTimeout(resolve, 500))
     const listed = (await toolset.execute.list_workspace_files({})) as { files: Array<{ id: string }>; total: number }
     assert.equal(listed.total, 1)
     assert.equal(listed.files.some((f) => f.id === expiring.id), false, 'expired file is not listed')

@@ -103,7 +103,9 @@ export async function buildWorkspaceFileTools(params: { organizationId: string; 
           ? { error: `"${ref}" matches several files; use one id: ${candidates.map((c) => `${c.id} (${c.filename})`).join(', ')}` }
           : { error: `No workspace file matches "${ref}". Call list_workspace_files to see what is available.` }
       }
-      const doc = await readWorkspaceFile(current, file.id)
+      // A fresh scope again: the lookup above and this read are two queries,
+      // and the expiry cut-off must hold at the moment the body is returned.
+      const doc = await readWorkspaceFile(scope(), file.id)
       if (!doc) return { error: `"${file.filename}" is no longer available.` }
       const page = pageContent(doc.content, Number(args.offset ?? 0))
       return {
