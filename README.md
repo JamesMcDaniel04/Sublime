@@ -9,7 +9,7 @@ Sublime is the goal-based AI platform: connect your tech stack, and Sublime conn
 - `/integrations`: Nango accounts, Slack, Granola, MCP servers, and service configuration
 - `/connections`: custom per-user MCP server connections
 - `/templates`: reusable agent templates and skills — customize any template (name, instructions, model, schedule) before deploying, or save the customized copy as your own
-- `/knowledge`: the workspace file repository — Markdown notes and uploaded documents every agent can read by name
+- `/knowledge`: the workspace file repository — Markdown notes and uploaded documents that agents can read by name when their grant allows the knowledge plane
 - `/flows`: visual workflows, triggers, run activity, and version history
 - `/settings`: profile, security, members, and workspace configuration
 

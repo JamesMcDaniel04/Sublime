@@ -377,7 +377,7 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
       // One embedded agent IS the recipe's instructions, so the edit lands on
       // it; several keep their own (see ignoredOverrides above).
       ? embedded.length === 1
-        ? [{ ...embedded[0], instructions: custom.instructions === baseSpec.instructions ? embedded[0].instructions : custom.instructions, model: custom.model ?? embedded[0].model }]
+        ? [{ ...embedded[0], instructions: custom.instructions === baseSpec.instructions ? embedded[0].instructions : custom.instructions, model: customizedFields.includes('model') ? custom.model : embedded[0].model }]
         : embedded
       : [{ ref: 'template-agent', ...customSpec }]
     const refToId: Record<string, string> = {}

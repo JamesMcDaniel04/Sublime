@@ -120,9 +120,11 @@ function sameSchedule(a: ScheduleDraft, b: ScheduleDraft): boolean {
 /** Only what differs from the template — the server treats each key's presence as the edit. */
 function overridesFrom(draft: Draft, original: Draft): TemplateOverrides {
   const overrides: TemplateOverrides = {}
-  if (draft.name.trim() !== original.name) overrides.name = draft.name.trim()
-  if (draft.description.trim() !== original.description) overrides.description = draft.description.trim()
-  if (draft.instructions.trim() !== original.instructions) overrides.instructions = draft.instructions.trim()
+  // Both sides trimmed: a stored value with stray whitespace must not read
+  // as an edit the user never made.
+  if (draft.name.trim() !== original.name.trim()) overrides.name = draft.name.trim()
+  if (draft.description.trim() !== original.description.trim()) overrides.description = draft.description.trim()
+  if (draft.instructions.trim() !== original.instructions.trim()) overrides.instructions = draft.instructions.trim()
   if (draft.model !== original.model) overrides.model = draft.model
   if (!sameSchedule(draft.schedule, original.schedule)) {
     overrides.schedule = {

@@ -1,10 +1,10 @@
 /**
  * The two built-in tools that let a run read the workspace file repository
- * directly: list_workspace_files (the roster) and read_workspace_file (one
- * file, paged). Retrieval already surfaces the most similar passages into
- * the prompt; these exist for the case retrieval cannot serve — "follow the
- * playbook in onboarding.md", where the agent must read a specific document
- * end to end rather than whichever chunks scored highest.
+ * directly: list_workspace_files (the roster, paged) and read_workspace_file
+ * (one file, paged). Retrieval already surfaces the most similar passages
+ * into the prompt; these exist for the case retrieval cannot serve —
+ * "follow the playbook in onboarding.md", where the agent must read a
+ * specific document end to end rather than whichever chunks scored highest.
  *
  * Read-only by construction: nothing here writes, so the tools never need
  * the approval gate, and an agent whose grant blocks the `knowledge` plane
@@ -12,7 +12,16 @@
  */
 import type { ToolDefinition } from '@/lib/llm/model-runner'
 import { wrapUntrusted } from '@/lib/llm/guardrails'
-import { agentFileScope, listWorkspaceFiles, MAX_FILE_READ_CHARS, pageContent, readWorkspaceFile, resolveFileRef } from './files'
+import {
+  agentFileScope,
+  countWorkspaceFiles,
+  findWorkspaceFileByRef,
+  listWorkspaceFiles,
+  MAX_FILE_READ_CHARS,
+  MAX_LISTED_FILES,
+  pageContent,
+  readWorkspaceFile,
+} from './files'
 
 export const WORKSPACE_FILES_PROVIDER = 'knowledge'
 export const LIST_FILES_TOOL = 'list_workspace_files'
@@ -31,18 +40,26 @@ export type WorkspaceFileToolset = {
 /**
  * Build the toolset for one run. Returns an empty set when the repository
  * holds nothing this run may read, so a workspace without files never pays
- * two tool slots for it.
+ * two tool slots for it. Reads resolve against the database at call time,
+ * so a file added mid-run, or one past the first page of the listing, is
+ * still readable by name.
  */
 export async function buildWorkspaceFileTools(params: { organizationId: string; agentId: string; userId?: string | null }): Promise<WorkspaceFileToolset> {
   const scope = agentFileScope(params)
-  const files = await listWorkspaceFiles(scope)
-  if (!files.length) return { tools: [], execute: {}, fileCount: 0, promptHint: '' }
+  const fileCount = await countWorkspaceFiles(scope)
+  if (!fileCount) return { tools: [], execute: {}, fileCount: 0, promptHint: '' }
 
   const listTool: ToolDefinition = {
     name: LIST_FILES_TOOL,
     description:
-      `List the reference files your team keeps in the workspace repository (${files.length} available): Markdown notes, playbooks, specs, and uploaded documents. Returns each file's id, title, filename, and size. Call this before read_workspace_file when you are not sure of a file's name.`,
-    inputSchema: { type: 'object', properties: {}, required: [] },
+      `List the reference files your team keeps in the workspace repository (${fileCount} available): Markdown notes, playbooks, specs, and uploaded documents. Returns each file's id, title, filename, and size, newest first, ${MAX_LISTED_FILES} per page — pass the returned nextOffset to see more. Call this before read_workspace_file when you are not sure of a file's name.`,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        offset: { type: 'number', description: `Skip this many files (for repositories with more than ${MAX_LISTED_FILES} files). Defaults to 0.` },
+      },
+      required: [],
+    },
   }
   const readTool: ToolDefinition = {
     name: READ_FILE_TOOL,
@@ -59,16 +76,24 @@ export async function buildWorkspaceFileTools(params: { organizationId: string; 
   }
 
   const execute: WorkspaceFileToolset['execute'] = {
-    [LIST_FILES_TOOL]: async () => ({
-      files: files.map((file) => ({
-        id: file.id, title: file.title, filename: file.filename, chars: file.charCount,
-        updatedAt: file.updatedAt.toISOString(),
-      })),
-    }),
+    [LIST_FILES_TOOL]: async (args) => {
+      const offset = Math.max(0, Math.trunc(Number(args.offset ?? 0)) || 0)
+      const [files, total] = await Promise.all([listWorkspaceFiles(scope, { offset }), countWorkspaceFiles(scope)])
+      const nextOffset = offset + files.length < total ? offset + files.length : null
+      return {
+        files: files.map((file) => ({
+          id: file.id, title: file.title, filename: file.filename, chars: file.charCount,
+          updatedAt: file.updatedAt.toISOString(),
+        })),
+        offset,
+        total,
+        nextOffset,
+      }
+    },
     [READ_FILE_TOOL]: async (args) => {
       const ref = String(args.file ?? '').trim()
       if (!ref) return { error: 'Provide the file id, filename, or title to read.' }
-      const { file, candidates } = resolveFileRef(files, ref)
+      const { file, candidates } = await findWorkspaceFileByRef(scope, ref)
       if (!file) {
         return candidates.length
           ? { error: `"${ref}" matches several files; use one id: ${candidates.map((c) => `${c.id} (${c.filename})`).join(', ')}` }
@@ -94,9 +119,9 @@ export async function buildWorkspaceFileTools(params: { organizationId: string; 
 
   const promptHint = [
     '## Workspace files',
-    `Your team keeps ${files.length} reference file${files.length === 1 ? '' : 's'} in the workspace repository (notes, playbooks, specs, uploaded documents). ` +
+    `Your team keeps ${fileCount} reference file${fileCount === 1 ? '' : 's'} in the workspace repository (notes, playbooks, specs, uploaded documents). ` +
       `When a task refers to a document by name, or a playbook should be followed in full, call ${LIST_FILES_TOOL} to find it and ${READ_FILE_TOOL} to read it rather than relying on the retrieved excerpts alone.`,
   ].join('\n')
 
-  return { tools: [listTool, readTool], execute, fileCount: files.length, promptHint }
+  return { tools: [listTool, readTool], execute, fileCount, promptHint }
 }

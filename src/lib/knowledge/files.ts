@@ -92,14 +92,49 @@ function toSummary(row: { id: string; title: string | null; filename: string; so
   return { ...row, title: row.title || row.filename }
 }
 
-export async function listWorkspaceFiles(scope: Prisma.KnowledgeDocumentWhereInput, limit = MAX_LISTED_FILES): Promise<WorkspaceFileSummary[]> {
+/** One page of the repository, newest first. `offset` pages past the first MAX_LISTED_FILES. */
+export async function listWorkspaceFiles(
+  scope: Prisma.KnowledgeDocumentWhereInput,
+  options: { limit?: number; offset?: number } = {},
+): Promise<WorkspaceFileSummary[]> {
   const rows = await prisma.knowledgeDocument.findMany({
     where: scope,
-    orderBy: { updatedAt: 'desc' },
+    orderBy: [{ updatedAt: 'desc' }, { id: 'asc' }],
     select: SUMMARY_SELECT,
-    take: limit,
+    take: Math.max(1, Math.min(options.limit ?? MAX_LISTED_FILES, MAX_LISTED_FILES)),
+    skip: Math.max(0, Math.trunc(options.offset ?? 0) || 0),
   })
   return rows.map(toSummary)
+}
+
+export async function countWorkspaceFiles(scope: Prisma.KnowledgeDocumentWhereInput): Promise<number> {
+  return prisma.knowledgeDocument.count({ where: scope })
+}
+
+/**
+ * Find one file by id, filename, or title against the DATABASE, not a
+ * pre-loaded page — so a file beyond the first page of the listing is still
+ * readable by name. Exact matches are tried first; partial matches are
+ * bounded and go through resolveFileRef's uniqueness rule.
+ */
+export async function findWorkspaceFileByRef(scope: Prisma.KnowledgeDocumentWhereInput, ref: string): Promise<{ file: WorkspaceFileSummary | null; candidates: WorkspaceFileSummary[] }> {
+  const wanted = ref.trim()
+  if (!wanted) return { file: null, candidates: [] }
+  const byId = await prisma.knowledgeDocument.findFirst({ where: { ...scope, id: wanted }, select: SUMMARY_SELECT })
+  if (byId) return { file: toSummary(byId), candidates: [toSummary(byId)] }
+  const exact = await prisma.knowledgeDocument.findMany({
+    where: { ...scope, OR: [{ filename: { equals: wanted, mode: 'insensitive' } }, { title: { equals: wanted, mode: 'insensitive' } }] },
+    select: SUMMARY_SELECT,
+    take: 5,
+  })
+  if (exact.length) return resolveFileRef(exact.map(toSummary), wanted)
+  const partial = await prisma.knowledgeDocument.findMany({
+    where: { ...scope, OR: [{ filename: { contains: wanted, mode: 'insensitive' } }, { title: { contains: wanted, mode: 'insensitive' } }] },
+    select: SUMMARY_SELECT,
+    orderBy: { updatedAt: 'desc' },
+    take: 10,
+  })
+  return resolveFileRef(partial.map(toSummary), wanted)
 }
 
 /**
@@ -129,10 +164,15 @@ export function pageContent(content: string, offset = 0, maxChars = MAX_FILE_REA
   return { content: content.slice(start, end), offset: start, totalChars: content.length, truncated, nextOffset: truncated ? end : null }
 }
 
-/** Load one file's decrypted body within a scope; null when it is not visible. */
+/**
+ * Load one repository file's decrypted body within a scope; null when it is
+ * not visible. Restricted to repository source types regardless of the scope
+ * passed in: auto-captured knowledge (run summaries, connection profiles) is
+ * retrieval context, never a document this surface hands out whole.
+ */
 export async function readWorkspaceFile(scope: Prisma.KnowledgeDocumentWhereInput, id: string): Promise<(WorkspaceFileSummary & { content: string; editable: boolean; createdAt: Date; userId: string | null }) | null> {
   const row = await prisma.knowledgeDocument.findFirst({
-    where: { ...scope, id },
+    where: { AND: [scope, { id, sourceType: { in: [...REPOSITORY_SOURCE_TYPES] } }] },
     select: { ...SUMMARY_SELECT, contentEncrypted: true, createdAt: true, userId: true },
   })
   if (!row) return null

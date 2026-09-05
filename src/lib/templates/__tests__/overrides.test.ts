@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { applyTemplateOverrides, overrideSchedule, templateOverridesSchema, validateOverrides } from '../overrides'
+import { applyTemplateOverrides, isValidCalendarDate, isValidCron, isValidTime, overrideSchedule, templateOverridesSchema, validateOverrides } from '../overrides'
 import { rewriteGraphTrigger } from '../provision-plan'
 import type { FlowGraph } from '@/lib/flows/graph'
 
@@ -56,6 +56,25 @@ test('overrideSchedule keeps runAt only for one-time runs', () => {
   const daily = overrideSchedule({ type: 'daily', time: '09:00', cron: '', timezone: '', isActive: true })
   assert.equal(daily.timezone, 'UTC')
   assert.equal('runAt' in daily, false)
+  // A stray runAt on a recurring cadence is dropped, not carried along.
+  const weekly = overrideSchedule({ type: 'weekly', time: '09:00', cron: '', timezone: 'UTC', runAt: '2026-10-01', isActive: true })
+  assert.equal('runAt' in weekly, false)
+})
+
+test('cron, time, and date validators accept what the scheduler can run and nothing else', () => {
+  for (const ok of ['0 9 * * 1-5', '*/15 * * * *', '30 13 1,15 * *', '0 0 1 1 0', '5 4 * * 0,6']) assert.equal(isValidCron(ok), true, ok)
+  for (const bad of ['not a cron', '0 9 * *', '60 9 * * *', '0 24 * * *', '0 9 32 * *', '0 9 * 13 *', '0 9 * * 7', '0 9 * * 5-1', '*/0 * * * *', '0 9 * * mon']) {
+    assert.equal(isValidCron(bad), false, bad)
+  }
+  assert.equal(isValidTime('09:30'), true)
+  assert.equal(isValidTime('23:59'), true)
+  assert.equal(isValidTime('24:00'), false)
+  assert.equal(isValidTime('09:60'), false)
+  assert.equal(isValidTime('9:30'), false)
+  assert.equal(isValidCalendarDate('2026-02-28'), true)
+  assert.equal(isValidCalendarDate('2028-02-29'), true)
+  assert.equal(isValidCalendarDate('2026-02-31'), false)
+  assert.equal(isValidCalendarDate('2026-13-01'), false)
 })
 
 test('validateOverrides refuses schedules that could never fire', () => {
@@ -63,7 +82,12 @@ test('validateOverrides refuses schedules that could never fire', () => {
   assert.match(validateOverrides({ schedule: { type: 'cron', cron: '  ', time: '', timezone: 'UTC', isActive: true } }) ?? '', /cron/)
   assert.match(validateOverrides({ schedule: { type: 'daily', cron: '', time: '', timezone: 'UTC', isActive: true } }) ?? '', /HH:MM/)
   assert.match(validateOverrides({ schedule: { type: 'once', cron: '', time: '09:00', timezone: 'UTC', isActive: true } }) ?? '', /date/)
+  assert.match(validateOverrides({ schedule: { type: 'once', cron: '', time: '09:00', timezone: 'UTC', runAt: '2026-02-31', isActive: true } }) ?? '', /date/)
+  assert.match(validateOverrides({ schedule: { type: 'cron', cron: 'not a cron', time: '', timezone: 'UTC', isActive: true } }) ?? '', /not valid/)
+  assert.match(validateOverrides({ schedule: { type: 'daily', cron: '', time: '24:99', timezone: 'UTC', isActive: true } }) ?? '', /HH:MM/)
   assert.equal(validateOverrides({ schedule: { type: 'daily', cron: '', time: '09:30', timezone: 'UTC', isActive: true } }), null)
+  assert.equal(validateOverrides({ schedule: { type: 'cron', cron: '0 9 * * 1-5', time: '', timezone: 'UTC', isActive: true } }), null)
+  assert.equal(validateOverrides({ schedule: { type: 'once', cron: '', time: '09:00', timezone: 'UTC', runAt: '2026-10-01', isActive: true } }), null)
 })
 
 test('the schema is strict: a client cannot smuggle graph or integration edits through overrides', () => {

@@ -9,6 +9,9 @@ const TEST_DB = process.env.TEST_DATABASE_URL
 if (TEST_DB) {
   process.env.DATABASE_URL = TEST_DB
   process.env.DIRECT_URL = TEST_DB
+  // The knowledge fixture below is written through the real storage path,
+  // which encrypts the body.
+  process.env.ENCRYPTION_KEY = process.env.ENCRYPTION_KEY ?? 'unit-test-key-0123456789abcdef01'
 
   let prisma: any
   let seeded: any
@@ -59,14 +62,14 @@ if (TEST_DB) {
       data: { supabaseId: crypto.randomUUID(), organizationId: seeded.organizationId, isActive: true },
     })
     memberId = member.id
-    // A repository file the viewer can open (workspace-wide, legacy plaintext
-    // body so the fixture needs no ENCRYPTION_KEY).
-    const knowledge = await prisma.knowledgeDocument.create({
-      data: {
-        organizationId: seeded.organizationId, userId: seeded.userId, filename: 'smoke.md', title: 'Smoke note',
-        mimeType: 'text/markdown', sourceType: 'manual', visibility: 'organization', charCount: 5, sizeBytes: 5,
-      },
+    // A repository file the viewer can open, written through the real
+    // storage path so the single-document route has a body to return.
+    const { createWorkspaceNote } = await import('@/lib/knowledge/files')
+    const knowledge = await createWorkspaceNote({
+      organizationId: seeded.organizationId, userId: seeded.userId,
+      title: 'Smoke note', content: '# Smoke\n\nA note the smoke suite can open.', visibility: 'organization',
     })
+    if (!knowledge) throw new Error('knowledge fixture was not stored')
     knowledgeId = knowledge.id
   })
 

@@ -130,7 +130,10 @@ export function TemplateSchedulePicker({
           <Input
             id="template-cron"
             value={value.cron ?? ''}
-            onChange={(event) => onChange({ ...value, cron: event.target.value })}
+            // A one-time schedule shows here as "custom" (there is no one-time
+            // cadence in this picker), so an edit must make it a real cron
+            // schedule rather than a one-time run carrying a cron it ignores.
+            onChange={(event) => onChange({ ...value, type: 'cron', runAt: undefined, time: '', cron: event.target.value })}
             placeholder="0 9 * * 1-5"
             className="h-9 font-mono"
           />

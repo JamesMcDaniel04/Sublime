@@ -78,6 +78,11 @@ export default function KnowledgeFilesPage() {
   // The open document, with its body; `editing` swaps the viewer for a form.
   const [open, setOpen] = useState<FileDetail | null>(null)
   const [openLoading, setOpenLoading] = useState(false)
+  // Identity of the latest read. A response is applied only if it is still
+  // the newest request AND the dialog was not closed while it was in flight,
+  // so a slow read can neither replace a later selection nor reopen the
+  // dialog after the user dismissed it.
+  const readSeq = useRef(0)
   const [editing, setEditing] = useState(false)
   const [editDraft, setEditDraft] = useState<{ title: string; content: string }>({ title: '', content: '' })
   const [saving, setSaving] = useState(false)
@@ -113,13 +118,18 @@ export default function KnowledgeFilesPage() {
     setUploading(true)
     try {
       for (const file of Array.from(list)) {
-        const form = new FormData()
-        form.append('file', file)
-        form.append('visibility', visibility)
-        const response = await fetch('/api/knowledge', { method: 'POST', body: form })
-        const data = await response.json().catch(() => ({}))
-        if (response.ok && data.document) toast.success(`Added "${data.document.filename}" (${data.document.chunkCount} passages).`)
-        else toast.error(data.error || `Could not add "${file.name}".`)
+        // One failed file (a rejected request included) must not stop the rest.
+        try {
+          const form = new FormData()
+          form.append('file', file)
+          form.append('visibility', visibility)
+          const response = await fetch('/api/knowledge', { method: 'POST', body: form })
+          const data = await response.json().catch(() => ({}))
+          if (response.ok && data.document) toast.success(`Added "${data.document.filename}" (${data.document.chunkCount} passages).`)
+          else toast.error(data.error || `Could not add "${file.name}".`)
+        } catch {
+          toast.error(`Could not add "${file.name}".`)
+        }
       }
       await load()
     } finally {
@@ -151,19 +161,30 @@ export default function KnowledgeFilesPage() {
   }
 
   const openFile = async (file: FileRow) => {
+    const seq = ++readSeq.current
     setOpenLoading(true)
     setEditing(false)
     try {
       const response = await fetch(`/api/knowledge/${encodeURIComponent(file.id)}`, { cache: 'no-store' })
       const data = await response.json().catch(() => ({}))
+      if (seq !== readSeq.current) return
       if (!response.ok || !data.document) throw new Error(data.error || 'Could not open this file.')
       setOpen({ ...file, ...data.document })
       setEditDraft({ title: data.document.title, content: data.document.content })
     } catch (error) {
+      if (seq !== readSeq.current) return
       toast.error(error instanceof Error ? error.message : 'Could not open this file.')
     } finally {
-      setOpenLoading(false)
+      if (seq === readSeq.current) setOpenLoading(false)
     }
+  }
+
+  const closeViewer = () => {
+    // Invalidate any read still in flight so its response is dropped.
+    readSeq.current += 1
+    setOpenLoading(false)
+    setOpen(null)
+    setEditing(false)
   }
 
   const saveEdit = async () => {
@@ -316,7 +337,7 @@ export default function KnowledgeFilesPage() {
       </p>
 
       {/* Viewer / editor */}
-      <Dialog open={Boolean(open) || openLoading} onOpenChange={(next) => { if (!next) { setOpen(null); setEditing(false) } }}>
+      <Dialog open={Boolean(open) || openLoading} onOpenChange={(next) => { if (!next) closeViewer() }}>
         <DialogContent className="max-h-[90vh] max-w-3xl overflow-hidden">
           {openLoading || !open ? (
             <div className="space-y-3 py-6">

@@ -114,6 +114,15 @@ if (TEST_DB) {
 
     const missing = (await toolset.execute.read_workspace_file({ file: 'nope' })) as { error: string }
     assert.match(missing.error, /No workspace file matches/)
+
+    // Listing pages: a page past the end is empty and reports no next page,
+    // and a file is still readable by name even when it is not on the page.
+    const page = (await toolset.execute.list_workspace_files({ offset: 1 })) as { files: unknown[]; total: number; nextOffset: number | null }
+    assert.equal(page.files.length, 0)
+    assert.equal(page.total, 1)
+    assert.equal(page.nextOffset, null)
+    const byName = (await toolset.execute.read_workspace_file({ file: 'onboarding-playbook.md' })) as { id: string }
+    assert.equal(byName.id, noteId)
   })
 
   test('a private note from another user is invisible to this agent and this viewer', async () => {
@@ -139,10 +148,16 @@ if (TEST_DB) {
       organizationId, userId, sourceType: 'agent_run', sourceId: 'run-1', title: 'Run summary',
       content: 'what the agent did', visibility: 'organization',
     })
-    const { PUT } = await import('../knowledge/[id]/route')
+    const { PUT, GET: GET_ONE } = await import('../knowledge/[id]/route')
     const res = await PUT(json('PUT', `/api/knowledge/${captured.id}`, { content: 'tampered' }))
     assert.equal(res.status, 409)
     assert.equal((await res.json()).code, 'NOT_EDITABLE')
+    // Nor readable whole through the repository route — retrieval context only.
+    assert.equal((await GET_ONE(get(`/api/knowledge/${captured.id}`))).status, 404)
+    const { buildWorkspaceFileTools } = await import('@/lib/knowledge/file-tools')
+    const toolset = await buildWorkspaceFileTools({ organizationId, agentId, userId })
+    const miss = (await toolset.execute.read_workspace_file({ file: 'Run summary' })) as { error?: string }
+    assert.match(miss.error ?? '', /No workspace file matches/)
     const { GET } = await import('../knowledge/route')
     const list = await (await GET(get('/api/knowledge?source=repository'))).json()
     assert.equal(list.documents.some((d: any) => d.id === captured.id), false, 'not a repository file')
