@@ -11,7 +11,6 @@
  * is simply not offered them (execute-agent checks the grant).
  */
 import type { ToolDefinition } from '@/lib/llm/model-runner'
-import { wrapUntrusted } from '@/lib/llm/guardrails'
 import {
   agentFileScope,
   countWorkspaceFiles,
@@ -45,8 +44,11 @@ export type WorkspaceFileToolset = {
  * still readable by name.
  */
 export async function buildWorkspaceFileTools(params: { organizationId: string; agentId: string; userId?: string | null }): Promise<WorkspaceFileToolset> {
-  const scope = agentFileScope(params)
-  const fileCount = await countWorkspaceFiles(scope)
+  // Rebuilt per call, never cached: the scope carries the expiry cut-off
+  // (`expiresAt > now`), so a scope frozen at toolset construction would keep
+  // a file readable for the rest of a run after it expired.
+  const scope = () => agentFileScope(params)
+  const fileCount = await countWorkspaceFiles(scope())
   if (!fileCount) return { tools: [], execute: {}, fileCount: 0, promptHint: '' }
 
   const listTool: ToolDefinition = {
@@ -78,7 +80,8 @@ export async function buildWorkspaceFileTools(params: { organizationId: string; 
   const execute: WorkspaceFileToolset['execute'] = {
     [LIST_FILES_TOOL]: async (args) => {
       const offset = Math.max(0, Math.trunc(Number(args.offset ?? 0)) || 0)
-      const [files, total] = await Promise.all([listWorkspaceFiles(scope, { offset }), countWorkspaceFiles(scope)])
+      const current = scope()
+      const [files, total] = await Promise.all([listWorkspaceFiles(current, { offset }), countWorkspaceFiles(current)])
       const nextOffset = offset + files.length < total ? offset + files.length : null
       return {
         files: files.map((file) => ({
@@ -93,13 +96,14 @@ export async function buildWorkspaceFileTools(params: { organizationId: string; 
     [READ_FILE_TOOL]: async (args) => {
       const ref = String(args.file ?? '').trim()
       if (!ref) return { error: 'Provide the file id, filename, or title to read.' }
-      const { file, candidates } = await findWorkspaceFileByRef(scope, ref)
+      const current = scope()
+      const { file, candidates } = await findWorkspaceFileByRef(current, ref)
       if (!file) {
         return candidates.length
           ? { error: `"${ref}" matches several files; use one id: ${candidates.map((c) => `${c.id} (${c.filename})`).join(', ')}` }
           : { error: `No workspace file matches "${ref}". Call list_workspace_files to see what is available.` }
       }
-      const doc = await readWorkspaceFile(scope, file.id)
+      const doc = await readWorkspaceFile(current, file.id)
       if (!doc) return { error: `"${file.filename}" is no longer available.` }
       const page = pageContent(doc.content, Number(args.offset ?? 0))
       return {
@@ -110,9 +114,10 @@ export async function buildWorkspaceFileTools(params: { organizationId: string; 
         totalChars: page.totalChars,
         truncated: page.truncated,
         nextOffset: page.nextOffset,
-        // A file is reference material a colleague wrote, never an instruction
-        // channel — the same fence retrieved passages get.
-        content: wrapUntrusted(page.content, 'a workspace file'),
+        // Not fenced here: serializeToolResult fences the WHOLE tool result
+        // (and neutralizes any marker the file body tries to spell), so a
+        // nested fence would only add a second closing marker mid-result.
+        content: page.content,
       }
     },
   }

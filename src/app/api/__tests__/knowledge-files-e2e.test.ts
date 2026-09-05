@@ -125,6 +125,26 @@ if (TEST_DB) {
     assert.equal(byName.id, noteId)
   })
 
+  test('a file that expires mid-run stops being listable and readable on the next call', async () => {
+    const { storeKnowledge } = await import('@/lib/knowledge/store')
+    const expiring = await storeKnowledge({
+      organizationId, userId, sourceType: 'upload', title: 'Ephemeral', filename: 'ephemeral.md',
+      content: 'gone soon', visibility: 'organization', retentionPolicy: 'expiring', expiresAt: new Date(Date.now() + 400),
+    })
+    assert.ok(expiring.id)
+    const { buildWorkspaceFileTools } = await import('@/lib/knowledge/file-tools')
+    // Built while the file is alive — the scope must not be frozen here.
+    const toolset = await buildWorkspaceFileTools({ organizationId, agentId, userId })
+    assert.equal(toolset.fileCount, 2)
+    await new Promise((resolve) => setTimeout(resolve, 600))
+    const listed = (await toolset.execute.list_workspace_files({})) as { files: Array<{ id: string }>; total: number }
+    assert.equal(listed.total, 1)
+    assert.equal(listed.files.some((f) => f.id === expiring.id), false, 'expired file is not listed')
+    const read = (await toolset.execute.read_workspace_file({ file: 'ephemeral.md' })) as { error?: string }
+    assert.match(read.error ?? '', /No workspace file matches/)
+    await prisma.knowledgeDocument.deleteMany({ where: { id: expiring.id, organizationId } })
+  })
+
   test('a private note from another user is invisible to this agent and this viewer', async () => {
     const { storeKnowledge } = await import('@/lib/knowledge/store')
     const other = await prisma.user.create({ data: { supabaseId: crypto.randomUUID(), organizationId, isActive: true } })

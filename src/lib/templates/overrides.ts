@@ -73,13 +73,38 @@ function validCronField(field: string, min: number, max: number): boolean {
   })
 }
 
-/** Whether a five-field cron expression is one the scheduler (lib/scheduling/due.ts) can match. */
+/** Every value a (pre-validated) cron field selects within [min, max]. */
+function expandCronField(field: string, min: number, max: number): Set<number> {
+  const values = new Set<number>()
+  for (const part of field.split(',')) {
+    if (part === '*') { for (let v = min; v <= max; v++) values.add(v) }
+    else if (part.startsWith('*/')) { const step = Number(part.slice(2)); for (let v = min; v <= max; v += step) values.add(v) }
+    else if (part.includes('-')) { const [lo, hi] = part.split('-').map(Number); for (let v = lo; v <= hi; v++) values.add(v) }
+    else values.add(Number(part))
+  }
+  return values
+}
+
+/** Longest a month can be; February counts leap years so the 29th stays schedulable. */
+const MAX_DAY_IN_MONTH = [0, 31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+
+/**
+ * Whether a five-field cron expression is one the scheduler
+ * (lib/scheduling/due.ts) can match — and can ever fire: each field in range,
+ * and at least one selected day-of-month exists in at least one selected
+ * month, so "0 9 31 2 *" (February 31st) is refused rather than saved as a
+ * schedule that silently never runs.
+ */
 export function isValidCron(expression: string): boolean {
   const fields = expression.trim().split(/\s+/)
   if (fields.length !== 5) return false
   const [minute, hour, dom, month, dow] = fields
-  return validCronField(minute, 0, 59) && validCronField(hour, 0, 23) && validCronField(dom, 1, 31)
-    && validCronField(month, 1, 12) && validCronField(dow, 0, 6)
+  if (!(validCronField(minute, 0, 59) && validCronField(hour, 0, 23) && validCronField(dom, 1, 31)
+    && validCronField(month, 1, 12) && validCronField(dow, 0, 6))) return false
+  const days = expandCronField(dom, 1, 31)
+  const months = expandCronField(month, 1, 12)
+  for (const m of months) for (const d of days) if (d <= MAX_DAY_IN_MONTH[m]) return true
+  return false
 }
 
 /** "HH:MM" on a 24-hour clock. */

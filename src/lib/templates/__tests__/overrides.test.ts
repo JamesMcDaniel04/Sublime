@@ -66,6 +66,13 @@ test('cron, time, and date validators accept what the scheduler can run and noth
   for (const bad of ['not a cron', '0 9 * *', '60 9 * * *', '0 24 * * *', '0 9 32 * *', '0 9 * 13 *', '0 9 * * 7', '0 9 * * 5-1', '*/0 * * * *', '0 9 * * mon']) {
     assert.equal(isValidCron(bad), false, bad)
   }
+  // Calendar-impossible combinations can never fire.
+  for (const never of ['0 9 31 2 *', '0 9 30 2 *', '0 9 31 4 *', '0 9 31 4,6,9,11 *', '0 9 30-31 2 *']) {
+    assert.equal(isValidCron(never), false, never)
+  }
+  for (const possible of ['0 9 29 2 *', '0 9 31 1,3 *', '0 9 31 * *', '0 9 31 2,3 *', '0 9 */10 2 *', '0 9 * 2 *']) {
+    assert.equal(isValidCron(possible), true, possible)
+  }
   assert.equal(isValidTime('09:30'), true)
   assert.equal(isValidTime('23:59'), true)
   assert.equal(isValidTime('24:00'), false)
@@ -84,6 +91,7 @@ test('validateOverrides refuses schedules that could never fire', () => {
   assert.match(validateOverrides({ schedule: { type: 'once', cron: '', time: '09:00', timezone: 'UTC', isActive: true } }) ?? '', /date/)
   assert.match(validateOverrides({ schedule: { type: 'once', cron: '', time: '09:00', timezone: 'UTC', runAt: '2026-02-31', isActive: true } }) ?? '', /date/)
   assert.match(validateOverrides({ schedule: { type: 'cron', cron: 'not a cron', time: '', timezone: 'UTC', isActive: true } }) ?? '', /not valid/)
+  assert.match(validateOverrides({ schedule: { type: 'cron', cron: '0 9 31 2 *', time: '', timezone: 'UTC', isActive: true } }) ?? '', /not valid/)
   assert.match(validateOverrides({ schedule: { type: 'daily', cron: '', time: '24:99', timezone: 'UTC', isActive: true } }) ?? '', /HH:MM/)
   assert.equal(validateOverrides({ schedule: { type: 'daily', cron: '', time: '09:30', timezone: 'UTC', isActive: true } }), null)
   assert.equal(validateOverrides({ schedule: { type: 'cron', cron: '0 9 * * 1-5', time: '', timezone: 'UTC', isActive: true } }), null)
