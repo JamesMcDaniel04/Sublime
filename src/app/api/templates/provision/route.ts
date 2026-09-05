@@ -5,7 +5,8 @@ import { ApiError, withAuthenticatedApi } from '@/lib/server/api-handler'
 import { templateVisibleTo } from '@/lib/templates/visibility'
 import { MANUAL_SCHEDULE, materializeAgent, type MaterializeSpec } from '@/lib/templates/materialize-agent'
 import { deliveryForSeed, getSeedByKey, instructionsForSeed, type SeedTemplate, type TemplateAgentSpec } from '@/lib/templates/catalogue'
-import { graphNeedsBackingFlow, missingRequiredProviders, resolveGraphToolConnections, rewriteGraphAgentRefs } from '@/lib/templates/provision-plan'
+import { graphNeedsBackingFlow, missingRequiredProviders, resolveGraphToolConnections, rewriteGraphAgentRefs, rewriteGraphTrigger } from '@/lib/templates/provision-plan'
+import { applyTemplateOverrides, templateOverridesSchema, validateOverrides } from '@/lib/templates/overrides'
 import { validateSlackDeliveryChannel } from '@/lib/templates/validate-delivery'
 import { loadFlowToolCatalog } from '@/lib/flows/tool-catalog'
 import { normalizeFlowTrigger, triggerFromGraph } from '@/lib/flows/trigger'
@@ -48,6 +49,10 @@ const bodySchema = z
     // File the provisioned agent under an existing roster identity instead of
     // creating a standalone one — one avatar can hold several agents.
     workerId: z.string().min(1).optional(),
+    // Deploy-time customization from the detail page's edit mode: name,
+    // description, instructions, model, schedule. Applied AFTER the trusted
+    // recipe is loaded — never the graph, bindings, or required integrations.
+    overrides: templateOverridesSchema.optional(),
   })
   .refine((body) => Boolean(body.seedKey) !== Boolean(body.templateId), {
     message: 'Provide exactly one of seedKey or templateId',
@@ -180,8 +185,14 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
     suggestionId,
     recoveryActionId,
     workerId,
+    overrides,
   } =
     bodySchema.parse(await request.json())
+
+  if (overrides) {
+    const problem = validateOverrides(overrides)
+    if (problem) throw new ApiError(problem, 400, 'INVALID_OVERRIDES')
+  }
 
   const organizationId = auth.organizationId
   const userId = auth.dbUser.id
@@ -208,7 +219,39 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
 
   const requiredIntegrations = seed ? seed.requiredIntegrations : dbRecipe!.requiredIntegrations
   const desiredKind = targetKind ?? (seed ? seed.kind : dbRecipe!.kind)
-  const schedule = seed ? scheduleForSeed(seed) : dbRecipe!.schedule
+
+  // The customizable surface of the recipe, with the user's edits applied.
+  // Everything below reads `custom` instead of the raw seed/row for these
+  // five fields so an override reaches every deploy shape (agent, flow,
+  // flow-backed agent) the same way.
+  const baseSpec: MaterializeSpec = seed ? combinedAgentSpec(seed) : dbRecipe!.spec
+  const { recipe: custom, applied: customizedFields } = applyTemplateOverrides(
+    {
+      name: seed ? seed.name : dbRecipe!.name,
+      description: seed ? seed.description : dbRecipe!.description,
+      instructions: baseSpec.instructions,
+      model: baseSpec.model,
+      schedule: seed ? scheduleForSeed(seed) : dbRecipe!.schedule,
+    },
+    overrides,
+  )
+  const schedule = custom.schedule
+  const customTrigger: { type: 'manual' } | { type: 'schedule'; schedule: AgentSchedule } =
+    schedule.type === 'manual' ? { type: 'manual' } : { type: 'schedule', schedule }
+  // A multi-agent flow seed has no single "instructions" to replace: each
+  // embedded agent carries its own, edited in the flow builder after deploy.
+  // The edit is reported back rather than silently dropped.
+  const multiAgentSeed = seed?.kind === 'flow' && (seed.agents?.length ?? 0) > 1
+  const customSpec: MaterializeSpec = {
+    ...baseSpec,
+    title: custom.name,
+    description: custom.description,
+    instructions: custom.instructions,
+    model: custom.model,
+    ...(customizedFields.length
+      ? { extraMetadata: { ...(baseSpec.extraMetadata ?? {}), customizedFields } }
+      : {}),
+  }
 
   // Pre-flight: every REQUIRED provider must have a satisfying connection in
   // the same catalog the binding pass uses — so a passing pre-flight cannot
@@ -323,15 +366,20 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
     }
   }
 
-  const templateName = seed ? seed.name : dbRecipe!.name
-  const templateDescription = seed ? seed.description : dbRecipe!.description
+  const templateName = custom.name
+  const templateDescription = custom.description
 
   // Provision the template as a flow — reused by the direct 'flow' path AND by
   // the agent path when the recipe needs true flow mechanics (see below).
   const provisionAsFlow = async (activateFlowNow: boolean) => {
-    const specs: TemplateAgentSpec[] = seed && seed.kind === 'flow'
-      ? seed.agents ?? []
-      : [{ ref: 'template-agent', ...(seed ? combinedAgentSpec(seed) : dbRecipe!.spec) }]
+    const embedded = seed && seed.kind === 'flow' ? seed.agents ?? [] : []
+    const specs: TemplateAgentSpec[] = embedded.length
+      // One embedded agent IS the recipe's instructions, so the edit lands on
+      // it; several keep their own (see ignoredOverrides above).
+      ? embedded.length === 1
+        ? [{ ...embedded[0], instructions: custom.instructions === baseSpec.instructions ? embedded[0].instructions : custom.instructions, model: customizedFields.includes('model') ? custom.model : embedded[0].model }]
+        : embedded
+      : [{ ref: 'template-agent', ...customSpec }]
     const refToId: Record<string, string> = {}
     const created: Array<{ id: string; integrations: string[] }> = []
     try {
@@ -346,14 +394,14 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
         created.push({ id, integrations: spec.integrations })
       }
 
-      const templateTrigger = seed ? seed.trigger : dbRecipe!.trigger
+      const templateTrigger = customizedFields.includes('schedule') ? customTrigger : seed ? seed.trigger : dbRecipe!.trigger
       const delivery = seed ? deliveryForSeed(seed) : null
       // Deploy-time destination: the caller's override wins over the seed's
       // department default, and the choice is recorded on the flow's metadata.
       const slackChannel = deliveryOverride?.channel?.trim() || (delivery?.kind === 'slack' ? delivery.destination : '')
       const emailTo = deliveryOverride?.email || '{{trigger.input.requesterEmail}}'
       const baseGraph: FlowGraph = seed && seed.kind === 'flow' && seed.flowGraph
-        ? seed.flowGraph
+        ? customizedFields.includes('schedule') ? rewriteGraphTrigger(seed.flowGraph, templateTrigger) : seed.flowGraph
         : {
             nodes: [
               { id: 'trigger', type: 'trigger', data: { trigger: templateTrigger ?? { type: 'manual' } } },
@@ -409,6 +457,7 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
             provisionedFromTemplateId: templateId ?? null,
             provisionedAs: 'flow',
             resolvedConnections: bindings,
+            ...(customizedFields.length ? { customizedFields } : {}),
             ...(delivery ? { delivery: { kind: delivery.kind, destination: delivery.kind === 'slack' ? slackChannel : emailTo } } : {}),
             ...(deliveryCheck.warning ? { deliveryWarning: deliveryCheck.warning } : {}),
           }),
@@ -457,6 +506,11 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
   // agent wired to call that flow (the flow analog of a subagent pipeline).
   const backingGraph = seed?.kind === 'flow' ? seed.flowGraph : undefined
   const needsBackingFlow = desiredKind === 'agent' && backingGraph != null && graphNeedsBackingFlow(backingGraph)
+  // Both shapes deploy the seed's embedded agents verbatim (the orchestrator
+  // agent's instructions are generated, not the recipe's).
+  const ignoredOverrides = multiAgentSeed && (desiredKind === 'flow' || needsBackingFlow)
+    ? customizedFields.filter((field) => field === 'instructions' || field === 'model')
+    : []
 
   // Re-deploying a seed that already backs this goal must NOT materialize a
   // second resource. GoalContribution is unique on (goalId, resourceType,
@@ -482,14 +536,14 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
 
   try {
     if (desiredKind === 'agent' && !needsBackingFlow) {
-      const spec = seed ? combinedAgentSpec(seed) : dbRecipe!.spec
+      const spec = customSpec
       const departments = seed ? seed.departments : dbRecipe!.departments
       const specialistArea = departments?.[0] || departmentsForTools(spec.integrations)[0]
       const agentId = await materializeAgent({ ...spec, workerId }, organizationId, userId, schedule, specialistArea)
       await syncAgentConnectors(agentId, organizationId, userId, spec.integrations)
-      recordTemplateUsed('agent', agentId)
+      recordTemplateUsed('agent', agentId, customizedFields.length ? { customizedFields } : {})
       await attributeProvision('agent', agentId)
-      return { success: true, kind: 'agent' as const, agentId }
+      return { success: true, kind: 'agent' as const, agentId, ...(customizedFields.length ? { customizedFields } : {}) }
     }
 
     if (needsBackingFlow) {
@@ -518,13 +572,15 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
         schedule,
         specialistArea,
       )
-      recordTemplateUsed('agent', agentId, { backedByFlowId: flowResult.flowId })
+      recordTemplateUsed('agent', agentId, { backedByFlowId: flowResult.flowId, ...(customizedFields.length ? { customizedFields } : {}) })
       await attributeProvision('agent', agentId)
       return {
         success: true,
         kind: 'agent' as const,
         agentId,
         backedByFlowId: flowResult.flowId,
+        ...(customizedFields.length ? { customizedFields } : {}),
+        ...(ignoredOverrides.length ? { ignoredOverrides } : {}),
         ...(flowResult.activationError ? { activationError: flowResult.activationError } : {}),
         ...(flowResult.deliveryWarning ? { deliveryWarning: flowResult.deliveryWarning } : {}),
       }
@@ -532,13 +588,15 @@ export const POST = withAuthenticatedApi(async (request, auth) => {
 
     // desiredKind === 'flow'
     const flowResult = await provisionAsFlow(activate)
-    recordTemplateUsed('flow', flowResult.flowId, { activated: flowResult.activated })
+    recordTemplateUsed('flow', flowResult.flowId, { activated: flowResult.activated, ...(customizedFields.length ? { customizedFields } : {}) })
     await attributeProvision('flow', flowResult.flowId)
     return {
       success: true,
       kind: 'flow' as const,
       flowId: flowResult.flowId,
       activated: flowResult.activated,
+      ...(customizedFields.length ? { customizedFields } : {}),
+      ...(ignoredOverrides.length ? { ignoredOverrides } : {}),
       ...(activate && flowResult.activationError ? { activationError: flowResult.activationError } : {}),
       ...(flowResult.deliveryWarning ? { deliveryWarning: flowResult.deliveryWarning } : {}),
     }

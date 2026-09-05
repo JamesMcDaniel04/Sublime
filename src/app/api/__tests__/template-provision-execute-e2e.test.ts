@@ -215,6 +215,55 @@ if (TEST_DB) {
     assert.match(JSON.stringify(slackPost.body), /QA Opp/, 'templated agent output reached the Slack message')
   })
 
+  test('overrides customize the deployed flow: name, schedule, and the embedded agent instructions', async () => {
+    const res = await provision({
+      seedKey: 'sales-new-lead-to-sf-opportunity',
+      targetKind: 'flow',
+      overrides: {
+        name: 'Inbound → SF (EMEA)',
+        description: '',
+        instructions: 'Qualify EMEA leads only; reply as JSON with opportunityName, amount, stage, rationale.',
+        schedule: { type: 'daily', time: '07:30', timezone: 'Europe/Paris' },
+      },
+    })
+    assert.equal(res.status, 200, `customized provision failed: ${await res.clone().text()}`)
+    const body = await res.json()
+    assert.deepEqual(body.customizedFields, ['name', 'description', 'instructions', 'schedule'])
+    assert.equal(body.ignoredOverrides, undefined, 'a single embedded agent takes the instructions edit')
+
+    const flow = await prisma.flow.findFirst({ where: { id: body.flowId, organizationId } })
+    assert.equal(flow.name, 'Inbound → SF (EMEA)')
+    assert.equal(flow.description, '')
+    assert.equal((flow.trigger as any).type, 'schedule')
+    assert.equal((flow.trigger as any).schedule.type, 'daily')
+    assert.equal((flow.trigger as any).schedule.time, '07:30')
+    // The graph's trigger node carries the same override, so the builder's
+    // next save cannot revert it (see rewriteGraphTrigger).
+    const triggerNode = (flow.graph as any).nodes.find((n: any) => n.type === 'trigger')
+    assert.equal(triggerNode.data.trigger.schedule.timezone, 'Europe/Paris')
+    assert.deepEqual((flow.metadata as any).customizedFields, ['name', 'description', 'instructions', 'schedule'])
+
+    const agentNode = (flow.graph as any).nodes.find((n: any) => n.id === 'qualify')
+    const agentTask = await prisma.agentTask.findFirst({ where: { id: agentNode.data.agentId, organizationId } })
+    assert.match(agentTask.objective, /EMEA leads only/, 'embedded agent runs the customized instructions')
+  })
+
+  test('overrides cannot carry graph or integration edits', async () => {
+    const res = await provision({
+      seedKey: 'sales-new-lead-to-sf-opportunity',
+      targetKind: 'flow',
+      overrides: { requiredIntegrations: [] },
+    })
+    assert.equal(res.status, 400, await res.clone().text())
+    const cron = await provision({
+      seedKey: 'sales-new-lead-to-sf-opportunity',
+      targetKind: 'flow',
+      overrides: { schedule: { type: 'cron', cron: '' } },
+    })
+    assert.equal(cron.status, 400)
+    assert.equal((await cron.json()).code, 'INVALID_OVERRIDES')
+  })
+
   test('an unbound template: placeholder fails execution with an actionable message', async () => {
     const { resolveFlowToolExecutor } = await import('@/features/agents/tool-planes')
     await assert.rejects(

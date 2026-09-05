@@ -1,5 +1,5 @@
 import { extractText, isSupported } from './extract'
-import { storeKnowledge } from './store'
+import { storeKnowledge, type KnowledgeVisibility } from './store'
 
 export class UnsupportedFileError extends Error {}
 
@@ -15,6 +15,8 @@ export async function ingestKnowledgeFile(params: {
   filename: string
   mimeType: string
   buffer: Buffer
+  /** Defaults to the attached agent's scope, or workspace-wide when unattached. */
+  visibility?: KnowledgeVisibility
 }) {
   if (!isSupported(params.mimeType, params.filename)) {
     throw new UnsupportedFileError(
@@ -33,7 +35,7 @@ export async function ingestKnowledgeFile(params: {
     mimeType: params.mimeType,
     sizeBytes: params.buffer.length,
     content: raw,
-    visibility: params.agentId ? 'agent' : 'organization',
+    visibility: params.visibility ?? (params.agentId ? 'agent' : 'organization'),
     provenance: { kind: 'upload', originalFilename: params.filename },
   })
   if (!stored.stored || !stored.id) throw new UnsupportedFileError('Knowledge storage is disabled for this workspace.')

@@ -9,6 +9,9 @@ const TEST_DB = process.env.TEST_DATABASE_URL
 if (TEST_DB) {
   process.env.DATABASE_URL = TEST_DB
   process.env.DIRECT_URL = TEST_DB
+  // The knowledge fixture below is written through the real storage path,
+  // which encrypts the body.
+  process.env.ENCRYPTION_KEY = process.env.ENCRYPTION_KEY ?? 'unit-test-key-0123456789abcdef01'
 
   let prisma: any
   let seeded: any
@@ -16,6 +19,7 @@ if (TEST_DB) {
   let flowId: string
   let goalId: string
   let memberId: string
+  let knowledgeId: string
 
   before(async () => {
     ;({ prisma } = await import('@/lib/prisma'))
@@ -58,6 +62,15 @@ if (TEST_DB) {
       data: { supabaseId: crypto.randomUUID(), organizationId: seeded.organizationId, isActive: true },
     })
     memberId = member.id
+    // A repository file the viewer can open, written through the real
+    // storage path so the single-document route has a body to return.
+    const { createWorkspaceNote } = await import('@/lib/knowledge/files')
+    const knowledge = await createWorkspaceNote({
+      organizationId: seeded.organizationId, userId: seeded.userId,
+      title: 'Smoke note', content: '# Smoke\n\nA note the smoke suite can open.', visibility: 'organization',
+    })
+    if (!knowledge) throw new Error('knowledge fixture was not stored')
+    knowledgeId = knowledge.id
   })
 
   after(async () => {
@@ -114,6 +127,7 @@ if (TEST_DB) {
     { name: 'GET /api/skills', run: async () => (await import('../skills/route')).GET(req('/api/skills')) },
     { name: 'GET /api/workflows/executions', run: async () => (await import('../workflows/executions/route')).GET(req('/api/workflows/executions')) },
     { name: 'GET /api/knowledge', run: async () => (await import('../knowledge/route')).GET(req('/api/knowledge')) },
+    { name: 'GET /api/knowledge/[id]', run: async () => (await import('../knowledge/[id]/route')).GET(req(`/api/knowledge/${knowledgeId}`)) },
     { name: 'GET /api/goals', run: async () => (await import('../goals/route')).GET(req('/api/goals')) },
     { name: 'GET /api/goals/impact', run: async () => (await import('../goals/impact/route')).GET(req('/api/goals/impact')) },
     { name: 'GET /api/goals/report', run: async () => (await import('../goals/report/route')).GET(req('/api/goals/report')) },

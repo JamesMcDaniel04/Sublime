@@ -1,5 +1,7 @@
 'use client'
 
+import Link from 'next/link'
+
 /**
  * Workspace-level configuration: name, audit export, connection scanning,
  * knowledge retention, intelligence panels, platform services, and deletion.
@@ -261,7 +263,10 @@ function KnowledgeRetentionCard({ isAdmin, plan }: Readonly<{ isAdmin: boolean; 
           )
         })}
         <div className="flex flex-wrap items-center gap-2">
+          {/* An API download (attachment), not an app page — the rule cannot tell the two apart. */}
+          {/* eslint-disable-next-line @next/next/no-html-link-for-pages */}
           <Button variant="outline" asChild><a href="/api/knowledge?download=1">Export retained knowledge</a></Button>
+          <Button variant="outline" asChild><Link href="/knowledge">Manage files</Link></Button>
           <span className="text-xs text-muted-foreground">Deleting the workspace permanently removes its retained knowledge.</span>
         </div>
         {!isAdmin && <p className="text-xs text-muted-foreground">Only workspace admins can change retention settings.</p>}

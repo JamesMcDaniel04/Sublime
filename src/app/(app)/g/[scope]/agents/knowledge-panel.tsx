@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
+import Link from 'next/link'
 import { Upload, FileText, Trash2, Loader2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
@@ -106,7 +107,8 @@ export function KnowledgePanel({ agentId }: { agentId: string }) {
         />
       </div>
       <p className="mb-2 text-xs text-muted-foreground">
-        Files the agent can draw on at run time. PDF, DOCX, text, Markdown, CSV, JSON, HTML, and source files are supported.
+        Files only this agent can draw on at run time. PDF, DOCX, text, Markdown, CSV, JSON, HTML, and source files are supported.
+        Files for every agent live in <Link href="/knowledge" className="underline underline-offset-2">Files</Link>.
       </p>
       {loading ? (
         <p className="text-sm text-muted-foreground">

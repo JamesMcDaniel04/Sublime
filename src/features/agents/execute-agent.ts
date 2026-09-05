@@ -15,6 +15,7 @@ import { retrieveContext, renderContext } from '@/lib/rag/retrieve'
 import { buildContextRetrievedPayload, buildKnowledgeRetrievedPayload } from '@/lib/rag/retrieval-event'
 import { createContextAssembler } from '@/lib/context/assemble'
 import { retrieveKnowledge, renderKnowledge } from '@/lib/knowledge/retrieve'
+import { buildWorkspaceFileTools, WORKSPACE_FILES_PROVIDER } from '@/lib/knowledge/file-tools'
 import { embeddingsConfigured, embedQuery, embedTexts, cosineSimilarity } from '@/lib/rag/embeddings'
 import { getGraphRagStore } from '@/lib/rag/get-store'
 import { indexExecution } from '@/lib/rag/indexer'
@@ -1092,6 +1093,36 @@ export async function runAgentExecution(
       }
       tools.push(runAgentTool)
       bindings.set('run_agent', { provider: 'agent', serverUrl: '', toolName: 'run_agent', client: runAgentClient })
+    }
+
+    // Workspace file repository: direct list/read of the Markdown notes and
+    // documents the team keeps for agents (lib/knowledge/file-tools.ts).
+    // Retrieval below still surfaces the most similar passages; these tools
+    // cover "follow onboarding.md in full". Read-only, so no approval gate;
+    // withheld only when the agent's grant blocks the knowledge plane, and
+    // never built for a workspace with no readable files.
+    if (grantFor(agentGrants, WORKSPACE_FILES_PROVIDER) !== 'blocked') {
+      try {
+        const fileTools = await buildWorkspaceFileTools({ organizationId, agentId: agent.id, userId })
+        if (fileTools.fileCount > 0) {
+          for (const tool of fileTools.tools) {
+            const run = fileTools.execute[tool.name]
+            tools.push(tool)
+            bindings.set(tool.name, {
+              provider: WORKSPACE_FILES_PROVIDER,
+              serverUrl: '',
+              toolName: tool.name,
+              client: { executeTool: async (_serverUrl, _name, args) => run((args ?? {}) as Record<string, unknown>) },
+            })
+          }
+          system += `\n\n${fileTools.promptHint}`
+        }
+      } catch (error) {
+        apiLogger.warn('execute-agent: workspace file tools skipped', {
+          organizationId,
+          error: error instanceof Error ? error.message : String(error),
+        })
+      }
     }
 
     // Unified retrieved-context budget: the three systems below (graph-RAG →

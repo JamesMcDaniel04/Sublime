@@ -18,6 +18,7 @@ import { Switch } from '@/components/ui/switch'
 import { Textarea } from '@/components/ui/textarea'
 import { MiniCalendar } from '@/components/ui/mini-calendar'
 import { IntegrationLogo } from '@/components/integrations/integration-logo'
+import { MODEL_CATALOG } from '@/lib/llm/model-catalog'
 import { KnowledgePanel } from './knowledge-panel'
 import { SuggestedImprovementBanner } from '@/components/intelligence/suggested-improvement-banner'
 import { normalizeShareValue } from '@/components/share-control'
@@ -201,15 +202,9 @@ const emptyDraft: AgentDraft = {
 }
 
 // ── Model catalog ───────────────────────────────────────────────────────────
-// id must satisfy the runtime's provider routing (model-runner.ts): a `claude*`
-// id routes to Anthropic, anything else to the OpenAI-compatible slot (Qwen).
-// Claude first (platform default / most capable); logos via IntegrationLogo.
-const MODELS = [
-  { id: 'claude-opus-4-8', label: 'Claude Opus 4.8', provider: 'anthropic' as const },
-  { id: 'claude-sonnet-5', label: 'Claude Sonnet 5', provider: 'anthropic' as const },
-  { id: 'claude-haiku-4-5', label: 'Claude Haiku 4.5', provider: 'anthropic' as const },
-  { id: 'qwen-3.7', label: 'Qwen 3.7', provider: 'qwen' as const },
-]
+// Shared with the template detail page (lib/llm/model-catalog.ts); logos via
+// IntegrationLogo.
+const MODELS = MODEL_CATALOG
 
 function ModelOption({ provider, label }: { provider: 'anthropic' | 'qwen'; label: string }) {
   return (

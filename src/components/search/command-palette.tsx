@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useScopedRouter } from '@/lib/client/use-scoped-router'
-import { AlertCircle, Brain, CheckCircle2, CircleDashed, FileText, HelpCircle, Loader2, Plug, Search, Server, Settings, Sparkles, Workflow } from 'lucide-react'
+import { AlertCircle, Brain, CheckCircle2, CircleDashed, FileText, FolderOpen, HelpCircle, Loader2, Plug, Search, Server, Settings, Sparkles, Workflow } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog'
 import { cn } from '@/lib/utils'
@@ -23,6 +23,7 @@ const NAV_ITEMS: NavResult[] = [
   { label: 'Flows', href: '/flows', icon: Workflow },
   { label: 'Integrations', href: '/integrations', icon: Plug },
   { label: 'Templates', href: '/agents?view=templates', icon: FileText },
+  { label: 'Files', href: '/knowledge', icon: FolderOpen },
   { label: 'MCP Servers', href: '/integrations?tab=mcp', icon: Server },
   { label: 'Settings', href: '/settings', icon: Settings },
 ]
